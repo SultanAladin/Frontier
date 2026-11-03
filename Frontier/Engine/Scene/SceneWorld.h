@@ -115,6 +115,8 @@ using FluidPlumeRecord     = TypedSceneRecord<FluidPlumeConfiguration, FluidPlum
 using FractureRecord       = TypedSceneRecord<FractureConfiguration, FractureInspector>;
 using ParticleRecord       = TypedSceneRecord<ParticleConfiguration, ParticleInspector>;
 using GeometryRecord       = TypedSceneRecord<GeometryConfiguration, GeometryInspector>;
+using VehicleRecord        = TypedSceneRecord<VehicleConfiguration, VehicleInspector>;
+using TyreRecord           = TypedSceneRecord<TyreCornerConfiguration, TyreInspector>;
 #else
 using RenderPipelineRecord = TypedSceneRecord<RenderPipelineConfiguration>;
 using SolarRecord          = TypedSceneRecord<SolarConfiguration>;
@@ -132,6 +134,8 @@ using FluidPlumeRecord     = TypedSceneRecord<FluidPlumeConfiguration>;
 using FractureRecord       = TypedSceneRecord<FractureConfiguration>;
 using ParticleRecord       = TypedSceneRecord<ParticleConfiguration>;
 using GeometryRecord       = TypedSceneRecord<GeometryConfiguration>;
+using VehicleRecord        = TypedSceneRecord<VehicleConfiguration>;
+using TyreRecord           = TypedSceneRecord<TyreCornerConfiguration>;
 #endif
 
 //------------------------------------------------------------------------------------------------------------------------

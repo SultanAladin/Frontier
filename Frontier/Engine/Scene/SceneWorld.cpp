@@ -1237,6 +1237,265 @@ void GeometryRecord::DeserializeConfiguration(const toml::table& InTable)
     Parameters.AdvanceRevision();
 }
 
+namespace
+{
+
+void SerializeTyreCornerTable(toml::table& OutTable, const TyreCornerConfiguration& Corner)
+{
+    OutTable.insert_or_assign("corner_code", Corner.CornerCode);
+    OutTable.insert_or_assign("set_identifier", Corner.SetIdentifier);
+    OutTable.insert_or_assign("compound_index", static_cast<int64_t>(Corner.CompoundIndex));
+    OutTable.insert_or_assign("enclosed", Corner.EnclosedCondition);
+    OutTable.insert_or_assign("punctured", Corner.PuncturedCondition);
+    OutTable.insert_or_assign("cold_pressure_kpa", static_cast<double>(Corner.ColdPressureKpa));
+    OutTable.insert_or_assign("hot_pressure_kpa", static_cast<double>(Corner.HotPressureKpa));
+    OutTable.insert_or_assign("surface_temperature_c", static_cast<double>(Corner.SurfaceTemperatureC));
+    OutTable.insert_or_assign("belt_temperature_c", static_cast<double>(Corner.BeltTemperatureC));
+    OutTable.insert_or_assign("gas_temperature_c", static_cast<double>(Corner.GasTemperatureC));
+    OutTable.insert_or_assign("core_temperature_c", static_cast<double>(Corner.CoreTemperatureC));
+    OutTable.insert_or_assign("wear_percent", static_cast<double>(Corner.WearPercent));
+    OutTable.insert_or_assign("stint_laps", static_cast<int64_t>(Corner.StintLaps));
+    OutTable.insert_or_assign("tread_depth_mm", static_cast<double>(Corner.TreadDepthMm));
+    OutTable.insert_or_assign("loaded_radius_mm", static_cast<double>(Corner.LoadedRadiusMm));
+    OutTable.insert_or_assign("section_width_mm", static_cast<double>(Corner.SectionWidthMm));
+    OutTable.insert_or_assign("contact_patch_load_kn", static_cast<double>(Corner.ContactPatchLoadKn));
+    OutTable.insert_or_assign("pacejka_cx", static_cast<double>(Corner.PacejkaLongitudinalShape));
+    OutTable.insert_or_assign("pacejka_cy", static_cast<double>(Corner.PacejkaLateralShape));
+    OutTable.insert_or_assign("load_sensitivity", static_cast<double>(Corner.LoadSensitivity));
+}
+
+void DeserializeTyreCornerTable(const toml::table& InTable, TyreCornerConfiguration& Corner)
+{
+    if (const auto Val = InTable["corner_code"].value<std::string>()) Corner.CornerCode = *Val;
+    if (const auto Val = InTable["set_identifier"].value<std::string>()) Corner.SetIdentifier = *Val;
+    Corner.CompoundIndex            = std::clamp(ReadInt(InTable, "compound_index", Corner.CompoundIndex), 0, 4);
+    Corner.EnclosedCondition        = ReadBool(InTable, "enclosed", Corner.EnclosedCondition);
+    Corner.PuncturedCondition       = ReadBool(InTable, "punctured", Corner.PuncturedCondition);
+    Corner.ColdPressureKpa          = ReadFloat(InTable, "cold_pressure_kpa", Corner.ColdPressureKpa);
+    Corner.HotPressureKpa           = ReadFloat(InTable, "hot_pressure_kpa", Corner.HotPressureKpa);
+    Corner.SurfaceTemperatureC      = ReadFloat(InTable, "surface_temperature_c", Corner.SurfaceTemperatureC);
+    Corner.BeltTemperatureC         = ReadFloat(InTable, "belt_temperature_c", Corner.BeltTemperatureC);
+    Corner.GasTemperatureC          = ReadFloat(InTable, "gas_temperature_c", Corner.GasTemperatureC);
+    Corner.CoreTemperatureC         = ReadFloat(InTable, "core_temperature_c", Corner.CoreTemperatureC);
+    Corner.WearPercent              = ReadFloat(InTable, "wear_percent", Corner.WearPercent);
+    Corner.StintLaps                = std::max(0, ReadInt(InTable, "stint_laps", Corner.StintLaps));
+    Corner.TreadDepthMm             = ReadFloat(InTable, "tread_depth_mm", Corner.TreadDepthMm);
+    Corner.LoadedRadiusMm           = ReadFloat(InTable, "loaded_radius_mm", Corner.LoadedRadiusMm);
+    Corner.SectionWidthMm           = ReadFloat(InTable, "section_width_mm", Corner.SectionWidthMm);
+    Corner.ContactPatchLoadKn       = ReadFloat(InTable, "contact_patch_load_kn", Corner.ContactPatchLoadKn);
+    Corner.PacejkaLongitudinalShape = ReadFloat(InTable, "pacejka_cx", Corner.PacejkaLongitudinalShape);
+    Corner.PacejkaLateralShape      = ReadFloat(InTable, "pacejka_cy", Corner.PacejkaLateralShape);
+    Corner.LoadSensitivity          = ReadFloat(InTable, "load_sensitivity", Corner.LoadSensitivity);
+}
+
+void WriteCurvePointsArray(toml::table& OutTable, std::string_view Key, const std::vector<VehicleCurveControlPoint>& Points)
+{
+    toml::array Outer;
+    for (const VehicleCurveControlPoint& Pt : Points)
+    {
+        toml::array Pair;
+        Pair.push_back(static_cast<double>(Pt.X));
+        Pair.push_back(static_cast<double>(Pt.Y));
+        Outer.push_back(std::move(Pair));
+    }
+    OutTable.insert_or_assign(Key, std::move(Outer));
+}
+
+void ReadCurvePointsArray(const toml::table& InTable, std::string_view Key, std::vector<VehicleCurveControlPoint>& OutPoints)
+{
+    const toml::array* Outer = InTable[Key].as_array();
+    if (Outer == nullptr || Outer->size() < 2u) return;
+    std::vector<VehicleCurveControlPoint> Parsed;
+    Parsed.reserve(Outer->size());
+    for (const toml::node& Entry : *Outer)
+    {
+        const toml::array* Pair = Entry.as_array();
+        if (Pair == nullptr || Pair->size() < 2u) continue;
+        const auto X = (*Pair)[0].value<double>();
+        const auto Y = (*Pair)[1].value<double>();
+        if (X && Y && std::isfinite(*X) && std::isfinite(*Y))
+        {
+            Parsed.push_back({static_cast<float>(*X), static_cast<float>(*Y)});
+        }
+    }
+    if (Parsed.size() >= 2u)
+    {
+        OutPoints = std::move(Parsed);
+    }
+}
+
+} // namespace
+
+template <>
+void TyreRecord::SerializeConfiguration(toml::table& OutTable) const
+{
+    SerializeTyreCornerTable(OutTable, Parameters);
+}
+
+template <>
+void TyreRecord::DeserializeConfiguration(const toml::table& InTable)
+{
+    DeserializeTyreCornerTable(InTable, Parameters);
+    Parameters.AdvanceRevision();
+}
+
+template <>
+void VehicleRecord::SerializeConfiguration(toml::table& OutTable) const
+{
+    OutTable.insert_or_assign("identity", Parameters.VehicleName);
+    OutTable.insert_or_assign("maker", Parameters.MakerName);
+    OutTable.insert_or_assign("classification", Parameters.ClassificationCode);
+    OutTable.insert_or_assign("kerb_mass_kg", static_cast<double>(Parameters.KerbMassKg));
+    OutTable.insert_or_assign("wheelbase_mm", static_cast<double>(Parameters.WheelbaseMm));
+    OutTable.insert_or_assign("track_front_mm", static_cast<double>(Parameters.TrackFrontMm));
+    OutTable.insert_or_assign("track_rear_mm", static_cast<double>(Parameters.TrackRearMm));
+    OutTable.insert_or_assign("centre_of_gravity_height_mm", static_cast<double>(Parameters.CentreOfGravityHeightMm));
+    OutTable.insert_or_assign("ride_height_mm", static_cast<double>(Parameters.RideHeightMm));
+    OutTable.insert_or_assign("fuel_capacity_l", static_cast<double>(Parameters.FuelCapacityLitres));
+    OutTable.insert_or_assign("fuel_load_l", static_cast<double>(Parameters.FuelLoadLitres));
+    OutTable.insert_or_assign("rear_mass_share_percent", static_cast<double>(Parameters.StaticRearMassPercent));
+    OutTable.insert_or_assign("drive_layout_index", static_cast<int64_t>(Parameters.DriveLayoutIndex));
+
+    OutTable.insert_or_assign("displacement_l", static_cast<double>(Parameters.DisplacementLitres));
+    OutTable.insert_or_assign("idle_speed_rpm", static_cast<double>(Parameters.IdleSpeedRpm));
+    OutTable.insert_or_assign("redline_rpm", static_cast<double>(Parameters.RedlineRpm));
+    OutTable.insert_or_assign("rated_torque_nm", static_cast<double>(Parameters.RatedTorqueNm));
+    OutTable.insert_or_assign("engine_inertia_kgm2", static_cast<double>(Parameters.EngineInertiaKgm2));
+    OutTable.insert_or_assign("induction_mode_index", static_cast<int64_t>(Parameters.InductionModeIndex));
+    OutTable.insert_or_assign("race_tune", Parameters.RaceTuneEnabled);
+    OutTable.insert_or_assign("supercharger_type_index", static_cast<int64_t>(Parameters.SuperchargerTypeIndex));
+    OutTable.insert_or_assign("supercharger_drive_ratio", static_cast<double>(Parameters.SuperchargerDriveRatio));
+    OutTable.insert_or_assign("supercharger_displacement_cc", static_cast<double>(Parameters.SuperchargerDisplacementCc));
+    OutTable.insert_or_assign("supercharger_max_boost_bar", static_cast<double>(Parameters.SuperchargerMaxBoostBar));
+    OutTable.insert_or_assign("supercharger_parasitic_nm", static_cast<double>(Parameters.SuperchargerPeakParasiticNm));
+    OutTable.insert_or_assign("turbo_boost_bar", static_cast<double>(Parameters.TurboBoostBar));
+
+    OutTable.insert_or_assign("forward_gear_count", static_cast<int64_t>(Parameters.ForwardGearCount));
+    OutTable.insert_or_assign("final_drive_ratio", static_cast<double>(Parameters.FinalDriveRatio));
+    OutTable.insert_or_assign("differential_type_index", static_cast<int64_t>(Parameters.DifferentialTypeIndex));
+    OutTable.insert_or_assign("lsd_preload_nm", static_cast<double>(Parameters.LsdPreloadTorqueNm));
+    OutTable.insert_or_assign("torsen_bias_ratio", static_cast<double>(Parameters.TorsenBiasRatio));
+
+    OutTable.insert_or_assign("front_spring_kn_m", static_cast<double>(Parameters.FrontSpringRateKnpm));
+    OutTable.insert_or_assign("rear_spring_kn_m", static_cast<double>(Parameters.RearSpringRateKnpm));
+    OutTable.insert_or_assign("ackermann_percent", static_cast<double>(Parameters.AckermannPercent));
+    OutTable.insert_or_assign("traction_control", Parameters.TractionControlEnabled);
+    OutTable.insert_or_assign("stability_control", Parameters.StabilityControlEnabled);
+    OutTable.insert_or_assign("anti_lock_brakes", Parameters.AntiLockBrakesEnabled);
+
+    OutTable.insert_or_assign("soft_body_formulation_index", static_cast<int64_t>(Parameters.SoftBodyFormulationIndex));
+    OutTable.insert_or_assign("slip_solver_mode_index", static_cast<int64_t>(Parameters.SlipSolverModeIndex));
+    OutTable.insert_or_assign("fem_substeps", static_cast<int64_t>(Parameters.FemSubsteps));
+    OutTable.insert_or_assign("fem_youngs_modulus_mpa", static_cast<double>(Parameters.FemYoungsModulusMpa));
+    OutTable.insert_or_assign("fem_poisson_ratio", static_cast<double>(Parameters.FemPoissonRatio));
+
+    OutTable.insert_or_assign("oil_viscosity_grade_index", static_cast<int64_t>(Parameters.OilViscosityGradeIndex));
+    OutTable.insert_or_assign("coolant_target_c", static_cast<double>(Parameters.CoolantTargetC));
+    OutTable.insert_or_assign("drag_coefficient", static_cast<double>(Parameters.DragCoefficient));
+    OutTable.insert_or_assign("downforce_at_200_kmh_n", static_cast<double>(Parameters.DownforceAt200KmhN));
+    OutTable.insert_or_assign("venturi_peak_gain", static_cast<double>(Parameters.VenturiPeakGain));
+    OutTable.insert_or_assign("line_lock_front_only", Parameters.LineLockFrontOnly);
+
+    OutTable.insert_or_assign("outer_tick_hz", static_cast<int64_t>(Parameters.OuterTickHz));
+    OutTable.insert_or_assign("substeps_per_outer_tick", static_cast<int64_t>(Parameters.SubstepsPerOuterTick));
+    OutTable.insert_or_assign("stationarity_hold", Parameters.StationarityHoldEnabled);
+    OutTable.insert_or_assign("force_zone_coupling", Parameters.ForceZoneCouplingEnabled);
+
+    OutTable.insert_or_assign("curve_smooth_monotone", Parameters.CurveSmoothMonotone);
+    WriteCurvePointsArray(OutTable, "engine_torque_points", Parameters.EngineTorqueCurve);
+    WriteCurvePointsArray(OutTable, "brake_torque_points", Parameters.BrakeTorqueCurve);
+    WriteCurvePointsArray(OutTable, "coolant_temperature_points", Parameters.CoolantTempCurve);
+
+    toml::array CornersArray;
+    for (const TyreCornerConfiguration& Corner : Parameters.Corners)
+    {
+        toml::table CornerTable;
+        SerializeTyreCornerTable(CornerTable, Corner);
+        CornersArray.push_back(std::move(CornerTable));
+    }
+    OutTable.insert_or_assign("corners", std::move(CornersArray));
+}
+
+template <>
+void VehicleRecord::DeserializeConfiguration(const toml::table& InTable)
+{
+    if (const auto Val = InTable["identity"].value<std::string>()) Parameters.VehicleName = *Val;
+    if (const auto Val = InTable["maker"].value<std::string>()) Parameters.MakerName = *Val;
+    if (const auto Val = InTable["classification"].value<std::string>()) Parameters.ClassificationCode = *Val;
+    Parameters.KerbMassKg              = ReadFloat(InTable, "kerb_mass_kg", Parameters.KerbMassKg);
+    Parameters.WheelbaseMm             = ReadFloat(InTable, "wheelbase_mm", Parameters.WheelbaseMm);
+    Parameters.TrackFrontMm            = ReadFloat(InTable, "track_front_mm", Parameters.TrackFrontMm);
+    Parameters.TrackRearMm             = ReadFloat(InTable, "track_rear_mm", Parameters.TrackRearMm);
+    Parameters.CentreOfGravityHeightMm = ReadFloat(InTable, "centre_of_gravity_height_mm", Parameters.CentreOfGravityHeightMm);
+    Parameters.RideHeightMm            = ReadFloat(InTable, "ride_height_mm", Parameters.RideHeightMm);
+    Parameters.FuelCapacityLitres      = ReadFloat(InTable, "fuel_capacity_l", Parameters.FuelCapacityLitres);
+    Parameters.FuelLoadLitres          = ReadFloat(InTable, "fuel_load_l", Parameters.FuelLoadLitres);
+    Parameters.StaticRearMassPercent   = ReadFloat(InTable, "rear_mass_share_percent", Parameters.StaticRearMassPercent);
+    Parameters.DriveLayoutIndex        = std::clamp(ReadInt(InTable, "drive_layout_index", Parameters.DriveLayoutIndex), 0, 2);
+
+    Parameters.DisplacementLitres          = ReadFloat(InTable, "displacement_l", Parameters.DisplacementLitres);
+    Parameters.IdleSpeedRpm                = ReadFloat(InTable, "idle_speed_rpm", Parameters.IdleSpeedRpm);
+    Parameters.RedlineRpm                  = ReadFloat(InTable, "redline_rpm", Parameters.RedlineRpm);
+    Parameters.RatedTorqueNm               = ReadFloat(InTable, "rated_torque_nm", Parameters.RatedTorqueNm);
+    Parameters.EngineInertiaKgm2           = ReadFloat(InTable, "engine_inertia_kgm2", Parameters.EngineInertiaKgm2);
+    Parameters.InductionModeIndex          = std::clamp(ReadInt(InTable, "induction_mode_index", Parameters.InductionModeIndex), 0, 2);
+    Parameters.RaceTuneEnabled             = ReadBool(InTable, "race_tune", Parameters.RaceTuneEnabled);
+    Parameters.SuperchargerTypeIndex       = std::clamp(ReadInt(InTable, "supercharger_type_index", Parameters.SuperchargerTypeIndex), 0, 2);
+    Parameters.SuperchargerDriveRatio      = ReadFloat(InTable, "supercharger_drive_ratio", Parameters.SuperchargerDriveRatio);
+    Parameters.SuperchargerDisplacementCc  = ReadFloat(InTable, "supercharger_displacement_cc", Parameters.SuperchargerDisplacementCc);
+    Parameters.SuperchargerMaxBoostBar     = ReadFloat(InTable, "supercharger_max_boost_bar", Parameters.SuperchargerMaxBoostBar);
+    Parameters.SuperchargerPeakParasiticNm = ReadFloat(InTable, "supercharger_parasitic_nm", Parameters.SuperchargerPeakParasiticNm);
+    Parameters.TurboBoostBar               = ReadFloat(InTable, "turbo_boost_bar", Parameters.TurboBoostBar);
+
+    Parameters.ForwardGearCount      = std::clamp(ReadInt(InTable, "forward_gear_count", Parameters.ForwardGearCount), 4, 8);
+    Parameters.FinalDriveRatio       = ReadFloat(InTable, "final_drive_ratio", Parameters.FinalDriveRatio);
+    Parameters.DifferentialTypeIndex = std::clamp(ReadInt(InTable, "differential_type_index", Parameters.DifferentialTypeIndex), 0, 3);
+    Parameters.LsdPreloadTorqueNm    = ReadFloat(InTable, "lsd_preload_nm", Parameters.LsdPreloadTorqueNm);
+    Parameters.TorsenBiasRatio       = ReadFloat(InTable, "torsen_bias_ratio", Parameters.TorsenBiasRatio);
+
+    Parameters.FrontSpringRateKnpm     = ReadFloat(InTable, "front_spring_kn_m", Parameters.FrontSpringRateKnpm);
+    Parameters.RearSpringRateKnpm      = ReadFloat(InTable, "rear_spring_kn_m", Parameters.RearSpringRateKnpm);
+    Parameters.AckermannPercent        = ReadFloat(InTable, "ackermann_percent", Parameters.AckermannPercent);
+    Parameters.TractionControlEnabled  = ReadBool(InTable, "traction_control", Parameters.TractionControlEnabled);
+    Parameters.StabilityControlEnabled = ReadBool(InTable, "stability_control", Parameters.StabilityControlEnabled);
+    Parameters.AntiLockBrakesEnabled   = ReadBool(InTable, "anti_lock_brakes", Parameters.AntiLockBrakesEnabled);
+
+    Parameters.SoftBodyFormulationIndex = std::clamp(ReadInt(InTable, "soft_body_formulation_index", Parameters.SoftBodyFormulationIndex), 0, 2);
+    Parameters.SlipSolverModeIndex      = std::clamp(ReadInt(InTable, "slip_solver_mode_index", Parameters.SlipSolverModeIndex), 0, 2);
+    Parameters.FemSubsteps              = std::clamp(ReadInt(InTable, "fem_substeps", Parameters.FemSubsteps), 4, 32);
+    Parameters.FemYoungsModulusMpa      = ReadFloat(InTable, "fem_youngs_modulus_mpa", Parameters.FemYoungsModulusMpa);
+    Parameters.FemPoissonRatio          = ReadFloat(InTable, "fem_poisson_ratio", Parameters.FemPoissonRatio);
+
+    Parameters.OilViscosityGradeIndex = std::clamp(ReadInt(InTable, "oil_viscosity_grade_index", Parameters.OilViscosityGradeIndex), 0, 3);
+    Parameters.CoolantTargetC         = ReadFloat(InTable, "coolant_target_c", Parameters.CoolantTargetC);
+    Parameters.DragCoefficient        = ReadFloat(InTable, "drag_coefficient", Parameters.DragCoefficient);
+    Parameters.DownforceAt200KmhN     = ReadFloat(InTable, "downforce_at_200_kmh_n", Parameters.DownforceAt200KmhN);
+    Parameters.VenturiPeakGain        = ReadFloat(InTable, "venturi_peak_gain", Parameters.VenturiPeakGain);
+    Parameters.LineLockFrontOnly      = ReadBool(InTable, "line_lock_front_only", Parameters.LineLockFrontOnly);
+
+    Parameters.OuterTickHz              = std::clamp(ReadInt(InTable, "outer_tick_hz", Parameters.OuterTickHz), 30, 240);
+    Parameters.SubstepsPerOuterTick     = std::clamp(ReadInt(InTable, "substeps_per_outer_tick", Parameters.SubstepsPerOuterTick), 1, 8);
+    Parameters.StationarityHoldEnabled  = ReadBool(InTable, "stationarity_hold", Parameters.StationarityHoldEnabled);
+    Parameters.ForceZoneCouplingEnabled = ReadBool(InTable, "force_zone_coupling", Parameters.ForceZoneCouplingEnabled);
+
+    Parameters.CurveSmoothMonotone = ReadBool(InTable, "curve_smooth_monotone", Parameters.CurveSmoothMonotone);
+    ReadCurvePointsArray(InTable, "engine_torque_points", Parameters.EngineTorqueCurve);
+    ReadCurvePointsArray(InTable, "brake_torque_points", Parameters.BrakeTorqueCurve);
+    ReadCurvePointsArray(InTable, "coolant_temperature_points", Parameters.CoolantTempCurve);
+
+    if (const toml::array* CornersArray = InTable["corners"].as_array())
+    {
+        for (size_t Idx = 0; Idx < std::min<size_t>(4u, CornersArray->size()); ++Idx)
+        {
+            if (const toml::table* CornerTable = (*CornersArray)[Idx].as_table())
+            {
+                DeserializeTyreCornerTable(*CornerTable, Parameters.Corners[Idx]);
+            }
+        }
+    }
+    Parameters.AdvanceRevision();
+}
+
 //------------------------------------------------------------------------------------------------------------------------
 //                                      COMPOSABLE MULTI-CONFIGURATION SCENE RECORDS
 //------------------------------------------------------------------------------------------------------------------------
@@ -1525,6 +1784,8 @@ void SceneWorld::RegisterNativeEngineTypes()
     RegisterSimple.operator()<FluidPlumeRecord>("FluidPlume", "Solver · Fluid Plume", RecordClassification::Physics, "Flame", "Solvers", "#e8833a");
     RegisterSimple.operator()<FractureRecord>("Fracture", "Solver · Voronoi Fracture", RecordClassification::Physics, "Hammer", "Solvers", "#8fb3a4");
     RegisterSimple.operator()<ParticleRecord>("Particles", "Solver · GPU Particles", RecordClassification::Physics, "Sparkles", "Solvers", "#b494f4");
+    RegisterSimple.operator()<VehicleRecord>("Vehicle", "Vehicle · Chassis & Powertrain", RecordClassification::Physics, "Car", "Vehicle", "#e8a84a");
+    RegisterSimple.operator()<TyreRecord>("Tyre", "Vehicle · Corner Tyre", RecordClassification::Physics, "Torus", "Vehicle", "#8fc7b8");
 }
 
 RecordToken SceneWorld::ConstructRecord(std::string_view TypeIdentifier,

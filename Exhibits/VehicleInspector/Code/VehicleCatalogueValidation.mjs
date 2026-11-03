@@ -32,7 +32,8 @@ function Near(Left, Right, Tolerance)
 //------------------------------------------------------------------------------------------------------------------------
 
 const UnitKeys = ['Mass', 'Length', 'Distance', 'Speed', 'Torque', 'Power', 'Pressure', 'Temperature', 'Volume', 'Force', 'Area',
-                  'SpecificPower', 'Rpm', 'Percent', 'Degree', 'Ratio', 'Seconds', 'Litres', 'Flow', 'Boost', 'Inertia'];
+                  'SpecificPower', 'Rpm', 'Percent', 'Degree', 'Ratio', 'Seconds', 'Litres', 'Flow', 'Boost', 'Inertia',
+                  'Stiffness', 'Damping', 'Modulus', 'Frequency', 'Milliseconds', 'DisplacementCc'];
 for (const System of ['Metric', 'Imperial'])
 {
     let WorstError = 0;
@@ -209,9 +210,15 @@ Assert('wear status escalates', Catalogue.ResolveWearStatus(10) === 'Fresh' && C
 
 const Record = Catalogue.EncodeVehicleRecord(Specification, Profiles, Tyres, [Tyres[2]]).join('\n');
 const Required = ['[vehicle]', 'identity = "GT-04"', 'kerb_mass_kg = 1284', '[vehicle.drivetrain]', 'gear_ratios = [3.62',
-                  '[vehicle.engine]', 'redline_rpm = 7800', '[vehicle.thermal]', '[vehicle.aids]', '[vehicle.curves]',
+                  '[vehicle.engine]', 'redline_rpm = 7800', '[vehicle.thermal]', '[vehicle.aids]',
+                  '[vehicle.induction]', 'compressor_type = "TwinScrew"', '[vehicle.differential]', 'type = "ClutchPack15Way"',
+                  '[vehicle.suspension]', 'front_spring_kn_m = 48', '[vehicle.steering]', 'ackermann_percent = 78',
+                  '[vehicle.soft_body]', 'formulation = "Fem3D"', 'slip_mode = "GritImplicitNewton"',
+                  '[vehicle.aero_active]', 'ground_effect_peak_gain = 1.38', '[vehicle.fluids]', 'oil_grade = "5W-40"',
+                  '[vehicle.simulation]', 'substeps_per_outer_tick = 4', '[vehicle.curves]',
                   'engine_torque_points = [[',
-                  '[vehicle.tyres.tyre_front_left]', '[vehicle.tyres.tyre_rear_right]', 'enclosed = true', '[vehicle.pit_lane]',
+                  '[vehicle.tyres.tyre_front_left]', '[vehicle.tyres.tyre_rear_right]', 'pacejka_cx = 1.65', 'punctured = false',
+                  'enclosed = true', '[vehicle.pit_lane]',
                   'detached = ["TyreRearLeft"]'];
 for (const Line of Required) Assert(`record contains ${Line}`, Record.includes(Line), Line);
 Assert('the record omits the derived power curve', !Record.includes('engine_power_points'), 'only authored curves are written');

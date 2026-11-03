@@ -228,7 +228,7 @@ Update Check Do Perform Draw Delegate Watch Listen Spawn Kill Commit Commission 
 |---|---|
 | Retrieval / inspection | Retrieve Resolve Extract Decode Interpret Enumerate Identify Inspect Query Discover Derive Issue Authenticate |
 | Configuration / setup | Configure Reconfigure Initialize Register Calibrate Authorize Parameterize |
-| Geometry / topology | Construct Assemble Integrate Embed Attach Detach Partition Subdivide Refine Collapse Split Offset Extrude Loft Sweep Bridge Fillet Chamfer |
+| Geometry / topology | Construct Assemble Integrate Embed Attach Detach Partition Subdivide Refine Collapse Split Offset Extrude Loft Sweep Fillet Chamfer |
 | Math / analytical | Solve Evaluate Compute Estimate Approximate Interpolate Project Transform Normalize Linearize Integrate Differentiate Fit Optimize |
 | Connectivity / traversal | Traverse Accumulate Link Correlate Align Organize Reorder Enclose Translate |
 | Compilation / encoding | Compile Synthesize Generate Formulate Condense Translate Convert Encode Decode Migrate |

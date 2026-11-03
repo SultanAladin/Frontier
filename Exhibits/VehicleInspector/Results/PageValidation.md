@@ -1,6 +1,6 @@
 # Vehicle inspector page validation
 
-Generated 2026-11-03T06:16:42.663Z · Node v22.22.3 · jsdom 24.1.3 · 88/88 checks passed.
+Generated 2026-11-03T20:11:43.940Z · Node v22.22.3 · jsdom 30.1.3 · 94/94 checks passed.
 
 The harness builds the real `index.html` in jsdom, installs a ResizeObserver and a recording 2D canvas context,
 then evaluates `VehicleCatalogue.js`, `InspectorControls.js` and `VehicleInspector.js` in page order.
@@ -18,13 +18,16 @@ It clicks the real buttons, presses real arrow keys and reads the real DOM back.
 | four tyre records are nested under the vehicle | ✔️ pass | 4 nested |
 | section · Identity | ✔️ pass | #Section-Identity |
 | section · Engine | ✔️ pass | #Section-Engine |
+| section · Suspension | ✔️ pass | #Section-Suspension |
+| section · SoftBody | ✔️ pass | #Section-SoftBody |
 | section · Curves | ✔️ pass | #Section-Curves |
 | section · Thermal | ✔️ pass | #Section-Thermal |
 | section · Tyres | ✔️ pass | #Section-Tyres |
 | section · Aero | ✔️ pass | #Section-Aero |
+| section · Simulation | ✔️ pass | #Section-Simulation |
 | section · Performance | ✔️ pass | #Section-Performance |
 | section · Record | ✔️ pass | #Section-Record |
-| section tabs match the sections | ✔️ pass | 8 tabs |
+| section tabs match the sections | ✔️ pass | 11 tabs |
 | inspector title names the record | ✔️ pass | Vehicle · GT-04 |
 | hero shows peak torque with its unit | ✔️ pass | 640Nm |
 | hero side shows peak power | ✔️ pass | 371kW@ 6575 rpm |
@@ -74,12 +77,15 @@ It clicks the real buttons, presses real arrow keys and reads the real DOM back.
 | the tyre record opens its own inspector | ✔️ pass | Tyre · FR |
 | the tyre page carries an enclosure pill | ✔️ pass | ENCLOSED |
 | the tyre page shows the compound window | ✔️ pass | 4 cells |
-| the tyre page has editable fields | ✔️ pass | 12 rows |
+| the tyre page has editable fields | ✔️ pass | 18 rows |
 | back returns to the vehicle record | ✔️ pass | Vehicle · GT-04 |
-| rebuilding the page does not duplicate sections | ✔️ pass | 8 cards |
+| rebuilding the page does not duplicate sections | ✔️ pass | 11 cards |
 | rebuilding the page keeps one curve editor | ✔️ pass | 8 handles |
-| the controls still answer after a rebuild | ✔️ pass | 43 rows |
+| the controls still answer after a rebuild | ✔️ pass | 126 rows |
 | the record writes the tyre tables | ✔️ pass | tyre table present |
+| the record writes the induction and supercharger table | ✔️ pass | induction table present |
+| the record writes the soft-body FEM and slip table | ✔️ pass | soft_body table present |
+| the record writes the suspension and Jolt substep tables | ✔️ pass | suspension & simulation tables present |
 | the record writes the curves as point arrays | ✔️ pass | curve points present |
 | the record writes the enclosure | ✔️ pass | enclosed = true |
 | the record is marked proposed | ✔️ pass | proposed marker |
@@ -90,7 +96,7 @@ It clicks the real buttons, presses real arrow keys and reads the real DOM back.
 | plain mode is a body class | ✔️ pass | colour-none |
 | labels mode comes back | ✔️ pass | colour-labels |
 | a volume card carries its family | ✔️ pass | 3 volume elements |
-| a temperature card carries its family | ✔️ pass | 10 temperature elements |
+| a temperature card carries its family | ✔️ pass | 13 temperature elements |
 | a thermal card tones its own number | ✔️ pass | instrument-value tone-warm \| instrument-value tone-warm \| instrument-value tone-live \| instrument-value tone-cold |
 | a fresh set reads cold against its window | ✔️ pass | instrument-value tone-cold \| instrument-value tone-cold \| instrument-value tone-cold \| instrument-value tone-cold |
 | the c key steps to units | ✔️ pass | colour-units |

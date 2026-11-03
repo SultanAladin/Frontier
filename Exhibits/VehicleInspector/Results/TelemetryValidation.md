@@ -1,6 +1,6 @@
 # Vehicle telemetry validation
 
-Generated 2026-11-03T06:16:44.575Z · Node v22.22.3 · jsdom 24.1.3 · 76/76 checks passed.
+Generated 2026-11-03T20:11:41.802Z · Node v22.22.3 · jsdom 30.1.3 · 76/76 checks passed.
 
 The harness builds the real `index.html` in jsdom, switches the dock to Telemetry, then drives the model by hand so
 every painted value can be compared with the state it came from. `VehicleCatalogue.js`, `InspectorControls.js`,

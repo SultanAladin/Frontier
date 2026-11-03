@@ -213,6 +213,8 @@ add_library(FrontierSceneEditorUI STATIC
     Frontier/Engine/Interface/Inspectors/FluidPlumeInspector.cpp
     Frontier/Engine/Interface/Inspectors/FractureInspector.cpp
     Frontier/Engine/Interface/Inspectors/ParticleInspector.cpp
+    Frontier/Engine/Interface/Inspectors/VehicleInspector.cpp
+    Frontier/Engine/Interface/Inspectors/TyreInspector.cpp
     Frontier/Engine/Interface/Inspectors/GeometryInspector.cpp
     Frontier/Engine/Interface/Inspectors/Geometry/TransformSection.cpp
     Frontier/Engine/Interface/Inspectors/Geometry/QuickControlSection.cpp

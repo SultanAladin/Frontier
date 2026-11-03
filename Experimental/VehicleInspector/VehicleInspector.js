@@ -109,16 +109,16 @@
     }
 
     // 📝 One performance estimate per state; the launch integration is the expensive readout and every card asks for it.
-    let CachedPerformance = null, CachedSignature = '';
+    let RetainedPerformance = null, RetainedSignature = '';
     function ResolvePerformance()
     {
         const Signature = JSON.stringify([Specification, Profiles, Tyres.map(Tyre => [Tyre.Compound, Tyre.Wear, Tyre.Enclosed])]);
-        if (Signature !== CachedSignature)
+        if (Signature !== RetainedSignature)
         {
-            CachedSignature = Signature;
-            CachedPerformance = Catalog.EstimatePerformance(Specification, Profiles, Tyres);
+            RetainedSignature = Signature;
+            RetainedPerformance = Catalog.EstimatePerformance(Specification, Profiles, Tyres);
         }
-        return CachedPerformance;
+        return RetainedPerformance;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
@@ -607,6 +607,7 @@
         Page.append(C.Construct('div', 'properties-head', [C.Construct('div', 'title', 'Quick controls'), C.Construct('div', 'caption', 'Vehicle aids')]));
         const Tiles = C.Construct('div', 'toggle-grid');
         C.ToggleTile(Tiles, Bind(Specification.Aids, 'TractionControl', { Label: 'Traction control', Glyph: 'Tyre' }));
+        C.ToggleTile(Tiles, Bind(Specification.Aids, 'StabilityControl', { Label: 'ESC stability', Glyph: 'Activity' }));
         C.ToggleTile(Tiles, Bind(Specification.Aids, 'AntiLockBrakes', { Label: 'ABS', Glyph: 'Brake' }));
         C.ToggleTile(Tiles, Bind(Specification.Aids, 'LaunchControl', { Label: 'Launch control', Glyph: 'Zap' }));
         C.ToggleTile(Tiles, Bind(Specification.Aids, 'DrsEnabled', { Label: 'DRS', Glyph: 'Wind' }));
@@ -728,6 +729,80 @@
                 Ratios.append(Cell);
             }
         });
+        Body.append(C.Construct('div', 'sub-heading', 'Forced induction and supercharger'));
+        C.SegmentedRow(Body, {
+            Label: 'Induction architecture',
+            Options: [['NA', 'NaturallyAspirated'], ['Turbo', 'Turbocharged'], ['Supercharged', 'Supercharged']],
+            Read: () => Specification.Induction.Mode,
+            Write: Mode => { Specification.Induction.Mode = Mode; }
+        });
+        C.SwitchRow(Body, {
+            Label: 'Race tune (+33 % boost & aggressive timing)',
+            Detail: 'Raises peak compressor or wastegate boost target and advances wide-open-throttle spark.',
+            Read: () => Specification.Induction.RaceTune,
+            Write: Enabled => { Specification.Induction.RaceTune = Enabled; }
+        });
+        C.SegmentedRow(Body, {
+            Label: 'Supercharger compressor',
+            Options: [['Roots', 'Roots'], ['Twin-screw', 'TwinScrew'], ['Centrifugal', 'Centrifugal']],
+            Read: () => Specification.Induction.CompressorType,
+            Write: Kind => { Specification.Induction.CompressorType = Kind; }
+        });
+        QuantityRow(Body, { Label: 'Pulley drive ratio', UnitKey: 'Ratio', Minimum: 1.0, Maximum: 3.8, Step: 0.05, Digits: 2,
+                            Read: () => Specification.Induction.DriveRatio, Write: Quantity => { Specification.Induction.DriveRatio = Quantity; } });
+        QuantityRow(Body, { Label: 'Compressor displacement', UnitKey: 'DisplacementCc', Minimum: 600, Maximum: 3400, Step: 25,
+                            Read: () => Specification.Induction.DisplacementCc, Write: Quantity => { Specification.Induction.DisplacementCc = Quantity; } });
+        QuantityRow(Body, { Label: 'Supercharger peak boost', UnitKey: 'Boost', Minimum: 0.1, Maximum: 2.2, Step: 0.05, Digits: 2,
+                            Read: () => Specification.Induction.SuperchargerMaxBoost,
+                            Write: Quantity => { Specification.Induction.SuperchargerMaxBoost = Quantity; } });
+        QuantityRow(Body, { Label: 'WOT parasitic drag', UnitKey: 'Torque', Minimum: 4, Maximum: 110, Step: 1,
+                            Read: () => Specification.Induction.PeakParasiticTorque,
+                            Write: Quantity => { Specification.Induction.PeakParasiticTorque = Quantity; } });
+        QuantityRow(Body, { Label: 'Bypass parasitic share', UnitKey: 'Percent', Minimum: 0, Maximum: 40, Step: 1,
+                            Read: () => Specification.Induction.BypassParasiticPercent,
+                            Write: Quantity => { Specification.Induction.BypassParasiticPercent = Quantity; } });
+        QuantityRow(Body, { Label: 'Bypass valve threshold', UnitKey: 'Percent', Minimum: 2, Maximum: 50, Step: 1,
+                            Read: () => Specification.Induction.BypassThrottlePercent,
+                            Write: Quantity => { Specification.Induction.BypassThrottlePercent = Quantity; } });
+        QuantityRow(Body, { Label: 'Turbo spool-up rate', UnitKey: 'Frequency', Minimum: 0.5, Maximum: 12.0, Step: 0.1, Digits: 1,
+                            Read: () => Specification.Induction.TurboSpoolUpRate,
+                            Write: Quantity => { Specification.Induction.TurboSpoolUpRate = Quantity; } });
+        QuantityRow(Body, { Label: 'Turbo blow-off rate', UnitKey: 'Frequency', Minimum: 1.0, Maximum: 16.0, Step: 0.1, Digits: 1,
+                            Read: () => Specification.Induction.TurboSpoolDownRate,
+                            Write: Quantity => { Specification.Induction.TurboSpoolDownRate = Quantity; } });
+        QuantityRow(Body, { Label: 'Torque gain per bar', UnitKey: 'Ratio', Minimum: 0.15, Maximum: 1.10, Step: 0.01, Digits: 2,
+                            Read: () => Specification.Induction.TorqueGainPerBar,
+                            Write: Quantity => { Specification.Induction.TorqueGainPerBar = Quantity; } });
+
+        Body.append(C.Construct('div', 'sub-heading', 'Differential and clutch'));
+        C.SegmentedRow(Body, {
+            Label: 'Differential mechanism',
+            Options: [['Open', 'Open'], ['Locked', 'Locked'], ['1.5-way LSD', 'ClutchPack15Way'], ['Torsen', 'Torsen']],
+            Read: () => Specification.Differential.Type,
+            Write: Kind => { Specification.Differential.Type = Kind; }
+        });
+        QuantityRow(Body, { Label: 'LSD preload torque', UnitKey: 'Torque', Minimum: 0, Maximum: 320, Step: 5,
+                            Read: () => Specification.Differential.PreloadTorque,
+                            Write: Quantity => { Specification.Differential.PreloadTorque = Quantity; } });
+        QuantityRow(Body, { Label: 'Power ramp lock', UnitKey: 'Percent', Minimum: 0, Maximum: 100, Step: 1,
+                            Read: () => Specification.Differential.PowerLockPercent,
+                            Write: Quantity => { Specification.Differential.PowerLockPercent = Quantity; } });
+        QuantityRow(Body, { Label: 'Coast ramp lock', UnitKey: 'Percent', Minimum: 0, Maximum: 100, Step: 1,
+                            Read: () => Specification.Differential.CoastLockPercent,
+                            Write: Quantity => { Specification.Differential.CoastLockPercent = Quantity; } });
+        QuantityRow(Body, { Label: 'Torsen bias ratio', UnitKey: 'Ratio', Minimum: 1.2, Maximum: 5.5, Step: 0.1, Digits: 1,
+                            Read: () => Specification.Differential.TorsenBiasRatio,
+                            Write: Quantity => { Specification.Differential.TorsenBiasRatio = Quantity; } });
+        QuantityRow(Body, { Label: 'AWD front torque split', UnitKey: 'Percent', Minimum: 0, Maximum: 60, Step: 1,
+                            Read: () => Specification.Differential.FrontTorqueSplitPercent,
+                            Write: Quantity => { Specification.Differential.FrontTorqueSplitPercent = Quantity; } });
+        QuantityRow(Body, { Label: 'Shift cut duration', UnitKey: 'Milliseconds', Minimum: 25, Maximum: 350, Step: 5,
+                            Read: () => Specification.Differential.ShiftDurationMs,
+                            Write: Quantity => { Specification.Differential.ShiftDurationMs = Quantity; } });
+        QuantityRow(Body, { Label: 'Clutch torque capacity', UnitKey: 'Torque', Minimum: 350, Maximum: 1800, Step: 10,
+                            Read: () => Specification.Differential.ClutchCapacity,
+                            Write: Quantity => { Specification.Differential.ClutchCapacity = Quantity; } });
+
         Body.append(C.Construct('p', 'footer-note', 'Ratios are fixed in this prototype; the curve section edits torque, and the '
             + 'launch estimate uses these ratios with the traction circle below.'));
     }
@@ -983,6 +1058,29 @@
         QuantityRow(Body, { Label: 'Thermostat opening', UnitKey: 'Temperature', Minimum: 60, Maximum: 100, Step: 1,
                             Read: () => Specification.Engine.ThermostatOpening,
                             Write: Quantity => { Specification.Engine.ThermostatOpening = Quantity; } });
+        Body.append(C.Construct('div', 'sub-heading', 'Engine fluids and viscosity'));
+        C.SegmentedRow(Body, {
+            Label: 'Oil viscosity grade',
+            Options: [['0W-20', '0W-20'], ['5W-30', '5W-30'], ['5W-40', '5W-40'], ['10W-60', '10W-60']],
+            Read: () => Specification.Fluids.OilGrade,
+            Write: Grade => { Specification.Fluids.OilGrade = Grade; }
+        });
+        QuantityRow(Body, { Label: 'Coolant heat capacity', UnitKey: 'Ratio', Minimum: 8, Maximum: 60, Step: 0.5, Digits: 1,
+                            Read: () => Specification.Fluids.CoolantHeatCapacityKjK,
+                            Write: Quantity => { Specification.Fluids.CoolantHeatCapacityKjK = Quantity; } });
+        QuantityRow(Body, { Label: 'Radiator ram-air gain', UnitKey: 'Ratio', Minimum: 0.1, Maximum: 1.5, Step: 0.02, Digits: 2,
+                            Read: () => Specification.Fluids.RadiatorAirflowGain,
+                            Write: Quantity => { Specification.Fluids.RadiatorAirflowGain = Quantity; } });
+        QuantityRow(Body, { Label: 'Electric fan cut-in', UnitKey: 'Temperature', Minimum: 78, Maximum: 112, Step: 1,
+                            Read: () => Specification.Fluids.RadiatorFanThreshold,
+                            Write: Quantity => { Specification.Fluids.RadiatorFanThreshold = Quantity; } });
+        QuantityRow(Body, { Label: 'Overheat limp derate', UnitKey: 'Temperature', Minimum: 102, Maximum: 138, Step: 1,
+                            Read: () => Specification.Fluids.OverheatDerateStart,
+                            Write: Quantity => { Specification.Fluids.OverheatDerateStart = Quantity; } });
+        QuantityRow(Body, { Label: 'Brake-specific fuel burn', UnitKey: 'Ratio', Minimum: 185, Maximum: 360, Step: 1,
+                            Read: () => Specification.Fluids.SpecificFuelBurnGkwh,
+                            Write: Quantity => { Specification.Fluids.SpecificFuelBurnGkwh = Quantity; } });
+
         Body.append(C.Construct('div', 'sub-heading', 'Coolant curve'));
         const Host = C.Construct('div', 'curve-editor-host');
         Body.append(Host);
@@ -1132,9 +1230,251 @@
                             Read: () => Specification.Drivetrain.RollingResistance,
                             Write: Quantity => { Specification.Drivetrain.RollingResistance = Quantity; } });
         QuantityRow(Body, { Label: 'Wing trim', UnitKey: 'Ratio', Minimum: 0, Maximum: 1, Step: 0.05, Digits: 2,
-                            Tags: [['MODEL', 'muted']],
+                            Tags: [['TRIM', 'muted']],
                             Read: () => Math.min(1, Specification.Drivetrain.DownforceAt200 / 1600),
                             Write: Quantity => { Specification.Drivetrain.DownforceAt200 = Quantity * 1600; } });
+
+        Body.append(C.Construct('div', 'sub-heading', 'Active aero and ground effect'));
+        QuantityRow(Body, { Label: 'Front aero balance (CoP)', UnitKey: 'Percent', Minimum: 30, Maximum: 65, Step: 1,
+                            Read: () => Specification.AeroActive.CenterOfPressureFrontPercent,
+                            Write: Quantity => { Specification.AeroActive.CenterOfPressureFrontPercent = Quantity; } });
+        QuantityRow(Body, { Label: 'Pitch CoP sensitivity', UnitKey: 'Ratio', Minimum: 0.0, Maximum: 3.0, Step: 0.05, Digits: 2,
+                            Read: () => Specification.AeroActive.PitchSensitivity,
+                            Write: Quantity => { Specification.AeroActive.PitchSensitivity = Quantity; } });
+        QuantityRow(Body, { Label: 'DRS drag reduction', UnitKey: 'Percent', Minimum: 0, Maximum: 45, Step: 1,
+                            Read: () => Specification.AeroActive.DrsDragReductionPercent,
+                            Write: Quantity => { Specification.AeroActive.DrsDragReductionPercent = Quantity; } });
+        QuantityRow(Body, { Label: 'DRS downforce loss', UnitKey: 'Percent', Minimum: 0, Maximum: 60, Step: 1,
+                            Read: () => Specification.AeroActive.DrsDownforceLossPercent,
+                            Write: Quantity => { Specification.AeroActive.DrsDownforceLossPercent = Quantity; } });
+        QuantityRow(Body, { Label: 'DRS minimum speed', UnitKey: 'Speed', Minimum: 60, Maximum: 220, Step: 5,
+                            Read: () => Specification.AeroActive.DrsActivationSpeed,
+                            Write: Quantity => { Specification.AeroActive.DrsActivationSpeed = Quantity; } });
+        QuantityRow(Body, { Label: 'Airbrake extra Cd', UnitKey: 'Ratio', Minimum: 0.0, Maximum: 0.65, Step: 0.01, Digits: 2,
+                            Read: () => Specification.AeroActive.AirbrakeDragAddition,
+                            Write: Quantity => { Specification.AeroActive.AirbrakeDragAddition = Quantity; } });
+        QuantityRow(Body, { Label: 'Airbrake downforce at 200', UnitKey: 'Force', Minimum: 0, Maximum: 900, Step: 10,
+                            Read: () => Specification.AeroActive.AirbrakeDownforceGain,
+                            Write: Quantity => { Specification.AeroActive.AirbrakeDownforceGain = Quantity; } });
+        QuantityRow(Body, { Label: 'Venturi optimal height', UnitKey: 'Length', Minimum: 35, Maximum: 140, Step: 1,
+                            Read: () => Specification.AeroActive.GroundEffectOptimalHeight,
+                            Write: Quantity => { Specification.AeroActive.GroundEffectOptimalHeight = Quantity; } });
+        QuantityRow(Body, { Label: 'Venturi peak suction gain', UnitKey: 'Ratio', Minimum: 1.0, Maximum: 2.2, Step: 0.02, Digits: 2,
+                            Read: () => Specification.AeroActive.GroundEffectPeakGain,
+                            Write: Quantity => { Specification.AeroActive.GroundEffectPeakGain = Quantity; } });
+        QuantityRow(Body, { Label: 'Diffuser choke height', UnitKey: 'Length', Minimum: 10, Maximum: 55, Step: 1,
+                            Read: () => Specification.AeroActive.GroundEffectChokeHeight,
+                            Write: Quantity => { Specification.AeroActive.GroundEffectChokeHeight = Quantity; } });
+
+        Body.append(C.Construct('div', 'sub-heading', 'Brake fade and staging'));
+        QuantityRow(Body, { Label: 'Rear handbrake torque', UnitKey: 'Torque', Minimum: 400, Maximum: 3800, Step: 25,
+                            Read: () => Specification.AeroActive.HandbrakeTorque,
+                            Write: Quantity => { Specification.AeroActive.HandbrakeTorque = Quantity; } });
+        QuantityRow(Body, { Label: 'Pad fade onset', UnitKey: 'Temperature', Minimum: 380, Maximum: 820, Step: 5,
+                            Read: () => Specification.AeroActive.BrakeFadeStart,
+                            Write: Quantity => { Specification.AeroActive.BrakeFadeStart = Quantity; } });
+        QuantityRow(Body, { Label: 'Peak thermal fade loss', UnitKey: 'Percent', Minimum: 0, Maximum: 80, Step: 1,
+                            Read: () => Specification.AeroActive.MaxBrakeFadePercent,
+                            Write: Quantity => { Specification.AeroActive.MaxBrakeFadePercent = Quantity; } });
+        C.SwitchRow(Body, {
+            Label: 'Front line-lock staging',
+            Detail: 'Holds front brake callipers while leaving rear axle unbraked for tyre warm-up.',
+            Read: () => Specification.AeroActive.LineLockFrontOnly,
+            Write: Enabled => { Specification.AeroActive.LineLockFrontOnly = Enabled; }
+        });
+    }
+
+    function ConstructSuspension(Page)
+    {
+        const Section = DeclareSection(Page, {
+            Id: 'Suspension', Title: 'Suspension and steering', Tab: 'Suspension', Glyph: 'Sliders', Colour: '#e8a84a',
+            Status: () => `${DisplayText(Specification.Suspension.FrontSpringRate, 'Stiffness', 0)} / `
+                + `${DisplayText(Specification.Suspension.RearSpringRate, 'Stiffness', 0)} ${UnitSymbol('Stiffness')}`
+        });
+        const Body = Section.Inner;
+        Body.append(C.Construct('p', 'section-caption', 'Progressive coilovers, digressive two-slope dampers, anti-roll bars, '
+            + 'Ackermann rack geometry and closed-loop yaw/slip thresholds.'));
+
+        Body.append(C.Construct('div', 'sub-heading', 'Coilover springs and travel'));
+        QuantityRow(Body, { Label: 'Front spring stiffness', UnitKey: 'Stiffness', Minimum: 15, Maximum: 140, Step: 1,
+                            Read: () => Specification.Suspension.FrontSpringRate,
+                            Write: Quantity => { Specification.Suspension.FrontSpringRate = Quantity; } });
+        QuantityRow(Body, { Label: 'Rear spring stiffness', UnitKey: 'Stiffness', Minimum: 15, Maximum: 140, Step: 1,
+                            Read: () => Specification.Suspension.RearSpringRate,
+                            Write: Quantity => { Specification.Suspension.RearSpringRate = Quantity; } });
+        QuantityRow(Body, { Label: 'Progressive hardening', UnitKey: 'Ratio', Minimum: 0.0, Maximum: 1.5, Step: 0.02, Digits: 2,
+                            Read: () => Specification.Suspension.ProgressiveFactor,
+                            Write: Quantity => { Specification.Suspension.ProgressiveFactor = Quantity; } });
+        QuantityRow(Body, { Label: 'Front unloaded strut', UnitKey: 'Length', Minimum: 240, Maximum: 460, Step: 2,
+                            Read: () => Specification.Suspension.FrontRestLength,
+                            Write: Quantity => { Specification.Suspension.FrontRestLength = Quantity; } });
+        QuantityRow(Body, { Label: 'Rear unloaded strut', UnitKey: 'Length', Minimum: 240, Maximum: 460, Step: 2,
+                            Read: () => Specification.Suspension.RearRestLength,
+                            Write: Quantity => { Specification.Suspension.RearRestLength = Quantity; } });
+        QuantityRow(Body, { Label: 'Bump-stop stiffness', UnitKey: 'Stiffness', Minimum: 60, Maximum: 400, Step: 5,
+                            Read: () => Specification.Suspension.BumpStopStiffness,
+                            Write: Quantity => { Specification.Suspension.BumpStopStiffness = Quantity; } });
+
+        Body.append(C.Construct('div', 'sub-heading', 'Digressive dampers and anti-roll'));
+        QuantityRow(Body, { Label: 'Front bump damping', UnitKey: 'Damping', Minimum: 1200, Maximum: 12000, Step: 100,
+                            Read: () => Specification.Suspension.FrontBumpDamping,
+                            Write: Quantity => { Specification.Suspension.FrontBumpDamping = Quantity; } });
+        QuantityRow(Body, { Label: 'Front rebound damping', UnitKey: 'Damping', Minimum: 1500, Maximum: 15000, Step: 100,
+                            Read: () => Specification.Suspension.FrontReboundDamping,
+                            Write: Quantity => { Specification.Suspension.FrontReboundDamping = Quantity; } });
+        QuantityRow(Body, { Label: 'Rear bump damping', UnitKey: 'Damping', Minimum: 1200, Maximum: 12000, Step: 100,
+                            Read: () => Specification.Suspension.RearBumpDamping,
+                            Write: Quantity => { Specification.Suspension.RearBumpDamping = Quantity; } });
+        QuantityRow(Body, { Label: 'Rear rebound damping', UnitKey: 'Damping', Minimum: 1500, Maximum: 15000, Step: 100,
+                            Read: () => Specification.Suspension.RearReboundDamping,
+                            Write: Quantity => { Specification.Suspension.RearReboundDamping = Quantity; } });
+        QuantityRow(Body, { Label: 'High-speed blow-off ratio', UnitKey: 'Ratio', Minimum: 0.15, Maximum: 1.0, Step: 0.02, Digits: 2,
+                            Read: () => Specification.Suspension.HighSpeedDampingRatio,
+                            Write: Quantity => { Specification.Suspension.HighSpeedDampingRatio = Quantity; } });
+        QuantityRow(Body, { Label: 'Front anti-roll bar', UnitKey: 'Stiffness', Minimum: 0, Maximum: 65, Step: 1,
+                            Read: () => Specification.Suspension.FrontAntiRollRate,
+                            Write: Quantity => { Specification.Suspension.FrontAntiRollRate = Quantity; } });
+        QuantityRow(Body, { Label: 'Rear anti-roll bar', UnitKey: 'Stiffness', Minimum: 0, Maximum: 65, Step: 1,
+                            Read: () => Specification.Suspension.RearAntiRollRate,
+                            Write: Quantity => { Specification.Suspension.RearAntiRollRate = Quantity; } });
+        QuantityRow(Body, { Label: 'Front static camber', UnitKey: 'Degree', Minimum: -5.0, Maximum: 1.0, Step: 0.1, Digits: 1,
+                            Read: () => Specification.Suspension.FrontStaticCamber,
+                            Write: Quantity => { Specification.Suspension.FrontStaticCamber = Quantity; } });
+        QuantityRow(Body, { Label: 'Rear static camber', UnitKey: 'Degree', Minimum: -5.0, Maximum: 1.0, Step: 0.1, Digits: 1,
+                            Read: () => Specification.Suspension.RearStaticCamber,
+                            Write: Quantity => { Specification.Suspension.RearStaticCamber = Quantity; } });
+
+        Body.append(C.Construct('div', 'sub-heading', 'Ackermann steering and active stability'));
+        QuantityRow(Body, { Label: 'Max inner wheel lock', UnitKey: 'Degree', Minimum: 20, Maximum: 52, Step: 1,
+                            Read: () => Specification.Steering.MaxInnerAngle,
+                            Write: Quantity => { Specification.Steering.MaxInnerAngle = Quantity; } });
+        QuantityRow(Body, { Label: 'Steering rack ratio', UnitKey: 'Ratio', Minimum: 8.5, Maximum: 20.0, Step: 0.1, Digits: 1,
+                            Read: () => Specification.Steering.SteeringRatio,
+                            Write: Quantity => { Specification.Steering.SteeringRatio = Quantity; } });
+        QuantityRow(Body, { Label: 'Ackermann geometry', UnitKey: 'Percent', Minimum: 0, Maximum: 120, Step: 1,
+                            Read: () => Specification.Steering.AckermannPercent,
+                            Write: Quantity => { Specification.Steering.AckermannPercent = Quantity; } });
+        QuantityRow(Body, { Label: 'High-speed steer floor', UnitKey: 'Percent', Minimum: 15, Maximum: 100, Step: 1,
+                            Read: () => Specification.Steering.SpeedSensitiveFloorPercent,
+                            Write: Quantity => { Specification.Steering.SpeedSensitiveFloorPercent = Quantity; } });
+        QuantityRow(Body, { Label: 'Caster mechanical trail', UnitKey: 'Length', Minimum: 5, Maximum: 65, Step: 1,
+                            Read: () => Specification.Steering.MechanicalTrail,
+                            Write: Quantity => { Specification.Steering.MechanicalTrail = Quantity; } });
+        QuantityRow(Body, { Label: 'ESC yaw-rate gain', UnitKey: 'Ratio', Minimum: 0.0, Maximum: 2.0, Step: 0.05, Digits: 2,
+                            Read: () => Specification.Steering.EscYawGain,
+                            Write: Quantity => { Specification.Steering.EscYawGain = Quantity; } });
+        QuantityRow(Body, { Label: 'TCS target slip', UnitKey: 'Percent', Minimum: 4, Maximum: 28, Step: 1,
+                            Read: () => Specification.Steering.TcsSlipThresholdPercent,
+                            Write: Quantity => { Specification.Steering.TcsSlipThresholdPercent = Quantity; } });
+        QuantityRow(Body, { Label: 'ABS target slip', UnitKey: 'Percent', Minimum: 6, Maximum: 30, Step: 1,
+                            Read: () => Specification.Steering.AbsSlipThresholdPercent,
+                            Write: Quantity => { Specification.Steering.AbsSlipThresholdPercent = Quantity; } });
+    }
+
+    function ConstructSoftBody(Page)
+    {
+        const Section = DeclareSection(Page, {
+            Id: 'SoftBody', Title: 'Soft-body tyre and slip', Tab: 'Soft-body', Glyph: 'Tyre', Colour: '#8fc7b8',
+            Status: () => `${Specification.SoftBody.Formulation} · ${Specification.SoftBody.CircumferentialNodes}×${Specification.SoftBody.LateralRings}`
+        });
+        const Body = Section.Inner;
+        Body.append(C.Construct('p', 'section-caption', 'Selects the 3D deformable tyre formulation (Radial Spring, XPBD continuum or '
+            + 'Hex8 Neo-Hookean 3D FEM) and the transient low-speed slip solver coupled to Pacejka MF6.1.'));
+
+        C.SegmentedRow(Body, {
+            Label: 'Soft-body tyre formulation',
+            Options: [['Spring', 'Spring'], ['XPBD', 'Xpbd'], ['3D Hex8 FEM', 'Fem3D']],
+            Read: () => Specification.SoftBody.Formulation,
+            Write: Mode => { Specification.SoftBody.Formulation = Mode; }
+        });
+        C.SegmentedRow(Body, {
+            Label: 'Transient slip solver',
+            Options: [['GRIT implicit', 'GritImplicitNewton'], ['Relaxation', 'RelaxationLength'], ['Quasi-static', 'QuasiStaticNewton']],
+            Read: () => Specification.SoftBody.SlipMode,
+            Write: Mode => { Specification.SoftBody.SlipMode = Mode; }
+        });
+
+        Body.append(C.Construct('div', 'sub-heading', 'Carcass discretization and XPBD'));
+        QuantityRow(Body, { Label: 'Circumferential nodes', UnitKey: 'Ratio', Minimum: 12, Maximum: 32, Step: 2,
+                            Read: () => Specification.SoftBody.CircumferentialNodes,
+                            Write: Quantity => { Specification.SoftBody.CircumferentialNodes = Quantity; } });
+        QuantityRow(Body, { Label: 'Lateral tread rings', UnitKey: 'Ratio', Minimum: 2, Maximum: 5, Step: 1,
+                            Read: () => Specification.SoftBody.LateralRings,
+                            Write: Quantity => { Specification.SoftBody.LateralRings = Quantity; } });
+        QuantityRow(Body, { Label: 'Reference radial stiffness', UnitKey: 'Stiffness', Minimum: 90, Maximum: 380, Step: 5,
+                            Read: () => Specification.SoftBody.VerticalStiffness,
+                            Write: Quantity => { Specification.SoftBody.VerticalStiffness = Quantity; } });
+        QuantityRow(Body, { Label: 'Pneumatic stiffness gain', UnitKey: 'Ratio', Minimum: 0.2, Maximum: 2.0, Step: 0.05, Digits: 2,
+                            Read: () => Specification.SoftBody.PressureStiffnessGain,
+                            Write: Quantity => { Specification.SoftBody.PressureStiffnessGain = Quantity; } });
+        QuantityRow(Body, { Label: 'Pneumatic volume preservation', UnitKey: 'Percent', Minimum: 0, Maximum: 100, Step: 1,
+                            Read: () => Specification.SoftBody.PneumaticVolumeWeight,
+                            Write: Quantity => { Specification.SoftBody.PneumaticVolumeWeight = Quantity; } });
+        QuantityRow(Body, { Label: 'XPBD substeps', UnitKey: 'Ratio', Minimum: 1, Maximum: 12, Step: 1,
+                            Read: () => Specification.SoftBody.XpbdSubsteps,
+                            Write: Quantity => { Specification.SoftBody.XpbdSubsteps = Quantity; } });
+        QuantityRow(Body, { Label: 'XPBD constraint iterations', UnitKey: 'Ratio', Minimum: 1, Maximum: 12, Step: 1,
+                            Read: () => Specification.SoftBody.XpbdIterations,
+                            Write: Quantity => { Specification.SoftBody.XpbdIterations = Quantity; } });
+        QuantityRow(Body, { Label: 'Sidewall contact bulge', UnitKey: 'Percent', Minimum: 0, Maximum: 45, Step: 1,
+                            Read: () => Specification.SoftBody.MaxContactBulgePercent,
+                            Write: Quantity => { Specification.SoftBody.MaxContactBulgePercent = Quantity; } });
+
+        Body.append(C.Construct('div', 'sub-heading', '3D Hex8 Neo-Hookean finite elements'));
+        QuantityRow(Body, { Label: 'FEM explicit substeps', UnitKey: 'Ratio', Minimum: 4, Maximum: 32, Step: 1,
+                            Read: () => Specification.SoftBody.FemSubsteps,
+                            Write: Quantity => { Specification.SoftBody.FemSubsteps = Quantity; } });
+        QuantityRow(Body, { Label: 'Carcass Young modulus', UnitKey: 'Modulus', Minimum: 0.8, Maximum: 8.0, Step: 0.1, Digits: 1,
+                            Read: () => Specification.SoftBody.FemYoungsModulusMpa,
+                            Write: Quantity => { Specification.SoftBody.FemYoungsModulusMpa = Quantity; } });
+        QuantityRow(Body, { Label: 'Rubber Poisson ratio', UnitKey: 'Ratio', Minimum: 0.30, Maximum: 0.47, Step: 0.005, Digits: 3,
+                            Read: () => Specification.SoftBody.FemPoissonRatio,
+                            Write: Quantity => { Specification.SoftBody.FemPoissonRatio = Quantity; } });
+        QuantityRow(Body, { Label: 'FEM lumped vertex mass', UnitKey: 'Mass', Minimum: 0.05, Maximum: 0.45, Step: 0.01, Digits: 2,
+                            Read: () => Specification.SoftBody.FemNodeMassKg,
+                            Write: Quantity => { Specification.SoftBody.FemNodeMassKg = Quantity; } });
+        QuantityRow(Body, { Label: 'Rayleigh damping rate', UnitKey: 'Frequency', Minimum: 2, Maximum: 45, Step: 1,
+                            Read: () => Specification.SoftBody.FemDampingRate,
+                            Write: Quantity => { Specification.SoftBody.FemDampingRate = Quantity; } });
+    }
+
+    function ConstructSimulation(Page)
+    {
+        const Section = DeclareSection(Page, {
+            Id: 'Simulation', Title: 'Jolt adapter and physics thread', Tab: 'Physics', Glyph: 'Activity', Colour: '#9fb4d6',
+            Status: () => `${Specification.Simulation.OuterTickHz * Specification.Simulation.SubstepsPerOuterTick} Hz inner`
+        });
+        const Body = Section.Inner;
+        Body.append(C.Construct('p', 'section-caption', 'Configures PhysicsExecutionThread and JoltAdapter: outer fixed-step accumulator, '
+            + 'deterministic N-way substepping, SLERP pose interpolation and world force-zone coupling.'));
+        const Stats = C.Construct('div', 'stat-grid');
+        QuantityReadout(Stats, { Label: 'Outer rate', UnitKey: 'Frequency', Digits: 0, Read: () => Specification.Simulation.OuterTickHz });
+        QuantityReadout(Stats, { Label: 'Inner rate', UnitKey: 'Frequency', Digits: 0,
+                                 Read: () => Specification.Simulation.OuterTickHz * Specification.Simulation.SubstepsPerOuterTick });
+        QuantityReadout(Stats, { Label: 'Inner dt', UnitKey: 'Milliseconds', Digits: 2,
+                                 Read: () => 1000 / (Specification.Simulation.OuterTickHz * Specification.Simulation.SubstepsPerOuterTick) });
+        Body.append(Stats);
+        QuantityRow(Body, { Label: 'Outer fixed tick rate', UnitKey: 'Frequency', Minimum: 30, Maximum: 240, Step: 10,
+                            Read: () => Specification.Simulation.OuterTickHz,
+                            Write: Quantity => { Specification.Simulation.OuterTickHz = Quantity; } });
+        QuantityRow(Body, { Label: 'Substeps per outer tick', UnitKey: 'Ratio', Minimum: 1, Maximum: 8, Step: 1,
+                            Read: () => Specification.Simulation.SubstepsPerOuterTick,
+                            Write: Quantity => { Specification.Simulation.SubstepsPerOuterTick = Quantity; } });
+        QuantityRow(Body, { Label: 'Max catch-up outer steps', UnitKey: 'Ratio', Minimum: 1, Maximum: 16, Step: 1,
+                            Read: () => Specification.Simulation.MaximumCatchUpSteps,
+                            Write: Quantity => { Specification.Simulation.MaximumCatchUpSteps = Quantity; } });
+        C.SwitchRow(Body, {
+            Label: 'Coupled Coulomb-cone slope hold',
+            Detail: 'Engages static PGS hold on grades when speed is near zero and brake + friction hold gravity.',
+            Read: () => Specification.Simulation.StationarityHold,
+            Write: Enabled => { Specification.Simulation.StationarityHold = Enabled; }
+        });
+        C.SwitchRow(Body, {
+            Label: 'World force-zone aerodynamic coupling',
+            Detail: 'Couples UniformWind, VortexFunnel and RadialImpulse zones across all occupants and vehicles.',
+            Read: () => Specification.Simulation.ForceZoneCoupling,
+            Write: Enabled => { Specification.Simulation.ForceZoneCoupling = Enabled; }
+        });
     }
 
     function ConstructPerformance(Page)
@@ -1199,6 +1539,14 @@
             Object.assign(Specification.Engine, JSON.parse(JSON.stringify(Baseline.Specification.Engine)));
             Object.assign(Specification.Thermal, JSON.parse(JSON.stringify(Baseline.Specification.Thermal)));
             Object.assign(Specification.Aids, JSON.parse(JSON.stringify(Baseline.Specification.Aids)));
+            Object.assign(Specification.Induction, JSON.parse(JSON.stringify(Baseline.Specification.Induction)));
+            Object.assign(Specification.Differential, JSON.parse(JSON.stringify(Baseline.Specification.Differential)));
+            Object.assign(Specification.Suspension, JSON.parse(JSON.stringify(Baseline.Specification.Suspension)));
+            Object.assign(Specification.Steering, JSON.parse(JSON.stringify(Baseline.Specification.Steering)));
+            Object.assign(Specification.SoftBody, JSON.parse(JSON.stringify(Baseline.Specification.SoftBody)));
+            Object.assign(Specification.AeroActive, JSON.parse(JSON.stringify(Baseline.Specification.AeroActive)));
+            Object.assign(Specification.Fluids, JSON.parse(JSON.stringify(Baseline.Specification.Fluids)));
+            Object.assign(Specification.Simulation, JSON.parse(JSON.stringify(Baseline.Specification.Simulation)));
             Profiles.forEach((Profile, Index) =>
             {
                 Profile.Points = JSON.parse(JSON.stringify(Baseline.Profiles[Index].Points));
@@ -1319,6 +1667,25 @@
                             Read: () => Tyre.StintLaps, Write: Quantity => { Tyre.StintLaps = Quantity; } });
         QuantityRow(Body, { Label: 'Contact patch load', UnitKey: 'Force', Minimum: 0.5, Maximum: 8, Step: 0.1, Digits: 2,
                             Read: () => Tyre.ContactPatchLoad * 1000, Write: Quantity => { Tyre.ContactPatchLoad = Quantity / 1000; } });
+        Body.append(C.Construct('div', 'sub-heading', 'Three-node carcass gas and Pacejka MF6.1'));
+        QuantityRow(Body, { Label: 'Belt intermediate temperature', UnitKey: 'Temperature', Minimum: 20, Maximum: 160, Step: 1,
+                            Read: () => Tyre.BeltTemperature, Write: Quantity => { Tyre.BeltTemperature = Quantity; } });
+        QuantityRow(Body, { Label: 'Internal gas temperature', UnitKey: 'Temperature', Minimum: 20, Maximum: 150, Step: 1,
+                            Read: () => Tyre.GasTemperature, Write: Quantity => { Tyre.GasTemperature = Quantity; } });
+        QuantityRow(Body, { Label: 'Pacejka longitudinal shape', UnitKey: 'Ratio', Minimum: 1.0, Maximum: 2.3, Step: 0.02, Digits: 2,
+                            Read: () => Tyre.PacejkaLongitudinalShape,
+                            Write: Quantity => { Tyre.PacejkaLongitudinalShape = Quantity; } });
+        QuantityRow(Body, { Label: 'Pacejka lateral shape', UnitKey: 'Ratio', Minimum: 0.9, Maximum: 2.0, Step: 0.02, Digits: 2,
+                            Read: () => Tyre.PacejkaLateralShape,
+                            Write: Quantity => { Tyre.PacejkaLateralShape = Quantity; } });
+        QuantityRow(Body, { Label: 'Load friction sensitivity', UnitKey: 'Ratio', Minimum: 0.0, Maximum: 0.45, Step: 0.01, Digits: 2,
+                            Read: () => Tyre.LoadSensitivity, Write: Quantity => { Tyre.LoadSensitivity = Quantity; } });
+        C.SwitchRow(Body, {
+            Label: 'Punctured carcass (rapid deflation)',
+            Detail: 'Vents pneumatic cavity pressure toward atmospheric and collapses radial carcass support.',
+            Read: () => Tyre.Punctured,
+            Write: PuncturedState => { Tyre.Punctured = PuncturedState; }
+        });
         C.SwitchRow(Body, {
             Label: 'Enclosed by the vehicle',
             Detail: 'Clearing it parks the tyre in the pit lane; the record survives either way.',
@@ -1455,10 +1822,13 @@
         const ConstructTabs = ConstructSectionTabs(Page);
         ConstructIdentity(Page);
         ConstructEngine(Page);
+        ConstructSuspension(Page);
+        ConstructSoftBody(Page);
         ConstructCurves(Page);
         ConstructThermal(Page);
         ConstructTyres(Page);
         ConstructAero(Page);
+        ConstructSimulation(Page);
         ConstructPerformance(Page);
         ConstructRecord(Page);
         ConstructTabs();

@@ -745,4 +745,223 @@ struct GeometryConfiguration : RevisionCounter
     } Resolved{};
 };
 
+//------------------------------------------------------------------------------------------------------------------------
+//                                        VEHICLE & CORNER TYRE CONFIGURATIONS
+//------------------------------------------------------------------------------------------------------------------------
+
+struct VehicleCurveControlPoint
+{
+    float X = 0.0f;   // [-] canonical domain abscissa (rpm, km/h, %, deg)
+    float Y = 0.0f;   // [-] canonical ordinate (N*m, deg C)
+};
+
+struct TyreCornerConfiguration : RevisionCounter
+{
+    std::string CornerCode               = "FL";      // [-] FL | FR | RL | RR
+    std::string SetIdentifier            = "SetA";    // [-] fitted pit-lane tyre set identifier
+    int         CompoundIndex            = 1;         // [-] 0 Soft | 1 Medium | 2 Hard | 3 Intermediate | 4 Wet
+    bool        EnclosedCondition        = true;      // [-] true while enclosed by Vehicle; false when detached in Pit Lane
+    bool        PuncturedCondition       = false;     // [-] carcass blowout / rapid pneumatic deflation
+    bool        UnitDisplayImperial      = false;     // [-] UI presentation preference (Metric vs Imperial)
+    float       ColdPressureKpa          = 186.0f;    // [kPa] cold inflation gauge pressure
+    float       HotPressureKpa           = 240.0f;    // [kPa] operating gauge pressure
+    float       SurfaceTemperatureC      = 88.0f;     // [°C] outer tread surface temperature
+    float       BeltTemperatureC         = 81.0f;     // [°C] intermediate steel/aramid belt temperature
+    float       GasTemperatureC          = 76.0f;     // [°C] enclosed cavity gas temperature (PV=mRT)
+    float       CoreTemperatureC         = 74.0f;     // [°C] inner carcass ply temperature
+    float       WearPercent              = 18.0f;     // [%] consumed tread life
+    int         StintLaps                = 12;        // [-] completed laps on this corner
+    float       TreadDepthMm             = 6.4f;      // [mm] remaining groove depth
+    float       LoadedRadiusMm           = 342.0f;    // [mm] static loaded outer radius
+    float       SectionWidthMm           = 305.0f;    // [mm] nominal tyre section width
+    float       ContactPatchLoadKn       = 3.1f;      // [kN] standing vertical corner load
+    float       PacejkaLongitudinalShape = 1.65f;     // [-] MF6.1 longitudinal shape factor PCx1
+    float       PacejkaLateralShape      = 1.32f;     // [-] MF6.1 lateral shape factor PCy1
+    float       LoadSensitivity          = 0.14f;     // [-] friction decay per kN normal load
+    float       OptimalSurfaceTempC      = 85.0f;     // [°C] compound peak-grip temperature centre
+    float       ThermalWindowHalfWidthC  = 14.0f;     // [°C] compound operating half-window
+};
+
+struct VehicleConfiguration : RevisionCounter
+{
+    // Identity & Chassis
+    std::string VehicleName                   = "GT-04";
+    std::string MakerName                     = "Frontier Works";
+    std::string ClassificationCode            = "GT3";
+    bool        UnitDisplayImperial           = false;     // [-] UI display toggle (Metric vs Imperial)
+    int         InspectorModeIndex            = 0;         // [-] 0 Authoring Inspector | 1 Live Telemetry Dock
+    float       KerbMassKg                    = 1284.0f;   // [kg]
+    float       WheelbaseMm                   = 2720.0f;   // [mm]
+    float       TrackFrontMm                  = 1610.0f;   // [mm]
+    float       TrackRearMm                   = 1585.0f;   // [mm]
+    float       CentreOfGravityHeightMm       = 412.0f;    // [mm]
+    float       RideHeightMm                  = 118.0f;    // [mm]
+    float       FuelCapacityLitres            = 68.0f;     // [L]
+    float       FuelLoadLitres                = 61.2f;     // [L]
+    float       FuelReservePercent            = 12.0f;     // [%]
+    float       StaticRearMassPercent         = 54.0f;     // [%]
+    int         DriveLayoutIndex              = 1;         // [-] 0 Fwd | 1 Rwd | 2 All
+
+    // Engine & Forced Induction (NA / Turbo / Supercharger)
+    float       DisplacementLitres            = 3.0f;      // [L]
+    float       IdleSpeedRpm                  = 950.0f;    // [rpm]
+    float       RedlineRpm                    = 7800.0f;   // [rpm]
+    float       RatedTorqueNm                 = 640.0f;    // [N*m]
+    float       EngineInertiaKgm2             = 0.21f;     // [kg*m^2]
+    float       TurboBoostBar                 = 1.10f;     // [bar]
+    float       FuelBurnKgPerHour             = 62.0f;     // [kg/h]
+    float       ThermostatOpeningC            = 84.0f;     // [°C]
+    int         InductionModeIndex            = 2;         // [-] 0 NaturallyAspirated | 1 Turbocharged | 2 Supercharged
+    bool        RaceTuneEnabled               = false;     // [-] +33 % peak boost & aggressive WOT spark
+    int         SuperchargerTypeIndex         = 1;         // [-] 0 Roots | 1 TwinScrew | 2 Centrifugal
+    float       SuperchargerDriveRatio        = 2.15f;     // [×]
+    float       SuperchargerDisplacementCc    = 1850.0f;   // [cm^3/rev]
+    float       SuperchargerMaxBoostBar       = 0.80f;     // [bar]
+    float       SuperchargerPeakParasiticNm   = 34.0f;     // [N*m]
+    float       SuperchargerBypassParasiticPct= 9.0f;      // [%]
+    float       SuperchargerBypassThrottlePct = 12.0f;     // [%]
+    float       TurboSpoolUpRate              = 3.6f;      // [1/s]
+    float       TurboSpoolDownRate            = 6.5f;      // [1/s]
+    float       TorqueGainPerBar              = 0.58f;     // [-]
+
+    // Transmission & Differential
+    int                  ForwardGearCount       = 6;
+    std::array<float, 8> GearRatios             = {3.62f, 2.19f, 1.55f, 1.19f, 1.00f, 0.82f, 0.72f, 0.64f};
+    float                FinalDriveRatio        = 3.42f;
+    float                DrivelineEfficiencyPct = 91.0f;
+    float                LoadedWheelRadiusMm    = 342.0f;
+    float                PeakTyreFriction       = 1.42f;
+    int                  DifferentialTypeIndex  = 2;       // [-] 0 Open | 1 Locked | 2 ClutchPack15Way | 3 Torsen
+    float                LsdPreloadTorqueNm     = 85.0f;
+    float                LsdPowerLockPercent    = 52.0f;
+    float                LsdCoastLockPercent    = 28.0f;
+    float                TorsenBiasRatio        = 2.8f;
+    float                AwdFrontTorquePercent  = 35.0f;
+    float                ShiftDurationMs        = 65.0f;
+    float                ClutchCapacityNm       = 920.0f;
+
+    // Suspension, Ackermann Steering & Active Stability
+    float       FrontSpringRateKnpm           = 48.0f;     // [kN/m]
+    float       RearSpringRateKnpm            = 54.0f;     // [kN/m]
+    float       ProgressiveSpringFactor       = 0.28f;     // [-]
+    float       FrontRestLengthMm             = 340.0f;    // [mm]
+    float       RearRestLengthMm              = 350.0f;    // [mm]
+    float       BumpStopStiffnessKnpm         = 185.0f;    // [kN/m]
+    float       FrontBumpDampingNsm           = 4200.0f;   // [N*s/m]
+    float       FrontReboundDampingNsm        = 6800.0f;   // [N*s/m]
+    float       RearBumpDampingNsm            = 4500.0f;   // [N*s/m]
+    float       RearReboundDampingNsm         = 7200.0f;   // [N*s/m]
+    float       HighSpeedDampingRatio         = 0.42f;     // [-]
+    float       DamperKneeVelocityMps         = 0.16f;     // [m/s]
+    float       FrontAntiRollKnpm             = 24.0f;     // [kN/m]
+    float       RearAntiRollKnpm              = 19.0f;     // [kN/m]
+    float       FrontStaticCamberDeg          = -2.1f;     // [°]
+    float       RearStaticCamberDeg           = -1.6f;     // [°]
+    float       MaxInnerSteerDeg              = 33.0f;     // [°]
+    float       SteeringRackRatio             = 13.8f;     // [×]
+    float       AckermannPercent              = 78.0f;     // [%]
+    float       SpeedSensitiveSteerFloorPct   = 42.0f;     // [%]
+    float       MechanicalTrailMm             = 28.0f;     // [mm]
+    bool        TractionControlEnabled        = true;
+    bool        StabilityControlEnabled       = true;
+    bool        AntiLockBrakesEnabled         = true;
+    bool        LaunchControlEnabled          = false;
+    bool        DrsAidEnabled                 = false;
+    bool        RevLimiterEnabled             = true;
+    bool        TelemetryEnabled              = true;
+    float       EscYawGain                    = 0.85f;
+    float       TcsSlipThresholdPct           = 11.0f;
+    float       AbsSlipThresholdPct           = 14.0f;
+
+    // Soft-Body Tyre Continuum & Transient Slip
+    int         SoftBodyFormulationIndex      = 2;         // [-] 0 Spring | 1 Xpbd | 2 Fem3D
+    int         SlipSolverModeIndex           = 0;         // [-] 0 GritImplicitNewton | 1 RelaxationLength | 2 QuasiStaticNewton
+    int         CircumferentialNodeCount      = 24;
+    int         LateralRingCount              = 3;
+    float       VerticalStiffnessKnpm         = 215.0f;    // [kN/m]
+    float       PressureStiffnessGain         = 1.00f;
+    float       PneumaticVolumeWeightPct      = 82.0f;     // [%]
+    int         XpbdSubsteps                  = 4;
+    int         XpbdIterations                = 4;
+    float       MaxContactBulgePct            = 22.0f;     // [%]
+    int         FemSubsteps                   = 10;
+    float       FemYoungsModulusMpa           = 2.6f;      // [MPa]
+    float       FemPoissonRatio               = 0.43f;     // [-]
+    float       FemVertexMassKg               = 0.14f;     // [kg]
+    float       FemDampingRateHz              = 14.0f;     // [1/s]
+
+    // Thermal & Engine Fluids
+    float       CoolantTargetC                = 92.0f;     // [°C]
+    float       OilTargetC                    = 108.0f;    // [°C]
+    float       BrakeTargetC                  = 540.0f;    // [°C]
+    float       AmbientTemperatureC           = 24.0f;     // [°C]
+    float       CoolingCapacityKw             = 58.0f;     // [kW]
+    int         OilViscosityGradeIndex        = 2;         // [-] 0 0W-20 | 1 5W-30 | 2 5W-40 | 3 10W-60
+    float       CoolantHeatCapacityKjK        = 24.5f;     // [kJ/K]
+    float       RadiatorAirflowGain           = 0.62f;
+    float       RadiatorFanThresholdC         = 96.0f;     // [°C]
+    float       OverheatDerateStartC          = 116.0f;    // [°C]
+    float       SpecificFuelBurnGkwh          = 248.0f;    // [g/kWh]
+
+    // Aerodynamics, Venturi Ground Effect & Brakes
+    float       DragCoefficient               = 0.34f;
+    float       FrontalAreaM2                 = 2.05f;
+    float       DownforceAt200KmhN            = 640.0f;
+    float       TotalBrakeTorqueNm            = 2400.0f;
+    float       BrakeBalanceFrontPct          = 62.0f;
+    float       RollingResistance             = 0.013f;
+    float       AeroBalanceFrontPct           = 46.0f;
+    float       PitchAeroSensitivity          = 1.15f;
+    float       DrsDragReductionPct           = 26.0f;
+    float       DrsDownforceLossPct           = 34.0f;
+    float       DrsActivationSpeedKmh         = 130.0f;
+    float       AirbrakeExtraCd               = 0.24f;
+    float       AirbrakeDownforceN            = 380.0f;
+    float       VenturiOptimalHeightMm        = 68.0f;
+    float       VenturiPeakGain               = 1.38f;
+    float       VenturiChokeHeightMm          = 28.0f;
+    float       HandbrakeTorqueNm             = 1850.0f;
+    float       BrakeFadeStartC               = 560.0f;
+    float       MaxBrakeFadePct               = 42.0f;
+    bool        LineLockFrontOnly             = false;
+
+    // JoltAdapter & PhysicsExecutionThread Substepping
+    int         OuterTickHz                   = 60;
+    int         SubstepsPerOuterTick          = 4;
+    int         MaximumCatchUpSteps           = 6;
+    bool        StationarityHoldEnabled       = true;
+    bool        ForceZoneCouplingEnabled      = true;
+    int         TelemetrySampleRateHz         = 30;
+
+    // Editable Monotone Curves & Four Enclosed / Pit-Lane Corners
+    int                                    SelectedCurveProfile   = 0;
+    int                                    SelectedCurvePoint     = 4;
+    bool                                   CurveSmoothMonotone    = true;
+    std::vector<VehicleCurveControlPoint>  EngineTorqueCurve      = {
+        {950.0f, 300.0f}, {1500.0f, 430.0f}, {2500.0f, 560.0f}, {3500.0f, 620.0f},
+        {4500.0f, 640.0f}, {5500.0f, 610.0f}, {6500.0f, 545.0f}, {7800.0f, 410.0f}};
+    std::vector<VehicleCurveControlPoint>  BrakeTorqueCurve       = {
+        {0.0f, 2150.0f}, {60.0f, 2400.0f}, {120.0f, 2350.0f}, {200.0f, 2050.0f}, {320.0f, 1650.0f}};
+    std::vector<VehicleCurveControlPoint>  CoolantTempCurve       = {
+        {0.0f, 88.0f}, {20.0f, 90.0f}, {40.0f, 93.0f}, {60.0f, 97.0f}, {80.0f, 103.0f}, {100.0f, 112.0f}};
+    std::vector<VehicleCurveControlPoint>  OilTempCurve           = {
+        {950.0f, 96.0f}, {2000.0f, 101.0f}, {3500.0f, 106.0f}, {5000.0f, 111.0f}, {6500.0f, 118.0f}, {7800.0f, 126.0f}};
+    std::vector<VehicleCurveControlPoint>  TyreSurfaceTempCurve   = {
+        {0.0f, 62.0f}, {2.0f, 78.0f}, {4.0f, 95.0f}, {6.0f, 108.0f}, {8.0f, 116.0f}, {10.0f, 120.0f}, {12.0f, 118.0f}};
+
+    int                                    SelectedCornerIndex    = 0;
+    std::array<TyreCornerConfiguration, 4> Corners                = [] {
+        std::array<TyreCornerConfiguration, 4> Defaults{};
+        Defaults[0].CornerCode      = "FL";
+        Defaults[0].ColdPressureKpa = 186.0f;
+        Defaults[1].CornerCode      = "FR";
+        Defaults[1].ColdPressureKpa = 186.0f;
+        Defaults[2].CornerCode      = "RL";
+        Defaults[2].ColdPressureKpa = 174.0f;
+        Defaults[3].CornerCode      = "RR";
+        Defaults[3].ColdPressureKpa = 174.0f;
+        return Defaults;
+    }();
+};
+
 } // namespace Frontier

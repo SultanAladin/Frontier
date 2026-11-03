@@ -84,4 +84,22 @@ if(BUILD_TESTING)
             target_compile_options(VehicleTyreAnimationCapture PRIVATE -Wall -Wextra -Werror)
         endif()
     endif()
+
+    if(TARGET EverestProjectEditor)
+        add_executable(NativeVehicleInspectorValidation
+            Exhibits/VehicleInspector/Code/NativeVehicleInspectorValidation.cpp
+            Engine/Render/StbImageWriteImplementation.cpp)
+        target_include_directories(NativeVehicleInspectorValidation SYSTEM PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+        target_link_libraries(NativeVehicleInspectorValidation PRIVATE EverestProjectEditor)
+        if(MSVC)
+            target_compile_options(NativeVehicleInspectorValidation PRIVATE /utf-8 /W4)
+        else()
+            target_compile_options(NativeVehicleInspectorValidation PRIVATE -Wall -Wextra -Werror)
+        endif()
+        add_test(NAME NativeVehicleInspectorValidation COMMAND NativeVehicleInspectorValidation
+            "${CMAKE_SOURCE_DIR}/EngineContent"
+            "${CMAKE_SOURCE_DIR}/Projects/Everest"
+            "${CMAKE_BINARY_DIR}/native-vehicle-inspector-captures")
+        set_tests_properties(NativeVehicleInspectorValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 120)
+    endif()
 endif()

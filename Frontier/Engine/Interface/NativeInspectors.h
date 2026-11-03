@@ -29,3 +29,5 @@
 #include "Engine/Interface/Inspectors/FractureInspector.h"
 #include "Engine/Interface/Inspectors/GeometryInspector.h"
 #include "Engine/Interface/Inspectors/ParticleInspector.h"
+#include "Engine/Interface/Inspectors/VehicleInspector.h"
+#include "Engine/Interface/Inspectors/TyreInspector.h"

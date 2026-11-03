@@ -1,8 +1,10 @@
 /*==========================================================================================================================================
                                                         VEHICLEPHYSICSVALIDATION.CPP
 ==========================================================================================================================================*/
-// 🧩 Comprehensive headless verification of JoltPhysics v5.2.0, GRIT/ProjectDrive subsystems, and all 3 soft-body tyre physics models.
+// 🧩 Comprehensive headless verification of JoltPhysics v5.2.0, JoltAdapter, PhysicsExecutionThread, GRIT dynamics, and 3 soft-body tyres.
 
+#include "Engine/PhysicalDynamics/JoltAdapter.h"
+#include "Engine/PhysicalDynamics/PhysicsExecutionThread.h"
 #include "Engine/PhysicalDynamics/RigidBodySolver.h"
 #include "Engine/PhysicalDynamics/Vehicle/VehicleJoltRig.h"
 #include "Engine/PhysicalDynamics/Vehicle/VehicleSolver.h"
@@ -12,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace Frontier;
@@ -755,6 +758,216 @@ void RunJoltCoupledVehicleVerification(const std::filesystem::path& OutputDir)
     }
 }
 
+void RunJoltAdapterWorldVerification()
+{
+    std::printf("\n[6/7] JoltAdapter Multi-Occupant World + Force Zones + Pit Enclosure + SLERP\n");
+
+    JoltAdapter World;
+    RigidBodyWorldSettings Settings{};
+    Settings.FixedStepSeconds = 1.0f / 240.0f;
+    Verify(World.Initialize(Settings), "JoltAdapter initializes Jolt broadphase and job pool");
+
+    // 1. Static ground plane
+    AdapterOccupantSpecification Ground{};
+    Ground.OccupantKey                = 1001u;
+    Ground.Body.Name                  = "WorldGround";
+    Ground.Body.Motion                = RigidBodyMotionCategory::Static;
+    Ground.Body.Shape.Category        = CollisionShapeCategory::Plane;
+    Ground.Body.Shape.PlaneNormal     = {0.0f, 0.0f, 1.0f};
+    Ground.Body.Shape.PlaneOffset     = 0.0f;
+    Ground.ForceZoneCoupled           = false;
+    Verify(World.RegisterOccupant(Ground) != InvalidRigidBody, "Static ground occupant registered in JoltAdapter");
+
+    // 2. Kinematic moving lift platform
+    AdapterOccupantSpecification Platform{};
+    Platform.OccupantKey              = 1002u;
+    Platform.Body.Name                = "KinematicPlatform";
+    Platform.Body.Motion              = RigidBodyMotionCategory::Kinematic;
+    Platform.Body.Position            = {8.0f, -4.0f, 0.4f};
+    Platform.Body.Shape.Category      = CollisionShapeCategory::Box;
+    Platform.Body.Shape.HalfExtents   = {2.0f, 2.0f, 0.2f};
+    Platform.ForceZoneCoupled         = false;
+    Verify(World.RegisterOccupant(Platform) != InvalidRigidBody, "Kinematic platform occupant registered");
+
+    // 3. Dynamic aerodynamic crate
+    AdapterOccupantSpecification WindCrate{};
+    WindCrate.OccupantKey             = 1003u;
+    WindCrate.Body.Name               = "AeroCrate";
+    WindCrate.Body.Motion             = RigidBodyMotionCategory::Dynamic;
+    WindCrate.Body.Position           = {6.0f, 4.0f, 1.5f};
+    WindCrate.Body.MassKilograms      = 18.0f;
+    WindCrate.Body.Friction           = 0.25f;
+    WindCrate.Body.Shape.Category     = CollisionShapeCategory::Box;
+    WindCrate.Body.Shape.HalfExtents  = {0.4f, 0.4f, 0.4f};
+    WindCrate.AerodynamicDragAreaM2   = 1.25f;
+    Verify(World.RegisterOccupant(WindCrate) != InvalidRigidBody, "Dynamic wind-coupled crate registered");
+
+    // 4. Fracture-ready crate dropped from height onto ground
+    AdapterOccupantSpecification FragileCrate{};
+    FragileCrate.OccupantKey                = 1004u;
+    FragileCrate.Body.Name                  = "FragileCrate";
+    FragileCrate.Body.Motion                = RigidBodyMotionCategory::Dynamic;
+    FragileCrate.Body.Position              = {-8.0f, 4.0f, 5.5f};
+    FragileCrate.Body.MassKilograms         = 25.0f;
+    FragileCrate.Body.Shape.Category        = CollisionShapeCategory::Box;
+    FragileCrate.Body.Shape.HalfExtents     = {0.35f, 0.35f, 0.35f};
+    FragileCrate.FractureImpulseThresholdNs = 40.0f;
+    FragileCrate.ForceZoneCoupled           = false;
+    Verify(World.RegisterOccupant(FragileCrate) != InvalidRigidBody, "Fracture-threshold occupant registered");
+
+    // 5. Register UniformWind + VortexFunnel force zones
+    AdapterForceZone Crosswind{};
+    Crosswind.ZoneKey          = 501u;
+    Crosswind.Category         = AdapterForceZoneCategory::UniformWind;
+    Crosswind.FlowVelocityMps  = {0.0f, 26.0f, 0.0f};
+    World.RegisterForceZone(Crosswind);
+
+    // 6. Register GT-04 vehicle inside the same JoltAdapter world
+    VehicleSolverConfiguration VehCfg{};
+    VehCfg.SoftBodyTyreMode = TyreFormulation::Fem3D;
+    Verify(World.RegisterVehicle(2001u, VehCfg, {0.0f, 0.0f, 0.60f}), "Vehicle registered in multi-occupant JoltAdapter");
+
+    DriverCommand DriveCmd{};
+    DriveCmd.Throttle = 0.75f;
+    World.ConfigureDriverInput(2001u, DriveCmd);
+
+    // Advance 90 outer ticks (1.5 s) with 4 substeps per tick (240 Hz inner)
+    for (int Tick = 0; Tick < 90; ++Tick)
+    {
+        const float TargetZ = 0.4f + 0.02f * static_cast<float>(Tick + 1);
+        World.ConfigureKinematicTarget(1002u, {8.0f, -4.0f, TargetZ}, Quat::AxisAngle({0.0f, 0.0f, 1.0f}, 0.015f * Tick));
+        World.ExecuteSubsteppedTick(1.0f / 60.0f, 4u);
+    }
+
+    WorldPhysicsSnapshot SnapMid{};
+    World.BuildWorldSnapshot(SnapMid, 0.5f);
+    Verify(SnapMid.OuterTickIndex == 90u && SnapMid.TotalSubstepCount == 360u,
+           "JoltAdapter tracks exact outer ticks and inner substeps",
+           FormatMetric("outer=%llu, sub=%llu",
+                        static_cast<unsigned long long>(SnapMid.OuterTickIndex),
+                        static_cast<unsigned long long>(SnapMid.TotalSubstepCount)));
+
+    AdapterOccupantSnapshot PlatSnap{}, WindSnap{}, FragSnap{};
+    Verify(World.SampleOccupantPose(1002u, 0.5f, PlatSnap) &&
+               PlatSnap.InterpolatedPosition.z > PlatSnap.PreviousPosition.z &&
+               PlatSnap.InterpolatedPosition.z < PlatSnap.CurrentPosition.z,
+           "Kinematic occupant SLERP/LERP midpoint sits strictly between PreviousPose and CurrentPose",
+           FormatMetric("prevZ=%.4f, midZ=%.4f, currZ=%.4f",
+                        PlatSnap.PreviousPosition.z, PlatSnap.InterpolatedPosition.z, PlatSnap.CurrentPosition.z));
+
+    Verify(World.SampleOccupantPose(1003u, 1.0f, WindSnap) && WindSnap.CurrentPosition.y > 4.25f,
+           "UniformWind force zone accelerates dynamic occupant downwind",
+           FormatMetric("crate y=%.3f m (vy=%.2f m/s)", WindSnap.CurrentPosition.y, WindSnap.LinearVelocityMps.y));
+
+    Verify(World.SampleOccupantPose(1004u, 1.0f, FragSnap) && FragSnap.FracturedCondition,
+           "Ground impact exceeding FractureImpulseThresholdNs marks occupant FracturedCondition",
+           FormatMetric("peakImpulse=%.1f N*s", FragSnap.PeakImpulseNs));
+
+    AdapterVehicleSnapshot VehSnap{};
+    Verify(World.SampleVehicleSnapshot(2001u, 0.5f, VehSnap) && VehSnap.CurrentChassisPos.x > 3.0f,
+           "Vehicle advances simultaneously inside multi-occupant JoltAdapter world",
+           FormatMetric("x=%.2f m, speed=%.1f km/h", VehSnap.CurrentChassisPos.x, VehSnap.Telemetry.SpeedKilometresPerHr));
+
+    // Pit-stop wheel detachment check
+    World.ConfigureWheelEnclosure(2001u, 0u, false);
+    World.ExecuteSubsteppedTick(1.0f / 60.0f, 4u);
+    World.SampleVehicleSnapshot(2001u, 1.0f, VehSnap);
+    Verify(!VehSnap.WheelEnclosed[0] && !VehSnap.Telemetry.Wheels[0].InContact && VehSnap.Telemetry.Wheels[1].InContact,
+           "Detaching FL wheel in pit lane clears ground contact on corner 0 while FR stays in contact");
+
+    World.ConfigureWheelEnclosure(2001u, 0u, true);
+    World.ExecuteSubsteppedTick(1.0f / 60.0f, 4u);
+    World.SampleVehicleSnapshot(2001u, 1.0f, VehSnap);
+    Verify(VehSnap.WheelEnclosed[0] && VehSnap.Telemetry.Wheels[0].InContact,
+           "Re-enclosing FL wheel restores tyre-road contact immediately");
+}
+
+void RunPhysicsExecutionThreadVerification()
+{
+    std::printf("\n[7/7] PhysicsExecutionThread Background std::jthread + Accumulator + Substepping\n");
+
+    PhysicsExecutionThread ThreadHost;
+    PhysicsThreadConfiguration ThreadCfg{};
+    ThreadCfg.OuterStepSeconds        = 1.0f / 60.0f;
+    ThreadCfg.SubstepCount            = 4u;
+    ThreadCfg.MaximumCatchUpSteps     = 4u;
+    ThreadCfg.AutonomousWallClockPace = false;
+    Verify(ThreadHost.Initialize(ThreadCfg), "PhysicsExecutionThread initializes JoltAdapter and state");
+
+    // Populate ground + dynamic sphere + vehicle via thread-safe command ingress
+    AdapterOccupantSpecification Ground{};
+    Ground.OccupantKey             = 1u;
+    Ground.Body.Motion             = RigidBodyMotionCategory::Static;
+    Ground.Body.Shape.Category     = CollisionShapeCategory::Plane;
+    Ground.Body.Shape.PlaneNormal  = {0.0f, 0.0f, 1.0f};
+    Ground.ForceZoneCoupled        = false;
+    ThreadHost.EnqueueOccupantRegistration(Ground);
+
+    AdapterOccupantSpecification Ball{};
+    Ball.OccupantKey            = 2u;
+    Ball.Body.Motion            = RigidBodyMotionCategory::Dynamic;
+    Ball.Body.Position          = {0.0f, 5.0f, 2.5f};
+    Ball.Body.MassKilograms     = 8.0f;
+    Ball.Body.Shape.Category    = CollisionShapeCategory::Sphere;
+    Ball.Body.Shape.Radius      = 0.35f;
+    ThreadHost.EnqueueOccupantRegistration(Ball);
+
+    VehicleSolverConfiguration VehCfg{};
+    VehCfg.SoftBodyTyreMode = TyreFormulation::Spring;
+    ThreadHost.EnqueueVehicleRegistration(10u, VehCfg, {0.0f, 0.0f, 0.60f});
+
+    DriverCommand GoCmd{};
+    GoCmd.Throttle = 0.85f;
+    ThreadHost.EnqueueDriverInput(10u, GoCmd);
+
+    Verify(ThreadHost.ActivateThread() && ThreadHost.ThreadActive(), "Background std::jthread physics loop activated");
+
+    // Submit 1.5 outer steps (25 ms at 60 Hz): must execute 1 outer tick (4 substeps) and retain 0.50 residual alpha!
+    ThreadHost.SubmitTimeBudget(1.5f / 60.0f);
+    ThreadHost.WaitForIdle();
+
+    const uint32_t MainHash = static_cast<uint32_t>(std::hash<std::thread::id>{}(std::this_thread::get_id()));
+    const PhysicsThreadDiagnostics Diag1 = ThreadHost.QueryDiagnostics();
+    Verify(Diag1.ThreadIdentifierHash != 0u && Diag1.ThreadIdentifierHash != MainHash,
+           "Physics substeps executed on dedicated background OS thread",
+           FormatMetric("mainHash=%u, physHash=%u", MainHash, Diag1.ThreadIdentifierHash));
+    Verify(Diag1.CompletedOuterTicks == 1u && Diag1.CompletedSubsteps == 4u &&
+               std::abs(Diag1.InterpolationFraction - 0.5f) < 0.02f,
+           "1.5 outer-step budget runs 1 outer tick (4 substeps) with 0.50 interpolation alpha",
+           FormatMetric("outer=%llu, sub=%llu, alpha=%.3f",
+                        static_cast<unsigned long long>(Diag1.CompletedOuterTicks),
+                        static_cast<unsigned long long>(Diag1.CompletedSubsteps),
+                        Diag1.InterpolationFraction));
+
+    // Advance 58.5 more outer steps (total 60 outer steps = 1.00 s simulated, 240 substeps, alpha -> 0.0)
+    for (int Frame = 0; Frame < 39; ++Frame)
+    {
+        ThreadHost.SubmitTimeBudget(1.5f / 60.0f);
+    }
+    ThreadHost.WaitForIdle();
+
+    WorldPhysicsSnapshot LiveSnap{};
+    ThreadHost.AcquireInterpolatedSnapshot(LiveSnap);
+    Verify(LiveSnap.OuterTickIndex == 60u && LiveSnap.TotalSubstepCount == 240u &&
+               !LiveSnap.Vehicles.empty() && LiveSnap.Vehicles[0].InterpolatedPos.x > 1.5f,
+           "Background physics thread completes 60 outer ticks (240 substeps) and publishes vehicle snapshot",
+           FormatMetric("vehX=%.2f m, wallStep=%.2f ms", LiveSnap.Vehicles[0].InterpolatedPos.x, LiveSnap.StepWallMilliseconds));
+
+    // Spiral-of-death hitch clamp test: submit 0.50 s (30 steps) when MaximumCatchUpSteps == 4
+    ThreadHost.SubmitTimeBudget(0.50f);
+    ThreadHost.WaitForIdle();
+    const PhysicsThreadDiagnostics DiagOverrun = ThreadHost.QueryDiagnostics();
+    Verify(DiagOverrun.ClampedOverrunEvents >= 1u && DiagOverrun.CompletedOuterTicks == 64u,
+           "Spiral-of-death guard clamps 30-step hitch to MaximumCatchUpSteps (4)",
+           FormatMetric("overruns=%llu, outer=%llu",
+                        static_cast<unsigned long long>(DiagOverrun.ClampedOverrunEvents),
+                        static_cast<unsigned long long>(DiagOverrun.CompletedOuterTicks)));
+
+    ThreadHost.SuspendThread();
+    Verify(!ThreadHost.ThreadActive(), "Background physics thread suspends cleanly on request");
+    ThreadHost.Finalize();
+}
+
 } // namespace
 
 int main(int ArgumentCount, char** Arguments)
@@ -773,6 +986,8 @@ int main(int ArgumentCount, char** Arguments)
     RunGritSubsystemsVerification(OutputDir);
     RunThreeSoftBodyModelsVerification(OutputDir);
     RunJoltCoupledVehicleVerification(OutputDir);
+    RunJoltAdapterWorldVerification();
+    RunPhysicsExecutionThreadVerification();
 
     std::printf("\n====================================================================================================\n");
     std::printf("  SUMMARY: %d passed, %d failed\n", PassedChecks, FailedChecks);

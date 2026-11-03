@@ -1,6 +1,6 @@
 # Vehicle catalogue validation
 
-Generated 2026-11-03T19:28:09.712Z · Node v22.22.3 · 70/70 checks passed.
+Generated 2026-11-03T20:11:39.941Z · Node v22.22.3 · 89/89 checks passed.
 
 | Check | Result | Observed |
 |-------|--------|----------|
@@ -64,10 +64,29 @@ Generated 2026-11-03T19:28:09.712Z · Node v22.22.3 · 70/70 checks passed.
 | record contains redline_rpm = 7800 | ✔️ pass | redline_rpm = 7800 |
 | record contains [vehicle.thermal] | ✔️ pass | [vehicle.thermal] |
 | record contains [vehicle.aids] | ✔️ pass | [vehicle.aids] |
+| record contains [vehicle.induction] | ✔️ pass | [vehicle.induction] |
+| record contains compressor_type = "TwinScrew" | ✔️ pass | compressor_type = "TwinScrew" |
+| record contains [vehicle.differential] | ✔️ pass | [vehicle.differential] |
+| record contains type = "ClutchPack15Way" | ✔️ pass | type = "ClutchPack15Way" |
+| record contains [vehicle.suspension] | ✔️ pass | [vehicle.suspension] |
+| record contains front_spring_kn_m = 48 | ✔️ pass | front_spring_kn_m = 48 |
+| record contains [vehicle.steering] | ✔️ pass | [vehicle.steering] |
+| record contains ackermann_percent = 78 | ✔️ pass | ackermann_percent = 78 |
+| record contains [vehicle.soft_body] | ✔️ pass | [vehicle.soft_body] |
+| record contains formulation = "Fem3D" | ✔️ pass | formulation = "Fem3D" |
+| record contains slip_mode = "GritImplicitNewton" | ✔️ pass | slip_mode = "GritImplicitNewton" |
+| record contains [vehicle.aero_active] | ✔️ pass | [vehicle.aero_active] |
+| record contains ground_effect_peak_gain = 1.38 | ✔️ pass | ground_effect_peak_gain = 1.38 |
+| record contains [vehicle.fluids] | ✔️ pass | [vehicle.fluids] |
+| record contains oil_grade = "5W-40" | ✔️ pass | oil_grade = "5W-40" |
+| record contains [vehicle.simulation] | ✔️ pass | [vehicle.simulation] |
+| record contains substeps_per_outer_tick = 4 | ✔️ pass | substeps_per_outer_tick = 4 |
 | record contains [vehicle.curves] | ✔️ pass | [vehicle.curves] |
 | record contains engine_torque_points = [[ | ✔️ pass | engine_torque_points = [[ |
 | record contains [vehicle.tyres.tyre_front_left] | ✔️ pass | [vehicle.tyres.tyre_front_left] |
 | record contains [vehicle.tyres.tyre_rear_right] | ✔️ pass | [vehicle.tyres.tyre_rear_right] |
+| record contains pacejka_cx = 1.65 | ✔️ pass | pacejka_cx = 1.65 |
+| record contains punctured = false | ✔️ pass | punctured = false |
 | record contains enclosed = true | ✔️ pass | enclosed = true |
 | record contains [vehicle.pit_lane] | ✔️ pass | [vehicle.pit_lane] |
 | record contains detached = ["TyreRearLeft"] | ✔️ pass | detached = ["TyreRearLeft"] |

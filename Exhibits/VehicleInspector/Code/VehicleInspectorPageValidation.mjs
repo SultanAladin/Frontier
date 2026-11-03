@@ -109,7 +109,7 @@ for (const Group of ['Rendering', 'Environment', 'Vehicle', 'Pit lane'])
 Assert('vehicle record is selectable', !!FindByText('.tree-row', 'Vehicle · GT-04'), 'Vehicle · GT-04');
 Assert('four tyre records are nested under the vehicle', All('.tree-row.nested').length === 4, `${All('.tree-row.nested').length} nested`);
 
-const SectionIds = ['Identity', 'Engine', 'Curves', 'Thermal', 'Tyres', 'Aero', 'Performance', 'Record'];
+const SectionIds = ['Identity', 'Engine', 'Suspension', 'SoftBody', 'Curves', 'Thermal', 'Tyres', 'Aero', 'Simulation', 'Performance', 'Record'];
 for (const Id of SectionIds) Assert(`section · ${Id}`, !!Document.getElementById('Section-' + Id), `#Section-${Id}`);
 Assert('section tabs match the sections', All('.section-tab').length === SectionIds.length, `${All('.section-tab').length} tabs`);
 
@@ -245,6 +245,9 @@ Assert('the controls still answer after a rebuild', All('.control-row').length >
 
 const RecordText = Text('#Section-Record .levelspace');
 Assert('the record writes the tyre tables', RecordText.includes('[vehicle.tyres.tyre_front_left]'), 'tyre table present');
+Assert('the record writes the induction and supercharger table', RecordText.includes('[vehicle.induction]') && RecordText.includes('TwinScrew'), 'induction table present');
+Assert('the record writes the soft-body FEM and slip table', RecordText.includes('[vehicle.soft_body]') && RecordText.includes('Fem3D'), 'soft_body table present');
+Assert('the record writes the suspension and Jolt substep tables', RecordText.includes('[vehicle.suspension]') && RecordText.includes('[vehicle.simulation]'), 'suspension & simulation tables present');
 Assert('the record writes the curves as point arrays', RecordText.includes('engine_torque_points = [['), 'curve points present');
 Assert('the record writes the enclosure', RecordText.includes('enclosed = true'), 'enclosed = true');
 Assert('the record is marked proposed', RecordText.includes('# proposed'), 'proposed marker');

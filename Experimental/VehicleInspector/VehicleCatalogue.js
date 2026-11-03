@@ -30,10 +30,16 @@ const VehicleCatalogue = (() =>
         Degree:      { Metric: { Symbol: '°',    Scale: 1,            Offset: 0 }, Imperial: { Symbol: '°',       Scale: 1,            Offset: 0 } },
         Ratio:       { Metric: { Symbol: '×',    Scale: 1,            Offset: 0 }, Imperial: { Symbol: '×',       Scale: 1,            Offset: 0 } },
         Seconds:     { Metric: { Symbol: 's',    Scale: 1,            Offset: 0 }, Imperial: { Symbol: 's',       Scale: 1,            Offset: 0 } },
-        Litres:      { Metric: { Symbol: 'L',    Scale: 1,            Offset: 0 }, Imperial: { Symbol: 'L',       Scale: 1,            Offset: 0 } },
-        Flow:        { Metric: { Symbol: 'kg/h', Scale: 1,            Offset: 0 }, Imperial: { Symbol: 'lb/h',    Scale: 2.20462262,   Offset: 0 } },
-        Boost:       { Metric: { Symbol: 'bar',  Scale: 1,            Offset: 0 }, Imperial: { Symbol: 'psi',     Scale: 14.5037738,   Offset: 0 } },
-        Inertia:     { Metric: { Symbol: 'kg·m²',Scale: 1,            Offset: 0 }, Imperial: { Symbol: 'slug·ft²',Scale: 23.7303604,   Offset: 0 } }
+        Litres:         { Metric: { Symbol: 'L',     Scale: 1,            Offset: 0 }, Imperial: { Symbol: 'L',        Scale: 1,             Offset: 0 } },
+        Flow:           { Metric: { Symbol: 'kg/h',  Scale: 1,            Offset: 0 }, Imperial: { Symbol: 'lb/h',     Scale: 2.20462262,    Offset: 0 } },
+        Boost:          { Metric: { Symbol: 'bar',   Scale: 1,            Offset: 0 }, Imperial: { Symbol: 'psi',      Scale: 14.5037738,    Offset: 0 } },
+        Inertia:        { Metric: { Symbol: 'kg·m²', Scale: 1,            Offset: 0 }, Imperial: { Symbol: 'slug·ft²', Scale: 23.7303604,    Offset: 0 } },
+        Stiffness:      { Metric: { Symbol: 'kN/m',  Scale: 1,            Offset: 0 }, Imperial: { Symbol: 'lbf/in',   Scale: 5.71014716,    Offset: 0 } },
+        Damping:        { Metric: { Symbol: 'N·s/m', Scale: 1,            Offset: 0 }, Imperial: { Symbol: 'lbf·s/in', Scale: 0.00571014716, Offset: 0 } },
+        Modulus:        { Metric: { Symbol: 'MPa',   Scale: 1,            Offset: 0 }, Imperial: { Symbol: 'psi',      Scale: 145.037738,    Offset: 0 } },
+        Frequency:      { Metric: { Symbol: 'Hz',    Scale: 1,            Offset: 0 }, Imperial: { Symbol: 'Hz',       Scale: 1,             Offset: 0 } },
+        Milliseconds:   { Metric: { Symbol: 'ms',    Scale: 1,            Offset: 0 }, Imperial: { Symbol: 'ms',       Scale: 1,             Offset: 0 } },
+        DisplacementCc: { Metric: { Symbol: 'cm³',   Scale: 1,            Offset: 0 }, Imperial: { Symbol: 'in³',      Scale: 0.0610237441,  Offset: 0 } }
     };
 
     function ResolveUnitDefinition(UnitKey, System)
@@ -197,16 +203,16 @@ const VehicleCatalogue = (() =>
         return Basis0 * Points[Lower][1] + Basis1 * Span * Start[Lower] + Basis2 * Points[Upper][1] + Basis3 * Span * Start[Upper];
     }
 
-    // 📝 Tangents depend on the whole point list, so they are cached per list identity and dropped when a point moves.
-    const TangentCache = new WeakMap();
+    // 📝 Tangents depend on the whole point list, so they are retained per list identity and dropped when a point moves.
+    const TangentTable = new WeakMap();
 
     function ResolveTangents(Points)
     {
-        let Tangents = TangentCache.get(Points);
+        let Tangents = TangentTable.get(Points);
         if (!Tangents)
         {
             Tangents = ResolveMonotoneTangents(Points);
-            TangentCache.set(Points, Tangents);
+            TangentTable.set(Points, Tangents);
         }
         return Tangents;
     }
@@ -217,10 +223,10 @@ const VehicleCatalogue = (() =>
         return EvaluateCurveSamples(Points, Profile.Interpolation, X);
     }
 
-    // 📝 A moved or removed point changes the tangents of its neighbours; the cache entry must go with it.
+    // 📝 A moved or removed point changes the tangents of its neighbours; the retained entry must go with it.
     function InvalidateCurvePointTangents(Profile)
     {
-        TangentCache.delete(Profile.Points);
+        TangentTable.delete(Profile.Points);
     }
 
     function ResolveCurvePeak(Profile, Specification, Profiles)
@@ -351,11 +357,122 @@ const VehicleCatalogue = (() =>
                 Reserve: 12                  // [%]    - Reserve warning at this share of the tank
             },
             Telemetry: {
-                SampleRate: 30               // [Hz]   - Debug dock only; never part of the driving model
+                SampleRate: 30               // [Hz]   - Debug dock only; never part of the driving solver
             },
             Aids: {
-                TractionControl: true, AntiLockBrakes: true, LaunchControl: false,
+                TractionControl: true, StabilityControl: true, AntiLockBrakes: true, LaunchControl: false,
                 DrsEnabled: false, RevLimiter: true, Telemetry: true
+            },
+            Induction: {
+                Mode: 'Supercharged',            // [-]    - NaturallyAspirated | Turbocharged | Supercharged
+                RaceTune: false,                 // [-]    - +33 % peak boost & aggressive spark calibration
+                CompressorType: 'TwinScrew',     // [-]    - Roots | TwinScrew | Centrifugal
+                DriveRatio: 2.15,                // [×]    - Pulley speed ratio ω_sc / ω_crank
+                DisplacementCc: 1850,            // [cm³]  - Positive-displacement volume per compressor rev
+                SuperchargerMaxBoost: 0.80,      // [bar]  - Peak manifold boost from compressor
+                PeakParasiticTorque: 34,         // [N·m]  - Crankshaft parasitic drag at redline WOT
+                BypassParasiticPercent: 9,       // [%]    - Residual parasitic drag with bypass valve open
+                BypassThrottlePercent: 12,       // [%]    - Throttle threshold closing the bypass valve
+                TurboSpoolUpRate: 3.6,           // [1/s]  - Turbine spool-up rate
+                TurboSpoolDownRate: 6.5,         // [1/s]  - Blow-off decay rate
+                MinExhaustRpm: 1900,             // [rpm]  - Exhaust mass-flow threshold
+                FullBoostRpm: 3600,              // [rpm]  - Full turbine boost engine speed
+                TorqueGainPerBar: 0.58           // [×]    - Crankshaft torque gain per bar of boost
+            },
+            Differential: {
+                Type: 'ClutchPack15Way',         // [-]    - Open | Locked | ClutchPack15Way | Torsen
+                PreloadTorque: 85,               // [N·m]  - Static clutch-pack preload torque
+                PowerLockPercent: 52,            // [%]    - Drive-side cam lock ratio
+                CoastLockPercent: 28,            // [%]    - Overrun/braking cam lock ratio
+                TorsenBiasRatio: 2.8,            // [×]    - Helical torque-bias ratio (TBR)
+                FrontTorqueSplitPercent: 35,     // [%]    - Centre-diff front share when Layout = All
+                ShiftDurationMs: 65,             // [ms]   - Dual-clutch / dog-box shift cut duration
+                ClutchCapacity: 920              // [N·m]  - Peak clutch plate torque capacity
+            },
+            Suspension: {
+                FrontSpringRate: 48,             // [kN/m] - Front linear coilover spring stiffness
+                RearSpringRate: 54,              // [kN/m] - Rear linear coilover spring stiffness
+                ProgressiveFactor: 0.28,         // [×]    - Progressive cubic spring hardening coefficient
+                FrontRestLength: 340,            // [mm]   - Unloaded front strut length
+                RearRestLength: 350,             // [mm]   - Unloaded rear strut length
+                MinStrutLength: 230,             // [mm]   - Full jounce bump-stop limit
+                MaxStrutLength: 440,             // [mm]   - Full droop rebound limit
+                FrontBumpDamping: 4200,          // [N·s/m]- Front low-speed compression damping
+                FrontReboundDamping: 6800,       // [N·s/m]- Front low-speed rebound damping
+                RearBumpDamping: 4500,           // [N·s/m]- Rear low-speed compression damping
+                RearReboundDamping: 7200,        // [N·s/m]- Rear low-speed rebound damping
+                HighSpeedDampingRatio: 0.42,     // [×]    - Digressive blow-off slope above knee speed
+                DamperKneeSpeed: 0.16,           // [m/s]  - Digressive damper knee velocity
+                BumpStopStiffness: 185,          // [kN/m] - Polyurethane jounce bumper stiffness
+                FrontStaticCamber: -2.1,         // [°]    - Static front camber angle
+                RearStaticCamber: -1.6,          // [°]    - Static rear camber angle
+                CamberGainPerMetre: -4.2,        // [°]    - Dynamic camber gain per 100 mm compression
+                FrontAntiRollRate: 24,           // [kN/m] - Front anti-roll bar stiffness
+                RearAntiRollRate: 19             // [kN/m] - Rear anti-roll bar stiffness
+            },
+            Steering: {
+                MaxInnerAngle: 33,               // [°]    - Maximum inner front wheel steer lock
+                SteeringRatio: 13.8,             // [×]    - Steering wheel to road-wheel ratio
+                AckermannPercent: 78,            // [%]    - 0 % parallel, 100 % pure Ackermann
+                SpeedSensitiveFloorPercent: 42,  // [%]    - High-speed authority floor
+                SpeedSensitiveHalfSpeed: 105,    // [km/h] - Speed where authority reaches midpoint
+                MaxSteerRate: 240,               // [°/s]  - Rack rate limit
+                MechanicalTrail: 28,             // [mm]   - Caster mechanical trail for SAT feedback
+                EscYawGain: 0.85,                // [×]    - Electronic stability yaw-rate gain
+                EscMaxBrakePercent: 55,          // [%]    - Peak single-corner ESC brake intervention
+                TcsSlipThresholdPercent: 11,     // [%]    - Traction control target longitudinal slip
+                AbsSlipThresholdPercent: 14      // [%]    - Anti-lock brake target longitudinal slip
+            },
+            SoftBody: {
+                Formulation: 'Fem3D',            // [-]    - Spring | Xpbd | Fem3D
+                SlipMode: 'GritImplicitNewton',  // [-]    - GritImplicitNewton | RelaxationLength | QuasiStaticNewton
+                CircumferentialNodes: 24,        // [-]    - Carcass circumferential node count
+                LateralRings: 3,                 // [-]    - Tread lateral ring count (inner/crown/outer)
+                VerticalStiffness: 215,          // [kN/m] - Reference carcass radial stiffness
+                PressureStiffnessGain: 1.00,     // [×]    - Pneumatic stiffness scaling dK/dP
+                RadialCompliance: 18,            // [µm/N] - XPBD radial spoke compliance (×1e-6 m/N)
+                ShearCompliance: 34,             // [µm/N] - XPBD circumferential belt compliance (×1e-6 m/N)
+                BendingCompliance: 95,           // [µm/N] - XPBD sidewall bending compliance (×1e-6 m/N)
+                PneumaticVolumeWeight: 82,       // [%]    - Enclosed pneumatic cavity volume preservation
+                XpbdSubsteps: 4,                 // [-]    - XPBD substeps per physics tick
+                XpbdIterations: 4,               // [-]    - XPBD Gauss-Seidel constraint iterations
+                MaxContactBulgePercent: 22,      // [%]    - Sidewall Poisson bulge ratio under load
+                FemSubsteps: 10,                 // [-]    - Explicit symplectic Euler Hex8 FEM substeps
+                FemYoungsModulusMpa: 2.6,        // [MPa]  - Neo-Hookean rubber carcass Young's modulus
+                FemPoissonRatio: 0.43,           // [×]    - Nearly-incompressible rubber Poisson ratio
+                FemNodeMassKg: 0.14,             // [kg]   - Lumped mass per Hex8 finite-element vertex
+                FemDampingRate: 14               // [Hz]   - Rayleigh mass-proportional damping rate (1/s)
+            },
+            AeroActive: {
+                CenterOfPressureFrontPercent: 46,// [%]    - Static aerodynamic front balance
+                PitchSensitivity: 1.15,          // [×]    - Forward CoP migration per rad nose-down pitch
+                DrsDragReductionPercent: 26,     // [%]    - Rear-wing drag reduction with DRS open
+                DrsDownforceLossPercent: 34,     // [%]    - Rear-wing downforce loss with DRS open
+                DrsActivationSpeed: 130,         // [km/h] - Minimum speed permitting DRS deployment
+                AirbrakeDragAddition: 0.24,      // [×]    - Additional Cd under heavy braking
+                AirbrakeDownforceGain: 380,      // [N]    - Rear airbrake downforce addition at 200 km/h
+                GroundEffectOptimalHeight: 68,   // [mm]   - Venturi floor peak suction ride height
+                GroundEffectPeakGain: 1.38,      // [×]    - Venturi floor peak downforce multiplier
+                GroundEffectChokeHeight: 28,     // [mm]   - Ride height below which diffuser stalls
+                HandbrakeTorque: 1850,           // [N·m]  - Mechanical rear axle handbrake torque
+                BrakeFadeStart: 560,             // [°C]   - Rotor temperature where pad fade begins
+                MaxBrakeFadePercent: 42,         // [%]    - Worst-case brake torque loss at peak fade
+                LineLockFrontOnly: false         // [-]    - Holds front callipers only for burnout staging
+            },
+            Fluids: {
+                OilGrade: '5W-40',               // [-]    - 0W-20 | 5W-30 | 5W-40 | 10W-60
+                CoolantHeatCapacityKjK: 24.5,    // [×]    - Lumped block + coolant heat capacity [kJ/K]
+                RadiatorAirflowGain: 0.62,       // [×]    - Speed-proportional ram-air heat rejection
+                RadiatorFanThreshold: 96,        // [°C]   - Electric radiator fan cut-in temperature
+                OverheatDerateStart: 116,        // [°C]   - Coolant temperature triggering limp torque cut
+                SpecificFuelBurnGkwh: 248        // [×]    - Brake-specific fuel consumption [g/kWh]
+            },
+            Simulation: {
+                OuterTickHz: 60,                 // [Hz]   - PhysicsExecutionThread outer fixed rate
+                SubstepsPerOuterTick: 4,         // [-]    - Inner Jolt + tyre substeps per outer tick
+                MaximumCatchUpSteps: 6,          // [-]    - Spiral-of-death frame clamp
+                StationarityHold: true,          // [-]    - Coupled Coulomb-cone slope hold at rest
+                ForceZoneCoupling: true          // [-]    - Couples world wind/vortex/impulse zones
             }
         };
     }
@@ -395,7 +512,13 @@ const VehicleCatalogue = (() =>
             Radius: 342,                 // [mm]   - Loaded radius
             Width: 305,                  // [mm]   - Section width
             CarcassPressure: 240,        // [kPa]  - Inflation at temperature
-            ContactPatchLoad: 3.1        // [kN]   - Standing load
+            ContactPatchLoad: 3.1,       // [kN]   - Standing load
+            BeltTemperature: 81,         // [°C]   - 3-node intermediate carcass belt temperature
+            GasTemperature: 76,          // [°C]   - Internal pneumatic cavity gas temperature (PV=mRT)
+            PacejkaLongitudinalShape: 1.65, // [×] - MF6.1 longitudinal shape factor PCx1
+            PacejkaLateralShape: 1.32,   // [×]    - MF6.1 lateral shape factor PCy1
+            LoadSensitivity: 0.14,       // [×]    - Friction decay per kN of normal load
+            Punctured: false             // [-]    - Carcass blowout / rapid deflation state
         }));
     }
 
@@ -688,6 +811,121 @@ const VehicleCatalogue = (() =>
         Lines.push('[vehicle.aids]');
         for (const [Key, Setting] of Object.entries(Aids))
             Lines.push(`${Key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()} = ${Setting}`);
+        if (Specification.Induction)
+        {
+            const Ind = Specification.Induction;
+            Lines.push('');
+            Lines.push('[vehicle.induction]');
+            Lines.push(`mode = "${Ind.Mode}"`);
+            Lines.push(`race_tune = ${Ind.RaceTune}`);
+            Lines.push(`compressor_type = "${Ind.CompressorType}"`);
+            Lines.push(`drive_ratio = ${Ind.DriveRatio.toFixed(2)}`);
+            Lines.push(`displacement_cc = ${Ind.DisplacementCc}`);
+            Lines.push(`supercharger_max_boost_bar = ${Ind.SuperchargerMaxBoost.toFixed(2)}`);
+            Lines.push(`peak_parasitic_torque_nm = ${Ind.PeakParasiticTorque}`);
+            Lines.push(`bypass_parasitic_percent = ${Ind.BypassParasiticPercent}`);
+            Lines.push(`bypass_throttle_percent = ${Ind.BypassThrottlePercent}`);
+            Lines.push(`turbo_spool_up_rate = ${Ind.TurboSpoolUpRate.toFixed(2)}`);
+            Lines.push(`turbo_spool_down_rate = ${Ind.TurboSpoolDownRate.toFixed(2)}`);
+            Lines.push(`torque_gain_per_bar = ${Ind.TorqueGainPerBar.toFixed(2)}`);
+        }
+        if (Specification.Differential)
+        {
+            const Diff = Specification.Differential;
+            Lines.push('');
+            Lines.push('[vehicle.differential]');
+            Lines.push(`type = "${Diff.Type}"`);
+            Lines.push(`preload_torque_nm = ${Diff.PreloadTorque}`);
+            Lines.push(`power_lock_percent = ${Diff.PowerLockPercent}`);
+            Lines.push(`coast_lock_percent = ${Diff.CoastLockPercent}`);
+            Lines.push(`torsen_bias_ratio = ${Diff.TorsenBiasRatio.toFixed(2)}`);
+            Lines.push(`front_torque_split_percent = ${Diff.FrontTorqueSplitPercent}`);
+            Lines.push(`shift_duration_ms = ${Diff.ShiftDurationMs}`);
+            Lines.push(`clutch_capacity_nm = ${Diff.ClutchCapacity}`);
+        }
+        if (Specification.Suspension)
+        {
+            const Susp = Specification.Suspension;
+            Lines.push('');
+            Lines.push('[vehicle.suspension]');
+            Lines.push(`front_spring_kn_m = ${Susp.FrontSpringRate}`);
+            Lines.push(`rear_spring_kn_m = ${Susp.RearSpringRate}`);
+            Lines.push(`progressive_factor = ${Susp.ProgressiveFactor.toFixed(2)}`);
+            Lines.push(`front_rest_length_mm = ${Susp.FrontRestLength}`);
+            Lines.push(`rear_rest_length_mm = ${Susp.RearRestLength}`);
+            Lines.push(`front_bump_damping_ns_m = ${Susp.FrontBumpDamping}`);
+            Lines.push(`front_rebound_damping_ns_m = ${Susp.FrontReboundDamping}`);
+            Lines.push(`rear_bump_damping_ns_m = ${Susp.RearBumpDamping}`);
+            Lines.push(`rear_rebound_damping_ns_m = ${Susp.RearReboundDamping}`);
+            Lines.push(`high_speed_damping_ratio = ${Susp.HighSpeedDampingRatio.toFixed(2)}`);
+            Lines.push(`damper_knee_speed_mps = ${Susp.DamperKneeSpeed.toFixed(2)}`);
+            Lines.push(`front_anti_roll_kn_m = ${Susp.FrontAntiRollRate}`);
+            Lines.push(`rear_anti_roll_kn_m = ${Susp.RearAntiRollRate}`);
+            Lines.push(`front_static_camber_deg = ${Susp.FrontStaticCamber.toFixed(2)}`);
+            Lines.push(`rear_static_camber_deg = ${Susp.RearStaticCamber.toFixed(2)}`);
+        }
+        if (Specification.Steering)
+        {
+            const Steer = Specification.Steering;
+            Lines.push('');
+            Lines.push('[vehicle.steering]');
+            Lines.push(`max_inner_angle_deg = ${Steer.MaxInnerAngle}`);
+            Lines.push(`steering_ratio = ${Steer.SteeringRatio.toFixed(2)}`);
+            Lines.push(`ackermann_percent = ${Steer.AckermannPercent}`);
+            Lines.push(`speed_sensitive_floor_percent = ${Steer.SpeedSensitiveFloorPercent}`);
+            Lines.push(`esc_yaw_gain = ${Steer.EscYawGain.toFixed(2)}`);
+            Lines.push(`tcs_slip_threshold_percent = ${Steer.TcsSlipThresholdPercent}`);
+            Lines.push(`abs_slip_threshold_percent = ${Steer.AbsSlipThresholdPercent}`);
+        }
+        if (Specification.SoftBody)
+        {
+            const Sb = Specification.SoftBody;
+            Lines.push('');
+            Lines.push('[vehicle.soft_body]');
+            Lines.push(`formulation = "${Sb.Formulation}"`);
+            Lines.push(`slip_mode = "${Sb.SlipMode}"`);
+            Lines.push(`circumferential_nodes = ${Sb.CircumferentialNodes}`);
+            Lines.push(`lateral_rings = ${Sb.LateralRings}`);
+            Lines.push(`vertical_stiffness_kn_m = ${Sb.VerticalStiffness}`);
+            Lines.push(`xpbd_substeps = ${Sb.XpbdSubsteps}`);
+            Lines.push(`xpbd_iterations = ${Sb.XpbdIterations}`);
+            Lines.push(`fem_substeps = ${Sb.FemSubsteps}`);
+            Lines.push(`fem_youngs_modulus_mpa = ${Sb.FemYoungsModulusMpa.toFixed(2)}`);
+            Lines.push(`fem_poisson_ratio = ${Sb.FemPoissonRatio.toFixed(3)}`);
+        }
+        if (Specification.AeroActive)
+        {
+            const Aero = Specification.AeroActive;
+            Lines.push('');
+            Lines.push('[vehicle.aero_active]');
+            Lines.push(`cop_front_percent = ${Aero.CenterOfPressureFrontPercent}`);
+            Lines.push(`drs_drag_reduction_percent = ${Aero.DrsDragReductionPercent}`);
+            Lines.push(`airbrake_drag_addition = ${Aero.AirbrakeDragAddition.toFixed(2)}`);
+            Lines.push(`ground_effect_optimal_height_mm = ${Aero.GroundEffectOptimalHeight}`);
+            Lines.push(`ground_effect_peak_gain = ${Aero.GroundEffectPeakGain.toFixed(2)}`);
+            Lines.push(`line_lock_front_only = ${Aero.LineLockFrontOnly}`);
+        }
+        if (Specification.Fluids)
+        {
+            const Fl = Specification.Fluids;
+            Lines.push('');
+            Lines.push('[vehicle.fluids]');
+            Lines.push(`oil_grade = "${Fl.OilGrade}"`);
+            Lines.push(`radiator_fan_threshold_c = ${Fl.RadiatorFanThreshold}`);
+            Lines.push(`overheat_derate_start_c = ${Fl.OverheatDerateStart}`);
+            Lines.push(`specific_fuel_burn_g_kwh = ${Fl.SpecificFuelBurnGkwh}`);
+        }
+        if (Specification.Simulation)
+        {
+            const Sim = Specification.Simulation;
+            Lines.push('');
+            Lines.push('[vehicle.simulation]');
+            Lines.push(`outer_tick_hz = ${Sim.OuterTickHz}`);
+            Lines.push(`substeps_per_outer_tick = ${Sim.SubstepsPerOuterTick}`);
+            Lines.push(`maximum_catch_up_steps = ${Sim.MaximumCatchUpSteps}`);
+            Lines.push(`stationarity_hold = ${Sim.StationarityHold}`);
+            Lines.push(`force_zone_coupling = ${Sim.ForceZoneCoupling}`);
+        }
         Lines.push('');
         Lines.push('[vehicle.curves]');
         for (const Profile of Profiles)
@@ -713,6 +951,11 @@ const VehicleCatalogue = (() =>
             Lines.push(`tread_depth_mm = ${Tyre.TreadDepth.toFixed(1)}`);
             Lines.push(`radius_mm = ${Tyre.Radius}`);
             Lines.push(`width_mm = ${Tyre.Width}`);
+            Lines.push(`belt_temperature_c = ${Tyre.BeltTemperature}`);
+            Lines.push(`gas_temperature_c = ${Tyre.GasTemperature}`);
+            Lines.push(`pacejka_cx = ${Tyre.PacejkaLongitudinalShape.toFixed(2)}`);
+            Lines.push(`pacejka_cy = ${Tyre.PacejkaLateralShape.toFixed(2)}`);
+            Lines.push(`punctured = ${Tyre.Punctured}`);
             Lines.push(`enclosed = ${Tyre.Enclosed}`);
         }
         if (Detached && Detached.length)
