@@ -1,0 +1,15 @@
+{
+  "Cells": 64,
+  "CellSizeM": 8,
+  "Peak0M": 4,
+  "Steps": 177,
+  "SimTimeS": 3.54,
+  "MaxNeighbourM": 2.3032028675079346,
+  "SettledM": 0.029902100563049316,
+  "InitialMassM": 226.1946710584651,
+  "MaxMassM": 90.8533561187897,
+  "RippleReachedNeighbours": true,
+  "DampedToRest": true,
+  "MassBounded": true,
+  "Pass": true
+}

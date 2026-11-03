@@ -22,6 +22,7 @@ Single progress and violation tracker. Detailed evidence belongs in Exhibits, no
 | 014 | Control Centre and quick panel        | CPU checked | Windows interaction validation next.  |
 | 015 | Open fonts and catalogue              | Checked     | Four families, 30 faces, OFL retained. |
 | 016 | Appearance persistence                | Checked     | Reload and invalid-save checks passed.|
+| 017 | Terrain World Generator prototype     | Implemented | SDF height field, sculpt brushes, 2.5D water simulation, adaptive ocean tessellation, Unreal-style WASD fly camera, separate editor pane; verified via node --check, water simulation validation (Pass), height-map preview PNG; live on http.server port 8000 |
 
 ## Verification
 
