@@ -114,11 +114,12 @@ IconDomain IconArt::Domain(IconSymbol Symbol) noexcept
     const std::string_view Path = Filename(Symbol);
     if (Path.starts_with("Texture/")) return IconDomain::Texture;
     if (Path.starts_with("Fluid/")) return IconDomain::Fluid;
+    if (Path.starts_with("SolidArc/")) return IconDomain::SolidArc;
     return IconDomain::Editor;
 }
 bool IconArt::Available(IconSymbol Symbol, IconDomain Workspace) noexcept
 {
-    return Symbol < IconSymbol::Count && Workspace <= IconDomain::Fluid &&
+    return Symbol < IconSymbol::Count && Workspace <= IconDomain::SolidArc &&
         (Domain(Symbol) == IconDomain::Editor || Domain(Symbol) == Workspace);
 }
 std::vector<IconSymbol> IconArt::Catalogue(IconDomain Workspace)

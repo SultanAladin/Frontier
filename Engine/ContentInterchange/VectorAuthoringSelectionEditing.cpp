@@ -74,17 +74,47 @@ void TransformSource(VectorCoverageInstruction &Source, const VectorAuthoringSou
         Source.Bounds[3] *= Orthogonal ? Patch.ScaleX : Patch.ScaleY;
         Source.Transform[0] += Patch.Rotation;
     }
-    if (Patch.Colour) Source.Colour = *Patch.Colour;
+    if (Patch.Colour)
+    {
+        Source.Colour = *Patch.Colour;
+        if (!Patch.StrokeColour && !(Source.Topology[3] & VectorCoverageStrokeColourExplicit))
+            Source.StrokeColour = *Patch.Colour;
+    }
     if (Patch.ColourEnd) Source.ColourEnd = *Patch.ColourEnd;
+    if (Patch.GradientStopPositions) Source.GradientStopPositions = *Patch.GradientStopPositions;
+    if (Patch.GradientStopColour2) Source.GradientStopColour2 = *Patch.GradientStopColour2;
+    if (Patch.GradientStopColour3) Source.GradientStopColour3 = *Patch.GradientStopColour3;
+    if (Patch.GradientAxis) Source.GradientAxis = *Patch.GradientAxis;
     if (Patch.StrokeColour)
     {
         Source.StrokeColour = *Patch.StrokeColour;
         Source.Topology[3] |= VectorCoverageStrokeColourExplicit;
     }
+    if (Patch.StrokeColourEnd) Source.StrokeColourEnd = *Patch.StrokeColourEnd;
+    if (Patch.StrokeGradientStopPositions) Source.StrokeGradientStopPositions = *Patch.StrokeGradientStopPositions;
+    if (Patch.StrokeGradientStopColour2) Source.StrokeGradientStopColour2 = *Patch.StrokeGradientStopColour2;
+    if (Patch.StrokeGradientStopColour3) Source.StrokeGradientStopColour3 = *Patch.StrokeGradientStopColour3;
+    if (Patch.StrokeGradientAxis) Source.StrokeGradientAxis = *Patch.StrokeGradientAxis;
+    if (Patch.StrokePaintCategory) Source.ShapeParameters[1] = float(*Patch.StrokePaintCategory);
+    if (Patch.GradientInterpolation) Source.ShapeParameters[2] = float(*Patch.GradientInterpolation);
+    if (Patch.StrokeGradientInterpolation) Source.ShapeParameters[3] = float(*Patch.StrokeGradientInterpolation);
+    if (Patch.FreeformPointPositions01) Source.FreeformPointPositions01 = *Patch.FreeformPointPositions01;
+    if (Patch.FreeformPointPositions23) Source.FreeformPointPositions23 = *Patch.FreeformPointPositions23;
+    if (Patch.FreeformPointPositions45) Source.FreeformPointPositions45 = *Patch.FreeformPointPositions45;
+    if (Patch.FreeformPointPositions67) Source.FreeformPointPositions67 = *Patch.FreeformPointPositions67;
+    if (Patch.FreeformPointColour4) Source.FreeformPointColour4 = *Patch.FreeformPointColour4;
+    if (Patch.FreeformPointColour5) Source.FreeformPointColour5 = *Patch.FreeformPointColour5;
+    if (Patch.FreeformPointColour6) Source.FreeformPointColour6 = *Patch.FreeformPointColour6;
+    if (Patch.FreeformPointColour7) Source.FreeformPointColour7 = *Patch.FreeformPointColour7;
+    if (Patch.FreeformParameters) Source.FreeformParameters = *Patch.FreeformParameters;
     if (Patch.Opacity) Source.Transform[2] = *Patch.Opacity;
     if (Patch.StrokeWidth) Source.Transform[1] = *Patch.StrokeWidth;
     if (Patch.PaintCategory) Source.Transform[3] = float(*Patch.PaintCategory);
     if (Patch.FillEnabled) Source.Paint[3] = *Patch.FillEnabled ? 1.f : 0.f;
+    if (Patch.PolygonSides) Source.Paint[2] = float(*Patch.PolygonSides);
+    if (Patch.StarInnerRadius) Source.Paint[1] = *Patch.StarInnerRadius;
+    if (Patch.CornerRadius && Source.Topology[0] == 0) Source.ShapeParameters[0] = *Patch.CornerRadius;
+    if (Patch.ClosedOutlineWidth) Source.Paint[0] = *Patch.ClosedOutlineWidth;
 }
 }
 
@@ -155,8 +185,9 @@ std::array<float, 4> QueryVectorAuthoringSelectionBounds(const VectorAuthoringDo
     if (!Found) throw std::runtime_error("VectorAuthoring bounds need an authenticated selection.");
     // 📝 Tile-wrapped library layers repeat their motifs off-canvas; the gesture frame hugs the visible artwork
     // so handles stay on the board. Fully off-canvas selections keep their true union so they stay editable.
-    const float VisibleMinimumX = std::max(MinimumX, 0.f), VisibleMaximumX = std::min(MaximumX, 512.f);
-    const float VisibleMinimumY = std::max(MinimumY, 0.f), VisibleMaximumY = std::min(MaximumY, 512.f);
+    const float CanvasMax = std::clamp(Document.CanvasExtent, 64.f, 4096.f);
+    const float VisibleMinimumX = std::max(MinimumX, 0.f), VisibleMaximumX = std::min(MaximumX, CanvasMax);
+    const float VisibleMinimumY = std::max(MinimumY, 0.f), VisibleMaximumY = std::min(MaximumY, CanvasMax);
     if (VisibleMinimumX <= VisibleMaximumX && VisibleMinimumY <= VisibleMaximumY)
         return {(VisibleMinimumX + VisibleMaximumX) * .5f, (VisibleMinimumY + VisibleMaximumY) * .5f,
             VisibleMaximumX - VisibleMinimumX, VisibleMaximumY - VisibleMinimumY};
@@ -171,6 +202,8 @@ VectorSelectionProgram ConstructVectorSelectionProgram(const VectorAuthoringDocu
 {
     (void)ConstructVectorAuthoringCoverage(Document);
     VectorSelectionProgram Selection{{Document.Instructions, Document.Segments, 0}, {}};
+    if (Document.CanvasExtent != 512.f)
+        for (auto &Instruction : Selection.Coverage.Instructions) Instruction = NormalizeVectorInstructionForGpu(Instruction, Document.CanvasExtent);
     for (const auto &Layer : Document.Layers)
     {
         if (!QueryVectorAuthoringVisibility(Document, Layer) || QueryVectorAuthoringProtection(Document, Layer)) continue;
@@ -178,11 +211,17 @@ VectorSelectionProgram ConstructVectorSelectionProgram(const VectorAuthoringDocu
         if (Layer.Mask && Layer.MaskEnabled)
         {
             const uint32_t Mask = uint32_t(Selection.Coverage.Instructions.size());
-            Selection.Coverage.Instructions.push_back(*Layer.Mask);
+            Selection.Coverage.Instructions.push_back(NormalizeVectorInstructionForGpu(*Layer.Mask, Document.CanvasExtent));
             VectorCoverageInstruction Operation;
             Operation.Topology = {Layer.MaskLuminance ? 25u : 24u, Root, Mask, Layer.MaskInverted ? 1u : 0u};
             Root = uint32_t(Selection.Coverage.Instructions.size());
             Selection.Coverage.Instructions.push_back(Operation);
+        }
+        if (Layer.ExpressionOpacity != 1.f)
+        {
+            VectorCoverageInstruction Operation; Operation.Topology = {29, Root, Root, 0};
+            Operation.Transform[2] = Layer.ExpressionOpacity;
+            Root = uint32_t(Selection.Coverage.Instructions.size()); Selection.Coverage.Instructions.push_back(Operation);
         }
         Selection.Candidates.push_back({Root, Layer.Token});
     }
@@ -362,12 +401,25 @@ void TransformVectorAuthoringSelection(VectorAuthoringDocument &Document, std::s
         if (!std::isfinite(Quantity)) throw std::runtime_error("Nonfinite vector transform.");
     if (Patch.ScaleX <= 0 || Patch.ScaleY <= 0) throw std::runtime_error("VectorAuthoring scale must be positive.");
     if (Patch.TranslationX == 0 && Patch.TranslationY == 0 && Patch.ScaleX == 1 && Patch.ScaleY == 1 && Patch.Rotation == 0 &&
-        !Patch.Colour && !Patch.ColourEnd && !Patch.StrokeColour && !Patch.Opacity && !Patch.StrokeWidth && !Patch.PaintCategory && !Patch.FillEnabled) return;
+        !Patch.Colour && !Patch.ColourEnd && !Patch.GradientStopPositions && !Patch.GradientStopColour2 && !Patch.GradientStopColour3 &&
+        !Patch.GradientAxis && !Patch.StrokeColour && !Patch.StrokeColourEnd && !Patch.StrokeGradientStopPositions && !Patch.StrokeGradientStopColour2 && !Patch.StrokeGradientStopColour3 && !Patch.StrokeGradientAxis && !Patch.StrokePaintCategory &&
+        !Patch.GradientInterpolation && !Patch.StrokeGradientInterpolation &&
+        !Patch.FreeformPointPositions01 && !Patch.FreeformPointPositions23 && !Patch.FreeformPointPositions45 && !Patch.FreeformPointPositions67 &&
+        !Patch.FreeformPointColour4 && !Patch.FreeformPointColour5 && !Patch.FreeformPointColour6 && !Patch.FreeformPointColour7 && !Patch.FreeformParameters &&
+        !Patch.Opacity && !Patch.StrokeWidth && !Patch.PaintCategory && !Patch.FillEnabled &&
+        !Patch.PolygonSides && !Patch.StarInnerRadius && !Patch.CornerRadius && !Patch.ClosedOutlineWidth) return;
     const auto Bounds = QueryVectorAuthoringSelectionBounds(Document, Selection);
     auto Replacement = Document;
     VectorAuthoringSourcePatch Geometry = Patch;
-    Geometry.Colour.reset(); Geometry.ColourEnd.reset(); Geometry.StrokeColour.reset(); Geometry.Opacity.reset();
+    Geometry.Colour.reset(); Geometry.ColourEnd.reset(); Geometry.GradientStopPositions.reset();
+    Geometry.GradientStopColour2.reset(); Geometry.GradientStopColour3.reset(); Geometry.GradientAxis.reset(); Geometry.StrokeColour.reset(); Geometry.Opacity.reset();
+    Geometry.StrokeColourEnd.reset(); Geometry.StrokeGradientStopPositions.reset(); Geometry.StrokeGradientStopColour2.reset();
+    Geometry.StrokeGradientStopColour3.reset(); Geometry.StrokeGradientAxis.reset(); Geometry.StrokePaintCategory.reset();
+    Geometry.GradientInterpolation.reset(); Geometry.StrokeGradientInterpolation.reset();
+    Geometry.FreeformPointPositions01.reset(); Geometry.FreeformPointPositions23.reset(); Geometry.FreeformPointPositions45.reset(); Geometry.FreeformPointPositions67.reset();
+    Geometry.FreeformPointColour4.reset(); Geometry.FreeformPointColour5.reset(); Geometry.FreeformPointColour6.reset(); Geometry.FreeformPointColour7.reset(); Geometry.FreeformParameters.reset();
     Geometry.StrokeWidth.reset(); Geometry.PaintCategory.reset(); Geometry.FillEnabled.reset();
+    Geometry.PolygonSides.reset(); Geometry.StarInnerRadius.reset(); Geometry.CornerRadius.reset(); Geometry.ClosedOutlineWidth.reset();
     std::unordered_map<uint64_t, uint32_t> Remapping;
     std::function<uint32_t(uint32_t, bool)> Clone = [&](uint32_t Root, bool MaskOnly)
     {
@@ -568,6 +620,24 @@ void ReorderVectorAuthoringSelection(
     Document = std::move(Replacement);
 }
 
+void ReorderVectorAuthoringLayerByDrag(VectorAuthoringDocument &Document, uint32_t SourceToken, uint32_t DestinationToken)
+{
+    if (SourceToken == DestinationToken) return;
+    const auto SourcePosition = std::find_if(Document.Layers.begin(), Document.Layers.end(),
+        [&](const auto &Candidate) { return Candidate.Token == SourceToken; });
+    if (SourcePosition == Document.Layers.end() || QueryVectorAuthoringProtection(Document, *SourcePosition)) return;
+    const auto DestinationPosition = std::find_if(Document.Layers.begin(), Document.Layers.end(),
+        [&](const auto &Candidate) { return Candidate.Token == DestinationToken; });
+    if (DestinationPosition == Document.Layers.end()) return;
+    const bool DraggedDownward = DestinationPosition > SourcePosition;
+    const auto Copy = *SourcePosition;
+    Document.Layers.erase(SourcePosition);
+    auto Destination = std::find_if(Document.Layers.begin(), Document.Layers.end(),
+        [&](const auto &Candidate) { return Candidate.Token == DestinationToken; });
+    if (DraggedDownward && Destination != Document.Layers.end()) ++Destination;
+    Document.Layers.insert(Destination, Copy);
+}
+
 uint32_t IntegrateVectorAuthoringBoolean(VectorAuthoringDocument &Document, std::span<const uint32_t> Selection, VectorCoverageCategory Category)
 {
     (void)ConstructVectorAuthoringCoverage(Document);
@@ -580,6 +650,18 @@ uint32_t IntegrateVectorAuthoringBoolean(VectorAuthoringDocument &Document, std:
     {
         if (!Tokens.contains(Replacement.Layers[Index].Token)) continue;
         if (Replacement.Layers[Index].Mask) throw std::runtime_error("Retain masks separately before combining native expressions.");
+        // Preserve an existing layer-wide opacity as a retained unary expression when
+        // that layer becomes an operand of another Boolean operation.
+        if (Replacement.Layers[Index].ExpressionOpacity != 1.f)
+        {
+            auto &Layer = Replacement.Layers[Index];
+            VectorCoverageInstruction Opacity;
+            Opacity.Topology = {29, Layer.Root, Layer.Root, 0};
+            Opacity.Transform[2] = Layer.ExpressionOpacity;
+            Layer.Root = uint32_t(Replacement.Instructions.size());
+            Replacement.Instructions.push_back(Opacity);
+            Layer.ExpressionOpacity = 1.f;
+        }
         if (!Destination) { Destination = Index; continue; }
         VectorCoverageInstruction Operation;
         Operation.Topology = {uint32_t(Category), Replacement.Layers[*Destination].Root, Replacement.Layers[Index].Root, 0};

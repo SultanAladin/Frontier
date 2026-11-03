@@ -106,7 +106,8 @@ enum class ControlCentreIconCategory : uint32_t
     LayoutPanelRight                    = 37,                   // ▤ lucide "panel-right" — properties-only mode
     CameraBody                          = 38,                   // 🎥 lucide "video" — camera row
     LayersSlabs                         = 39,                   // 🗂 lucide "layers" — Materials hub row (stacked slabs)
-    Count                               = 40
+    SaveDisk                            = 40,                   // 💾 lucide "save" — a workspace's save quick action
+    Count                               = 41
 };
 
 //------------------------------------------------------------------------------------------------------------------------

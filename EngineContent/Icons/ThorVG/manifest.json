@@ -385,7 +385,8 @@
       "feTurbulence"
     ],
     "changes": [
-      "Procedural filter primitives omitted in vector variant: feTurbulence, feColorMatrix, feComponentTransfer, feComposite"
+      "Procedural filter primitives omitted in vector variant: feTurbulence, feColorMatrix, feComponentTransfer, feComposite",
+      "Surface-noise layer painted at its mean tone (#808080 at .11) instead of an opaque white disc."
     ],
     "source_fnv1a64": "1dd99b17425ea10d"
   },
@@ -685,7 +686,8 @@
     ],
     "changes": [
       "Procedural filter primitives omitted in vector variant: feTurbulence, feColorMatrix, feComposite",
-      "Procedural filter primitives omitted in vector variant: feTurbulence, feDisplacementMap"
+      "Procedural filter primitives omitted in vector variant: feTurbulence, feDisplacementMap",
+      "Granule and cell layers painted at their mean noise tone (#ff990f at .21, #b82402 at .17) instead of flat opaque fills."
     ],
     "source_fnv1a64": "3ec0a0fd1193105f"
   },

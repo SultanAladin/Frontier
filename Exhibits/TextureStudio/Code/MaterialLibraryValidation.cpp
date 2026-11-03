@@ -48,8 +48,15 @@ int main(int ArgumentCount, char **Arguments)
         Confirm(ArgumentCount == 3, "Expected material specimens and scratch output directory.");
         // 🧩 Adaptive bake buckets keep dense weaves under the OS GPU
         // watchdog: the largest square extent fitting ~2e9 curve·pixel·
-        // channels, six channels for the bridge, one for the canvas.
-        for (const auto &[Segments, Channels, Extent] : {std::tuple<size_t, uint32_t, uint32_t>{0, 6, 512}, {0, 1, 2048},
+        // channels, six channels for the bridge, one for the canvas. The
+        // empty/simple single-channel ceiling is 4096 (not 2048): both canvas
+        // panels already clamp their own zoomed, device-pixel display size to
+        // 4096, and VectorCoverageRasterization::Initialize's own image-size
+        // validation already allows up to 4096x4096 — a 2048 ceiling here left
+        // a sufficiently zoomed-in (e.g. 800%) canvas baking at a frozen 2048
+        // while the displayed quad kept growing, a stretched raster visibly
+        // pixelating past that zoom level.
+        for (const auto &[Segments, Channels, Extent] : {std::tuple<size_t, uint32_t, uint32_t>{0, 6, 512}, {0, 1, 4096},
                  {1271, 6, 512}, {1272, 6, 256}, {5086, 6, 256}, {5087, 6, 128}, {18954, 6, 128}, {32768, 6, 128},
                  {1907, 1, 1024}, {1908, 1, 512}, {7629, 1, 512}, {7630, 1, 256}, {30517, 1, 256}, {30518, 1, 128}, {32768, 1, 128}})
             Confirm(VectorCoverageRasterization::SelectBakeExtent(Segments, Channels) == Extent, "Bake bucket boundary moved.");
@@ -235,11 +242,34 @@ int main(int ArgumentCount, char **Arguments)
         Confirm(DecodeSurfaceMaterial(Pilot.QuerySource()).Scattering.Illumination.Configuration[0] == 1, "Removed stratum still decodes.");
         MaterialLibrary ReferenceLibrary;
         Confirm(ReferenceLibrary.ConfigureDirectory("EngineContent/MaterialArchives/TextureStudio"), "HTML library did not open.");
-        // 📝 127 HTML presets + 4 camouflage entries from the Slate layer-stack port.
-        Confirm(ReferenceLibrary.QueryEntries().size() == 131, "HTML library count differs.");
+        // 📝 127 HTML presets + 4 camouflage entries + 5 sand presets + 6 layered rock/landscape presets.
+        Confirm(ReferenceLibrary.QueryEntries().size() == 142, "HTML library count differs.");
         Confirm(ReferenceLibrary.QueryEntries().front().Name == "Racing Green" && ReferenceLibrary.QueryEntries()[1].Name == "Midnight Amethyst", "HTML catalogue order differs.");
         for (const auto &Entry : ReferenceLibrary.QueryEntries())
             Confirm(Entry.Diagnostic.empty() && !Entry.Category.empty() && !Entry.RecipeControls.empty(), "HTML preset metadata/physical definition is invalid.");
+        for (const auto *SandPath : {"sand.material", "layered-sand.material", "sahara-erg-sand.material",
+                 "icelandic-black-sand.material", "coral-atoll-white-sand.material",
+                 "wadi-red-desert-sand.material", "wet-tidal-beach-sand.material"})
+        {
+            Confirm(ReferenceLibrary.OpenMaterial(SandPath), "Sand preset did not compile.");
+            const auto *Compiled = ReferenceLibrary.QueryApplied();
+            Confirm(Compiled && Compiled->Scattering.Paint.Configuration[0] == 1 &&
+                        Compiled->Scattering.Paint.Distribution[0] > 0.f &&
+                        Compiled->Textures[0].Levels[0].Width == 512,
+                    "Sand preset is missing active mineral flakes or 512px textures.");
+        }
+        for (const auto *RockPath : {"alpine-mica-schist.material", "columnar-olivine-basalt.material",
+                 "canyon-banded-sandstone.material", "weathered-karst-limestone.material",
+                 "obsidian-rhyolite-scree.material", "badlands-laterite-outcrop.material"})
+        {
+            Confirm(ReferenceLibrary.OpenMaterial(RockPath), "Layered rock preset did not compile.");
+            const auto *Compiled = ReferenceLibrary.QueryApplied();
+            Confirm(Compiled && Compiled->Scattering.Paint.Configuration[0] == 1 &&
+                        Compiled->Scattering.Paint.Distribution[0] > 0.f &&
+                        Compiled->AuthoringMaps[0].Levels[0].Width == 256 &&
+                        Compiled->Textures[0].Levels[0].Width == 512,
+                    "Layered rock preset is missing mineral flakes, spatial Fill layers, or 512px textures.");
+        }
         Confirm(ReferenceLibrary.OpenMaterial("racing-green.material"), "Racing Green did not compile.");
         for (const auto *Path : {"tour-golf-ball.material", "practice-golf-ball.material"})
         {

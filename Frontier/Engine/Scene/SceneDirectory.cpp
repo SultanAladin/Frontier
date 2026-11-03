@@ -1,12 +1,13 @@
-// 🧩 Editor-machinery Outliner model: names and nesting for every registered record, Editor/Development only.
+/*==========================================================================================================================================
+                                                             SCENEDIRECTORY.CPP
+==========================================================================================================================================*/
+// 🧩 Editor-machinery Outliner model: names, nesting, and inspector/editor metadata for registered records.
 
 #include "Engine/Scene/SceneDirectory.h"
 
 #include "Engine/Diagnostics/BuildConfiguration.h"
 
-// 📝 The directory is editor machinery: in Shipping this translation unit is intentionally empty (and Shipping
-//    builds do not link it at all), so a Shipping binary contains no directory (plan §5/§6).
-#if defined(FRONTIER_EDITOR_PROFILE) || defined(FRONTIER_DEVELOPMENT_PROFILE)
+#if FRONTIER_EDITOR
 
 #include "Engine/Diagnostics/LogStream.h"
 #include "Engine/Scene/RecordEntry.h"
@@ -33,9 +34,28 @@ SceneDirectory& SceneDirectory::Instance()
     return Directory;
 }
 
+void SceneDirectory::ConfigureActiveSceneHeader(std::string Title, std::string Subtitle)
+{
+    std::lock_guard<std::mutex> Guard(Mutex);
+    if (!Title.empty())    ActiveSceneTitle    = std::move(Title);
+    if (!Subtitle.empty()) ActiveSceneSubtitle = std::move(Subtitle);
+}
+
+std::string SceneDirectory::QueryActiveSceneTitle() const
+{
+    std::lock_guard<std::mutex> Guard(Mutex);
+    return ActiveSceneTitle;
+}
+
+std::string SceneDirectory::QueryActiveSceneSubtitle() const
+{
+    std::lock_guard<std::mutex> Guard(Mutex);
+    return ActiveSceneSubtitle;
+}
+
 void SceneDirectory::Register(const RecordEntry& Entry)
 {
-    const RecordToken Token = Entry.Token();
+    const RecordToken           Token = Entry.Token();
     std::lock_guard<std::mutex> Guard(Mutex);
     if (!Token.IsValid() || Entries.find(Token.Value) != Entries.end())
     {
@@ -44,8 +64,8 @@ void SceneDirectory::Register(const RecordEntry& Entry)
                        static_cast<unsigned long long>(Token.Value));
         return;
     }
-    DirectoryEntry& Slot    = Entries[Token.Value];
-    Slot.Classification     = Entry.Classification();
+    DirectoryEntry& Slot = Entries[Token.Value];
+    Slot.Classification  = Entry.Classification();
     RegistrationOrder.push_back(Token);
 }
 
@@ -54,16 +74,16 @@ void SceneDirectory::Unregister(RecordToken Token)
     std::lock_guard<std::mutex> Guard(Mutex);
     if (Entries.erase(Token.Value) == 0)
     {
-        return;   // Never registered (or already gone): destruction stays silent and safe.
+        return;
     }
     RegistrationOrder.erase(std::remove(RegistrationOrder.begin(), RegistrationOrder.end(), Token),
                             RegistrationOrder.end());
-    for (auto& [Value, Slot] : Entries)
+    for (auto& [KeyValue, Slot] : Entries)
     {
-        (void)Value;
+        (void)KeyValue;
         if (Slot.Parent == Token)
         {
-            Slot.Parent = RecordToken{};   // Re-rooted: no dangling up-links survive a parent.
+            Slot.Parent = RecordToken{};
         }
     }
 }
@@ -95,7 +115,6 @@ bool SceneDirectory::ConfigureParent(RecordToken Child, RecordToken Parent)
                        static_cast<unsigned long long>(Child.Value), static_cast<unsigned long long>(Parent.Value));
         return false;
     }
-    // Walk the proposed parent's ancestry: meeting Child would close a cycle.
     for (RecordToken Cursor = Parent; Cursor.IsValid();)
     {
         if (Cursor == Child)
@@ -121,6 +140,18 @@ bool SceneDirectory::ConfigureVisible(RecordToken Token, bool Visible)
         return false;
     }
     It->second.Visible = Visible;
+    return true;
+}
+
+bool SceneDirectory::ConfigureMetadata(RecordToken Token, SceneDirectoryMetadata Metadata)
+{
+    std::lock_guard<std::mutex> Guard(Mutex);
+    const auto                  It = Entries.find(Token.Value);
+    if (It == Entries.end())
+    {
+        return false;
+    }
+    It->second.Metadata = std::move(Metadata);
     return true;
 }
 
@@ -166,13 +197,20 @@ RecordClassification SceneDirectory::QueryClassification(RecordToken Token) cons
     return It != Entries.end() ? It->second.Classification : RecordClassification::Unclassified;
 }
 
+SceneDirectoryMetadata SceneDirectory::QueryMetadata(RecordToken Token) const
+{
+    std::lock_guard<std::mutex> Guard(Mutex);
+    const auto                  It = Entries.find(Token.Value);
+    return It != Entries.end() ? It->second.Metadata : SceneDirectoryMetadata{};
+}
+
 uint32_t SceneDirectory::QueryChildCount(RecordToken Token) const
 {
     std::lock_guard<std::mutex> Guard(Mutex);
     uint32_t                    Count = 0;
-    for (const auto& [Value, Slot] : Entries)
+    for (const auto& [KeyValue, Slot] : Entries)
     {
-        (void)Value;
+        (void)KeyValue;
         if (Slot.Parent == Token)
         {
             ++Count;
@@ -195,4 +233,4 @@ void SceneDirectory::CopyRegistrationOrder(std::vector<RecordToken>& Out) const
 
 } // namespace Frontier
 
-#endif // Editor/Development profiles
+#endif // FRONTIER_EDITOR

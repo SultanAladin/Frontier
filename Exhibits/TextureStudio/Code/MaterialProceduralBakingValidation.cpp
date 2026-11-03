@@ -829,8 +829,8 @@ int main()
         MaterialLibrary Library;
         Confirm(Library.ConfigureDirectory("EngineContent/MaterialArchives/TextureStudio") && Library.Refresh(),
             "Material library refresh failed.");
-        // 📝 127 HTML presets + 4 camouflage entries from the Slate layer-stack port.
-        Confirm(Library.QueryEntries().size() == 131, "Shipped material count changed.");
+        // 📝 127 HTML presets + 4 camouflage entries + 5 sand presets + 6 layered rock/landscape presets.
+        Confirm(Library.QueryEntries().size() == 142, "Shipped material count changed.");
         std::set<std::string> RecipeIds;
         const MaterialCatalogueEntry *PilotEntry = nullptr, *SandEntry = nullptr, *LayeredEntry = nullptr,
                                      *DenimEntry = nullptr;
@@ -1337,12 +1337,12 @@ int main()
                 ++PinnedTextures;
             }
         }
-        Confirm(SolarEntries == 3 && GolfEntries == 2 && StuccoEntries == 1 && MetalEntries == 2 && BrakeEntries == 1 &&
-                ClayEntries == 4 && LedEntries == 2 && FruitEntries == 3 && BotanicalEntries == 8 &&
-                LeatherEntries == 5 && ExtendedEntries == 27 && PolymerEntries == 17 && BareMetalEntries == 19,
+        Confirm(SolarEntries == 3 && GolfEntries == 2 && StuccoEntries == 2 && MetalEntries == 2 && BrakeEntries == 1 &&
+                ClayEntries == 5 && LedEntries == 2 && FruitEntries == 3 && BotanicalEntries == 8 &&
+                LeatherEntries == 5 && ExtendedEntries == 31 && PolymerEntries == 17 && BareMetalEntries == 19,
             "Disputed-family entry count changed.");
-        // 📝 Every converted family pins its committed maps: 265 recipe-baked textures in total.
-        Confirm(PinnedTextures == 265, "Baked texture family count changed.");
+        // 📝 Every converted family pins its committed maps: 292 recipe-baked textures in total.
+        Confirm(PinnedTextures == 292, "Baked texture family count changed.");
         std::cout << "{\"result\":\"passed\",\"checks\":" << Assertions << "}\n";
         return 0;
     }

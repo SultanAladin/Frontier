@@ -54,6 +54,10 @@ the `SKILL-Naming.md` §0 procedure (mechanism sentence → verb + substrate nou
 💡 The demo is already close to compliant (`…Sequence`, `…Solver`, `…Depot`, `…Projection`, `TyreSlipSolver`).
 Only the rows above need rulings; everything else ports with its existing name to stay 1:1.
 
+> 🚩 2026-11-01: the "portable core" illumination chain rows below (`ReservoirSampling`, `IlluminationUnits`,
+> `ReferenceRenderer`, `CompleteFrameUnits`, `DistanceField`, `SurfaceCards`) are superseded and removed. The renderer is
+> now the 1:1 port in `Frontier/Engine/Rendering/GlobalIllumination` (`Documentation/Plans/Ongoing/IlluminationPort.md`).
+
 ## 3. Target shape
 
 ```text

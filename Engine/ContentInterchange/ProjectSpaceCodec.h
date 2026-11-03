@@ -57,5 +57,6 @@ class ProjectSpaceCodec
     static bool                EncodeNotifications(toml::table                   &Section,
                                                    const NotificationPreferences &Preferences,
                                                    std::string                   &Diagnostic) noexcept;
+    [[nodiscard]] static std::vector<std::string> QueryEngineContentImports(const ProjectSpaceDocument &Document);
 };
 } // namespace Frontier

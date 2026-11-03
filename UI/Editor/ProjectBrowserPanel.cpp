@@ -4,6 +4,7 @@
 // 🧩 1:1 native port of the Project browser HTML prototype (Experimental/Project browser/).
 
 #include "ProjectBrowserPanel.h"
+#include "Engine/ContentInterchange/ProjectGenerator.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "Engine/Diagnostics/DiagnosticJournal.h"
 #include <algorithm>
@@ -388,6 +389,7 @@ void ProjectBrowserPanel::DebugShow(const std::string &Token, int View, int Revi
 {
     if (Theme == "light" || Theme == "dark" || Theme == "oled") Prefs.Theme = Theme;
     LaunchOpen = Launch;
+    LaunchOutcome.clear();
     Creating = ShowCreation;
     const BrowserCatalogueEntry *Entry = Token.empty() ? nullptr : FindEntry(Token);
     if (Entry == nullptr)
@@ -403,7 +405,7 @@ void ProjectBrowserPanel::DebugShow(const std::string &Token, int View, int Revi
     Zoom = std::max(50, std::min(200, ZoomPercent));
     ActiveTab = (Tab == "comments" || Tab == "history") ? Tab : "details";
     ResetLiveCamera(*Entry);
-    LiveChannel = Entry->Imported ? 0 : PreviewConfigFor(*Entry, size_t(PreviewIndex), ActiveRevision).Channel;
+    LiveChannel = !LivePreviewCondition(*Entry) ? 0 : PreviewConfigFor(*Entry, size_t(PreviewIndex), ActiveRevision).Channel;
 }
 
 void ProjectBrowserPanel::ConfigureRevision(int Index)
@@ -429,7 +431,7 @@ void ProjectBrowserPanel::ConfigureZoom(int Amount)
 {
     Zoom = std::max(50, std::min(200, Amount));
     const BrowserCatalogueEntry *Entry = FindEntry(ActiveToken);
-    if (Entry != nullptr && !Entry->Imported && !DocumentEnabled && ConfigureLivePreview)
+    if (Entry != nullptr && LivePreviewCondition(*Entry) && !DocumentEnabled && ConfigureLivePreview)
     {
         LiveCamera.Distance = (Entry->Category == BrowserFileCategory::Project ? 17 : 10.5) * 100 / Zoom;
         CaptureDelay = 1;
@@ -462,7 +464,8 @@ const ProjectBrowserPanel::CachedPreviewTriangles &ProjectBrowserPanel::PreviewT
     const auto Cached = PreviewCache.find(Key);
     if (Cached != PreviewCache.end()) return Cached->second;
     CachedPreviewTriangles Built;
-    Built.Triangles = GenerateBrowserPreviewTriangles(ActuatorTriangles, int(Entry.Category), std::max(0, Revision));
+    Built.Triangles = Entry.Geometry ? *Entry.Geometry // 📝 SolidArc documents report their own triangles.
+                                     : GenerateBrowserPreviewTriangles(ActuatorTriangles, int(Entry.Category), std::max(0, Revision));
     Built.Statistics = QueryBrowserPreviewStatistics(Built.Triangles);
     Built.Uv = GenerateBrowserCylindricalUv(Built.Triangles);
     return PreviewCache.emplace(Key, std::move(Built)).first->second;
@@ -471,7 +474,7 @@ const ProjectBrowserPanel::CachedPreviewTriangles &ProjectBrowserPanel::PreviewT
 void ProjectBrowserPanel::CaptureNow()
 {
     const BrowserCatalogueEntry *Entry = FindEntry(ActiveToken);
-    if (Entry == nullptr || Entry->Imported || DocumentEnabled || !CaptureLiveThumbnail) return;
+    if (Entry == nullptr || !LivePreviewCondition(*Entry) || DocumentEnabled || !CaptureLiveThumbnail) return;
     const size_t View = size_t(std::max(0, PreviewIndex));
     CaptureLiveThumbnail(SnapshotKeyFor(*Entry, View, ActiveRevision), PreviewConfigFor(*Entry, View, ActiveRevision),
         LiveCamera, LiveChannel);
@@ -529,6 +532,29 @@ size_t ProjectBrowserPanel::AttachPaths(const std::vector<std::filesystem::path>
             Entry.ImageBytes.assign(std::istreambuf_iterator<char>(Input), std::istreambuf_iterator<char>());
             Entry.Views = {"Image"};
         }
+        if (QueryBrowserSolidArcExtension(Extension))
+        {
+            // 🧩 SolidArc documents: decoded, regenerated and tessellated by the connected native library.
+            Entry.Description = "A SolidArc document. Connect the SolidArc decoder to render its bodies.";
+            Entry.Context = "SolidArc document · local file";
+            if (QueryDocumentGeometry)
+            {
+                BrowserNativeDocument Native = QueryDocumentGeometry(Path);
+                if (Native.Geometry && Native.Refusal.empty())
+                {
+                    Entry.Geometry = std::move(Native.Geometry);
+                    Entry.GeometryKey = Native.GeometryKey;
+                    Entry.NativeSummary = Native.Summary;
+                    Entry.Description = Native.Description;
+                    Entry.Context = "SolidArc · " + Native.Summary;
+                }
+                else
+                {
+                    Entry.NativeRefusal = Native.Refusal.empty() ? "The document holds no solid bodies." : Native.Refusal;
+                    Entry.Description = "This SolidArc document could not be read: " + Entry.NativeRefusal;
+                }
+            }
+        }
         if (IsMarkdown)
         {
             std::ifstream Input(Path, std::ios::binary);
@@ -551,10 +577,11 @@ size_t ProjectBrowserPanel::AttachPaths(const std::vector<std::filesystem::path>
         Zoom = 100;
         ActiveTab = "details";
         FocusBack = true;
+        PrepareNativeReader(Entry);
     }
     Notify(Attached ? std::to_string(Attached) + " local file" + (Attached > 1 ? "s" : "") +
-                              " attached. Native project decoding is only connected for .projectspace files."
-                          : "No supported files found. Choose .project, .assembly, .sketch, geometry, Markdown or image files.");
+                              " attached. Native decoding is connected for .projectspace and .solidarc files."
+                          : "No supported files found. Choose .project, .assembly, .sketch, .solidarc, geometry, Markdown or image files.");
     return Attached;
 }
 
@@ -574,7 +601,30 @@ void ProjectBrowserPanel::OpenInFrontier()
             Diagnostic.clear();
         }
     }
+    // 🧩 SolidArc documents open in their own workspace application; the dialog reports the outcome.
+    LaunchOutcome.clear();
+    LaunchSucceeded = false;
+    if (Entry->Imported && QueryBrowserSolidArcExtension(Entry->Extension))
+    {
+        std::string Refusal;
+        if (!LaunchWorkspaceDocument) Refusal = "The SolidArc workspace is not connected to this browser.";
+        else if (LaunchWorkspaceDocument(std::filesystem::path(std::u8string(Entry->Path.begin(), Entry->Path.end())), Refusal))
+            LaunchSucceeded = true;
+        else if (Refusal.empty())
+            Refusal = "The SolidArc workspace refused the document.";
+        LaunchOutcome = LaunchSucceeded ? "SolidArc workspace started with this document." : Refusal;
+        Notify(LaunchSucceeded ? "Opened " + Entry->Title + Entry->Extension + " in the SolidArc workspace." : Refusal);
+    }
     LaunchOpen = true;
+}
+
+void ProjectBrowserPanel::PrepareNativeReader(const BrowserCatalogueEntry &Entry)
+{
+    if (!Entry.Geometry) return;
+    ResetLiveCamera(Entry);
+    LiveChannel = PreviewConfigFor(Entry, 0, 0).Channel;
+    LiveSignature.clear();
+    CaptureDelay = 2;
 }
 
 void ProjectBrowserPanel::SubmitComment()
@@ -620,6 +670,7 @@ bool ProjectBrowserPanel::CreateProject(const std::filesystem::path &Destination
 {
     const auto Template = ResolveContentDirectory("EngineContent/Defaults") / "BlankProject/Blank.projectspace";
     if (!ProjectSpaceCodec::CreateBlank(Template, Destination, Name, Diagnostic)) return false;
+    if (!ProjectGenerator::GenerateProjectScaffolding(Destination, Name, Diagnostic)) return false;
     const auto Folder = Destination.has_parent_path() ? Destination.parent_path() : std::filesystem::path(".");
     (void)ConfigureDirectory(Folder);
     return SelectProject(Destination);
@@ -940,6 +991,24 @@ void ProjectBrowserPanel::ConstructThumbnailTile(ImVec2 Min, ImVec2 Size, const 
             Draw->AddImage((ImTextureID)Image.Texture, At, ImVec2(At.x + W, At.y + H), ImVec2(U0, V0), ImVec2(U1, V1));
         }
     };
+    if (Entry.Imported && Entry.Geometry)
+    {
+        // 🧩 SolidArc: the reference renderer draws the document's own triangles.
+        if (!QueryConfiguredThumbnail)
+        {
+            Pending("Renderer unavailable");
+            return;
+        }
+        const BrowserPreviewImage Image = QueryConfiguredThumbnail(SnapshotKeyFor(Entry, View, Revision),
+            PreviewConfigFor(Entry, View, Revision));
+        if (!Image.Texture)
+        {
+            Pending("Rendering preview…");
+            return;
+        }
+        Blit(Image);
+        return;
+    }
     if (Entry.Imported)
     {
         if (!Entry.ImageBytes.empty() && QueryImportedImage)
@@ -1022,6 +1091,7 @@ void ProjectBrowserPanel::ActivateToken(const std::string &Token)
     Zoom = 100;
     ActiveTab = "details";
     FocusBack = true;
+    PrepareNativeReader(*Entry);
 }
 
 bool ProjectBrowserPanel::DrawLibraryRail(ImVec2 Origin, float Width, float Height, float HeaderH, float Scale)
@@ -1498,7 +1568,7 @@ void ProjectBrowserPanel::ConstructLibrary(float Width)
                     std::sort(Found.begin(), Found.end());
                 }
                 if (!Found.empty()) AttachPaths(Found);
-                else Notify("No supported files found. Choose .project, .assembly, .sketch, geometry, Markdown or image files.");
+                else Notify("No supported files found. Choose .project, .assembly, .sketch, .solidarc, geometry, Markdown or image files.");
             }
         }
         const std::string Note = "Sample files · attached .projectspace files open in the editor";
@@ -1730,9 +1800,10 @@ void ProjectBrowserPanel::ConstructReader(float Width)
                                          Entry->Imported ? "Local file" : "Version 3 · Current")
                                              .x +
                                          41 * Scale));
+    const char *LaunchLabel = Entry->Imported && QueryBrowserSolidArcExtension(Entry->Extension) ? "Open in SolidArc" : "Open in Frontier";
     const bool IconLaunch = Width <= 1100 || Narrow;
     const float LaunchW = IconLaunch ? 31 * Scale
-                                    : MeasureBrowserText(Font, 10 * Scale, "Open in Frontier").x + 24 * Scale + 15 * Scale + 10 * Scale;
+                                    : MeasureBrowserText(Font, 10 * Scale, LaunchLabel).x + 24 * Scale + 15 * Scale + 10 * Scale;
     const float LaunchH = IconLaunch ? 31 * Scale : 28 * Scale;
     const float StarBox = Narrow ? 25 * Scale : 30 * Scale;
     const std::vector<std::string> Themes = {"OLED", "Light", "Dark"};
@@ -1778,7 +1849,7 @@ void ProjectBrowserPanel::ConstructReader(float Width)
                 ImVec2(X + (LaunchH - 15 * Scale) / 2, Head.y + (HeaderH - 15 * Scale) / 2), 15 * Scale,
                 S.ButtonText);
         }
-        else if (DrawBrowserPrimary("open", ImVec2(X, Head.y + (HeaderH - LaunchH) / 2), "Open in Frontier",
+        else if (DrawBrowserPrimary("open", ImVec2(X, Head.y + (HeaderH - LaunchH) / 2), LaunchLabel,
                      BrowserIcon::Arrow, true, Frame, 10 * Scale, 12 * Scale, LaunchH, 15))
             OpenInFrontier();
         X -= 7 * Scale + StarBox;
@@ -1859,10 +1930,12 @@ void ProjectBrowserPanel::ConstructReader(float Width)
             std::snprintf(Number, sizeof Number, "%02d", PreviewIndex + 1);
             Eyebrow = Rail + " " + Number + " · VERSION " + std::to_string(Version);
         }
-        std::string Mode = Entry->Imported ? (!Entry->ImageBytes.empty() ? "Local image" : !Entry->Markdown.empty() ? "Local Markdown" : "Native preview not connected")
+        std::string Mode = Entry->Geometry ? "SolidArc · Reference Vulkan"
+                         : !Entry->NativeRefusal.empty() ? "SolidArc · document refused"
+                         : Entry->Imported ? (!Entry->ImageBytes.empty() ? "Local image" : !Entry->Markdown.empty() ? "Local Markdown" : "Native preview not connected")
                                            : "Reference Vulkan";
         if (DocumentEnabled) Mode = "Markdown";
-        const bool LiveView = !DocumentEnabled && !Entry->Imported && Title != "UV layout" && Title != "Metadata";
+        const bool LiveView = !DocumentEnabled && LivePreviewCondition(*Entry) && Title != "UV layout" && Title != "Metadata";
         if (!LiveView) WasLiveHovered = false;
         if (LiveView && !ConfigureLivePreview) Mode = "Renderer unavailable";
         DrawBrowserSpaced(Frame.Draw, Font, 8 * Scale, ImVec2(Scroll.x + Side, Y), S.Muted, Eyebrow, 1.8f * Scale);
@@ -1943,7 +2016,7 @@ void ProjectBrowserPanel::ConstructReader(float Width)
             Frame.Draw->AddRectFilled(Box, ImVec2(Box.x + InnerW, Box.y + CanvasH), S.Card, 8 * Scale);
             Frame.Draw->AddRect(Box, ImVec2(Box.x + InnerW, Box.y + CanvasH), S.Line, 8 * Scale, 0,
                 std::max(1.f, Scale));
-            if (Entry->Imported && Entry->Markdown.empty() && Entry->ImageBytes.empty())
+            if (Entry->Imported && !Entry->Geometry && Entry->Markdown.empty() && Entry->ImageBytes.empty())
             {
                 float VY = Box.y + 35 * Scale;
                 DrawBrowserIcon(Frame.Draw, BrowserIcon::File, ImVec2(Box.x + 35 * Scale, VY), 18 * Scale, S.Muted);
@@ -1952,7 +2025,8 @@ void ProjectBrowserPanel::ConstructReader(float Width)
                     EllipsizeBrowserText(Font, 18 * Scale, FullName, InnerW - 70 * Scale));
                 VY += 18 * Scale + 20 * Scale;
                 VY += DrawBrowserParagraph(Frame.Draw, Font, 13 * Scale, ImVec2(Box.x + 35 * Scale, VY), S.Text,
-                    "This file was selected from your device. Native decoding is not connected.",
+                    Entry->NativeRefusal.empty() ? "This file was selected from your device. Native decoding is not connected."
+                                                 : "This SolidArc document could not be read: " + Entry->NativeRefusal,
                     InnerW - 70 * Scale, 13 * Scale * 1.5f);
                 VY += 18 * Scale;
                 DrawBrowserChip(ImVec2(Box.x + 35 * Scale, VY),
@@ -2163,7 +2237,7 @@ void ProjectBrowserPanel::ConstructReader(float Width)
         // Caption + toolbar + bottom bar.
         const std::string Description =
             DocumentEnabled ? "Markdown · read-only preview" : Entry->Description;
-        std::string Resolution = Entry->Imported ? "Local file" : "Drag to orbit · scroll to zoom";
+        std::string Resolution = LivePreviewCondition(*Entry) ? "Drag to orbit · scroll to zoom" : "Local file";
         if (DocumentEnabled) Resolution = "A4 · 210 × 297 mm";
         else if (Title == "UV layout") Resolution = "Generated cylindrical UV · actual vertices";
         Y += 13 * Scale;
@@ -2377,6 +2451,7 @@ void ProjectBrowserPanel::ConstructReaderInspector(
                 {BrowserCountsLabel(Entry->Category), std::to_string(Entry->Views.size())},
                 {"Last opened", Entry->Opened},
                 {"Storage", Entry->Imported ? "Local file selection" : "Sample location"},
+            {"Document", Entry->NativeSummary.empty() ? "—" : Entry->NativeSummary},
             };
             for (const auto &[Key, Value] : Rows)
             {
@@ -2399,7 +2474,7 @@ void ProjectBrowserPanel::ConstructReaderInspector(
                 S.Muted, Entry->Path, InnerW - 20 * Scale, 9 * Scale * 1.8f);
             Y += PathH + 20 * Scale + 18 * Scale;
             DrawBrowserChip(ImVec2(Scroll.x + Side, Y),
-                Entry->Imported ? "Read-only · native decoder pending" : "Sample file · read-only", Frame);
+                Entry->Geometry || !Entry->NativeRefusal.empty() ? "Read-only · SolidArc decoder" : Entry->Imported ? "Read-only · native decoder pending" : "Sample file · read-only", Frame);
         }
         else if (ActiveTab == "comments")
         {
@@ -2570,13 +2645,16 @@ void ProjectBrowserPanel::ConstructLaunchDialog(float Width)
         float Y = Origin.y + Pad;
         const float InnerW = DialogW - Pad * 2;
         const BrowserCatalogueEntry *Entry = FindEntry(ActiveToken);
-        DrawBrowserSpaced(Draw, Font, 9 * Scale, ImVec2(Origin.x + Pad, Y), S.Muted, "NATIVE HAND-OFF PREVIEW",
-            1.8f * Scale);
+        const bool HandOff = !LaunchOutcome.empty();
+        DrawBrowserSpaced(Draw, Font, 9 * Scale, ImVec2(Origin.x + Pad, Y), S.Muted,
+            HandOff ? "NATIVE HAND-OFF" : "NATIVE HAND-OFF PREVIEW", 1.8f * Scale);
         Y += 9 * Scale + 14 * Scale;
-        DrawBrowserText(Draw, Font, 25 * Scale, ImVec2(Origin.x + Pad, Y), S.Text, "Ready for the next step.");
+        DrawBrowserText(Draw, Font, 25 * Scale, ImVec2(Origin.x + Pad, Y), S.Text,
+            !HandOff ? "Ready for the next step." : LaunchSucceeded ? "Opened in SolidArc." : "SolidArc did not start.");
         Y += 25 * Scale + 12 * Scale;
         Y += DrawBrowserParagraph(Draw, Font, 12 * Scale, ImVec2(Origin.x + Pad, Y), S.Muted,
-            Entry != nullptr && Entry->Imported ? "This is the selected local file for a future native hand-off."
+            HandOff ? LaunchOutcome
+            : Entry != nullptr && Entry->Imported ? "This is the selected local file for a future native hand-off."
                                                 : "This is a sample file used to review the launch flow.",
             InnerW, 12 * Scale * 1.8f);
         Y += 20 * Scale;
@@ -2602,7 +2680,8 @@ void ProjectBrowserPanel::ConstructLaunchDialog(float Width)
             InnerW - 36 * Scale, 11 * Scale * 1.5f);
         Y += HandH + 12 * Scale;
         Y += DrawBrowserParagraph(Draw, Font, 10 * Scale, ImVec2(Origin.x + Pad, Y), S.Muted,
-            "This preview does not launch the editor or decode native project content. Your original file is unchanged.",
+            HandOff ? "SolidArc runs as its own application. Your original file is unchanged until you save in SolidArc."
+                    : "This preview does not launch the editor or decode native project content. Your original file is unchanged.",
             InnerW, 10 * Scale * 1.8f);
         Y += 20 * Scale;
         const float ButtonW = MeasureBrowserText(Font, 13 * Scale, "Back to preview").x + 40 * Scale;

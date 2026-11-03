@@ -18,10 +18,13 @@
 #include "Engine/Interface/ThumbnailAtlasCache.h"
 #include "Engine/Render/VectorSurfaceMaterialBridge.h"
 #include "Engine/Render/VectorAuthoringCoverageRendering.h"
+#include "Engine/Render/BakeRasterization.h"
 #include "Engine/Render/VectorSelectionEvaluation.h"
 #include "Engine/ContentInterchange/VectorAuthoringSelectionEditing.h"
 #include "UI/TextureStudio/PatternWorkspacePanel.h"
 #include "UI/TextureStudio/StampWorkspacePanel.h"
+#include "UI/TextureStudio/BakingWorkspacePanel.h"
+#include "UI/TextureStudio/TexturePaintWorkspacePanel.h"
 #include <imgui_impl_vulkan.h>
 #include "Engine/Interface/IconPresentation.h"
 #include "Engine/Interface/ContentDirectory.h"
@@ -36,6 +39,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
+#include <commdlg.h>
 #endif
 #include <GLFW/glfw3.h>
 #include <imgui.h>
@@ -51,6 +55,13 @@
 
 namespace
 {
+struct PendingBakeDrop
+{
+    std::filesystem::path Path;
+    float X = 0, Y = 0;
+};
+PendingBakeDrop BakeDrop;
+
 #ifdef _DEBUG
 void AppendPatternPreviewDebug(std::string_view Description)
 {
@@ -135,15 +146,19 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
     const auto ContentRoot = std::filesystem::exists("EngineContent/FontArchives") ? std::filesystem::current_path() : ExecutableDirectory;
     Frontier::DiagnosticJournal::Append("Paths", "Executable=" + Frontier::DiagnosticJournal::EncodePath(ExecutableDirectory));
     Frontier::DiagnosticJournal::Append("Paths", "Content=" + Frontier::DiagnosticJournal::EncodePath(ContentRoot) + " shaders=" + Frontier::DiagnosticJournal::EncodePath(ShaderDirectory));
-    Frontier::ActivationOwnership AppearanceOwnership, LibraryOwnership, PatternOwnership, StampOwnership;
+    Frontier::ActivationOwnership AppearanceOwnership, LibraryOwnership, PatternOwnership, StampOwnership, BakingOwnership, TextureOwnership;
     Frontier::ControlCentrePanel *Appearance = nullptr;
     Frontier::MaterialLibraryPanel *Library = nullptr;
     Frontier::PatternWorkspacePanel *Pattern = nullptr;
     Frontier::StampWorkspacePanel *Stamp = nullptr;
+    Frontier::BakingWorkspacePanel *Baking = nullptr;
+    Frontier::TexturePaintWorkspacePanel *Texture = nullptr;
+    size_t TextureAssetsSyncedCount = SIZE_MAX;
     GLFWwindow *Window = nullptr;
     std::unique_ptr<Frontier::MaterialLibraryRendering> Rendering;
     std::unique_ptr<Frontier::VectorSurfaceMaterialBridge> MaterialBridge;
     std::unique_ptr<Frontier::VectorAuthoringCoverageRendering> CoverageRendering;
+    std::unique_ptr<Frontier::BakeRasterization> BakeCompute;
     std::optional<std::array<Frontier::MaterialTexturePyramid, 6>> PatternAuthoringMaps;
     bool PatternApplyRequested = false;
     Frontier::VectorAuthoringDocument SubmittedPatternDocument;
@@ -170,12 +185,22 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
     VkDescriptorSet PatternLayerAtlasDescriptor = VK_NULL_HANDLE;
     uint64_t PatternLayerAtlasPublished = 0;
     bool PatternLayerAtlasFaulted = false;
-    // 📝 Stamp has no library-wide gallery to browse, only its own open document's layer-row
-    // thumbnails — one small atlas, mirroring PatternLayerAtlas exactly.
+    // 📝 Stamp carries two atlases: its open document's layer-row thumbnails and the stamp-library
+    // gallery cards (the "Stamp library" dock tab), each mirroring Pattern's pair of atlases.
     std::unique_ptr<Frontier::MaterialThumbnailAtlas> StampLayerAtlas;
     VkDescriptorSet StampLayerAtlasDescriptor = VK_NULL_HANDLE;
     uint64_t StampLayerAtlasPublished = 0;
     bool StampLayerAtlasFaulted = false;
+    std::unique_ptr<Frontier::MaterialThumbnailAtlas> StampLibraryAtlas;
+    VkDescriptorSet StampLibraryAtlasDescriptor = VK_NULL_HANDLE;
+    uint64_t StampLibraryAtlasPublished = 0;
+    bool StampLibraryAtlasFaulted = false;
+    // 📝 Texture Paint's UV preview canvas (per-texel layer composite) - same one-atlas plumbing,
+    // serving as the mesh texture in its 3D/2D viewports.
+    std::unique_ptr<Frontier::MaterialThumbnailAtlas> PaintCanvasAtlas;
+    VkDescriptorSet PaintCanvasAtlasDescriptor = VK_NULL_HANDLE;
+    uint64_t PaintCanvasAtlasPublished = 0;
+    bool PaintCanvasAtlasFaulted = false;
     // 📝 At most one workspace's Float32 authoring maps overlay the selected material's preview at
     // once (whichever was most recently Applied); shared bookkeeping avoids any ambiguity about
     // which of Pattern's/Stamp's maps is the one actually showing.
@@ -197,9 +222,12 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         if (ReportedGpuFaults.insert(Key).second) Frontier::DiagnosticJournal::Append("GpuFaultIsolated", Key);
     };
     bool SelectionEvaluationFaulted = false, CoverageRenderingFaulted = false, PatternAtlasFaulted = false;
+    bool BakeComputeFaulted = false;
     std::optional<Frontier::VectorAuthoringDocument> PatternBridgeFaultedDocument;
     std::string MaterialRenderingFaultKey;
     VkImageView LastPreviewView = VK_NULL_HANDLE;
+    std::array<VkDescriptorSet, 2> AuxiliaryDescriptors{VK_NULL_HANDLE, VK_NULL_HANDLE};
+    std::array<VkImageView, 2> LastAuxiliaryViews{VK_NULL_HANDLE, VK_NULL_HANDLE};
     VkDescriptorSet PatternAtlasDescriptor = VK_NULL_HANDLE;
     uint64_t PatternAtlasPublished = 0;
     // 📝 Environment sphere-preview atlas: CPU pixels staged once per catalogue generation.
@@ -210,9 +238,11 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
     std::map<std::pair<size_t, uint32_t>, VkDescriptorSet> CoverageDescriptors;
     std::filesystem::path PatternSource;
     std::filesystem::path StampSource;
-    // 📝 At most one of these is ever true; both false means the Material Library is on screen.
+    // 📝 At most one of these is ever true; all false means the Material Library is on screen.
     bool PatternActive = false;
     bool StampActive = false;
+    bool BakingActive = false;
+    bool TextureActive = false;
     uint64_t RenderingRevision = UINT64_MAX, LayoutResetRevision = 0;
     bool LayoutBlocked = false;
     Frontier::ApplicationWindowCallbacks Callbacks;
@@ -221,6 +251,16 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
     Callbacks.Initialize = [&](GLFWwindow *CurrentWindow)
     {
         Window = CurrentWindow;
+        glfwSetDropCallback(Window, [](GLFWwindow *DropWindow, int Count, const char **Paths)
+        {
+            if (Count != 1 || !Paths || !Paths[0]) return;
+            double X = 0, Y = 0; glfwGetCursorPos(DropWindow, &X, &Y);
+            if (ImGui::GetCurrentContext() && (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable))
+            {
+                int WindowX = 0, WindowY = 0; glfwGetWindowPos(DropWindow, &WindowX, &WindowY); X += WindowX; Y += WindowY;
+            }
+            BakeDrop = {std::filesystem::u8path(Paths[0]), float(X), float(Y)};
+        });
         Frontier::IconPresentation::Attach(Frontier::EncodeContentPath(ContentRoot / "EngineContent/Icons"));
         const auto LocalDirectory = QueryUserDataDirectory();
         const auto Preferences = LocalDirectory.empty() ? std::filesystem::path{} : LocalDirectory / "Frontier/Personal.projectspace";
@@ -317,12 +357,16 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
             AppendPatternPreviewDebug("Pattern workspace deactivated; Material Library preview selected.");
         };
         Pattern->ActivateStamp = [&]() { PatternActive = false; StampActive = true; };
+        Pattern->ActivateBaking = [&]() { PatternActive = false; BakingActive = true; };
+        Pattern->ActivateTexture = [&]() { PatternActive = false; TextureActive = true; };
         Library->ActivatePattern = [&]()
         {
             PatternActive = true;
             AppendPatternPreviewDebug("Pattern workspace activated; Float32 authoring-map generation enabled.");
         };
         Library->ActivateStamp = [&]() { StampActive = true; };
+        Library->ActivateBaking = [&]() { BakingActive = true; };
+        Library->ActivateTexture = [&]() { TextureActive = true; };
         if (auto *Registry = Frontier::TypefaceRegistry::QueryCurrent())
         {
             const int32_t Family = Registry->ResolveFamilyIndex("DM Sans");
@@ -357,6 +401,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         Stamp = static_cast<Frontier::StampWorkspacePanel *>(StampOwnership.get());
         if (!Stamp->Initialize() || !Stamp->Activate()) throw std::runtime_error("Stamp workspace activation failed.");
         Stamp->ConfigureContentRoot(ContentRoot);
+        Stamp->ConfigureStampLibraryDirectory(Directory / "Stamps"); // same folder Texture Paint's stamp grid scans
         StampSource = Directory / "stamp-workspace.vector.toml";
         Stamp->SaveSource = [&](std::string_view Source)
         {
@@ -376,6 +421,8 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         };
         Stamp->ActivateMaterial = [&]() { StampActive = false; };
         Stamp->ActivatePattern = [&]() { StampActive = false; PatternActive = true; };
+        Stamp->ActivateBaking = [&]() { StampActive = false; BakingActive = true; };
+        Stamp->ActivateTexture = [&]() { StampActive = false; TextureActive = true; };
         if (auto *Registry = Frontier::TypefaceRegistry::QueryCurrent())
         {
             const int32_t Family = Registry->ResolveFamilyIndex("DM Sans");
@@ -405,6 +452,55 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                 }
             }
         }
+        // 📝 Baking: Stage 1 native port (UI + 3D viewport + a few real mesh maps). No TOML source/layout
+        // persistence yet (deliberately deferred scope) — it always opens on the built-in Teapot demo.
+        BakingOwnership.reset(new Frontier::BakingWorkspacePanel());
+        Baking = static_cast<Frontier::BakingWorkspacePanel *>(BakingOwnership.get());
+        if (!Baking->Initialize() || !Baking->Activate()) throw std::runtime_error("Baking workspace activation failed.");
+        Baking->ConfigureExportDirectory(Directory / "BakingExports");
+#ifdef _WIN32
+        Baking->ChooseBakeMesh = [](bool LowTarget) -> std::filesystem::path
+        {
+            wchar_t Filename[32768]{};
+            OPENFILENAMEW Selection{};
+            Selection.lStructSize = sizeof(Selection);
+            Selection.lpstrFilter = LowTarget ? L"UV mapped OBJ (*.obj)\0*.obj\0\0" : L"Mesh files (*.obj;*.stl)\0*.obj;*.stl\0\0";
+            Selection.lpstrFile = Filename;
+            Selection.nMaxFile = 32768;
+            Selection.Flags = OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+            return GetOpenFileNameW(&Selection) ? std::filesystem::path(Filename) : std::filesystem::path{};
+        };
+#endif
+        Baking->ActivateMaterial = [&]() { BakingActive = false; };
+        Baking->ActivatePattern = [&]() { BakingActive = false; PatternActive = true; };
+        Baking->ActivateStamp = [&]() { BakingActive = false; StampActive = true; };
+        Baking->ActivateTexture = [&]() { BakingActive = false; TextureActive = true; };
+        if (auto *Registry = Frontier::TypefaceRegistry::QueryCurrent())
+        {
+            const int32_t Family = Registry->ResolveFamilyIndex("DM Sans");
+            if (Family >= 0) Baking->ConfigureTypeface(Registry->QueryHandle(uint32_t(Family), Frontier::FontWeightCategory::Regular),
+                Registry->QueryHandle(uint32_t(Family), Frontier::FontWeightCategory::Light));
+        }
+        // 📝 Texture Paint: native port of TexturePaintStudio.jsx (layer document + teapot viewport +
+        // preview paint). Like Baking it opens on the built-in Teapot demo; its project JSON/draft
+        // land in the library directory (see TexturePaintWorkspacePanel's scope note).
+        TextureOwnership.reset(new Frontier::TexturePaintWorkspacePanel());
+        Texture = static_cast<Frontier::TexturePaintWorkspacePanel *>(TextureOwnership.get());
+        if (!Texture->Initialize() || !Texture->Activate()) throw std::runtime_error("Texture Paint workspace activation failed.");
+        Texture->ConfigureProjectDirectory(Directory);
+        Texture->ConfigureStampLibraryDirectory(Directory / "Stamps");
+        Texture->ConfigureContentRoot(ContentRoot); // Text decal tool reads DM Sans outlines from here
+        Texture->ActivateMaterial = [&]() { TextureActive = false; };
+        Texture->ActivatePattern = [&]() { TextureActive = false; PatternActive = true; };
+        Texture->ActivateStamp = [&]() { TextureActive = false; StampActive = true; };
+        Texture->ActivateBaking = [&]() { TextureActive = false; BakingActive = true; };
+        if (auto *Registry = Frontier::TypefaceRegistry::QueryCurrent())
+        {
+            const int32_t Family = Registry->ResolveFamilyIndex("DM Sans");
+            if (Family >= 0) Texture->ConfigureTypeface(Registry->QueryHandle(uint32_t(Family), Frontier::FontWeightCategory::Regular),
+                Registry->QueryHandle(uint32_t(Family), Frontier::FontWeightCategory::Light));
+        }
+
         LayoutResetRevision = Appearance->QueryLayoutResetRevision();
         if (!Preferences.empty() && std::filesystem::exists(Preferences))
         {
@@ -413,14 +509,33 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
             if (!Frontier::ProjectSpaceCodec::Decode(Preferences, Document, Message)) LayoutBlocked = true;
             else
             {
-                if (const auto Layout = Document.Sections["workspace"]["texture_studio_layout"]; Layout)
-                    LayoutBlocked = !Layout.is_table() || !Library->QueryPanels().ConfigureLayout(*Layout.as_table(), Message);
-                if (!LayoutBlocked)
-                    if (const auto Layout = Document.Sections["workspace"]["texture_studio_pattern_layout"]; Layout)
-                        LayoutBlocked = !Layout.is_table() || !Pattern->QueryPanels().ConfigureLayout(*Layout.as_table(), Message);
-                if (!LayoutBlocked)
-                    if (const auto Layout = Document.Sections["workspace"]["texture_studio_stamp_layout"]; Layout)
-                        LayoutBlocked = !Layout.is_table() || !Stamp->QueryPanels().ConfigureLayout(*Layout.as_table(), Message);
+                // Keep each workspace independent: one stale/corrupt saved table must not stop the
+                // remaining layouts from loading, and must not make every workspace session-only.
+                // The affected workspace falls back to defaults and its table is replaced on exit.
+                // LayoutBlocked is reserved for a preferences file that cannot be decoded at all.
+                std::string LayoutDiagnostics;
+                const auto ConfigureSavedLayout = [&](const char *Key, auto &Panels)
+                {
+                    const auto Layout = Document.Sections["workspace"][Key];
+                    if (!Layout) return;
+                    std::string SectionMessage;
+                    if (!Layout.is_table() || !Panels.ConfigureLayout(*Layout.as_table(), SectionMessage))
+                    {
+                        if (!LayoutDiagnostics.empty()) LayoutDiagnostics += ' ';
+                        LayoutDiagnostics += Key;
+                        LayoutDiagnostics += ": ";
+                        LayoutDiagnostics += SectionMessage.empty() ? "saved layout is not a table." : SectionMessage;
+                    }
+                };
+                ConfigureSavedLayout("texture_studio_layout", Library->QueryPanels());
+                ConfigureSavedLayout("texture_studio_pattern_layout", Pattern->QueryPanels());
+                ConfigureSavedLayout("texture_studio_stamp_layout", Stamp->QueryPanels());
+                ConfigureSavedLayout("texture_studio_baking_layout", Baking->QueryPanels());
+                ConfigureSavedLayout("texture_studio_texture_layout", Texture->QueryPanels());
+                if (!LayoutDiagnostics.empty())
+                    Appearance->ConfigureLayoutDiagnostic(
+                        "Some TextureWorkspace layouts were refused; affected workspaces use defaults and will save a replacement layout. " +
+                        LayoutDiagnostics);
             }
             if (LayoutBlocked) Appearance->ConfigureLayoutDiagnostic("TextureWorkspace layout read refused; defaults remain session-only. " + Message);
         }
@@ -428,10 +543,12 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
     Callbacks.InitializeVulkan = [&](Frontier::VulkanPresentation &Display)
     {
         Rendering = std::make_unique<Frontier::MaterialLibraryRendering>();
-        Rendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory);
+        Rendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory,
+            Frontier::MaterialLibraryRendering::ShippedAtlasTile,
+            Frontier::MaterialLibraryRendering::ShippedAtlasColumns);
         // 📝 Disk-persist the baked gallery atlas so relaunching does not re-render every visible
         // material through the PBR pipeline again; best-effort and silently inert on any failure.
-        Rendering->ConfigureAtlasCache(Frontier::QueryFrontierCacheDirectory() / "MaterialAtlas.atlas", 0x4D41544C41533100ull);
+        Rendering->ConfigureAtlasCache(Frontier::QueryFrontierCacheDirectory() / "MaterialAtlas.atlas", 0x4D41544C41533200ull);
         Rendering->ConfigureEnvironments(ContentRoot / "EngineContent/EnvironmentArchives");
         EnvironmentAtlas = std::make_unique<Frontier::MaterialThumbnailAtlas>();
         EnvironmentAtlas->Initialize(Display.QueryRasterAccess(),
@@ -456,8 +573,23 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         StampLayerAtlas->Initialize(Display.QueryRasterAccess(), Frontier::StampWorkspacePanel::LayerAtlasTile,
             Frontier::StampWorkspacePanel::LayerAtlasColumns);
         StampLayerAtlasDescriptor = ImGui_ImplVulkan_AddTexture(StampLayerAtlas->QueryImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        StampLibraryAtlas = std::make_unique<Frontier::MaterialThumbnailAtlas>();
+        StampLibraryAtlas->Initialize(Display.QueryRasterAccess(), Frontier::StampWorkspacePanel::LibraryAtlasTile,
+            Frontier::StampWorkspacePanel::LibraryAtlasColumns);
+        StampLibraryAtlasDescriptor = ImGui_ImplVulkan_AddTexture(StampLibraryAtlas->QueryImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        PaintCanvasAtlas = std::make_unique<Frontier::MaterialThumbnailAtlas>();
+        PaintCanvasAtlas->Initialize(Display.QueryRasterAccess(), Frontier::TexturePaintWorkspacePanel::PaintCanvasTile,
+            Frontier::TexturePaintWorkspacePanel::PaintCanvasColumns);
+        PaintCanvasAtlasDescriptor = ImGui_ImplVulkan_AddTexture(PaintCanvasAtlas->QueryImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         CoverageRendering = std::make_unique<Frontier::VectorAuthoringCoverageRendering>();
         CoverageRendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory / "VectorCoverageCompute.spv");
+        {
+            Frontier::VectorCoverageInstruction WarmInstruction{};
+            WarmInstruction.Transform[2] = 0.f;
+            const Frontier::VectorCoverageProgram WarmProgram{{WarmInstruction}, {}, 0};
+            try { (void)CoverageRendering->SelectProgram(WarmProgram, 512); }
+            catch (...) {}
+        }
         SelectionEvaluation = std::make_unique<Frontier::VectorSelectionEvaluation>();
         SelectionEvaluation->Initialize(Display.QueryRasterAccess(), ShaderDirectory / "VectorSelectionCompute.spv");
         Pattern->QueryCoverage = [&](const Frontier::VectorCoverageProgram &Program, uint32_t DisplayExtent) -> uint64_t
@@ -489,7 +621,8 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         Pattern->QueryCoverageReady = [&]() { return CoverageRendering ? CoverageRendering->QuerySelectedReady() : true; };
         Pattern->QuerySelectionToken = [&](const Frontier::VectorAuthoringDocument &Document, Frontier::PlanePoint Point)
         {
-            return SelectionEvaluation->QueryToken(Frontier::ConstructVectorSelectionProgram(Document), {Point.X, Point.Y});
+            const float Ratio = 512.f / std::clamp(Document.CanvasExtent, 64.f, 4096.f);
+            return SelectionEvaluation->QueryToken(Frontier::ConstructVectorSelectionProgram(Document), {Point.X * Ratio, Point.Y * Ratio});
         };
         Pattern->QueryPatternAtlas = [&]()
         {
@@ -530,12 +663,25 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         Stamp->QueryCoverageReady = [&]() { return CoverageRendering ? CoverageRendering->QuerySelectedReady() : true; };
         Stamp->QuerySelectionToken = [&](const Frontier::VectorAuthoringDocument &Document, Frontier::PlanePoint Point)
         {
-            return SelectionEvaluation->QueryToken(Frontier::ConstructVectorSelectionProgram(Document), {Point.X, Point.Y});
+            const float Ratio = 512.f / std::clamp(Document.CanvasExtent, 64.f, 4096.f);
+            return SelectionEvaluation->QueryToken(Frontier::ConstructVectorSelectionProgram(Document), {Point.X * Ratio, Point.Y * Ratio});
         };
         Stamp->QueryLayerThumbnailAtlas = [&]()
         {
             const auto Uv = StampLayerAtlas ? StampLayerAtlas->QueryUv(0) : Frontier::ThumbnailUvRectangle{};
             return Frontier::StampWorkspacePanel::StampAtlasImage{StampLayerAtlasDescriptor ? uint64_t(StampLayerAtlasDescriptor) : uint64_t(0),
+                Uv.MinimumU, Uv.MinimumV, Uv.MaximumU, Uv.MaximumV};
+        };
+        Stamp->QueryLibraryThumbnailAtlas = [&]()
+        {
+            const auto Uv = StampLibraryAtlas ? StampLibraryAtlas->QueryUv(0) : Frontier::ThumbnailUvRectangle{};
+            return Frontier::StampWorkspacePanel::StampAtlasImage{StampLibraryAtlasDescriptor ? uint64_t(StampLibraryAtlasDescriptor) : uint64_t(0),
+                Uv.MinimumU, Uv.MinimumV, Uv.MaximumU, Uv.MaximumV};
+        };
+        Texture->QueryPaintCanvasImage = [&]()
+        {
+            const auto Uv = PaintCanvasAtlas ? PaintCanvasAtlas->QueryUv(0) : Frontier::ThumbnailUvRectangle{};
+            return Frontier::TexturePaintWorkspacePanel::PaintCanvasImage{PaintCanvasAtlasDescriptor ? uint64_t(PaintCanvasAtlasDescriptor) : uint64_t(0),
                 Uv.MinimumU, Uv.MinimumV, Uv.MaximumU, Uv.MaximumV};
         };
         const auto AssignPatternMapsToPreview = [&]()
@@ -576,6 +722,12 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
             if (!CoverageRenderingFaulted)
                 try { CoverageRendering->ConstructCommands(Commands, Completed, Serial); }
                 catch (const std::exception &Failure) { CoverageRenderingFaulted = true; JournalGpuFaultOnce("CoverageRendering", Failure); }
+            // 📝 One bake band is recorded per frame submission (and the previous band harvested) inside
+            // ConstructCommands; a throw latches the unit faulted AND converts the in-flight bake into a
+            // failed outcome, so the panel's next poll restarts that bake on the CPU instead of hanging.
+            if (!BakeComputeFaulted && BakeCompute)
+                try { (void)BakeCompute->ConstructCommands(Commands, Completed, Serial); }
+                catch (const std::exception &Failure) { BakeComputeFaulted = true; BakeCompute->ConfigureFaulted(Failure.what()); JournalGpuFaultOnce("BakeRasterization", Failure); }
             try
             {
             if (Pattern->ConsumeMaterialApplyRequest()) PatternApplyRequested = true;
@@ -602,7 +754,12 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                 }
                 PatternBridgeSubmission = 0;
             }
+            // 📝 Save-gated baking: the 6-channel Float32 bake runs only once the document is saved
+            // (Ctrl+S / Save button - QueryModified() false) or an explicit Apply to material demands
+            // fresh maps. While edits are unsaved (e.g. mid modifier-slider drag) the 2D canvas still
+            // re-evaluates live every frame, but no material bake churns underneath it.
             if (PatternActive && !PatternBridgeSubmission && !StampBridgeSubmission && Pattern->QueryAuthoringSettled() &&
+                (!Pattern->QueryModified() || PatternApplyRequested) &&
                 !(PatternBridgeFaultedDocument && *PatternBridgeFaultedDocument == Pattern->QueryDocument()))
             {
                 // 📝 Gestures publish a fresh draft every frame; regenerate Float32 maps only after the gesture ends.
@@ -618,11 +775,16 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                     // it didn't, CurrentPattern would never again equal SubmittedPatternDocument and
                     // this settle-detect/compile cycle would retrigger forever, hammering the GPU with
                     // a full 6-channel recompile every other frame even on a perfectly idle document.
-                    const bool PatternProgramsChanged = MaterialBridge->ConfigureDocument(CurrentPattern, Completed);
+                    // The bridge compiles the EVALUATED document (live modifier stack expanded, the
+                    // same ephemeral expansion the 2D canvas renders) so procedural arrays reach the
+                    // material maps and 3D preview without an explicit Apply; every settle/fault
+                    // comparison around it stays on the AUTHORED document, which is the stable one.
+                    const auto EvaluatedPattern = Frontier::ConstructEvaluatedVectorAuthoringDocument(CurrentPattern);
+                    const bool PatternProgramsChanged = MaterialBridge->ConfigureDocument(EvaluatedPattern, Completed);
                     SubmittedPatternDocument = CurrentPattern;
                     if (PatternProgramsChanged)
                     {
-                        AppendPatternPreviewDebug("Pattern document compiled; layers=" + std::to_string(SubmittedPatternDocument.Layers.size()) + "; instructions=" + std::to_string(SubmittedPatternDocument.Instructions.size()) + "; cubic_segments=" + std::to_string(SubmittedPatternDocument.Segments.size()) + "; completed_serial=" + std::to_string(Completed));
+                        AppendPatternPreviewDebug("Pattern document compiled; layers=" + std::to_string(EvaluatedPattern.Layers.size()) + "; instructions=" + std::to_string(EvaluatedPattern.Instructions.size()) + "; cubic_segments=" + std::to_string(EvaluatedPattern.Segments.size()) + "; completed_serial=" + std::to_string(Completed));
                         PatternAuthoringMaps.reset();
                         const bool AssignedSnapshotLive = AssignedWorkspaceMaps.has_value() &&
                             AssignedWorkspaceSelection == Library->QueryLibrary().QuerySelection();
@@ -678,7 +840,9 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                 else StampAuthoringMaps.reset();
                 StampBridgeSubmission = 0;
             }
+            // 📝 Save-gated baking, same rule as the Pattern branch above.
             if (StampActive && !StampBridgeSubmission && !PatternBridgeSubmission && Stamp->QueryAuthoringSettled() &&
+                (!Stamp->QueryModified() || StampApplyRequested) &&
                 !(StampBridgeFaultedDocument && *StampBridgeFaultedDocument == Stamp->QueryDocument()))
             {
                 // 📝 Gestures publish a fresh draft every frame; regenerate Float32 maps only after the gesture ends.
@@ -693,7 +857,10 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                     // settle/compile cycle retriggers every other frame forever — the "stuck baking"
                     // symptom, and a steady stream of needless 6-channel recompiles that can starve or
                     // crash the app under sustained load.
-                    const bool StampProgramsChanged = MaterialBridge->ConfigureDocument(CurrentStamp, Completed);
+                    // 📝 Evaluated submission, mirroring the Pattern branch (a no-op expansion while
+                    // the document carries no enabled modifiers, which is every Stamp-authored doc).
+                    const bool StampProgramsChanged = MaterialBridge->ConfigureDocument(
+                        Frontier::ConstructEvaluatedVectorAuthoringDocument(CurrentStamp), Completed);
                     SubmittedStampDocument = CurrentStamp;
                     if (StampProgramsChanged)
                     {
@@ -738,41 +905,76 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                     EnvironmentAtlasPublished = EnvironmentPreviews.Generation;
                 }
                 catch (const std::exception &Failure) { EnvironmentAtlasFaulted = true; JournalGpuFaultOnce("EnvironmentAtlasUpload", Failure); }
-            const uint64_t PatternAtlasRevision = Pattern->QueryPatternAtlasRevision();
-            if (!PatternAtlasFaulted && PatternAtlas && PatternAtlasRevision != PatternAtlasPublished)
-                try
-                {
-                    PatternAtlas->StagePixels(Pattern->QueryPatternAtlasPixels());
-                    PatternAtlas->ConstructUpload(Commands);
-                    PatternAtlasPublished = PatternAtlasRevision;
-                }
-                catch (const std::exception &Failure) { PatternAtlasFaulted = true; JournalGpuFaultOnce("PatternAtlasUpload", Failure); }
-            const uint64_t PatternLayerAtlasRevision = Pattern->QueryLayerAtlasRevision();
-            if (!PatternLayerAtlasFaulted && PatternLayerAtlas && PatternLayerAtlasRevision != PatternLayerAtlasPublished)
-                try
-                {
-                    const auto &LayerPixels = Pattern->QueryLayerAtlasPixels();
-                    if (!LayerPixels.empty())
+            if (PatternActive || PatternAtlasPublished == 0)
+            {
+                const uint64_t PatternAtlasRevision = Pattern->QueryPatternAtlasRevision();
+                if (!PatternAtlasFaulted && PatternAtlas && PatternAtlasRevision != PatternAtlasPublished)
+                    try
                     {
-                        PatternLayerAtlas->StagePixels(LayerPixels);
-                        PatternLayerAtlas->ConstructUpload(Commands);
+                        PatternAtlas->StagePixels(Pattern->QueryPatternAtlasPixels());
+                        PatternAtlas->ConstructUpload(Commands);
+                        PatternAtlasPublished = PatternAtlasRevision;
                     }
-                    PatternLayerAtlasPublished = PatternLayerAtlasRevision;
-                }
-                catch (const std::exception &Failure) { PatternLayerAtlasFaulted = true; JournalGpuFaultOnce("PatternLayerAtlasUpload", Failure); }
-            const uint64_t StampLayerAtlasRevision = Stamp->QueryLayerAtlasRevision();
-            if (!StampLayerAtlasFaulted && StampLayerAtlas && StampLayerAtlasRevision != StampLayerAtlasPublished)
-                try
-                {
-                    const auto &LayerPixels = Stamp->QueryLayerAtlasPixels();
-                    if (!LayerPixels.empty())
+                    catch (const std::exception &Failure) { PatternAtlasFaulted = true; JournalGpuFaultOnce("PatternAtlasUpload", Failure); }
+                const uint64_t PatternLayerAtlasRevision = Pattern->QueryLayerAtlasRevision();
+                if (!PatternLayerAtlasFaulted && PatternLayerAtlas && PatternLayerAtlasRevision != PatternLayerAtlasPublished)
+                    try
                     {
-                        StampLayerAtlas->StagePixels(LayerPixels);
-                        StampLayerAtlas->ConstructUpload(Commands);
+                        const auto &LayerPixels = Pattern->QueryLayerAtlasPixels();
+                        if (!LayerPixels.empty())
+                        {
+                            PatternLayerAtlas->StagePixels(LayerPixels);
+                            PatternLayerAtlas->ConstructUpload(Commands);
+                        }
+                        PatternLayerAtlasPublished = PatternLayerAtlasRevision;
                     }
-                    StampLayerAtlasPublished = StampLayerAtlasRevision;
-                }
-                catch (const std::exception &Failure) { StampLayerAtlasFaulted = true; JournalGpuFaultOnce("StampLayerAtlasUpload", Failure); }
+                    catch (const std::exception &Failure) { PatternLayerAtlasFaulted = true; JournalGpuFaultOnce("PatternLayerAtlasUpload", Failure); }
+            }
+            if (StampActive || StampLayerAtlasPublished == 0 || StampLibraryAtlasPublished == 0)
+            {
+                const uint64_t StampLayerAtlasRevision = Stamp->QueryLayerAtlasRevision();
+                if (!StampLayerAtlasFaulted && StampLayerAtlas && StampLayerAtlasRevision != StampLayerAtlasPublished)
+                    try
+                    {
+                        const auto &LayerPixels = Stamp->QueryLayerAtlasPixels();
+                        if (!LayerPixels.empty())
+                        {
+                            StampLayerAtlas->StagePixels(LayerPixels);
+                            StampLayerAtlas->ConstructUpload(Commands);
+                        }
+                        StampLayerAtlasPublished = StampLayerAtlasRevision;
+                    }
+                    catch (const std::exception &Failure) { StampLayerAtlasFaulted = true; JournalGpuFaultOnce("StampLayerAtlasUpload", Failure); }
+                const uint64_t StampLibraryAtlasRevision = Stamp->QueryLibraryAtlasRevision();
+                if (!StampLibraryAtlasFaulted && StampLibraryAtlas && StampLibraryAtlasRevision != StampLibraryAtlasPublished)
+                    try
+                    {
+                        const auto &LibraryPixels = Stamp->QueryLibraryAtlasPixels();
+                        if (!LibraryPixels.empty())
+                        {
+                            StampLibraryAtlas->StagePixels(LibraryPixels);
+                            StampLibraryAtlas->ConstructUpload(Commands);
+                        }
+                        StampLibraryAtlasPublished = StampLibraryAtlasRevision;
+                    }
+                    catch (const std::exception &Failure) { StampLibraryAtlasFaulted = true; JournalGpuFaultOnce("StampLibraryAtlasUpload", Failure); }
+            }
+            if (TextureActive || PaintCanvasAtlasPublished == 0)
+            {
+                const uint64_t PaintCanvasAtlasRevision = Texture->QueryPaintCanvasRevision();
+                if (!PaintCanvasAtlasFaulted && PaintCanvasAtlas && PaintCanvasAtlasRevision != PaintCanvasAtlasPublished)
+                    try
+                    {
+                        const auto &CanvasPixels = Texture->QueryPaintCanvasPixels();
+                        if (!CanvasPixels.empty())
+                        {
+                            PaintCanvasAtlas->StagePixels(CanvasPixels);
+                            PaintCanvasAtlas->ConstructUpload(Commands);
+                        }
+                        PaintCanvasAtlasPublished = PaintCanvasAtlasRevision;
+                    }
+                    catch (const std::exception &Failure) { PaintCanvasAtlasFaulted = true; JournalGpuFaultOnce("PaintCanvasAtlasUpload", Failure); }
+            }
             {
                 // 📝 Material rendering faults latch against the current catalogue revision + preview
                 // configuration; any new edit re-arms evaluation. A partially recorded tile/preview
@@ -799,6 +1001,8 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                 if (PatternAtlas) PatternAtlas->ConfirmSubmission();
                 if (PatternLayerAtlas) PatternLayerAtlas->ConfirmSubmission();
                 if (StampLayerAtlas) StampLayerAtlas->ConfirmSubmission();
+                if (StampLibraryAtlas) StampLibraryAtlas->ConfirmSubmission();
+                if (PaintCanvasAtlas) PaintCanvasAtlas->ConfirmSubmission();
                 if (EnvironmentAtlas) EnvironmentAtlas->ConfirmSubmission();
                 if (PatternBridgeRecorded || StampBridgeRecorded)
                 {
@@ -881,6 +1085,55 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
             catch (const std::exception &Failure) { JournalGpuFaultOnce("PreviewTexture", Failure); }
             return Frontier::MaterialPreviewImage{Rendering->QueryPreviewReady() ? (uint64_t)PreviewDescriptor : 0};
         };
+        const auto BindAuxiliaryViewport = [&](uint32_t Slot, auto &Panel)
+        {
+            Panel.ConfigureViewportGeometry = [&, Slot](const Frontier::SurfaceGeometry &Mesh)
+            {
+                try { Rendering->ConfigureAuxiliaryGeometry(Slot, Mesh); }
+                catch (const std::exception &Failure) { JournalGpuFaultOnce("AuxViewportGeometry", Failure); }
+            };
+            Panel.ConfigureViewportMaterial = [&, Slot](const Frontier::CompiledSurfaceMaterial &Material)
+            {
+                try { Rendering->ConfigureAuxiliaryMaterial(Slot, Material); }
+                catch (const std::exception &Failure) { JournalGpuFaultOnce("AuxViewportMaterial", Failure); }
+            };
+            Panel.ConfigureViewportCamera = [&, Slot](const Frontier::WorkspaceViewportOrbitCamera &Camera)
+            {
+                try { Rendering->ConfigureAuxiliaryCamera(Slot, Camera); }
+                catch (const std::exception &Failure) { JournalGpuFaultOnce("AuxViewportCamera", Failure); }
+            };
+            Panel.ConfigureViewportExtent = [&, Slot](uint32_t Width, uint32_t Height)
+            {
+                try { Rendering->ConfigureAuxiliaryExtent(Slot, Width, Height); }
+                catch (const std::exception &Failure) { JournalGpuFaultOnce("AuxViewportExtent", Failure); }
+            };
+            Panel.QueryViewport = [&, Slot]()
+            {
+                while (!RetiredPreviewDescriptors.empty() && RetiredPreviewDescriptors.front().second + 4 <= InterfaceFrame)
+                {
+                    if (RetiredPreviewDescriptors.front().first)
+                        ImGui_ImplVulkan_RemoveTexture(RetiredPreviewDescriptors.front().first);
+                    RetiredPreviewDescriptors.pop_front();
+                }
+                const VkImageView CurrentView = Rendering->QueryAuxiliaryViewportView(Slot);
+                try
+                {
+                    if (CurrentView && CurrentView != LastAuxiliaryViews[Slot])
+                    {
+                        LastAuxiliaryViews[Slot] = CurrentView;
+                        if (AuxiliaryDescriptors[Slot])
+                            RetiredPreviewDescriptors.emplace_back(AuxiliaryDescriptors[Slot], InterfaceFrame);
+                        AuxiliaryDescriptors[Slot] = ImGui_ImplVulkan_AddTexture(
+                            CurrentView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                    }
+                }
+                catch (const std::exception &Failure) { JournalGpuFaultOnce("AuxViewportTexture", Failure); }
+                return Frontier::WorkspaceViewportImage{
+                    Rendering->QueryAuxiliaryViewportReady(Slot) ? uint64_t(AuxiliaryDescriptors[Slot]) : 0ull};
+            };
+        };
+        BindAuxiliaryViewport(0, *Texture);
+        BindAuxiliaryViewport(1, *Baking);
     };
     Callbacks.ConfigurePlatform = [&]()
     {
@@ -889,15 +1142,21 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
             Library->QueryPanels().ResetLayout();
             Pattern->QueryPanels().ResetLayout();
             Stamp->QueryPanels().ResetLayout();
+            Baking->QueryPanels().ResetLayout();
+            Texture->QueryPanels().ResetLayout();
             LayoutBlocked = false;
             LayoutResetRevision = Appearance->QueryLayoutResetRevision();
         }
         Library->QueryPanels().ConfigureDetachedWindows(Appearance->QueryDetachedWindows());
         Pattern->QueryPanels().ConfigureDetachedWindows(Appearance->QueryDetachedWindows());
         Stamp->QueryPanels().ConfigureDetachedWindows(Appearance->QueryDetachedWindows());
+        Baking->QueryPanels().ConfigureDetachedWindows(Appearance->QueryDetachedWindows());
+        Texture->QueryPanels().ConfigureDetachedWindows(Appearance->QueryDetachedWindows());
         Library->ConfigurePlatform();
         (void)Pattern->QueryPanels().ConfigurePlatform();
         (void)Stamp->QueryPanels().ConfigurePlatform();
+        (void)Baking->QueryPanels().ConfigurePlatform();
+        (void)Texture->QueryPanels().ConfigurePlatform();
         if (glfwWindowShouldClose(Window))
         {
             const bool Authorized = StampActive ? Stamp->RequestClose() : PatternActive ? Pattern->RequestClose() : Library->RequestClose();
@@ -911,10 +1170,38 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         (void)Appearance->Integrate(ImGui::GetIO().DeltaTime);
         if (StampActive) (void)Stamp->Integrate(ImGui::GetIO().DeltaTime);
         else if (PatternActive) (void)Pattern->Integrate(ImGui::GetIO().DeltaTime);
+        else if (BakingActive) (void)Baking->Integrate(ImGui::GetIO().DeltaTime);
+        else if (TextureActive) (void)Texture->Integrate(ImGui::GetIO().DeltaTime);
         else (void)Library->Integrate(ImGui::GetIO().DeltaTime);
+        if (!BakeDrop.Path.empty())
+        {
+            if (MainVisible && BakingActive && Baking) (void)Baking->ImportDroppedBakeMesh(BakeDrop.Path, BakeDrop.X, BakeDrop.Y);
+            BakeDrop = {};
+        }
         if (MainVisible)
         {
-            if (StampActive)
+            if (BakingActive)
+            {
+                Baking->ConfigureInterfaceScale(Appearance->QueryAppearance().QueryApplied().InterfaceScale / 100.f);
+                Baking->ConstructInterface();
+            }
+            else if (TextureActive)
+            {
+                // 📝 Texture Paint keeps a snapshot of the catalogue the Material workspace owns for
+                // layer source-asset links; only re-copy it when the entry count changes.
+                const auto &Entries = Library->QueryLibrary().QueryEntries();
+                if (TextureAssetsSyncedCount != Entries.size())
+                {
+                    TextureAssetsSyncedCount = Entries.size();
+                    std::vector<Frontier::TexturePaintWorkspacePanel::MaterialAsset> Assets;
+                    Assets.reserve(Entries.size());
+                    for (const auto &Entry : Entries) Assets.push_back({Entry.Name, Entry.Category, Entry.ColourHex});
+                    Texture->ConfigureMaterialAssets(std::move(Assets));
+                }
+                Texture->ConfigureInterfaceScale(Appearance->QueryAppearance().QueryApplied().InterfaceScale / 100.f);
+                Texture->ConstructInterface();
+            }
+            else if (StampActive)
             {
                 Stamp->EvaluateNavigationDelta = [&](Frontier::PlanePoint Displacement)
                 {
@@ -934,7 +1221,6 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
             }
             else
             {
-                if (Rendering) Rendering->RequestLibrary(Library->QueryLibrary().QueryDirectory(), {});
                 Library->EvaluateNavigationDelta = [&](Frontier::PlanePoint Displacement)
                 {
                     return Appearance->QueryInput().QueryApplied().EvaluatePointerDelta(Displacement);
@@ -970,12 +1256,19 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         // 📝 The shared application loop has retired all GPU work before this callback.
         if (AtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(AtlasDescriptor);
         if (PreviewDescriptor) ImGui_ImplVulkan_RemoveTexture(PreviewDescriptor);
+        for (VkDescriptorSet &AuxDesc : AuxiliaryDescriptors)
+        {
+            if (AuxDesc) ImGui_ImplVulkan_RemoveTexture(AuxDesc);
+            AuxDesc = VK_NULL_HANDLE;
+        }
         for (const auto &Retired : RetiredPreviewDescriptors)
             if (Retired.first) ImGui_ImplVulkan_RemoveTexture(Retired.first);
         RetiredPreviewDescriptors.clear();
         if (PatternAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(PatternAtlasDescriptor);
         if (PatternLayerAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(PatternLayerAtlasDescriptor);
         if (StampLayerAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(StampLayerAtlasDescriptor);
+        if (StampLibraryAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(StampLibraryAtlasDescriptor);
+        if (PaintCanvasAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(PaintCanvasAtlasDescriptor);
         if (EnvironmentAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(EnvironmentAtlasDescriptor);
         for (const auto &Entry : CoverageDescriptors)
             if (Entry.second) ImGui_ImplVulkan_RemoveTexture(Entry.second);
@@ -986,6 +1279,8 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         if (PatternAtlas) PatternAtlas->Finalize();
         if (PatternLayerAtlas) PatternLayerAtlas->Finalize();
         if (StampLayerAtlas) StampLayerAtlas->Finalize();
+        if (StampLibraryAtlas) StampLibraryAtlas->Finalize();
+        if (PaintCanvasAtlas) PaintCanvasAtlas->Finalize();
         if (EnvironmentAtlas) EnvironmentAtlas->Finalize();
         SelectionEvaluation.reset();
         MaterialBridge.reset();
@@ -993,6 +1288,8 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         PatternAtlas.reset();
         PatternLayerAtlas.reset();
         StampLayerAtlas.reset();
+        StampLibraryAtlas.reset();
+        PaintCanvasAtlas.reset();
         EnvironmentAtlas.reset();
         Rendering.reset();
         if (Library && Appearance && !LayoutBlocked)
@@ -1027,11 +1324,58 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                     std::cerr << "TextureWorkspace Stamp layout not saved: " << Message << '\n';
                 }
             }
+            if (Baking && Baking->QueryPanels().QuerySeated())
+            {
+                Message.clear();
+                const auto Layout = Baking->QueryPanels().EncodeLayout();
+                if (!Layout.empty() && !Appearance->PersistWorkspaceLayout(Layout, Message, "texture_studio_baking_layout"))
+                {
+                    Frontier::DiagnosticJournal::Append("BakingLayoutSaveError", Message);
+                    std::cerr << "TextureWorkspace Baking layout not saved: " << Message << '\n';
+                }
+            }
+            if (Texture && Texture->QueryPanels().QuerySeated())
+            {
+                Message.clear();
+                const auto Layout = Texture->QueryPanels().EncodeLayout();
+                if (!Layout.empty() && !Appearance->PersistWorkspaceLayout(Layout, Message, "texture_studio_texture_layout"))
+                {
+                    Frontier::DiagnosticJournal::Append("TextureLayoutSaveError", Message);
+                    std::cerr << "TextureWorkspace Texture layout not saved: " << Message << '\n';
+                }
+            }
         }
         PatternOwnership.reset();
         StampOwnership.reset();
+        BakingOwnership.reset();
+        TextureOwnership.reset();
         LibraryOwnership.reset();
         AppearanceOwnership.reset();
+        // 📝 Everything above this point already ran inside a guarded zone (the shared application
+        // host wraps this whole Finalize callback in its own try/catch). The objects below are
+        // RunTextureWorkspace's own locals, which the host has no visibility into at all - left
+        // alone, they would only be destructed later as RunTextureWorkspace itself returns, entirely
+        // *outside* any guard, and any failure there (the diagnostic logs from a layer-stack-reorder
+        // shutdown crash show no intervening message between "Application resources finalized" and
+        // a bare "[SEVERE] bad allocation" - consistent with an unguarded destructor further up the
+        // call stack than this callback) would surface only as that unexplained generic allocation
+        // failure. A session that reorders/adds/removes Pattern or Stamp layers heavily populates
+        // exactly this state (submitted/observed documents, in-flight authoring map pyramids), so
+        // retire it here instead, one group at a time, each wrapped and diagnosed individually - a
+        // failure is then caught and logged with a precise tag instead of reaching the user as a
+        // fatal "Severe failure" dialog on an application that is already closing regardless.
+        const auto RetireQuietly = [](const char *Tag, const std::function<void()> &Retire)
+        {
+            try { Retire(); }
+            catch (const std::exception &Failure) { Frontier::DiagnosticJournal::Append(Tag, Failure.what()); }
+            catch (...) { Frontier::DiagnosticJournal::Append(Tag, "Unknown failure"); }
+        };
+        RetireQuietly("PatternDocumentRetireError", [&]()
+            { SubmittedPatternDocument = {}; ObservedPatternDocument.reset(); PatternBridgeFaultedDocument.reset(); });
+        RetireQuietly("StampDocumentRetireError", [&]()
+            { SubmittedStampDocument = {}; ObservedStampDocument.reset(); StampBridgeFaultedDocument.reset(); });
+        RetireQuietly("AuthoringMapsRetireError", [&]()
+            { PatternAuthoringMaps.reset(); StampAuthoringMaps.reset(); AssignedWorkspaceMaps.reset(); });
     };
     return Frontier::RunWindowsApplication(Callbacks);
 }

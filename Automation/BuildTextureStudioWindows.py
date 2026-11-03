@@ -68,7 +68,8 @@ def Main():
         NativeSources += [RepositoryRoot / Name.replace('${IMGUI_ROOT}', 'ExternalPackages/imgui').strip('"')
                           for Name in re.findall(r'"?[^\s"]+\.cpp"?', Section)]
     NativeSources += [RepositoryRoot / 'Engine/Render' / (Name + '.cpp') for Name in
-                      ('SurfaceRasterization', 'SurfaceMaterial', 'MaterialThumbnailAtlas', 'MaterialLibraryRendering')]
+                      ('SurfaceRasterization', 'SurfaceMaterial', 'MaterialThumbnailAtlas', 'MaterialLibraryRendering',
+                       'BakeRasterization')]
     NativeSources = sorted(set(NativeSources))
     DependencyHeaders = sorted(Source for Source in (RepositoryRoot / 'ExternalPackages').rglob('*')
                                if Source.is_file() and Source.suffix in ('.h', '.hpp', '.inc', '.inl'))
@@ -144,10 +145,20 @@ def Main():
     VectorSurfaceArchive = ShaderOutput / (SurfaceVectorManifest['entry'] + '.spv')
     if hashlib.sha256(VectorSurfaceArchive.read_bytes()).hexdigest() != SurfaceVectorManifest['binary_sha256']:
         raise RuntimeError('Stale or damaged Float32 material shader archive.')
-    for ManifestName in ('ShaderCompilation.json', 'VectorCompilation.json', 'VectorSurfaceCompilation.json'):
+    BakeManifest = json.loads((ShaderRoot / 'BakeFieldCompilation.json').read_text())
+    BakeSources = [{'file': 'Engine/Render/Shader/BakeFieldEvaluation.slang',
+                    'sha256': BakeManifest['source_sha256']}, *BakeManifest['dependencies']]
+    for Source in BakeSources:
+        if hashlib.sha256((RepositoryRoot / Source['file']).read_bytes()).hexdigest() != Source['sha256']:
+            raise RuntimeError('Stale bake field shader source: ' + Source['file'])
+    BakeArchive = ShaderOutput / (BakeManifest['entry'] + '.spv')
+    if hashlib.sha256(BakeArchive.read_bytes()).hexdigest() != BakeManifest['binary_sha256']:
+        raise RuntimeError('Stale or damaged bake field shader archive.')
+    for ManifestName in ('ShaderCompilation.json', 'VectorCompilation.json', 'VectorSurfaceCompilation.json',
+                         'BakeFieldCompilation.json'):
         shutil.copy2(ShaderRoot / ManifestName, ShaderOutput / ManifestName)
-    if len(list(ShaderOutput.glob('*.spv'))) != 13:
-        raise RuntimeError('Expected ten surface and three vector shader entries.')
+    if len(list(ShaderOutput.glob('*.spv'))) != 18:
+        raise RuntimeError('Expected fourteen surface, three vector and one bake shader entries.')
     Notices = Payload / 'Notices'
     Notices.mkdir(exist_ok=True)
     for Project, Filename in [('imgui', 'LICENSE.txt'), ('glfw', 'LICENSE.md'), ('tomlpp', 'LICENSE'),

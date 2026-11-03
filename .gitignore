@@ -3,7 +3,12 @@ ExternalPackages/
 
 # Build outputs and intermediates.
 Build/
-Binaries/
+build/
+# 📝 Packages stay local, except the Scene Viewport's Windows download, which the branch carries so the owner can take
+#    it from GitHub (Arena's GitHub App may not add workflow files, and its sandbox cannot reach uploads.github.com).
+Binaries/*
+!Binaries/FrontierSceneViewport-Windows-x64.zip
+!Binaries/FrontierSceneViewport-Windows-x64.zip.sha256
 
 # Sample meshes / textures / assets — tracked separately.
 EngineContent/*
@@ -13,6 +18,10 @@ EngineContent/*
 !EngineContent/MaterialArchives/
 !EngineContent/PatternArchives/
 !EngineContent/EnvironmentArchives/
+!EngineContent/ShaderArchives/
+# The engine shapes (Construct › Geometry) and their baked distance volumes (Exhibits/SceneViewport/Code/ShapeArchiveBake.cpp).
+!EngineContent/ShapeArchives/
+EngineContent/EnvironmentArchives/CelestialMaps/*.ppm
 
 # Agent scratch space.
 _ClaudeScratch/
@@ -23,6 +32,8 @@ _ClaudeScratch/
 # Compiled shader blobs (ShaderPlan.ps1 / glslc output) and the make-style include depfiles glslc -MD writes beside them.
 *.spv
 *.spv.d
+# The Scene Viewport's stored SPIR-V (Automation/StoreShaderArchives.py): editor builds without the pinned slangc still run it.
+!EngineContent/ShaderArchives/**/*.spv
 
 # OS / editor cruft.
 .DS_Store
@@ -35,6 +46,15 @@ __pycache__/
 
 # Downloaded open fonts and generated catalogue; recover with Automation/PrepareFonts.py.
 EngineContent/FontArchives/
+
+# Compile-time automatically staged EngineContent imports inside <Project>/Content/.
+Projects/*/Content/FontArchives/
+Projects/*/Content/Icons/
+Projects/*/Content/Defaults/
+Projects/*/Content/EnvironmentArchives/
+Projects/*/Content/MaterialArchives/
+Projects/*/Content/PatternArchives/
+Projects/*/Content/.staged_manifest.json
 
 # Overlay (Frontier/ portable engine) outputs and local state.
 _AgentScratch/
@@ -49,3 +69,6 @@ _AgentScratch/
 *.lib
 /google_drive/
 **/Saved/
+
+# The Zig toolchain configure writes CMake's standard-library probe to a file named "-" in the source root.
+/-

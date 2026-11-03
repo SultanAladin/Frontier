@@ -58,6 +58,26 @@
       "proof": true,
       "origin": "PNG/JPEG material texture decoding; stb_image v2.30",
       "witness": "stb_image.h"
+    },
+    {
+      "name": "volk",
+      "repository": "zeux/volk",
+      "revision": "a8da8ef3368482b0ee9b0ec0c6079a16a89c6924",
+      "url": "https://codeload.github.com/zeux/volk/tar.gz/a8da8ef3368482b0ee9b0ec0c6079a16a89c6924",
+      "sha256": "9ded768eb21498868b6c2e0ebd8006b658f40460202f8b80d827c848b4aa8ece",
+      "proof": true,
+      "origin": "SolidArc pin (Experimental/SolidArc/Native/Tooling/PrepareSolidArcDependencies.py)",
+      "witness": "volk.h"
+    },
+    {
+      "name": "jolt",
+      "repository": "jrouwe/JoltPhysics",
+      "revision": "v5.2.0",
+      "url": "https://codeload.github.com/jrouwe/JoltPhysics/tar.gz/refs/tags/v5.2.0",
+      "sha256": "f478afe3050c885e21403748e10ab18e3e8df8b0982c540e75f1e078ef8b2c88",
+      "proof": true,
+      "origin": "JoltPhysics v5.2.0 rigid-body and vehicle world dependency",
+      "witness": "Jolt/Jolt.h"
     }
   ]
 }

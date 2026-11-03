@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <string>
@@ -55,6 +56,23 @@ struct BrowserCatalogueEntry
     uint64_t ByteCount = 0;
     std::vector<uint8_t> ImageBytes;
     std::string Markdown;
+    // 📝 SolidArc: a native decoder connected through ProjectBrowserPanel::QueryDocumentGeometry supplies real triangles
+    // (browser vertex layout, browser frame) for the thumbnail and the live reader; null keeps the placeholder.
+    std::shared_ptr<const std::vector<float>> Geometry;
+    std::string GeometryKey;
+    std::string NativeSummary;
+    std::string NativeRefusal;
+};
+
+// 📝 Result of a connected native decoder (SolidArc): triangles in the browser vertex layout and frame, a residence key
+// that changes with the file, a one-line summary and the refusal when the document could not be read.
+struct BrowserNativeDocument
+{
+    std::shared_ptr<const std::vector<float>> Geometry;
+    std::string GeometryKey;
+    std::string Summary;
+    std::string Description;
+    std::string Refusal;
 };
 
 // 📝 The six HTML fixtures verbatim (titles, descriptions, views, notes, revisions, sample paths).
@@ -160,7 +178,7 @@ inline std::string BrowserRailTitle(const BrowserCatalogueEntry &Entry)
 inline std::string BrowserWorkspaceLabel(BrowserFileCategory Category)
 {
     if (Category == BrowserFileCategory::Project) return "Game project";
-    if (Category == BrowserFileCategory::Cad) return "Drafting / CAD";
+    if (Category == BrowserFileCategory::Cad) return "SolidArc / CAD";
     if (Category == BrowserFileCategory::Geometry) return "Geometry";
     return "Document";
 }
@@ -183,7 +201,7 @@ inline std::string BrowserCategoryLabel(BrowserFileCategory Category)
 inline std::string BrowserLaunchTarget(BrowserFileCategory Category)
 {
     if (Category == BrowserFileCategory::Project) return "Frontier · Project workspace";
-    if (Category == BrowserFileCategory::Cad) return "Frontier · Drafting workspace";
+    if (Category == BrowserFileCategory::Cad) return "SolidArc workspace";
     if (Category == BrowserFileCategory::Geometry) return "Frontier · Geometry workspace";
     return "Frontier · Document preview";
 }
@@ -279,6 +297,8 @@ struct BrowserPreviewConfiguration
     bool Sketch = false;
     int Channel = 0;
     bool HiddenEdges = false;
+    std::shared_ptr<const std::vector<float>> Geometry; // 📝 Document triangles (null: the reference fixture).
+    std::string GeometryKey;                           // 📝 Residence key of Geometry (changes when the file changes).
 };
 
 inline BrowserPreviewConfiguration ConfigureBrowserPreview(const BrowserCatalogueEntry &Entry, size_t View, size_t Revision)
@@ -291,6 +311,8 @@ inline BrowserPreviewConfiguration ConfigureBrowserPreview(const BrowserCatalogu
     Configuration.Sketch = Entry.Extension == ".sketch" || Title.find("Sketch") != std::string::npos;
     Configuration.Channel = Title == "Texture" ? 1 : Entry.Category == BrowserFileCategory::Cad ? 5 : 0;
     Configuration.HiddenEdges = Entry.Category == BrowserFileCategory::Cad;
+    Configuration.Geometry = Entry.Geometry;
+    Configuration.GeometryKey = Entry.GeometryKey;
     return Configuration;
 }
 
@@ -308,13 +330,18 @@ inline BrowserFileCategory ClassifyBrowserImport(const std::string &Extension, b
     const std::string Folded = FoldBrowserText(Extension);
     Supported = true;
     if (Folded == ".project" || Folded == ".projectspace" || Folded == ".scene") return BrowserFileCategory::Project;
-    if (Folded == ".assembly" || Folded == ".sketch") return BrowserFileCategory::Cad;
+    if (Folded == ".assembly" || Folded == ".sketch" || Folded == ".solidarc") return BrowserFileCategory::Cad;
     if (Folded == ".geometry" || Folded == ".geometryspace" || Folded == ".png" || Folded == ".jpg" ||
         Folded == ".jpeg" || Folded == ".webp")
         return BrowserFileCategory::Geometry;
     if (Folded == ".md") return BrowserFileCategory::Document;
     Supported = false;
     return BrowserFileCategory::Document;
+}
+
+inline bool QueryBrowserSolidArcExtension(const std::string &Extension)
+{
+    return FoldBrowserText(Extension) == ".solidarc";
 }
 
 inline bool QueryBrowserImageExtension(const std::string &Extension)

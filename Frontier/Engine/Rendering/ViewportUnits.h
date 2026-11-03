@@ -22,8 +22,8 @@ namespace Frontier
 //------------------------------------------------------------------------------------------------------------------------
 
 // One whole frame as data: units + the targets they touch. The SDK phase records exactly
-// this declaration (SurfaceRaster body: Shaders/SurfaceRaster.slang, DisplayPresent body:
-// Shaders/DisplayPresent.slang); the portable layer orders it, aliases it and derives its
+// this declaration (SurfaceRaster body: Engine/Shaders/SurfaceRaster.slang, DisplayPresent body:
+// Engine/Shaders/DisplayPresent.slang); the portable layer orders it, aliases it and derives its
 // barriers today.
 struct ViewportFrameDeclaration
 {

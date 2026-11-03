@@ -5,10 +5,8 @@ import {
 } from "./textureSurfaceModel.js";
 import NameField from "./AuthoringNameField.jsx";
 import DecalComponentsPanel from "./DecalComponentsPanel.jsx";
-import PointGradientEditor from "./PointGradientEditor.jsx";
-import { defaultPointGradient } from "./pointGradient.js";
-import { Slider, ColorField } from "./MaterialControls.jsx";
-import ColourMaskPreview from "./ColourMaskPreview.jsx";
+import { Slider } from "./MaterialControls.jsx";
+import TextureMaskPropertyPanel from "./TextureMaskPropertyPanel.jsx";
 import ChannelPropertyPanel from "./ChannelPropertyPanel.jsx";
 import React from "react";
 import {
@@ -176,221 +174,24 @@ export default function TextureLayerInspector({
                       : "Layer source"}
                   </small>
                 </div>
-                <section className="tp-property-card tp-shared-controls">
-                  <h2>
-                    <i />
-                    {layer.mask.kind === "gradient"
-                      ? "Gradient coverage"
-                      : layer.mask.kind === "color"
-                        ? "Colour selection"
-                        : "Coverage mask"}
-                    <button
-                      className="tp-card-reset"
-                      aria-label="Reset mask properties"
-                      disabled={locked}
-                      onClick={() =>
-                        onMask({
-                          enabled: true,
-                          kind: layer.mask.kind,
-                          fill: 1,
-                          paint: null,
-                          inverted: false,
-                          strength: 100,
-                          color: "#b87333",
-                          tolerance: 0.1,
-                          softness: 0.1,
-                          ...(layer.mask.kind === "gradient"
-                            ? { gradient: defaultPointGradient(true) }
-                            : {}),
-                        })
-                      }
-                    >
-                      <RotateCcw size={12} />
-                    </button>
-                  </h2>
-                  <div
-                    className="tp-source-pills"
-                    role="group"
-                    aria-label="Mask type"
-                  >
-                    {[
-                      ["fill", "Fill"],
-                      ["paint", "Paint"],
-                      ["color", "Colour"],
-                      ["gradient", "Gradient"],
-                    ].map(([kind, label]) => (
-                      <button
-                        key={kind}
-                        disabled={locked}
-                        aria-pressed={layer.mask.kind === kind}
-                        onClick={() => onMask({ kind })}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  {layer.mask.kind === "gradient" ? (
-                    <PointGradientEditor
-                      gradient={layer.mask.gradient}
-                      label="Mask gradient"
-                      mask={layer.mask}
-                      disabled={locked}
-                      editor={
-                        gradientContext?.layerId === layer.id &&
-                        gradientContext.mask
-                          ? gradientContext
-                          : null
-                      }
-                      onActivate={(flags) =>
-                        onGradientActivate({
-                          layerId: layer.id,
-                          mask: true,
-                          ...flags,
-                        })
-                      }
-                      onChange={(gradient, field) =>
-                        onMask(
-                          { gradient },
-                          {
-                            key: field
-                              ? `mask-gradient-${layer.id}-${field}`
-                              : undefined,
-                          },
-                        )
-                      }
-                    />
-                  ) : layer.mask.kind === "color" ? (
-                    <>
-                      <ColorField
-                        label="Selected colour"
-                        ariaLabel="Colour mask colour"
-                        disabled={locked}
-                        value={layer.mask.color}
-                        onChange={(color) => onMask({ color })}
-                      />
-                      <Slider
-                        label="Tolerance"
-                        ariaLabel="Colour mask tolerance"
-                        disabled={locked}
-                        percentage
-                        value={layer.mask.tolerance}
-                        onChange={(tolerance) => onMask({ tolerance })}
-                      />
-                      <Slider
-                        label="Softness"
-                        ariaLabel="Colour mask softness"
-                        disabled={locked}
-                        percentage
-                        value={layer.mask.softness}
-                        onChange={(softness) => onMask({ softness })}
-                      />
-                      <ColourMaskPreview
-                        layer={layer}
-                        sourceLayer={
-                          layer.kind === "folder"
-                            ? descendants.find((l) =>
-                                l.channels.some(
-                                  (id) =>
-                                    l.channelSettings[id]?.texture ||
-                                    l.channelSettings[id]?.generator?.result,
-                                ),
-                              ) || layer
-                            : layer
-                        }
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <div className="tp-mask-preview">
-                        <MaskIcon mask={layer.mask} size={62} />
-                        <div>
-                          <strong>
-                            {(layer.mask.fill === 1) !== layer.mask.inverted
-                              ? "White"
-                              : "Black"}
-                          </strong>
-                          <small>
-                            {layer.mask.inverted
-                              ? "Inverted fill"
-                              : "Uniform fill"}{" "}
-                            · mask background
-                          </small>
-                        </div>
-                      </div>
-                      <label className="tp-field-row">
-                        <span>Fill</span>
-                        <select
-                          aria-label="Mask fill"
-                          value={layer.mask.fill}
-                          disabled={locked}
-                          onChange={(e) =>
-                            onMask({ fill: Number(e.target.value) })
-                          }
-                        >
-                          <option value={1}>White</option>
-                          <option value={0}>Black</option>
-                        </select>
-                      </label>
-                    </>
-                  )}
-                  {!!layer.mask.paint?.operations.length && (
-                    <div className="tp-mask-record-summary">
-                      <strong>
-                        Paint overlay · {layer.mask.paint.operations.length}{" "}
-                        records
-                      </strong>
-                      <small>
-                        UV brush strokes / region fills over this mask's source.
-                        White includes; black excludes.
-                      </small>
-                      <button
-                        disabled={locked}
-                        onClick={() => onMask({ paint: null })}
-                      >
-                        Clear painted mask overlay
-                      </button>
-                    </div>
-                  )}
-                  <label className="tp-toggle-row">
-                    <span>Mask enabled</span>
-                    <input
-                      type="checkbox"
-                      aria-label="Mask enabled"
-                      disabled={locked}
-                      checked={layer.mask.enabled}
-                      onChange={(e) => onMask({ enabled: e.target.checked })}
-                    />
-                  </label>
-                  <label className="tp-toggle-row">
-                    <span>Invert mask</span>
-                    <input
-                      type="checkbox"
-                      aria-label="Invert mask"
-                      disabled={locked}
-                      checked={layer.mask.inverted}
-                      onChange={(e) => onMask({ inverted: e.target.checked })}
-                    />
-                  </label>
-                  <Amount
-                    label="Mask strength"
-                    value={layer.mask.strength}
-                    disabled={locked}
-                    onChange={(strength) => onMask({ strength })}
-                  />
-                  <p className="tp-card-note">
-                    {layer.kind === "folder"
-                      ? "Saved on this folder for its descendants. "
-                      : "Saved on this layer. "}
-                    {layer.mask.kind === "color"
-                      ? "Colour matching uses normalized sRGB RGB distance; the preview evaluates source pixels only. "
-                      : "White includes and black excludes. "}
-                    Paint mask in Lit or packed UV space; strokes and region
-                    fills affect native part-material and decal coverage. Colour
-                    previews sample the source texture per UV tile, not the
-                    final shaded material. Digital Paint / Erase / Fill also
-                    edits this mask with pressure, shape and grain controls.
-                  </p>
-                </section>
+                <TextureMaskPropertyPanel
+                  layer={layer}
+                  locked={locked}
+                  onMask={onMask}
+                  gradientContext={gradientContext}
+                  onGradientActivate={onGradientActivate}
+                  sourceLayer={
+                    layer.kind === "folder"
+                      ? descendants.find((l) =>
+                          l.channels.some(
+                            (id) =>
+                              l.channelSettings[id]?.texture ||
+                              l.channelSettings[id]?.generator?.result,
+                          ),
+                        ) || layer
+                      : layer
+                  }
+                />
                 <div className="tp-inspector-mask-actions">
                   <button disabled={locked} onClick={onRemoveMask}>
                     <Trash2 size={13} /> Remove layer mask
@@ -586,8 +387,7 @@ export default function TextureLayerInspector({
                     context={decalContext}
                   />
                 )}
-                {!layer.surfaceMaterial &&
-                  !["folder", "decal"].includes(layer.kind) && (
+                {layer.kind !== "folder" && (
                     <>
                       <div className="tp-section-label">
                         <span>CHANNEL TARGETS</span>

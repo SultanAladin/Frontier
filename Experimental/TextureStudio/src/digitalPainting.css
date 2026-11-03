@@ -341,6 +341,16 @@
   color: #aaaf9a;
   margin: 0 0 12px;
 }
+.tp-studio .digital-channel-intro {
+  font-size: 9px;
+  line-height: 1.6;
+  color: #aaaf9a;
+  margin: 0 0 12px;
+}
+.tp-studio .digital-channel-panel .chan-body .digital-channel-value {
+  padding: 0;
+  border-top: 0;
+}
 .tp-studio .digital-clear-channels {
   border: 1px solid #4c5140;
   background: transparent;

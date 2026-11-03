@@ -1727,9 +1727,9 @@ export default function TexturePaintStudio({
           digitalPainting.cancel();
           maskEditing.change({ value });
         }}
-        onPatch={(changes) => {
+        onPatch={(changes, options) => {
           digitalPainting.cancel();
-          patch(layer.id, changes, { discrete: true });
+          patch(layer.id, changes, options || { discrete: true });
         }}
         disabled={disabled || !isTextureLayerVisible(doc, layer?.id)}
         legacySettings={doc.painting}

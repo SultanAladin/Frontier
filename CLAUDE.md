@@ -152,3 +152,95 @@ to the native Pattern panel, persists vector TOML, and submits GPU coverage/sele
 the recorded evidence explicitly does not represent a Windows desktop session. Pattern Float32 outputs remain
 unconnected to the PBR material renderer; native 3D application, physical height calibration, user-document export and
 Pattern 1:1 parity remain open. GIF previews are 8-bit evidence, not precision checks. Scope remains approximately 68%.
+
+### Project Everest — Branch Topology, Independent Project Ownership, and InspectorRuntime
+
+Project Everest lives independently in `Projects/Everest/` (never inside `Engine/`). `Everest` is purely a generic
+project codename — never introduce mountain, alpine, terrain, or weather-station gimmicks. Zero `Everest` identifiers
+or project-specific types belong in `Engine/` or `UI/Editor/`.
+
+- **Banned words (2026-10-31):** `Model`, `Cache` (`Cache`, `Caches`, `Cached`, `Caching`), `Widget`, `Kit`, `Footprint`,
+  `Shared`, `DedicatedStudio`, `SpecialtyEditor`, `Specialty`, `Actor`, and `Beacon` are barred across new code,
+  file names, folders, and comments, and `Buffer` (`Gbuffer`, `*Buffer`) is avoided unless strictly mandated by raw
+  Vulkan/Slang keywords (`VkBuffer`, `StructuredBuffer`) — recorded in `EngineDocs/AgenticInstuctions/SKILL-Naming.md`.
+- **Mathematical symbols & `SultanAladin/Frontier-` folder taxonomy:** Use real Unicode Greek/math scalar identifiers
+  (`μ`, `θ`, `σ*`, `τ`, `Δτ`, `Δs`, `𝑔`, `ρ`, `λ`, `Φ` per `SKILL-formatting.md` §4) across C++20 and `.slang` shaders
+  with full geometric PascalCase vector names, and organize engine rendering domains following `SultanAladin/Frontier-`
+  (`DeviceExchange/`, `GeometricRaster/`, `PlanetaryAtmosphere/`, `Shaders/`).
+- **Container file extensions (`*space` family):** Use `.projectspace`, `.levelspace`, `.worldspace`, and `.sdfspace`
+  for project, level, world, and headless-baked Float16 signed distance field containers — never compound `.toml`
+  suffixes such as `.level.toml` even when serialized as TOML.
+- **Geometry & Modular Preview Shadows Taxonomy:**
+  - `Frontier/Engine/Geometry/PrimitiveGeometryGenerator.{h,cpp}` and
+    `Frontier/Engine/Geometry/GeometryProcessing/{FacetTierBuild,QuadricTierBuild,ScreenSpaceClusterRefinement,VolumeDistanceArchive,BoundingVolumeAtlas}.{h,cpp}`.
+  - `Frontier/Engine/GeometricRaster/{VisibilityProjection,PreviewRaster,ThemeCardPalette}` where `PreviewRaster`
+    (with selectable `PreviewShadowMode`: `None`, `ContactEllipsoid`, `OrthoClusterDepth`, `SignedDistanceCone`,
+    `HybridOrthoAndDistance`) is strictly guarded under `#if FRONTIER_EDITOR` (zero symbols in Shipping).
+  - ReSTIR was removed on 2026-11-01 at the owner's direction: the Stage 3B `SpatiotemporalIllumination` and
+    `SurfaceScatteringAtlas` renderer, its shaders, and its exhibit are gone. Its replacement is the **1:1 port of the
+    VehicleHMI demo's ReSTIR GI** (`Frontier/Engine/Rendering/GlobalIllumination`,
+    `Frontier/Engine/Shaders/GlobalIllumination`, parity in `Exhibits/RestirGiParity`) — never "optimize" or redesign it.
+    It runs live in the Everest **Scene Viewport** (`Frontier/Engine/Rendering/SceneViewport/{SceneViewport,EnvironmentOverlay}`,
+    `Projects/Everest/Source/EverestSceneViewport`, `Exhibits/SceneViewport`) on the editor's Vulkan 1.3 device
+    (`VulkanDeviceAccess`), with the `PlanetaryAtmosphere` environment (clouds, fog, flare, sun, moons, stars, planets)
+    overlaid on it — the owner chose PlanetaryAtmosphere over the demo's own clouds/flare. Its SPIR-V is also stored in
+    `EngineContent/ShaderArchives/{GlobalIllumination,Environment}` (`Automation/StoreShaderArchives.py`; CTest
+    `StoredShaderArchiveValidation`), so editor builds without the pinned slangc still run it. The editor's own raster set
+    `EngineContent/ShaderArchives/Surface` (Project Browser start-up, CAD, materials, vector, bake) is stored the same way;
+    refresh it after any `Engine/Render/Shader/*.slang` edit, or `Frontier.exe` built without slangc stops at start-up.
+    `Automation/Workflows/EditorPreviewWindows.yml` builds, launch-checks and publishes Windows pre-releases once the owner
+    copies it to `.github/workflows/` (GitHub refuses workflow files pushed by the Arena GitHub App, which has no
+    `workflows` permission; the sandbox cannot reach `uploads.github.com`). Commits and pushes work as usual. Until the
+    workflow runs, the agent commits each Windows package to its branch as
+    `Binaries/FrontierSceneViewport-Windows-x64.zip` with its `.zip.sha256` (earlier packages went to the owner's Drive).
+    `.sdfspace` SDF volumes, the software SAH BVH, and the `PreviewRaster` shadow modes remain.
+- **Project creation auto-scaffolding (`ProjectGenerator`):** Creating a new project via `ProjectBrowserPanel`
+  auto-generates C++ source scaffolding (`Source/<Identifier>Application.{h,cpp}` with main loop and `SceneWorld`
+  integration), a buildable `CMakeLists.txt`, and a default scene (`Content/Levels/Default.levelspace`).
+- **Main branch & post-commit sync rule:** Base all work on
+  `https://github.com/SultanAladin/Frontier/tree/arena/11f31835-frontier` (reusing its `CLAUDE.md`, `PanelDockspace`,
+  `ControlCentrePanel`, `ProjectBrowserPanel`, `LogStreamPanel`, `SceneDirectoryPanel`, and `FrontierInterface`), and
+  sync with `SultanAladin/Frontier` `arena/11f31835-frontier` immediately after every commit.
+- **Permanent Reference Repositories, Branches & Commits (selective synthesis — never blind merge; user may refer to these simply as "other repo references"):**
+  1. **Reference Branch 1 — `streamlinkinbox/Frontier` (`arena/08e7de48-frontier`)**
+     - URL: `https://github.com/streamlinkinbox/Frontier/tree/arena/08e7de48-frontier` (inspected tip `7bc60250e153a9b7d70c9740744723fde19fae22`)
+     - Key contents: `FacetCdfProfile` + `FacetCdfSubmission` emissive triangle CDF sampling (`25.65M -> 466` evaluations), `FacetAreaReservoir` solid-angle area-light RIS, `DielectricRefraction.slang` + `PaneThickness.h` closed-glass optics, `Exhibits/LightCompute/`, and `Frontier/Engine/Physics/ProjectDrive/VehicleGeometry.h` socket coordinates.
+  2. **Reference Branch 2 — `streamlinkinbox/Frontier` (`arena/5ec53579-frontier`)**
+     - URL: `https://github.com/streamlinkinbox/Frontier/tree/arena/5ec53579-frontier` (inspected tip `56059b393f2d1a6f4ecf73c0f7661aa74f2de442`)
+     - Key contents: Decomposed Vulkan Slang `PathReplay*` passes (`PathReplayVulkan`, `PathReplayReservoir.slang`, `PathReplaySampleHistory.slang`, `PathReplayReconstruction.slang`, `PathReplayVarianceFilter.slang`, `PathReplayRayQuery`), 16-bin SAH-2 ordered software BVH (`-96.88%` ray-triangle tests), multi-stratum `MaterialScattering` PBR lobe mixture sampling, `Docs/VehicleHmiEnginePlan.md`, and `Frontier/Projects/Project-VehicleHmiDemo/Contract/` (`DebugViews.md`, `ShaderContract.tsv`, 80-shader inventory).
+  3. **Reference Branch 3 — `egoistm1inbox/Frontier` (`arena/9ce908bc-frontier`)**
+     - URL: `https://github.com/egoistm1inbox/Frontier/tree/arena/9ce908bc-frontier` (inspected tip `4be51f2e4958701802c94e87344c95472e58e4bf`)
+     - Key contents: Glass-aware Nanite-style `GeometryProcessing/` (`FacetTierBuild`, Garland-Heckbert locked-border `QuadricTierBuild`, `ClusterHierarchy` with IOR optical error boost + two-phase Hi-Z + two-layer glass peel + `64 KB` LRU page budget, GPU `ClusterCull.slang`), `ControlVehicle{Body,Rim,Tyre}.facet` binary `FCT1` meshes (`Frontier/Projects/Project-Drive/Content/Geometry/`), `VehicleHmiScene`, `BlinnRenderer` (CPU reference only — upgrade to GPU Vulkan), Jolt physics mechanics, and fluid/fracture/particle solvers (do NOT copy its CPU `SceneRenderer.cpp` or `O(N)` `SdfRestirPortalMirror.slang` loop).
+  4. **Architecture & Naming Reference — `SultanAladin/Frontier-`**
+     - URL: `https://github.com/SultanAladin/Frontier-` (inspected tip `28ec0657a23ed6bbf680f17cc06b464a53639dae`)
+     - Key contents: Idiomatic domain folder taxonomy (`DeviceExchange/`, `GeometricRaster/`, `DisplayPresentation/`, `ContentInterchange/`, `PhysicalDynamics/`, `SpatialInterface/`, `Shaders/`), GPU `VisibilityRaster` (`R32_UINT` cluster/primitive ID + `RG16F` motion + reversed-Z), 8-wide compressed BVH (`TraversalCWBVH.slang` + two-level `TLAS`/`BLAS` `TraversalIndex`), OpenPBR channel-gated `MaterialEvaluation.slang`, `Docs/ClusterLodLab.md`, `Docs/ReSTIRPipelineInvestigation.md` (GTX 1650 SUPER cold-compile findings), and `Docs/V8DenoiserReview.md`.
+  5. **Experimental Cards & Visual Controls Reference — `SultanAladin/Frontier` commit `6a83f8e`**
+     - URL: `https://github.com/SultanAladin/Frontier/commit/6a83f8e` (`6a83f8e2beac6605449496e4edbeca36d132a2bc`)
+     - Key contents: `Experimental/AtmosphereEditor/` (`GeometryDetail.js`, `VisualControls.js`, `AtmosphereEditor.css`, `index.html`) and `Experimental/EnvironmentInspectors/` — interactive Geometry Detail & Atmosphere cards (distance-response curve instrument, visual sliders, shaded/topology toggle). When adapting these cards, replace all hardcoded mint/emerald green colors with `ThemeStructure` (`ThemePalette` + `QueryAccentColor()`).
+- **Editor compile-time boundary (`#ifdef FRONTIER_EDITOR`):** Guard all Editor mode / Editor UI (`SceneDirectory` UI,
+  `InspectorRuntime`, `*Inspector` classes, `DiagramControls`, `FractureEditor`, `FluidPlumeEditor`, `ParticleEditor`,
+  `PolygonClusterEditor`) behind `#ifdef FRONTIER_EDITOR`. Runtime/Shipping builds compile only pure scene records and
+  their `*Configuration` structures.
+- **Composable Property Configurations, Generic `DiagramControls`, and `InspectorRuntime`:**
+  - Never use Unreal's monolithic `Actor`: scene entries are `RecordEntry` instances that attach only the modular
+    property configurations they require — `SpatialConfiguration`, `PhysicsConfiguration` (with nested
+    `MassConfiguration` and mass/density/kinetic helpers), `ThermalConfiguration` (Kelvin/Celsius, specific heat,
+    conductivity, Stefan-Boltzmann flux), `ChemicalConfiguration` (molar mass, moles, Arrhenius kinetics, phase), and
+    `SurfaceOpticsConfiguration` — so the general-purpose engine supports rendering, physics, and chemical simulations.
+  - Plotting/diagram controls live in generic `DiagramControls` (`ConstructArcPlot`, `ConstructStrataPlot`,
+    `ConstructPolarDial`, `ConstructCurvePlot`, `ConstructSpectrumBar`, `ConstructPolygonDiagram`, `ConstructDiscRow`,
+    `ConstructTimeSeriesPlot`) — never domain-locked functions such as `ConstructLunarPhaseStrip`.
+  - Scene records load from `.levelspace` files and can be dynamically added or deleted in the Editor at runtime.
+  - `InspectorRuntime` supports attaching one or multiple modular `RecordInspector` instances (`SpatialInspector`,
+    `PhysicsInspector`, `ThermalInspector`, `ChemicalInspector`, `SurfaceOpticsInspector`, `SolarInspector`,
+    `AtmosphereInspector`, `CloudInspector`, `StarInspector`, `MoonInspector`, `FogInspector`, `LightningInspector`,
+    `WindInspector`, `RenderPipelineInspector`, `DistanceFieldInspector`, `SurfaceCardInspector`,
+    `PolygonClusterInspector`, `DiagnosticsInspector`, `FluidPlumeInspector`, `FractureInspector`,
+    `ParticleInspector`) to any `RecordToken`.
+  - Standalone authoring editors are individual `<Domain>Editor` classes (`FractureEditor`, `FluidPlumeEditor`,
+    `ParticleEditor`, `PolygonClusterEditor`) invoked directly via `RecordInspector` virtual hooks.
+  - Project-specific records and user-authored `*Inspector` classes live in `Projects/<Project>/` and register into
+    `SceneWorld` and `InspectorRuntime` without modifying `Engine/`.
+  - **Sequencing rule:** Leave `VehicleInspector` and vehicle systems deferred until Environment and Render Engines
+    (RTX `VK_KHR_ray_query` and GTX 4-cascade SDF + Surface Cards + SAH-2 BVH) are complete.
+

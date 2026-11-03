@@ -884,8 +884,8 @@
   {
     "symbol": "OutlinerStars",
     "file": "outliner-stars.svg",
-    "reference": "Experimental/FrontierEditor/ui-icons/outliner-stars.svg",
-    "sha256": "1872e91208ff4c78cfd11787a3bc2a45eba0771bf082080de0deb15083e166e8"
+    "reference": "Experimental/VehicleHmiPrototype/Assets/EnvironmentIcons/outliner-stars.svg",
+    "sha256": "23a9ba3f6ae3b209f7d0f49a8917a6f7a860a346fdcbb835aa8390ffca7bcdf6"
   },
   {
     "symbol": "FolderScene",

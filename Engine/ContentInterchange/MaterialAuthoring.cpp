@@ -383,11 +383,11 @@ std::string DeclareCodedField(MaterialAuthoringDocument &Document, std::string_v
 MaterialAuthoringDocument DeclareMaterialAuthoring(const MaterialAuthoringDeclaration &Declaration)
 {
     MaterialAuthoringDocument Document;
-    if (Declaration.Type == 0)
+    if (Declaration.Type == 0 || Declaration.Flakes)
     {
         MaterialAuthoringField Flakes;
         Flakes.Identity = IssueMaterialAuthoringIdentity();
-        Flakes.Name = "Flake distribution";
+        Flakes.Name = Declaration.Type == 0 ? "Flake distribution" : "Mineral flake distribution";
         Flakes.Category = "Particle fields";
         Flakes.Procedure = "flakes";
         Flakes.Inputs = {"flakes", "flakeSize", "flakeScale", "flakeLayers", "flakeLayerDepth", "flakeTilt",
@@ -449,11 +449,11 @@ MaterialAuthoringDocument DeclareMaterialAuthoring(const MaterialAuthoringDeclar
     }
     if (Declaration.Anisotropy > 0) Surface.Channels.emplace_back("anisotropy");
     Document.Layers.push_back(Surface);
-    if (Declaration.Type == 0)
+    if (Declaration.Type == 0 || Declaration.Flakes)
     {
         MaterialAuthoringLayer Flakes;
         Flakes.Identity = IssueMaterialAuthoringIdentity();
-        Flakes.Name = "Metallic flakes";
+        Flakes.Name = Declaration.Type == 0 ? "Metallic flakes" : "Mineral flakes";
         Flakes.Model = "flakes";
         for (const auto &Field : Document.Generators)
             if (Field.Procedure == "flakes") Flakes.Generator = Field.Identity;

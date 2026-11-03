@@ -88,6 +88,10 @@ struct VulkanPresentation::PresentationAllocation
     VkQueue                  Queue          = VK_NULL_HANDLE;
     uint32_t                 QueueFamily    = 0;
     VkQueueFlags             QueueCapabilities = 0;
+    uint32_t                 ApiVersion        = 0;
+    bool                     SceneDevice       = false;
+    bool                     DrawIndirectCount = false;   // [-] enabled for the virtualized geometry's compacted commands
+    bool                     MultiDrawIndirect = false;
     ImGui_ImplVulkanH_Window Main;
     bool                     RendererReady = false;
     bool                     Rebuild       = false;
@@ -105,12 +109,13 @@ struct VulkanPresentation::PresentationAllocation
                     Function(ResetFences) Function(ResetCommandPool) Function(BeginCommandBuffer)                      \
                         Function(CmdBeginRenderPass) Function(CmdEndRenderPass) Function(EndCommandBuffer)             \
                             Function(QueueSubmit) Function(QueuePresentKHR)                                            \
-                                Function(EnumerateDeviceExtensionProperties)
+                                Function(EnumerateDeviceExtensionProperties) Function(GetPhysicalDeviceFeatures)  \
+                                    Function(GetPhysicalDeviceFeatures2)
 #define FRONTIER_DECLARE_FUNCTION(Name) PFN_vk##Name Name = nullptr;
     FRONTIER_VULKAN_FUNCTIONS(FRONTIER_DECLARE_FUNCTION)
 #undef FRONTIER_DECLARE_FUNCTION
 
-    void Initialize(GLFWwindow *Window, bool MaterialRendering)
+    void Initialize(GLFWwindow *Window, bool MaterialRendering, bool SceneRendering)
     {
         if (!glfwVulkanSupported())
             throw std::runtime_error("Vulkan loader/driver unavailable.");
@@ -121,7 +126,7 @@ struct VulkanPresentation::PresentationAllocation
             throw std::runtime_error("GLFW Vulkan surface extensions unavailable.");
         VkApplicationInfo Application{VK_STRUCTURE_TYPE_APPLICATION_INFO};
         Application.pApplicationName = "Frontier Editor";
-        Application.apiVersion       = MaterialRendering ? VK_API_VERSION_1_2 : VK_API_VERSION_1_1;
+        Application.apiVersion       = SceneRendering ? VK_API_VERSION_1_3 : (MaterialRendering ? VK_API_VERSION_1_2 : VK_API_VERSION_1_1);
         VkInstanceCreateInfo Description{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
         Description.pApplicationInfo        = &Application;
         Description.enabledExtensionCount   = ExtensionCount;
@@ -144,6 +149,15 @@ struct VulkanPresentation::PresentationAllocation
         RequireSuccess(EnumeratePhysicalDevices(Instance, &DeviceCount, nullptr));
         std::vector<VkPhysicalDevice> Devices(DeviceCount);
         RequireSuccess(EnumeratePhysicalDevices(Instance, &DeviceCount, Devices.data()));
+        // 📝 Scene rendering prefers a discrete Vulkan 1.3 GPU; the selection below keeps the first adapter that qualifies.
+        if (SceneRendering)
+            std::stable_sort(Devices.begin(), Devices.end(), [&](VkPhysicalDevice Left, VkPhysicalDevice Right) {
+                VkPhysicalDeviceProperties A{}, B{};
+                GetPhysicalDeviceProperties(Left, &A);
+                GetPhysicalDeviceProperties(Right, &B);
+                return A.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && B.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+            });
+        for (int Attempt = 0; Attempt < (SceneRendering ? 2 : 1) && !PhysicalDevice; ++Attempt)
         for (auto Candidate : Devices)
         {
             VkPhysicalDeviceProperties DeviceProperties{};
@@ -151,7 +165,9 @@ struct VulkanPresentation::PresentationAllocation
             DiagnosticJournal::Append("VulkanDevice", std::string(DeviceProperties.deviceName) +
                 " vendor=" + std::to_string(DeviceProperties.vendorID) + " device=" + std::to_string(DeviceProperties.deviceID) +
                 " api=" + std::to_string(DeviceProperties.apiVersion) + " driver=" + std::to_string(DeviceProperties.driverVersion));
-            if (DeviceProperties.apiVersion < Application.apiVersion)
+            const uint32_t Required = (SceneRendering && Attempt == 1) ? (MaterialRendering ? VK_API_VERSION_1_2 : VK_API_VERSION_1_1)
+                                                                    : Application.apiVersion;
+            if (DeviceProperties.apiVersion < Required)
                 continue;
             uint32_t PropertyCount = 0;
             RequireSuccess(EnumerateDeviceExtensionProperties(Candidate, nullptr, &PropertyCount, nullptr));
@@ -186,6 +202,12 @@ struct VulkanPresentation::PresentationAllocation
         }
         if (!PhysicalDevice)
             throw std::runtime_error("No Vulkan graphics queue supports this GLFW window surface.");
+        VkPhysicalDeviceProperties Chosen{};
+        GetPhysicalDeviceProperties(PhysicalDevice, &Chosen);
+        SceneDevice = SceneRendering && Chosen.apiVersion >= VK_API_VERSION_1_3;
+        ApiVersion  = SceneDevice ? VK_API_VERSION_1_3 : (MaterialRendering ? VK_API_VERSION_1_2 : VK_API_VERSION_1_1);
+        if (SceneRendering && !SceneDevice)
+            DiagnosticJournal::Append("VulkanDevice", "Scene viewport unavailable: the presentation adapter lacks Vulkan 1.3");
         constexpr float         Priority = 1;
         VkDeviceQueueCreateInfo QueueDescription{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
         QueueDescription.queueFamilyIndex     = QueueFamily;
@@ -197,6 +219,48 @@ struct VulkanPresentation::PresentationAllocation
         DeviceDescription.pQueueCreateInfos       = &QueueDescription;
         DeviceDescription.enabledExtensionCount   = 1;
         DeviceDescription.ppEnabledExtensionNames = DeviceExtensions;
+        // 📝 The features DeviceExchange::Initialize enables for the illumination port, when the adapter offers them.
+        VkPhysicalDeviceFeatures         Enabled{};
+        VkPhysicalDeviceVulkan13Features Enable13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+        VkPhysicalDeviceVulkan12Features Enable12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+        VkPhysicalDeviceVulkan11Features Enable11{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+        if (SceneDevice)
+        {
+            VkPhysicalDeviceFeatures Supported{};
+            GetPhysicalDeviceFeatures(PhysicalDevice, &Supported);
+            Enabled.depthBiasClamp                       = Supported.depthBiasClamp;
+            Enabled.depthClamp                           = Supported.depthClamp;
+            Enabled.fragmentStoresAndAtomics             = Supported.fragmentStoresAndAtomics;
+            Enabled.independentBlend                     = Supported.independentBlend;
+            Enabled.shaderStorageImageWriteWithoutFormat = Supported.shaderStorageImageWriteWithoutFormat;
+            Enabled.robustBufferAccess                   = Supported.robustBufferAccess;
+            Enabled.samplerAnisotropy                    = Supported.samplerAnisotropy;
+            Enabled.multiDrawIndirect                    = Supported.multiDrawIndirect;
+            MultiDrawIndirect                            = Supported.multiDrawIndirect == VK_TRUE;
+            VkPhysicalDeviceVulkan13Features Features13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+            VkPhysicalDeviceVulkan12Features Features12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+            VkPhysicalDeviceVulkan11Features Features11{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+            Features13.pNext = &Features12;
+            Features12.pNext = &Features11;
+            VkPhysicalDeviceFeatures2 Query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+            Query.pNext = &Features13;
+            GetPhysicalDeviceFeatures2(PhysicalDevice, &Query);
+            SceneDevice = Features13.dynamicRendering == VK_TRUE;
+            Enable13.dynamicRendering    = Features13.dynamicRendering;
+            Enable13.synchronization2    = Features13.synchronization2;
+            // 📝 The scene viewport's ported WebGPU shaders rely on image accesses outside an image never faulting.
+            Enable13.robustImageAccess   = Features13.robustImageAccess;
+            Enable12.scalarBlockLayout   = Features12.scalarBlockLayout;
+            Enable12.drawIndirectCount   = Features12.drawIndirectCount;
+            DrawIndirectCount            = Features12.drawIndirectCount == VK_TRUE;
+            Enable11.shaderDrawParameters = Features11.shaderDrawParameters;
+            Enable13.pNext = &Enable12;
+            Enable12.pNext = &Enable11;
+            DeviceDescription.pNext            = &Enable13;
+            DeviceDescription.pEnabledFeatures = &Enabled;
+            if (!SceneDevice)
+                DiagnosticJournal::Append("VulkanDevice", "Scene viewport unavailable: the presentation adapter lacks dynamic rendering");
+        }
         RequireSuccess(CreateDevice(PhysicalDevice, &DeviceDescription, nullptr, &Device));
         GetDeviceQueue(Device, QueueFamily, 0, &Queue);
         constexpr VkFormat Formats[] = {VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM};
@@ -272,9 +336,9 @@ VulkanPresentation::~VulkanPresentation()
 {
     Finalize();
 }
-void VulkanPresentation::Initialize(GLFWwindow *Window, bool MaterialRendering)
+void VulkanPresentation::Initialize(GLFWwindow *Window, bool MaterialRendering, bool SceneRendering)
 {
-    Allocation->Initialize(Window, MaterialRendering);
+    Allocation->Initialize(Window, MaterialRendering, SceneRendering);
 }
 void VulkanPresentation::Finalize() noexcept
 {
@@ -290,6 +354,23 @@ VulkanRasterAccess VulkanPresentation::QueryRasterAccess() const
         Resolve<PFN_vkGetPhysicalDeviceFormatProperties>(Display.Instance, "vkGetPhysicalDeviceFormatProperties"),
         Display.GetPhysicalDeviceProperties, Display.QueueCapabilities};
 }
+VulkanDeviceAccess VulkanPresentation::QueryDeviceAccess() const
+{
+    const auto &Display = *Allocation;
+    VulkanDeviceAccess Access;
+    if (!Display.SceneDevice) return Access;
+    Access.Instance        = Display.Instance;
+    Access.PhysicalDevice  = Display.PhysicalDevice;
+    Access.Device          = Display.Device;
+    Access.Queue           = Display.Queue;
+    Access.QueueFamily     = Display.QueueFamily;
+    Access.ResolveInstance = Resolve<PFN_vkGetInstanceProcAddr>(Display.Instance, "vkGetInstanceProcAddr");
+    Access.ApiVersion      = Display.ApiVersion;
+    Access.DrawIndirectCount = Display.DrawIndirectCount;
+    Access.MultiDrawIndirect = Display.MultiDrawIndirect;
+    return Access;
+}
+
 void VulkanPresentation::ConfigureRendering(std::function<void(VkCommandBuffer, uint64_t, uint64_t)> Construct,
                                            std::function<void()> Confirm)
 {

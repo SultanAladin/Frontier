@@ -81,6 +81,14 @@ class ProjectBrowserPanel
     std::function<BrowserPreviewImage(const std::string &Token, const std::vector<uint8_t> &ImageBytes)> QueryImportedImage;
     std::function<std::vector<std::filesystem::path>()> PickImportFiles;
     std::function<std::filesystem::path()> PickImportFolder;
+    // 📝 SolidArc hand-off: native decoding of attached workspace documents, their rendered thumbnails (the
+    // configuration carries the document triangles) and the launch of the owning workspace application.
+    std::function<BrowserNativeDocument(const std::filesystem::path &Path)> QueryDocumentGeometry;
+    std::function<BrowserPreviewImage(const std::string &Key, const BrowserPreviewConfiguration &)> QueryConfiguredThumbnail;
+    std::function<bool(const std::filesystem::path &Path, std::string &Refusal)> LaunchWorkspaceDocument;
+    [[nodiscard]] std::string QueryLaunchOutcome() const { return LaunchOutcome; }
+    [[nodiscard]] const BrowserCatalogueEntry *QueryEntry(const std::string &Token) const noexcept { return FindEntry(Token); }
+    void OpenActiveFile() { OpenInFrontier(); } // 🧪 Validation: the reader's "Open in …" action.
 
   private:
     struct CachedPreviewTriangles
@@ -112,6 +120,7 @@ class ProjectBrowserPanel
     void ToggleStar(const std::string &Token);
     void Notify(const std::string &Message);
     void OpenInFrontier();
+    void PrepareNativeReader(const BrowserCatalogueEntry &Entry);
     void SubmitComment();
     void CaptureNow();
     void ConstructLibrary(float Width);
@@ -141,6 +150,12 @@ class ProjectBrowserPanel
     std::array<char, 257> SearchText{};
     std::array<char, 2001> CommentText{};
     bool LeftCollapsed = false, RightCollapsed = false, ResponsiveConfigured = false;
+    std::string LaunchOutcome; // 📝 SolidArc hand-off result shown by the launch dialog (empty: preview flow).
+    bool LaunchSucceeded = false;
+    [[nodiscard]] static bool LivePreviewCondition(const BrowserCatalogueEntry &Entry)
+    {
+        return !Entry.Imported || Entry.Geometry != nullptr;
+    }
     bool DocumentEnabled = false, LaunchOpen = false, Creating = false, LiveDragging = false;
     bool WasLiveHovered = false;
     bool FocusSearch = false, FocusBack = false, FocusBrowse = false;

@@ -10,15 +10,15 @@
 // analytic precipitation volume, and endpoint/count exactness for lightning channels.
 // Usage: EnvironmentPipelineValidation [ppm-prefix]  (writes <prefix>sky-strip.ppm)
 
-#include "Engine/Rendering/AtmosphereModel.h"
+#include "Engine/PlanetaryAtmosphere/AstronomicalEphemeris.h"
+#include "Engine/PlanetaryAtmosphere/AtmosphereScattering.h"
+#include "Engine/PlanetaryAtmosphere/CloudSpace.h"
+#include "Engine/PlanetaryAtmosphere/FogSpace.h"
+#include "Engine/PlanetaryAtmosphere/OpticalLensFlare.h"
+#include "Engine/PlanetaryAtmosphere/WeatherEffects.h"
 #include "Engine/Rendering/BarrierDerivation.h"
-#include "Engine/Rendering/CelestialModel.h"
-#include "Engine/Rendering/CloudField.h"
 #include "Engine/Rendering/EnvironmentUnits.h"
-#include "Engine/Rendering/FogMedium.h"
-#include "Engine/Rendering/LensFlareModel.h"
 #include "Engine/Rendering/TransientTargetAtlas.h"
-#include "Engine/Rendering/WeatherEffects.h"
 
 #include <algorithm>
 #include <cmath>
@@ -60,7 +60,7 @@ SpatialVector DirectionFromElevationAzimuth(double ElevationDeg, double AzimuthD
     return {std::cos(El) * std::sin(Az), std::cos(El) * std::cos(Az), std::sin(El)};   // local: X east, Y north, Z up
 }
 
-// Planet-centred frame matching AtmosphereModel's canonical frame: observer on +Y.
+// Planet-centred frame matching AtmosphereScattering's canonical frame: observer on +Y.
 // Local (east, north, up) at the observer maps to world (X east, Z north, Y up).
 SpatialVector LocalToPlanet(const SpatialVector& Local, double RadiusKm)
 {
@@ -272,12 +272,12 @@ int main(int Argc, char** Argv)
     // ------------------------------------------------------------------ fog
     {
         FogParameters Fog;
-        Fog.DensityAtBase = 0.02; Fog.BaseHeightM = 10.0; Fog.FalloffHeightM = 25.0;
+        Fog.ReferenceDensity = 0.02; Fog.ReferenceHeightM = 10.0; Fog.FalloffHeightM = 25.0;
         Check(NearRel(FogTransmittance(Fog, {0, 0, 5}, {1, 0, 0}, 100.0), std::exp(-2.0), 1e-12),
-              "fog: horizontal below base is exact Beer-Lambert");
+              "fog: horizontal below reference height is exact Beer-Lambert");
         const double AboveExpected = std::exp(-0.02 * std::exp(-(35.0 - 10.0) / 25.0) * 100.0);
         Check(NearRel(FogTransmittance(Fog, {0, 0, 35}, {1, 0, 0}, 100.0), AboveExpected, 1e-12),
-              "fog: horizontal above base uses local density");
+              "fog: horizontal above reference height uses local density");
         // Slanted rays vs independent Simpson quadrature of the same profile.
         const auto NumericFog = [&](SpatialVector Origin, SpatialVector Dir, double Dist) {
             const int N = 4000;
@@ -286,7 +286,7 @@ int main(int Argc, char** Argv)
             {
                 const double T = Dist * static_cast<double>(I) / N;
                 const double Z = Origin.Z + Dir.Z * T;
-                const double Rho = Fog.DensityAtBase * std::exp(-std::max(Z - Fog.BaseHeightM, 0.0) / Fog.FalloffHeightM);
+                const double Rho = Fog.ReferenceDensity * std::exp(-std::max(Z - Fog.ReferenceHeightM, 0.0) / Fog.FalloffHeightM);
                 const double W = (I == 0 || I == N) ? 1.0 : (I % 2 ? 4.0 : 2.0);
                 Sum += W * Rho;
             }
@@ -326,7 +326,7 @@ int main(int Argc, char** Argv)
         // Uniform slab: Beer-Lambert is exact for the midpoint march.
         CloudParameters Uniform = Clouds;
         Uniform.UniformDensityOverride = 0.8;
-        const double Slab = Uniform.TopHeightM - Uniform.BaseHeightM;   // 1000 m
+        const double Slab = Uniform.TopHeightM - Uniform.LowerHeightM;   // 1000 m
         const double SigmaRho = Uniform.ExtinctionPerM * 0.8;
         const CloudMarchResult Vertical = MarchClouds(Uniform, {0, 0, 0}, {0, 0, 1}, {0, 0, 1}, {1, 1, 1}, 5000.0, 32, 0);
         Print("cloud uniform vertical T: %.6f vs Beer %.6f\n", Vertical.Transmittance, std::exp(-SigmaRho * Slab));
@@ -435,8 +435,8 @@ int main(int Argc, char** Argv)
             PositionOf("CloudRecordsSubmission") < PositionOf("CloudShadowProjectSubmission") &&
             PositionOf("CloudShadowProjectSubmission") < PositionOf("CloudTraceSubmission") &&
             PositionOf("CloudTraceSubmission") < PositionOf("CloudPresentRasterization") &&
-            PositionOf("CloudPresentRasterization") < PositionOf("FogMediumSubmission") &&
-            PositionOf("FogMediumSubmission") < PositionOf("PrecipitationRasterization") &&
+            PositionOf("CloudPresentRasterization") < PositionOf("FogSpaceSubmission") &&
+            PositionOf("FogSpaceSubmission") < PositionOf("PrecipitationRasterization") &&
             PositionOf("FlareVisibilitySubmission") < PositionOf("FlareImageRasterization");
         Check(Ordered, "environment: resolved order honours the chain");
         bool DepthImported = false;

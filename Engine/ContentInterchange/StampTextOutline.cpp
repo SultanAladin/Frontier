@@ -88,12 +88,13 @@ VectorCubicSegment ElevateQuadratic(Coordinate Start, Coordinate Control, Coordi
 
 // 📝 Appends one glyph's already-positioned, already-scaled contours (TrueType's own winding kept
 // intact) as a run of closed cubic spans, tracking the ink bounding box as it goes.
-void AppendGlyphContours(const stbtt_vertex *Vertices, int VertexCount, float OffsetX, float Scale,
+void AppendGlyphContours(const stbtt_vertex *Vertices, int VertexCount, float OffsetX, float OffsetY, float Scale,
     std::vector<VectorCubicSegment> &Segments, Coordinate &Minimum, Coordinate &Maximum)
 {
     const auto ToWorld = [&](float RawX, float RawY) -> Coordinate {
         // 📝 TrueType is y-up around the baseline; the engine canvas is y-down, so flip Y on entry.
-        return {OffsetX + RawX * Scale, -RawY * Scale};
+        // OffsetY shifts a whole wrapped line downward (it is 0 for every glyph on the first line).
+        return {OffsetX + RawX * Scale, OffsetY - RawY * Scale};
     };
     const auto Track = [&](Coordinate Point)
     {
@@ -140,9 +141,108 @@ void AppendGlyphContours(const stbtt_vertex *Vertices, int VertexCount, float Of
     if (Open && (Cursor[0] != ContourStart[0] || Cursor[1] != ContourStart[1]))
         Segments.push_back({{Cursor[0], Cursor[1], Cursor[0], Cursor[1]}, {ContourStart[0], ContourStart[1], ContourStart[0], ContourStart[1]}});
 }
+
+// 📝 Shapes one already-wrapped line of text (no embedded newlines) at a fixed vertical OffsetY,
+// left-aligned at CursorX 0. Shared by the single-line path (one call, OffsetY 0) and the wrapped
+// multi-line path (one call per packed line, OffsetY advancing by LineHeight each time) so both
+// stay byte-for-byte identical in how a line of glyphs is shaped.
+void LayoutLine(const stbtt_fontinfo &Face, std::string_view Line, float OffsetY, float Scale,
+    std::vector<VectorCubicSegment> &Segments, Coordinate &Minimum, Coordinate &Maximum)
+{
+    float CursorX = 0;
+    int PreviousGlyph = -1;
+    for (size_t Index = 0; Index < Line.size();)
+    {
+        const uint32_t Codepoint = DecodeUtf8Codepoint(Line, Index);
+        const int Glyph = stbtt_FindGlyphIndex(&Face, int(Codepoint));
+        if (PreviousGlyph >= 0 && Glyph > 0)
+            CursorX += float(stbtt_GetGlyphKernAdvance(&Face, PreviousGlyph, Glyph)) * Scale;
+        if (Glyph > 0)
+        {
+            stbtt_vertex *Vertices = nullptr;
+            const int VertexCount = stbtt_GetGlyphShape(&Face, Glyph, &Vertices);
+            if (Vertices)
+            {
+                AppendGlyphContours(Vertices, VertexCount, CursorX, OffsetY, Scale, Segments, Minimum, Maximum);
+                stbtt_FreeShape(&Face, Vertices);
+            }
+            int Advance = 0, Bearing = 0;
+            stbtt_GetGlyphHMetrics(&Face, Glyph, &Advance, &Bearing);
+            CursorX += float(Advance) * Scale;
+        }
+        else
+        {
+            // 📝 A codepoint with no glyph (an unmapped character, or the typeface's own notdef)
+            // still reserves its width so later text in the run does not collapse onto it.
+            int Advance = 0, Bearing = 0;
+            stbtt_GetCodepointHMetrics(&Face, int(Codepoint), &Advance, &Bearing);
+            CursorX += Advance > 0 ? float(Advance) * Scale : Scale * 300.f;
+        }
+        PreviousGlyph = Glyph > 0 ? Glyph : -1;
+    }
+}
+
+// 📝 Measures one word's pen advance (identical metrics to LayoutLine, minus the shape extraction)
+// so greedy word-wrap can pack words onto lines before any geometry is actually built.
+float MeasureWordAdvance(const stbtt_fontinfo &Face, std::string_view Word, float Scale)
+{
+    float CursorX = 0;
+    int PreviousGlyph = -1;
+    for (size_t Index = 0; Index < Word.size();)
+    {
+        const uint32_t Codepoint = DecodeUtf8Codepoint(Word, Index);
+        const int Glyph = stbtt_FindGlyphIndex(&Face, int(Codepoint));
+        if (PreviousGlyph >= 0 && Glyph > 0)
+            CursorX += float(stbtt_GetGlyphKernAdvance(&Face, PreviousGlyph, Glyph)) * Scale;
+        int Advance = 0, Bearing = 0;
+        if (Glyph > 0) { stbtt_GetGlyphHMetrics(&Face, Glyph, &Advance, &Bearing); CursorX += float(Advance) * Scale; }
+        else
+        {
+            stbtt_GetCodepointHMetrics(&Face, int(Codepoint), &Advance, &Bearing);
+            CursorX += Advance > 0 ? float(Advance) * Scale : Scale * 300.f;
+        }
+        PreviousGlyph = Glyph > 0 ? Glyph : -1;
+    }
+    return CursorX;
+}
+
+// 📝 Greedy word-wrap: packs space-separated words onto as few lines as fit within WrapWidth,
+// always placing at least one word per line (an overlong single word still gets its own line
+// rather than vanishing) so the caller always receives a non-empty layout.
+std::vector<std::string> WrapText(const stbtt_fontinfo &Face, std::string_view Text, float Scale, float WrapWidth)
+{
+    const float SpaceAdvance = MeasureWordAdvance(Face, " ", Scale);
+    std::vector<std::string> Lines;
+    std::string Current;
+    float CurrentWidth = 0;
+    size_t Index = 0;
+    while (Index < Text.size())
+    {
+        size_t WordStart = Index;
+        while (WordStart < Text.size() && Text[WordStart] == ' ') ++WordStart;
+        if (WordStart >= Text.size()) break;
+        size_t WordEnd = WordStart;
+        while (WordEnd < Text.size() && Text[WordEnd] != ' ') ++WordEnd;
+        const std::string_view Word = Text.substr(WordStart, WordEnd - WordStart);
+        const float WordWidth = MeasureWordAdvance(Face, Word, Scale);
+        if (!Current.empty() && CurrentWidth + SpaceAdvance + WordWidth > WrapWidth)
+        {
+            Lines.push_back(Current);
+            Current.clear();
+            CurrentWidth = 0;
+        }
+        if (!Current.empty()) { Current += ' '; CurrentWidth += SpaceAdvance; }
+        Current += std::string(Word);
+        CurrentWidth += WordWidth;
+        Index = WordEnd;
+    }
+    if (!Current.empty()) Lines.push_back(Current);
+    if (Lines.empty()) Lines.push_back(std::string(Text));
+    return Lines;
+}
 } // namespace
 
-uint32_t AppendStampTextOutline(VectorAuthoringDocument &Document, std::string_view Text, float PointSize, std::array<float, 4> Colour, std::string_view TypefacePath)
+uint32_t AppendStampTextOutline(VectorAuthoringDocument &Document, std::string_view Text, float PointSize, std::array<float, 4> Colour, std::string_view TypefacePath, float WrapWidth)
 {
     if (Text.empty() || Text.size() > StampTextCharacterLimit) throw std::runtime_error("Stamp text length is out of its authored bound.");
     if (!std::isfinite(PointSize) || PointSize <= 0 || PointSize > 2000) throw std::runtime_error("Stamp text point size is out of its authored bound.");
@@ -157,36 +257,23 @@ uint32_t AppendStampTextOutline(VectorAuthoringDocument &Document, std::string_v
     std::vector<VectorCubicSegment> Segments;
     Coordinate Minimum{std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
     Coordinate Maximum{-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max()};
-    float CursorX = 0;
-    int PreviousGlyph = -1;
-    for (size_t Index = 0; Index < Text.size();)
+    // 📝 WrapWidth <= 0 keeps the historical single-line layout (one LayoutLine call covering the
+    // whole string verbatim, spacing included). WrapWidth > 0 greedily word-wraps onto as many
+    // lines as needed to stay within it, each line shaped at its own vertical offset, so a caption
+    // that keeps growing fills the box downward with more lines instead of shrinking indefinitely
+    // on a single line.
+    if (WrapWidth > 0)
     {
-        const uint32_t Codepoint = DecodeUtf8Codepoint(Text, Index);
-        const int Glyph = stbtt_FindGlyphIndex(&Face, int(Codepoint));
-        if (PreviousGlyph >= 0 && Glyph > 0)
-            CursorX += float(stbtt_GetGlyphKernAdvance(&Face, PreviousGlyph, Glyph)) * Scale;
-        if (Glyph > 0)
-        {
-            stbtt_vertex *Vertices = nullptr;
-            const int VertexCount = stbtt_GetGlyphShape(&Face, Glyph, &Vertices);
-            if (Vertices)
-            {
-                AppendGlyphContours(Vertices, VertexCount, CursorX, Scale, Segments, Minimum, Maximum);
-                stbtt_FreeShape(&Face, Vertices);
-            }
-            int Advance = 0, Bearing = 0;
-            stbtt_GetGlyphHMetrics(&Face, Glyph, &Advance, &Bearing);
-            CursorX += float(Advance) * Scale;
-        }
-        else
-        {
-            // 📝 A codepoint with no glyph (an unmapped character, or the typeface's own notdef)
-            // still reserves its width so later text in the run does not collapse onto it.
-            int Advance = 0, Bearing = 0;
-            stbtt_GetCodepointHMetrics(&Face, int(Codepoint), &Advance, &Bearing);
-            CursorX += Advance > 0 ? float(Advance) * Scale : PointSize * .3f;
-        }
-        PreviousGlyph = Glyph > 0 ? Glyph : -1;
+        int Ascent = 0, Descent = 0, LineGap = 0;
+        stbtt_GetFontVMetrics(&Face, &Ascent, &Descent, &LineGap);
+        const float LineHeight = float(Ascent - Descent + LineGap) * Scale;
+        const std::vector<std::string> Lines = WrapText(Face, Text, Scale, WrapWidth);
+        for (size_t LineIndex = 0; LineIndex < Lines.size(); ++LineIndex)
+            LayoutLine(Face, Lines[LineIndex], float(LineIndex) * LineHeight, Scale, Segments, Minimum, Maximum);
+    }
+    else
+    {
+        LayoutLine(Face, Text, 0.f, Scale, Segments, Minimum, Maximum);
     }
     if (Segments.empty() || Minimum[0] > Maximum[0] || Minimum[1] > Maximum[1])
         throw std::runtime_error("Stamp text resolves to no visible ink.");

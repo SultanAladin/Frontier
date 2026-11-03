@@ -2,12 +2,14 @@ import ArtworkArrayControls from "./ArtworkArrayControls.jsx";
 import ArtworkDocumentMenu from "./ArtworkDocumentMenu.jsx";
 import ArtworkMaskCanvas from "./ArtworkMaskCanvas.jsx";
 import ArtworkMaskStackRow from "./ArtworkMaskStackRow.jsx";
-import ArtworkMaskControls from "./ArtworkMaskControls.jsx";
+import StampMaskPropertyPanel from "./StampMaskPropertyPanel.jsx";
 import { shapeTools, ArtworkAlignmentTools } from "./ShapeEditorToolbar.jsx";
 import LayerStackPanel, { LayerStackFilters } from "./LayerStackPanel.jsx";
 import LayerAdditionMenu from "./LayerAdditionMenu.jsx";
 import StampVectorCanvas from "./StampVectorCanvas.jsx";
-import StampVectorProperties from "./StampVectorProperties.jsx";
+import { StampVectorPaintControls, StampVectorShapeControls } from "./StampVectorProperties.jsx";
+import ChannelTargetsPanel from "./ChannelTargetsPanel.jsx";
+import StampPbrLightCanvas from "./StampPbrLightCanvas.jsx";
 import { alignSelection } from "./shapeEditorGeometry.js";
 import { VectorPaintStyle, StampVectorCanvasDocument, StampDocumentFromVectorCanvas } from "./StampVectorProjection.js";
 import { StampVectorGeometry } from "./VectorArtwork.js";
@@ -37,13 +39,12 @@ import {
   RotateCw,
   Scaling,
   MousePointer2,
+  Sun,
 } from "lucide-react";
 import { StudioHeader, StudioDockTab } from "./StudioUI.jsx";
 import { Slider, ColorField } from "./MaterialControls.jsx";
-import { ColourSourceField } from "./ColourSourceField.jsx";
 import StampRichTextEditor from "./StampRichTextEditor.jsx";
 import useStampTransform from "./useStampTransform.js";
-import { PAINT_CHANNELS } from "./paintChannelModel.js";
 import { importTextureSource } from "./textureSource.js";
 import { sanitizePatternSVG } from "./patternImport.js";
 import {
@@ -89,78 +90,6 @@ function restore(initial) {
     return createStampDocument();
   }
 }
-export function StampChannelControls({
-  channels,
-  values,
-  onChange,
-  disabled = false,
-  prefix = "Stamp",
-}) {
-  return (
-    <section className="stamp-channel-controls">
-      <h3>
-        Channel targets <small>{channels.length} enabled</small>
-      </h3>
-      <div className="stamp-channel-chips">
-        {PAINT_CHANNELS.map((channel) => (
-          <button
-            key={channel.id}
-            disabled={disabled}
-            aria-label={`${prefix} ${channel.label} channel`}
-            aria-pressed={channels.includes(channel.id)}
-            style={{ "--channel-color": channel.color }}
-            onClick={() => {
-              let next = channels.includes(channel.id)
-                ? channels.filter((id) => id !== channel.id)
-                : [...channels, channel.id];
-              if (channel.id === "height" && !next.includes("height"))
-                next = next.filter((id) => id !== "normal");
-              onChange({ channels: normalizeStampChannels(next) });
-            }}
-          >
-            {channel.short}
-            <span>{channel.label}</span>
-          </button>
-        ))}
-      </div>
-      {PAINT_CHANNELS.filter(
-        (c) =>
-          channels.includes(c.id) && !["baseColor", "normal"].includes(c.id),
-      ).map((channel) => (
-        <div className="stamp-channel-value" key={channel.id}>
-          {channel.edit === "color" ? (
-            <ColourSourceField
-              label={channel.label}
-              ariaLabel={`${prefix} ${channel.label}`}
-              value={values[channel.id]}
-              disabled={disabled}
-              onChange={(value) =>
-                onChange({ channelValues: { ...values, [channel.id]: value } })
-              }
-            />
-          ) : (
-            <Slider
-              label={channel.label}
-              ariaLabel={`${prefix} ${channel.label}`}
-              value={values[channel.id]}
-              min={channel.min}
-              max={channel.max}
-              step={channel.max > 1 ? 1 : 0.01}
-              disabled={disabled}
-              onChange={(value) =>
-                onChange({ channelValues: { ...values, [channel.id]: value } })
-              }
-            />
-          )}
-        </div>
-      ))}
-      <p className="stamp-note">
-        Colour comes from the artwork. Height/normal use its luminance. Disabled
-        targets retain their values; no channels enabled means no surface decal.
-      </p>
-    </section>
-  );
-}
 export default function StampStudio({ initial, onWorkspace, onClose, onUse }) {
   const [doc, setDoc] = useState(() => restore(initial));
   const [VectorMode, ConfigureVectorMode] = useState(false);
@@ -177,6 +106,9 @@ export default function StampStudio({ initial, onWorkspace, onClose, onUse }) {
     return { Category: "transparent", Colour: "#303030" };
   });
   useEffect(() => { try { localStorage.setItem("frontier.stamp.canvasAppearance.v1", JSON.stringify(CanvasAppearance)); } catch {} }, [CanvasAppearance]);
+  const [PbrLightOn, ConfigurePbrLightOn] = useState(false);
+  const [PbrLight, ConfigurePbrLight] = useState({ x: .3, y: .22 });
+  const [TextColourTarget, ConfigureTextColourTarget] = useState(null);
   const ComponentMatches = doc.layers.filter(Layer => `${Layer.name} ${Layer.kind} ${Layer.vector?.kind || ""}`.toLocaleLowerCase().includes(ComponentQuery.trim().toLocaleLowerCase()) && (ComponentFilter === "all" || (ComponentFilter === "locked" ? Layer.locked : Layer.visible === (ComponentFilter === "visible"))));
   const [VectorSelection, ConfigureVectorSelection] = useState([]);
   const VectorSelectionRef = useRef(VectorSelection);
@@ -238,6 +170,13 @@ export default function StampStudio({ initial, onWorkspace, onClose, onUse }) {
       }
     : doc;
   const shown = previewDoc.layers.find((l) => l.id === selectedId);
+  // The vector paint/geometry context shared by the Shape card (above the
+  // channels) and the Base color card (fill/stroke paint): the selected
+  // vector, the first vector of a multi-selection, or drawing defaults.
+  const VectorGeometryLayer = selected?.kind === "vector" ? selected : VectorSelection.length > 1 ? doc.layers.find(Layer => VectorSelection.includes(Layer.id) && Layer.kind === "vector") : null;
+  const VectorGeometryContext = Boolean((VectorMode || selected?.kind === "vector") && (VectorSelection.length <= 1 || VectorGeometryLayer));
+  const VectorGeometry = VectorGeometryLayer ? StampVectorGeometry(VectorGeometryLayer) : DrawingPaint;
+  const VectorGeometryKey = VectorSelection.length > 1 ? "multiple-selection" : selected?.kind === "vector" ? selected.id : "drawing-defaults";
   function commit(input, key = null, selection = selectedId, SelectionIDs = null) {
     try {
       const next = normalizeStampDocument(input);
@@ -803,6 +742,9 @@ export default function StampStudio({ initial, onWorkspace, onClose, onUse }) {
               ))}
             </div>
             <div className="stamp-canvas-exports">
+              <button aria-pressed={PbrLightOn} disabled={VectorMode || MaskActive} title="Shade the artwork with the stamp channel values under a movable point light" onClick={() => ConfigurePbrLightOn(!PbrLightOn)}>
+                <Sun size={12} /> PBR light
+              </button>
               <button onClick={() => exportArtwork("svg")}>SVG</button>
               <button onClick={() => exportArtwork("png")}>
                 PNG <Download size={12} />
@@ -837,7 +779,7 @@ export default function StampStudio({ initial, onWorkspace, onClose, onUse }) {
                 }
               </>
             ) : (
-              "Drag to move · G move · R rotate · S scale · Shift snaps"
+              PbrLightOn ? "PBR light preview · drag the sun · G move · R rotate · S scale" : "Drag to move · G move · R rotate · S scale · Shift snaps"
             )}
           </div>
           <div
@@ -858,6 +800,16 @@ export default function StampStudio({ initial, onWorkspace, onClose, onUse }) {
                   src={preview}
                   alt="Composed stamp preview"
                   draggable={false}
+                  style={PbrLightOn ? { opacity: 0 } : undefined}
+                />
+              )}
+              {PbrLightOn && preview && (
+                <StampPbrLightCanvas
+                  Preview={preview}
+                  Channels={previewDoc.channels}
+                  Values={previewDoc.channelValues}
+                  Light={PbrLight}
+                  OnLight={ConfigurePbrLight}
                 />
               )}
               {previewDoc.layers
@@ -964,34 +916,11 @@ export default function StampStudio({ initial, onWorkspace, onClose, onUse }) {
                 }
               />
             </label>
-            {!VectorMode && !MaskActive && selected && <section className="se-selection-context artwork-alignment"><h3>Align to canvas</h3><div className="se-align-tools">{ArtworkAlignmentTools.map(([Alignment, Caption, Icon]) => <button key={Alignment} title={Caption} aria-label={Caption} disabled={selected.locked || !selected.visible} onClick={() => {
-              const Projection = StampVectorCanvasDocument(current.current), Index = Projection.layers.findIndex(Layer => Layer.id === selected.id);
-              const Next = StampDocumentFromVectorCanvas(alignSelection(Projection, [Index], Alignment), current.current, [Index]);
-              commit(Next.Document, null, Next.SelectedIDs[0], Next.SelectedIDs);
-            }}><Icon size={15}/></button>)}</div></section>}
             {!MaskActive && <div ref={ConfigureInspectorTarget} className="artwork-selection-inspector"/>}
-            {!MaskActive && selected && <ArtworkArrayControls Document={ArrayProjection} Selection={ArrayProjection.layers.flatMap((Layer, Index) => (VectorMode ? VectorSelection : [selectedId]).includes(Layer.id) ? [Index] : [])} Limit={24} OnError={setError}
-              OnFinalize={(Next, Indices) => { const Converted = StampDocumentFromVectorCanvas(Next, current.current, Indices); if (commit(Converted.Document, null, Converted.SelectedIDs.at(-1), Converted.SelectedIDs)) ConfigureVectorMode(true); }}/>}
-            {VectorSelection.length > 1 && VectorMode && <section className="artwork-shared-properties"><h2 className="artwork-multiple-heading">{VectorSelection.length} selected</h2>
-              <p>Shared opacity applies to all unlocked components. Fill and stroke apply to selected unlocked vectors; mixed properties show the active vector as the editing reference.</p>
-              <label>Opacity<input aria-label="Selection opacity" type="number" min="0" max="1" step=".05" placeholder="Mixed"
-                value={doc.layers.filter(Layer => VectorSelection.includes(Layer.id)).every(Layer => Layer.opacity === selected?.opacity) ? selected?.opacity ?? "" : ""}
-                onChange={Event => { if (Event.target.value === "") return; commit({ ...current.current, layers: current.current.layers.map(Layer => VectorSelection.includes(Layer.id) && !Layer.locked ? { ...Layer, opacity: Math.max(0, Math.min(1, Number(Event.target.value))) } : Layer) }, null, selectedId, VectorSelection); }}/></label>
-            </section>}
-            {selected && VectorSelection.length <= 1 && <fieldset className="stamp-vector-properties" disabled={selected.locked}><ArtworkMaskControls Mask={selected.mask} Editing={MaskActive} OnEdit={() => { if (VectorCanvas.current && !VectorCanvas.current.prepareExport()) return; transform.cancel(); ConfigureMaskIdentity(selected.id); }} OnChange={Mask => patchLayer({ mask: Mask })} OnError={setError}/></fieldset>}
-            {(VectorMode || selected?.kind === "vector") && (VectorSelection.length <= 1 || doc.layers.some(Layer => VectorSelection.includes(Layer.id) && Layer.kind === "vector")) && <StampVectorProperties key={VectorSelection.length > 1 ? "multiple-selection" : selected?.kind === "vector" ? selected.id : "drawing-defaults"}
-              Geometry={selected?.kind === "vector" ? StampVectorGeometry(selected) : VectorSelection.length > 1 && doc.layers.some(Layer => VectorSelection.includes(Layer.id) && Layer.kind === "vector") ? StampVectorGeometry(doc.layers.find(Layer => VectorSelection.includes(Layer.id) && Layer.kind === "vector")) : DrawingPaint} Disabled={selected?.kind === "vector" && selected.locked} Drawing={selected?.kind !== "vector"}
-              OnChange={ApplyVectorPaint}/> }
             {selected && !(VectorMode && VectorSelection.length > 1) && (
-              <section className="stamp-component-properties">
+              <section className="stamp-transform-card tp-property-card" aria-label="Stamp component transform card">
                 <div className="stamp-property-heading">
-                  <h2>
-                    {selected.kind === "text"
-                      ? "Rich text"
-                      : selected.kind === "vector" ? "Vector transform" : selected.kind === "svg"
-                        ? "SVG artwork"
-                        : "Image source"}
-                  </h2>
+                  <h2><Move size={14} />Transform</h2>
                   <button
                     aria-label={
                       selected.locked
@@ -1016,61 +945,6 @@ export default function StampStudio({ initial, onWorkspace, onClose, onUse }) {
                     onChange={(name) => patchLayer({ name }, "name")}
                   />
                 </label>
-                {selected.kind === "text" && (
-                  <StampRichTextEditor
-                    key={selected.id}
-                    runs={selected.runs}
-                    disabled={selected.locked}
-                    onChange={(runs, meta) => {
-                      try {
-                        if (
-                          JSON.stringify(runs) === JSON.stringify(selected.runs)
-                        )
-                          return false;
-                        const oldLayout = outlineStampText(selected.runs),
-                          nextLayout = outlineStampText(runs);
-                        return patchLayer(
-                          {
-                            runs,
-                            width:
-                              selected.width *
-                              (nextLayout.width / Math.max(1, oldLayout.width)),
-                            height:
-                              selected.height *
-                              (nextLayout.height /
-                                Math.max(1, oldLayout.height)),
-                          },
-                          meta?.key ? `rich-text-${meta.key}` : null,
-                        );
-                      } catch (e) {
-                        setError(e.message);
-                        return false;
-                      }
-                    }}
-                  />
-                )}
-                {selected.kind === "svg" && (
-                  <SVGMarkupEditor
-                    key={selected.id}
-                    layer={selected}
-                    onChange={(svg) => patchLayer({ svg })}
-                    onImport={() => pickFile("svg")}
-                  />
-                )}
-                {selected.kind === "image" && (
-                  <div className="stamp-image-source">
-                    <img
-                      src={selected.image.dataUrl}
-                      alt={selected.image.name}
-                    />
-                    <button
-                      disabled={selected.locked}
-                      onClick={() => pickFile("image")}
-                    >
-                      <ImagePlus size={14} /> Add image
-                    </button>
-                  </div>
-                )}
                 <div className="stamp-shared-controls">
                   <Slider
                     label="Position X"
@@ -1134,18 +1008,105 @@ export default function StampStudio({ initial, onWorkspace, onClose, onUse }) {
                     onChange={(opacity) => patchLayer({ opacity }, "opacity")}
                   />
                 </div>
+                {!VectorMode && !MaskActive && <div className="stamp-align-row"><h3>Align to canvas</h3><div className="se-align-tools">{ArtworkAlignmentTools.map(([Alignment, Caption, Icon]) => <button key={Alignment} title={Caption} aria-label={Caption} disabled={selected.locked || !selected.visible} onClick={() => {
+              const Projection = StampVectorCanvasDocument(current.current), Index = Projection.layers.findIndex(Layer => Layer.id === selected.id);
+              const Next = StampDocumentFromVectorCanvas(alignSelection(Projection, [Index], Alignment), current.current, [Index]);
+              commit(Next.Document, null, Next.SelectedIDs[0], Next.SelectedIDs);
+            }}><Icon size={15}/></button>)}</div></div>}
               </section>
             )}
-            <StampChannelControls
+            {VectorGeometryContext && <StampVectorShapeControls key={`shape-${VectorGeometryKey}`} Geometry={VectorGeometry} Disabled={selected?.kind === "vector" && selected.locked} Drawing={!VectorGeometryLayer} OnChange={ApplyVectorPaint}/>}
+            {selected && !(VectorMode && VectorSelection.length > 1) && selected.kind !== "vector" && (
+              <section className="stamp-content-card tp-property-card" aria-label="Stamp component content card">
+                <div className="stamp-property-heading">
+                  <h2>{selected.kind === "text" ? <><Type size={14} />Rich text</> : selected.kind === "svg" ? <><Code2 size={14} />SVG artwork</> : <><ImagePlus size={14} />Image source</>}</h2>
+                </div>
+                {selected.kind === "text" && (
+                  <StampRichTextEditor
+                    key={selected.id}
+                    ColourTarget={TextColourTarget}
+                    runs={selected.runs}
+                    disabled={selected.locked}
+                    onChange={(runs, meta) => {
+                      try {
+                        if (
+                          JSON.stringify(runs) === JSON.stringify(selected.runs)
+                        )
+                          return false;
+                        const oldLayout = outlineStampText(selected.runs),
+                          nextLayout = outlineStampText(runs);
+                        return patchLayer(
+                          {
+                            runs,
+                            width:
+                              selected.width *
+                              (nextLayout.width / Math.max(1, oldLayout.width)),
+                            height:
+                              selected.height *
+                              (nextLayout.height /
+                                Math.max(1, oldLayout.height)),
+                          },
+                          meta?.key ? `rich-text-${meta.key}` : null,
+                        );
+                      } catch (e) {
+                        setError(e.message);
+                        return false;
+                      }
+                    }}
+                  />
+                )}
+                {selected.kind === "svg" && (
+                  <SVGMarkupEditor
+                    key={selected.id}
+                    layer={selected}
+                    onChange={(svg) => patchLayer({ svg })}
+                    onImport={() => pickFile("svg")}
+                  />
+                )}
+                {selected.kind === "image" && (
+                  <div className="stamp-image-source">
+                    <img
+                      src={selected.image.dataUrl}
+                      alt={selected.image.name}
+                    />
+                    <button
+                      disabled={selected.locked}
+                      onClick={() => pickFile("image")}
+                    >
+                      <ImagePlus size={14} /> Add image
+                    </button>
+                  </div>
+                )}
+              </section>
+            )}
+{!MaskActive && selected && <ArtworkArrayControls Document={ArrayProjection} Selection={ArrayProjection.layers.flatMap((Layer, Index) => (VectorMode ? VectorSelection : [selectedId]).includes(Layer.id) ? [Index] : [])} Limit={24} OnError={setError}
+              OnFinalize={(Next, Indices) => { const Converted = StampDocumentFromVectorCanvas(Next, current.current, Indices); if (commit(Converted.Document, null, Converted.SelectedIDs.at(-1), Converted.SelectedIDs)) ConfigureVectorMode(true); }}/>}
+{VectorSelection.length > 1 && VectorMode && <section className="artwork-shared-properties"><h2 className="artwork-multiple-heading">{VectorSelection.length} selected</h2>
+              <p>Shared opacity applies to all unlocked components. Fill and stroke apply to selected unlocked vectors; mixed properties show the active vector as the editing reference.</p>
+              <label>Opacity<input aria-label="Selection opacity" type="number" min="0" max="1" step=".05" placeholder="Mixed"
+                value={doc.layers.filter(Layer => VectorSelection.includes(Layer.id)).every(Layer => Layer.opacity === selected?.opacity) ? selected?.opacity ?? "" : ""}
+                onChange={Event => { if (Event.target.value === "") return; commit({ ...current.current, layers: current.current.layers.map(Layer => VectorSelection.includes(Layer.id) && !Layer.locked ? { ...Layer, opacity: Math.max(0, Math.min(1, Number(Event.target.value))) } : Layer) }, null, selectedId, VectorSelection); }}/></label>
+            </section>}
+            <ChannelTargetsPanel
+              prefix="Stamp"
+              heading="Channel targets"
               channels={doc.channels}
               values={doc.channelValues}
-              onChange={(changes) =>
-                commit(
-                  { ...doc, ...changes },
-                  changes.channelValues ? "channel-values" : null,
-                )
-              }
+              sources={doc.channelSources || {}}
+              artworkBaseColor={!VectorGeometryContext}
+              baseColorBody={VectorGeometryContext ? <StampVectorPaintControls key={`paint-${VectorGeometryKey}`} Geometry={VectorGeometry} Disabled={selected?.kind === "vector" && selected.locked} Drawing={!VectorGeometryLayer} OnChange={ApplyVectorPaint}/> : selected?.kind === "text" && !(VectorMode && VectorSelection.length > 1) ? <div className="stamp-basecolor-group"><span className="stamp-basecolor-caption">Text colour</span><div ref={ConfigureTextColourTarget} className="stamp-text-colour-slot"/></div> : null}
+              onChannels={(channels) => commit({ ...current.current, channels: normalizeStampChannels(channels) })}
+              onValue={(id, value) => commit({ ...current.current, channelValues: { ...current.current.channelValues, [id]: value } }, "channel-values")}
+              onSource={(id, sourcePatch) => commit({ ...current.current, channelSources: { ...(current.current.channelSources || {}), [id]: { ...((current.current.channelSources || {})[id] || {}), ...sourcePatch } } }, "channel-source")}
             />
+            <p className="stamp-note">
+              Colour comes from the artwork — the selected component's colour
+              (fill/stroke paint, text colour) lives on the Base color card. Height/normal use its
+              luminance. Disabled targets retain their values; no channels
+              enabled means no surface decal. The canvas PBR light shades
+              these values live.
+            </p>
+            {selected && VectorSelection.length <= 1 && <fieldset className="stamp-vector-properties" disabled={selected.locked}><StampMaskPropertyPanel Mask={selected.mask} Locked={selected.locked} Editing={MaskActive} OnEdit={() => { if (VectorCanvas.current && !VectorCanvas.current.prepareExport()) return; transform.cancel(); ConfigureMaskIdentity(selected.id); }} OnChange={(Mask, Key) => patchLayer({ mask: Mask }, Key)} OnError={setError}/></fieldset>}
             <label className="stamp-field">
               Mask interpretation
               <select

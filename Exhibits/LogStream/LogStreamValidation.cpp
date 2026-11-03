@@ -365,11 +365,23 @@ void CheckPanel()
     Panel.JumpToLatest();
     Check(Panel.QueryFollow() && Panel.QueryNewBelow() == 0, "jump to latest restores follow");
 
-    // Selection toggles.
-    Panel.SelectVisible(0);
-    Check(Panel.QuerySelectedIndex() == 0, "row expands on select");
-    Panel.SelectVisible(0);
-    Check(Panel.QuerySelectedIndex() == -1, "row collapses on re-select");
+    // Expansion toggles: any number of rows open at once.
+    const uint64_t FirstSequence = Panel.QueryVisible()[0].Entry.Sequence;
+    Panel.ToggleExpansion(0);
+    Check(Panel.QueryExpanded(FirstSequence), "row expands on toggle");
+    if (Panel.QueryVisible().size() > 1)
+    {
+        const uint64_t SecondSequence = Panel.QueryVisible()[1].Entry.Sequence;
+        Panel.ToggleExpansion(1);
+        Check(Panel.QueryExpanded(FirstSequence) && Panel.QueryExpanded(SecondSequence),
+              "two rows stay expanded together");
+        Check(Panel.QueryExpandedCount() == 2, "expanded count follows the open rows");
+        Panel.ToggleExpansion(1);
+        Check(!Panel.QueryExpanded(SecondSequence) && Panel.QueryExpanded(FirstSequence),
+              "collapsing one row leaves the other open");
+    }
+    Panel.ToggleExpansion(0);
+    Check(!Panel.QueryExpanded(FirstSequence) && Panel.QueryExpandedCount() == 0, "row collapses on re-toggle");
 
     // Clear resets the view but never the store.
     const uint64_t Written = Store.QueryWritten();

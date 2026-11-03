@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <functional>
 #include <stdexcept>
 namespace FrontierExhibit
 {
@@ -57,8 +58,11 @@ inline bool TopLeft(ImVec2 A, ImVec2 B)
 {
     return B.y < A.y || (B.y == A.y && B.x > A.x);
 }
+// 📝 UserTextures (optional) resolves textures the draw list names only by ImTextureID (ImGui::Image / AddImage of a
+//    renderer's image), e.g. an image read back from the GPU; atlas textures carry their pixels themselves.
 inline void RasterizeCommands(const ImDrawList *List, unsigned char *Rgb, int Width, int Height, ImVec2 Origin,
-                              ImVec2 Scale, const ImDrawCmd *OnlyCommand = nullptr)
+                              ImVec2 Scale, const ImDrawCmd *OnlyCommand = nullptr,
+                              const std::function<Image(ImTextureID)> *UserTextures = nullptr)
 {
     for (const auto &Cmd : List->CmdBuffer)
     {
@@ -75,6 +79,8 @@ inline void RasterizeCommands(const ImDrawList *List, unsigned char *Rgb, int Wi
         Image Sheet{};
         if (auto *T = Cmd.TexRef._TexData)
             Sheet = {T->Pixels, T->Width, T->Height, T->BytesPerPixel};
+        else if (UserTextures && *UserTextures)
+            Sheet = (*UserTextures)(Cmd.TexRef._TexID);
         if (!Sheet.Pixels || Sheet.Width <= 0 || Sheet.Height <= 0 || (Sheet.Channels != 1 && Sheet.Channels != 4))
             throw std::runtime_error("CPU exhibit: unknown or invalid texture");
         const float ClipL = (Cmd.ClipRect.x - Origin.x) * Scale.x, ClipT = (Cmd.ClipRect.y - Origin.y) * Scale.y;

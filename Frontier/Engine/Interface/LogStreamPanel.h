@@ -87,7 +87,7 @@ class LogStreamPanel
     void NotifyScrolledToEnd() noexcept;   // Presentation: user returned to the tail (clears the new-entries pill)
     void JumpToLatest() noexcept;          // Re-engage follow and clear the pill
 
-    void SelectVisible(size_t Index);      // Toggles expansion selection, like clicking a prototype row
+    void ToggleExpansion(size_t Index);    // Opens or closes a row's detail; any number of rows can be open at once
 
     // -- Frame intake --
     void Synchronize(LogRingStore& Store, const LogCategoryRegistry& Categories, double Δτ);
@@ -107,8 +107,8 @@ class LogStreamPanel
     [[nodiscard]] bool QuerySessionClock() const noexcept { return SessionClock; }
 
     [[nodiscard]] const std::deque<LogStreamVisibleEntry>& QueryVisible() const noexcept { return Visible; }
-    [[nodiscard]] const LogStreamVisibleEntry*             QuerySelected() const noexcept;
-    [[nodiscard]] int64_t                                  QuerySelectedIndex() const noexcept;
+    [[nodiscard]] bool   QueryExpanded(uint64_t Sequence) const noexcept { return ExpandedSequences.count(Sequence) > 0; }
+    [[nodiscard]] size_t QueryExpandedCount() const noexcept { return ExpandedSequences.size(); }
 
     [[nodiscard]] uint64_t QueryTotalCount() const noexcept { return TotalCount; }              // [entries] - Since last ClearView
     [[nodiscard]] uint64_t QuerySeverityCount(LogSeverity Severity) const noexcept;
@@ -151,7 +151,7 @@ class LogStreamPanel
     std::deque<LogStreamVisibleEntry> Visible;
     std::unordered_map<std::string, uint64_t> CollapseKeys;   // [-] - "token|message" -> representative sequence
     uint64_t                          Cursor = 0;             // [-] - Last store sequence consumed
-    uint64_t                          SelectedSequence = 0;   // [-] - Expanded row (0 = none)
+    std::unordered_set<uint64_t>      ExpandedSequences;      // [-] - Rows whose detail is open
     uint64_t                          SessionStartMicros = 0; // [µs] - First consumed entry time
 
     // Counters (since ClearView)
