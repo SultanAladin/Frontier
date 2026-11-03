@@ -434,3 +434,79 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
     unattended full-library pass (risk of silently regressing 100+ shipped pattern designs without
     per-pattern visual verification).
 
+
+## Vehicle inspector prototype: vehicle, parented tyres, editable curves (2026-11-03, arena/ca09b37f-frontier)
+
+- The owner asked for the vehicle inspector in HTML before the C++ step: one vehicle record added to the scene —
+  chassis and its four tyres, no other geometry — the tyres enclosed by the vehicle and replaceable at a pit stop,
+  cards that carry units and coloured icons, and editable curves so a custom vehicle can be authored.
+- `Experimental/VehicleInspector/` is that prototype. It reuses the Render settings inspector's control kit, palette and
+  card language (the same `InspectorPalette` values, DM Sans) and adds a curve editor, instrument cards, a unit
+  switch and the pit-stop behaviour. `VehicleCatalogue.js` holds units, curve maths (Fritsch–Carlson monotone), tyre
+  compounds, the specification, the longitudinal performance estimate and the TOML record.
+- A detached tyre keeps its record and loses the enclosure: it moves to the Pit lane group in the Outliner, is drawn
+  apart in the viewport with a dashed link back to its axle, and fitting a set writes all four back. Five curves are
+  authored; engine power is derived as torque × ω, and every derived readout (hero dyno, launch trace, top speed,
+  braking distance, exported record) reads the same curves.
+- Verified: `VehicleCatalogueValidation.mjs` 70/70 and `VehicleInspectorPageValidation.mjs` 76/76 in
+  `Exhibits/VehicleInspector/Code/` (jsdom builds the real page, clicks the real buttons and reads the DOM back), plus
+  five chart images rasterised from the page's own SVG output. Evidence: `Exhibits/VehicleInspector/README.md`.
+- Still open: the tyre editor the owner asked for next (per-compound carcass/thermal/wear curves, pit-stop set history,
+  pressure and camber), and the C++ step (`VehicleSpecification` TOML, tyres as `SceneDirectory` records with an
+  enclosure token, the sections as units of one `VehicleInspector`). No browser screenshot, no Windows/MSVC build and no
+  GPU run were possible here: the sandbox has no browser binary and this checkout has no scene renderer.
+
+## Vehicle telemetry dock: live, read-only, parented to the vehicle (2026-11-03, arena/ca09b37f-frontier)
+
+- The owner asked for the runtime half of the same component: while the car is being driven the dock should show the
+  current values — fuel level, km/h and the rest — as a different view of the inspector, covering the header through
+  to the cards before chassis and identity, with a way back to the authoring view. Their words: a `VehicleTelemetry`
+  component at runtime, attached to the vehicle the way the tyres are parented to it, for debugging only.
+- `Experimental/VehicleInspector/VehicleTelemetry.js` is that component. A tab above the inspector (or `t`) switches
+  between **Inspector** and **Telemetry**; the dock is read-only, it never writes the record, and returning to the
+  inspector keeps the driven session instead of starting a new one. While the dock is shown, sampling runs at the rate
+  the record asks for; Pause stops it and says so on the chip.
+- The dock shows speed with its unit, gear, a twelve-light shift strip, rpm against the limiter, throttle and brake
+  shares, steering and both g-forces, a fuel card (level, share of the tank, bar with the reserve marker, flow, laps of
+  fuel), six engine tiles, one tyre card per corner (pressure, surface, wear, compound colour), the aid chips, brake
+  temperatures per axle and the last twenty seconds of speed.
+- The model is deterministic: a 4 320 m synthetic lap of straights and fixed-radius corners, turned into a speed table
+  by a braking pass and a traction pass through the record's wheel force, traction circle and drag. Gear and rpm come
+  from the authored ratios, fuel from the record's full-load burn at the modelled load, temperatures from the authored
+  coolant, oil and tyre curves, pressure from surface temperature, wear from lateral load, brakes from pedal and
+  airflow. The lap is not a captured session and has no tyre solver behind it.
+- Record: `[vehicle.fuel]` carries `load_l` and `reserve_percent`, `[vehicle.telemetry]` carries `sample_rate_hz`, and
+  `aids.telemetry` gates the whole dock — off detaches it and offers to attach it again. Fuel capacity stays the
+  single value in `[vehicle]`, shared with the inspector's card.
+- Verified: `VehicleTelemetryValidation.mjs` 69/69 (the model, the paint, pause, units, the return trip and the
+  read-only guarantee), `VehicleInspectorPageValidation.mjs` 88/88, `VehicleCatalogueValidation.mjs` 70/70, and six
+  images (`TelemetrySpeedTrace.png`, `TelemetryCluster.png`, `ColourCoding.png` included). Evidence:
+  `Exhibits/VehicleInspector/README.md`.
+- Defects these checks caught: the traction pass chose its gear from the sample's own limit, which collapsed the main
+  straight to the hairpin's speed; and the fuel card printed a range before any lap had been measured. Both are
+  fixed — the first by gearing the pass from the speed carried into the sample, the second by printing the range only
+  after a measured lap.
+- Still open: the tyre editor (per-compound carcass/thermal/wear curves, pit-stop set history, pressure and camber), and
+  the C++ step — `VehicleTelemetry` as a UI component parented to the vehicle record, sampling `VehicleState` at the
+  authored rate and drawn with the shared controls.
+
+## Colour-coded readings: one hue per quantity, one tone per state (2026-11-03, arena/ca09b37f-frontier)
+
+- The owner asked for the numbers to be colour coded, citing two references: labels coloured by quantity (fuel capacity
+  blue) and values that move along a scale as they heat (orange to red to yellow to green), with the alternative that
+  only the units carry the colour.
+- Both are one switch in the inspector header — `Labels`, `Units`, `Plain` — plus the `c` key. Values keep their
+  state tone in every mode, so a hot tyre is red whichever mode is showing.
+- Quantity families: volume and flow blue, temperature and torque amber, pressure and boost teal, speed mint, power
+  steel, mass and length violet, engine speed blue-grey. Elements are tagged with `data-quantity` where they are drawn
+  (`readout-tile`, `stat-cell`, `instrument-card`, the slider pill, the live dock's speed, gear, rpm and fuel), so the
+  stylesheet decides the hue and no card hard-codes a colour.
+- State tones: cold blue, live green, warm yellow, hot orange, danger red. Temperature uses five thresholds against the
+  tyre's own compound window (or a fluid's target), so a fresh pit-lane set at 62 °C reads cold, an in-window set reads
+  green and a cooked set walks orange then red.
+- Verified: `VehicleInspectorPageValidation.mjs` 88/88 (mode classes on the body, the switch, the `c` cycle, family
+  tags, thermal cards toning their numbers, a fresh set reading cold), `VehicleTelemetryValidation.mjs` 76/76 (the
+  dock's tags and a tyre driven to red then blue), `VehicleCatalogueValidation.mjs` 70/70, and `ColourCoding.png`
+  rendered from the stylesheet's variables.
+- Still open: the tyre editor, and the C++ step — the same family hues and tones port as tokens in the editor's
+  palette so the native inspector and the runtime dock read the same way.

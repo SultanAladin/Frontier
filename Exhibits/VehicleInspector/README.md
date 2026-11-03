@@ -1,0 +1,131 @@
+# Vehicle inspector — validation evidence
+
+Evidence for `Experimental/VehicleInspector/` (the HTML vehicle inspector the owner asked for before the C++ step).
+Everything below was run in this checkout; nothing is an illustration of what the code *would* do.
+
+## Reproduction
+
+```sh
+# ① curve, unit, tyre and record checks (no dependencies)
+node Exhibits/VehicleInspector/Code/VehicleCatalogueValidation.mjs
+
+# ② page checks: build the real page in jsdom, click the real buttons, read the DOM back
+npm install --prefix /tmp/vehicle-checks jsdom @resvg/resvg-js
+NODE_PATH=/tmp/vehicle-checks/node_modules \
+    node Exhibits/VehicleInspector/Code/VehicleInspectorPageValidation.mjs
+
+# ③ live dock checks: the lap model, the dock, pause, units, the return trip
+NODE_PATH=/tmp/vehicle-checks/node_modules \
+    node Exhibits/VehicleInspector/Code/VehicleTelemetryValidation.mjs
+
+# ④ chart images: rasterise the SVGs the built page produces, telemetry included
+NODE_PATH=/tmp/vehicle-checks/node_modules \
+    node Exhibits/VehicleInspector/Code/RenderChartEvidence.mjs
+```
+
+| Condition            | Value                                                       |
+|----------------------|-------------------------------------------------------------|
+| Revision             | `arena/ca09b37f-frontier`, based on `e1ce562`                 |
+| Platform             | Linux sandbox (no Windows toolchain, no browser binary)      |
+| Node                 | v22.22.3                                                     |
+| jsdom                | 24.x                                                         |
+| @resvg/resvg-js      | 2.x, system fonts, zoom 2                                    |
+| Prototype under test | `Experimental/VehicleInspector/index.html` and four scripts |
+
+## Results
+
+| Run                       | Result        | Report                            |
+|---------------------------|---------------|-----------------------------------|
+| Catalogue validation      | 🟢 70/70      | `Results/CatalogueValidation.md`  |
+| Page validation in jsdom  | 🟢 88/88      | `Results/PageValidation.md`       |
+| Live dock validation      | 🟢 76/76      | `Results/TelemetryValidation.md`  |
+| Chart images              | 🟢 6/6 written| `Results/*.png`                   |
+
+What the runs establish:
+
+- Unit conversion round-trips for every unit key in both systems; the landmark conversions match (620 Nm = 457.3
+  lb·ft,
+  92 °C = 197.6 °F, 220 kPa = 31.9 psi, 1284 kg = 2831 lb).
+- The monotone curve passes through every authored point and never overshoots between them; linear mode clamps at both
+  ends; the derived power curve is exactly torque × ω.
+- Insert refuses a point inside the minimum gap and clamps Y to the axis; relocate clamps X between its neighbours;
+  remove refuses to leave fewer than two points; the CSV carries the active units.
+- Performance estimates respond correctly to the record: more torque lowers the 0–100 time and raises the top speed,
+  more mass does the opposite; the launch trace is time ordered and starts at rest.
+- Pit stops: detaching clears the enclosure and keeps the record; fitting a set replaces compound, set, wear and
+  pressure and re-encloses all four tyres.
+- The page builds with no uncaught error: ten outliner records, eight sections, one derived curve, eight torque
+  handles, and the chassis schematic drawn on the canvas.
+- An arrow key on the focused curve moves the authored point, the numeric pill and the hero readout together;
+  `Add point` and `Remove point` change the handle count; the revision counter advances.
+- The unit pill converts the mass pill, the mass unit label, the hero torque (lb·ft) and the point pill.
+- Switching the curve rebuilds the editor in place: the handles belong to the new profile, one editor is drawn at a
+  time, and the section's readouts keep answering afterwards — a defect these checks caught and the fix repaired.
+- Detaching all four tyres moves four rows into the Pit lane group and updates the tyre card, the outliner count and
+  the log; re-attaching and fitting set B restore the enclosure and change every compound.
+- The lap model is deterministic: two sessions driven with the same steps hold the same speed and fuel to 1e-9, a zero
+  step changes nothing, a paused session does not advance, and an empty tank stops the engine and logs it once.
+- The lap table is physical: every sample has a positive limit, the slowest point is the final hairpin, the fastest is
+  the straight, and thirty seconds of driving stays inside the limiter, the gears and the speed range.
+- The live dock paints what the model holds: the speed readout matches the session within 1 km/h, the fuel bar matches
+  the tank share, the reserve marker sits at the authored per-cent, and the trace chart follows the session.
+- The dock refuses to guess: before a lap is measured, the fuel card says so instead of printing a range.
+- Units reach the dock: `u` converts speed to mph and fuel to gallons and back.
+- Pause is real (`isRunning` false, chip reads `PAUSED`), resume restarts it, and switching to the inspector and back
+  keeps the driven session rather than building a new one.
+- Watching the car never writes the record: the specification, the curves and the tyres are byte-identical after
+  hundreds of sampled steps; disabling `aids.telemetry` detaches the dock and the button reattaches it.
+- Colour coding is a display mode on the body, not a record field: the switch and the `c` key walk labels → units →
+  plain and back, and the record is unchanged by any of it.
+- Quantity families are tagged where they are drawn: volume, temperature, pressure, power, speed, rpm and ratio
+  elements all carry `data-quantity`, so the stylesheet — not each card — decides the hue.
+- The thermal cards tone their own numbers, and the tone scale moves with the value: a tyre at 168 °C turns its
+  number red, one at 40 °C turns it blue, and a fresh pit-lane set at 62 °C reads cold rather than green.
+- Selecting a tyre record opens its own inspector with the compound window; going back rebuilds the vehicle page
+  without
+  duplicating sections, curve editors or controls.
+- The record block carries the tyre tables, the curve point arrays, the enclosure and the `# proposed` marker, with no
+  NaN.
+
+## Images
+
+| File                            | What it is                                                                     |
+|---------------------------------|--------------------------------------------------------------------------------|
+| `Results/DynoSheet.png`         | The hero chart as the page draws it: torque area, dashed power, both axes       |
+| `Results/TorqueCurveEditor.png` | The torque editor: eight authored points, the selection, the rated-torque line  |
+| `Results/LaunchTrace.png`       | The launch trace from the record's torque curve, with the 100 km/h target       |
+| `Results/TelemetrySpeedTrace.png` | The live dock's own speed trace, taken from the dock after 176 s of the model |
+| `Results/TelemetryCluster.png`  | The live cluster at capture: speed, gear, rpm, pedals, fuel — dock styles      |
+| `Results/ColourCoding.png`      | The same four readings in all three colour modes, plus the five state tones     |
+
+These are the prototype's own SVG output extracted from the built page and rasterised — not redrawn artwork. Page CSS
+does not travel with an extracted SVG, so the harness restates the two chart text rules (fill and font size) and adds a
+frame; the geometry, colours, labels and values are the page's.
+
+The cluster is the one exception and says so in its own caption: it is a card, not a chart, so the evidence script
+restates the dock's markup and reads every number from the session the dock is showing. It proves the numbers and the
+card's composition, not the DOM's pixel layout.
+
+## Limitations — read these before treating the above as a delivery
+
+- **No browser screenshot.** The sandbox has no browser binary and no way to install one (the Chromium build that
+  could
+  be fetched needs `libnss3`, which is unavailable and cannot be installed without root). jsdom performs no layout, so
+  the checks prove structure, values and behaviour, not pixel layout. The layout must be reviewed in a real browser.
+- **No Windows, MSVC or GPU run.** Nothing here is a Windows product binary, and no C++ editor build was produced.
+- **The viewport is a schematic**, not a render: this checkout has no scene renderer, and no C++ vehicle exists yet.
+- **The performance model is a prototype estimate.** It is not the C++ tyre solver and is not claimed to match it.
+- The 0–100 figure (3.06 s) and top speed (325 km/h) are properties of the authored record, not measured vehicle data.
+- **The live dock's lap is synthetic.** One 4 320 m loop of straights and fixed-radius corners, driven through the
+  record's own forces. It is not a captured session, has no tyre solver behind it, and its fuel burn follows the
+  record's authored figure — so its range in laps is a property of that loop and that record, not of a real car.
+
+## Not yet done
+
+- The tyre editor the owner asked for after this inspector: per-compound carcass, thermal and wear curves, pit-stop
+  sets
+  with stint history, and pressure/camber interaction.
+- The C++ step: `VehicleSpecification` (TOML), the vehicle and tyres as `SceneDirectory` records with an enclosure
+  token, and the sections above as units of one `VehicleInspector` built from the shared controls.
+- The runtime half: `VehicleTelemetry` as a UI component parented to the vehicle, sampling the live vehicle state at
+  the authored rate, gated by `aids.telemetry`.
