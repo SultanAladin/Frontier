@@ -342,6 +342,71 @@ void RunGritSubsystemsVerification(const std::filesystem::path& OutputDir)
            "Roots positive-displacement blower makes more low-RPM boost than Centrifugal",
            FormatMetric("Roots=%.3f bar > Cent=%.3f bar", Roots2400.BoostPressureBar, Cent2400.BoostPressureBar));
 
+    // Exercise explicit selection, torque interruption, and automatic gear changes.
+    Drivetrain Manual;
+    TransmissionParameters ManualParameters{};
+    ManualParameters.AutomaticShift = false;
+    Manual.AssignTransmission(ManualParameters);
+    Manual.AssignInduction(InductionType::NaturallyAspirated);
+    Manual.Reset(4000.0f, true);
+    DrivetrainInputs GearInput{};
+    GearInput.Throttle = 0.7f;
+    GearInput.RequestedGear = 3;
+    const auto ShiftStart = Manual.Step(GearInput);
+    Verify(ShiftStart.ActiveGearIndex == 3 && ShiftStart.Shifting,
+           "Explicit second gear selection initiates a timed shift");
+    GearInput.RequestedGear = -1;
+    DrivetrainOutputs ShiftEnd{};
+    for (int Step = 0; Step < 30; ++Step) ShiftEnd = Manual.Step(GearInput);
+    Verify(ShiftEnd.ActiveGearIndex == 3 && !ShiftEnd.Shifting,
+           "Explicit gear remains selected after the shift interval");
+    GearInput.RequestedGear = 1;
+    DrivetrainOutputs Neutral{};
+    for (int Step = 0; Step < 30; ++Step) Neutral = Manual.Step(GearInput);
+    Verify(Neutral.ActiveGearIndex == 1 && std::fabs(Neutral.WheelDriveTorqueNm[0]) < 0.001f &&
+               std::fabs(Neutral.WheelDriveTorqueNm[2]) < 0.001f,
+           "Neutral disconnects drive torque from the wheels");
+    GearInput.RequestedGear = 0;
+    DrivetrainOutputs Reverse{};
+    for (int Step = 0; Step < 50; ++Step) Reverse = Manual.Step(GearInput);
+    Verify(Reverse.ActiveGearIndex == 0 && Reverse.WheelDriveTorqueNm[2] < -1.0f,
+           "Reverse selection delivers negative driven-wheel torque",
+           FormatMetric("rear torque=%.1f N*m", Reverse.WheelDriveTorqueNm[2]));
+
+    Drivetrain Automatic;
+    Automatic.AssignInduction(InductionType::NaturallyAspirated);
+    Automatic.Reset(7000.0f, true);
+    DrivetrainInputs AutoInput{};
+    AutoInput.Throttle = 1.0f;
+    const auto AutoShift = Automatic.Step(AutoInput);
+    Verify(AutoShift.ActiveGearIndex == 3 && AutoShift.Shifting,
+           "Automatic transmission upshifts at the configured RPM threshold");
+
+    Drivetrain AutoDown;
+    AutoDown.AssignInduction(InductionType::NaturallyAspirated);
+    AutoDown.Reset(1000.0f, true);
+    DrivetrainInputs DownInput{};
+    DownInput.RequestedGear = 3;
+    const auto InitialDownshift = AutoDown.Step(DownInput);
+    Verify(InitialDownshift.ActiveGearIndex == 3, "Automatic transmission accepts explicit gear request");
+    DownInput.RequestedGear = -1;
+    DrivetrainOutputs Downshift{};
+    for (int Step = 0; Step < 90; ++Step) Downshift = AutoDown.Step(DownInput);
+    Verify(Downshift.ActiveGearIndex == 2,
+           "Automatic transmission downshifts at low RPM after its shift cooldown");
+
+    Drivetrain TurboSustain;
+    TurboSustain.AssignInduction(InductionType::Turbocharged);
+    TurboSustain.Reset(3800.0f, true);
+    const auto TurboLoaded = NeutralRev(TurboSustain, 1.0f, 2.0f);
+    const auto TurboReleased = NeutralRev(TurboSustain, 0.0f, 0.5f);
+    Verify(TurboLoaded.BoostPressureBar > 0.05f && TurboLoaded.BoostPressureBar <= 1.201f,
+           "Turbocharger builds bounded positive boost under sustained throttle",
+           FormatMetric("boost=%.3f bar", TurboLoaded.BoostPressureBar));
+    Verify(TurboReleased.BoostPressureBar < TurboLoaded.BoostPressureBar,
+           "Turbo boost decreases after throttle release",
+           FormatMetric("loaded=%.3f bar, released=%.3f bar", TurboLoaded.BoostPressureBar, TurboReleased.BoostPressureBar));
+
     // 2. Coolant, Engine Oil Viscosity & Fuel Mass Consumption under sustained load.
     Drivetrain ColdEngine;
     ColdEngine.AssignInduction(InductionType::Turbocharged);
