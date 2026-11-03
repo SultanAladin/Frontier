@@ -664,13 +664,13 @@ input[type='range']::-moz-range-thumb {
 .view-chip
 {
     font: inherit;
-    font-size: 11px;
+    font-size: 12px;
     letter-spacing: 0.04em;
     color: var(--text-secondary);
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 999px;
-    padding: 4px 11px;
+    padding: 5px 14px;
     cursor: pointer;
     transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
 }
@@ -684,6 +684,28 @@ input[type='range']::-moz-range-thumb {
 
 .view-tab.is-on,
 .view-chip.is-on
+{
+    color: #07130f;
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+/* 📝 The way into the 3D view has to be findable in a glance: accent outline, and a dot that reads as a control rather than
+      as another readout in a bar full of readouts. */
+.view-tab-strong
+{
+    color: var(--accent);
+    border-color: rgba(232, 168, 74, 0.55);
+    background: rgba(232, 168, 74, 0.1);
+}
+
+.view-tab-strong:hover
+{
+    color: #07130f;
+    background: var(--accent);
+}
+
+.view-tab-strong.is-on
 {
     color: #07130f;
     background: var(--accent);

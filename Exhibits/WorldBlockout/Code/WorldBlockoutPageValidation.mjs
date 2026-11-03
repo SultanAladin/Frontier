@@ -227,8 +227,11 @@ Assert('the record has no NaN', !Text('.export').includes('NaN'), 'clean');
 
 // 📝 The 3D view is the second way of looking at the same blockout, and it has to be reachable, framed, orbitable and
 //    leavable — four things a user does in the first ten seconds.
-Assert('the page offers a 3D tab', [...Document.querySelectorAll('.view-tab')].some(Button => Button.textContent === '3D'),
-    'Map · 3D');
+Assert('the page offers a 3D tab', [...Document.querySelectorAll('.view-tab')].some(Button => /3D/.test(Button.textContent)),
+    [...Document.querySelectorAll('.view-tab')].map(Button => Button.textContent).join(' · '));
+Assert('the 3D tab is the loud one', Document.querySelector('.view-tab-strong') !== null &&
+    /3D/.test(Document.querySelector('.view-tab-strong').textContent), 'accent pill');
+Assert('the page carries a build stamp', /build \d{8}/.test(Text('#brand-record')), Text('#brand-record'));
 Assert('the 3D canvas exists', Document.getElementById('view-3d') !== null, 'canvas present');
 Assert('the map is the view the page opens on', Bridge.State.View === 'map' && !Document.querySelector('.stage').classList.contains('is-3d'),
     'map');

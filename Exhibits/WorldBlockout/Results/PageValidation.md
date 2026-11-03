@@ -1,6 +1,6 @@
 # World blockout page validation
 
-Generated 2026-11-03T11:01:19.929Z · Node v22.22.3 · jsdom 24.1.3 · 76/76 checks passed.
+Generated 2026-11-03T11:06:31.940Z · Node v22.22.3 · jsdom 24.1.3 · 78/78 checks passed.
 
 The harness builds the real `index.html` in jsdom and evaluates `TerrainField.js`, `Raster.js`, `OceanField.js`,
 `OceanMesh.js`, `Scenes.js` and `WorldBlockout.js` in page order. It clicks the real tools, chips, toggles and sliders,
@@ -10,7 +10,7 @@ dispatches real pointer events at the map, and reads the DOM and the record back
 |-------|--------|----------|
 | no uncaught error while building | ✔️ pass | none |
 | the masthead names the editor | ✔️ pass | World Blockout |
-| the record line names the planet and its grid | ✔️ pass | Terra-01 · 6371 km radius · 512 × 256 cells |
+| the record line names the planet and its grid | ✔️ pass | Terra-01 · 6371 km radius · 512 × 256 cells · build 20261103c |
 | six vitals read the cursor | ✔️ pass | 6 vitals |
 | the elevation vital carries its unit | ✔️ pass | Elevation753m |
 | the stage bar names the tool | ✔️ pass | Raise |
@@ -72,7 +72,9 @@ dispatches real pointer events at the map, and reads the DOM and the record back
 | the record carries the ocean | ✔️ pass | ocean stanza |
 | the record names the solver | ✔️ pass | solver line |
 | the record has no NaN | ✔️ pass | clean |
-| the page offers a 3D tab | ✔️ pass | Map · 3D |
+| the page offers a 3D tab | ✔️ pass | Map · 3D view |
+| the 3D tab is the loud one | ✔️ pass | accent pill |
+| the page carries a build stamp | ✔️ pass | Terra-01 · 6371 km radius · 512 × 256 cells · build 20261103c |
 | the 3D canvas exists | ✔️ pass | canvas present |
 | the map is the view the page opens on | ✔️ pass | map |
 | switching to 3D marks the stage | ✔️ pass | stage is-3d |

@@ -207,7 +207,7 @@ toggle — so the page can keep the solve running while the view stands still.
 | `OceanFieldValidation.mjs` | 54 | solve, conservation, boundary, spectrum, blend, section |
 | `OceanMeshValidation.mjs` | 35 | plan, tiers, skirts, fan, budget, screen error |
 | `Renderer3DValidation.mjs` | 37 | projection, disc, layers, determinism, frame budget |
-| `WorldBlockoutPageValidation.mjs` | 76 | the page, the rails, the map, the ocean panel, the 3D view |
+| `WorldBlockoutPageValidation.mjs` | 78 | the page, the rails, the map, the ocean panel, the 3D view |
 
 `Exhibits/WorldBlockout` holds the harnesses and the rendered figures; see its README for the commands. Each report
 is written to `Results/` and the script exits non-zero when a check fails.

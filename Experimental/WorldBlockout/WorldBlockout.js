@@ -442,7 +442,9 @@ const WorldBlockout = (function ()
         const MapButton = Make('button', 'view-tab' + (State.View === 'map' ? ' is-on' : ''), 'Map');
         MapButton.type = 'button';
         MapButton.addEventListener('click', () => SetView('map'));
-        const ThreeButton = Make('button', 'view-tab' + (State.View === '3d' ? ' is-on' : ''), '3D');
+        // 📝 The 3D switch is the one control a first-time reader has to find, so it is the only pill in the bar that is
+        //    allowed to shout: accent outline when the map is showing, solid when the 3D view is.
+        const ThreeButton = Make('button', 'view-tab view-tab-strong' + (State.View === '3d' ? ' is-on' : ''), '3D view');
         ThreeButton.type = 'button';
         ThreeButton.addEventListener('click', () => SetView('3d'));
         Children.push(MapButton, ThreeButton);

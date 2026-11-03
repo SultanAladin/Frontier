@@ -476,7 +476,7 @@ auto-size layer cards.
   apart in the viewport with a dashed link back to its axle, and fitting a set writes all four back. Five curves are
   authored; engine power is derived as torque × ω, and every derived readout (hero dyno, launch trace, top speed,
   braking distance, exported record) reads the same curves.
-- Verified: `VehicleCatalogueValidation.mjs` 70/70 and `VehicleInspectorPageValidation.mjs` 76/76 in
+- Verified: `VehicleCatalogueValidation.mjs` 70/70 and `VehicleInspectorPageValidation.mjs` 78/78 in
   `Exhibits/VehicleInspector/Code/` (jsdom builds the real page, clicks the real buttons and reads the DOM back), plus
   five chart images rasterised from the page's own SVG output. Evidence: `Exhibits/VehicleInspector/README.md`.
 - Still open: the tyre editor the owner asked for next (per-compound carcass/thermal/wear curves, pit-stop set history,
@@ -533,7 +533,7 @@ auto-size layer cards.
   tyre's own compound window (or a fluid's target), so a fresh pit-lane set at 62 °C reads cold, an in-window set reads
   green and a cooked set walks orange then red.
 - Verified: `VehicleInspectorPageValidation.mjs` 88/88 (mode classes on the body, the switch, the `c` cycle, family
-  tags, thermal cards toning their numbers, a fresh set reading cold), `VehicleTelemetryValidation.mjs` 76/76 (the
+  tags, thermal cards toning their numbers, a fresh set reading cold), `VehicleTelemetryValidation.mjs` 78/78 (the
   dock's tags and a tyre driven to red then blue), `VehicleCatalogueValidation.mjs` 70/70, and `ColourCoding.png`
   rendered from the stylesheet's variables.
 - Still open: the tyre editor, and the C++ step — the same family hues and tones port as tokens in the editor's
@@ -568,7 +568,7 @@ auto-size layer cards.
   come from the unexaggerated surface. Presets: globe from 9,000 km, a 520 km coast, the 2.4 km patch; drag orbits,
   wheel zooms, a chip tints the water by which field owns the surface, and nothing renders per frame.
 - Verified: `TerrainFieldValidation.mjs` 82/82, `OceanFieldValidation.mjs` 54/54, `OceanMeshValidation.mjs` 35/35,
-  `Renderer3DValidation.mjs` 37/37, `WorldBlockoutPageValidation.mjs` 76/76 (jsdom, real pointer and keyboard events,
+  `Renderer3DValidation.mjs` 37/37, `WorldBlockoutPageValidation.mjs` 78/78 (jsdom, real pointer and keyboard events,
   including the 3D tab, orbit, zoom and presets), and seven figures from `RenderEvidence.mjs` in
   `Exhibits/WorldBlockout/Results`.
 - Still open: no GPU path — the solve, the spectrum, the plan and the 3D rasteriser are CPU code; the 3D view samples
