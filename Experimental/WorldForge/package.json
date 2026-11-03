@@ -1,0 +1,11 @@
+{
+  "name": "frontier-world-forge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Planet-scale SDF crust blocking editor with adaptive 2.5D shallow-water ocean tiers",
+  "scripts": {
+    "start": "node serve.mjs",
+    "test": "node ../../Exhibits/WorldForge/Code/RunValidation.mjs"
+  }
+}

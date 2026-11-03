@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#101317" />
+<title>Frontier — World Forge</title>
+<link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+<div id="workspace">
+
+  <header id="title-bar">
+    <div class="brand"><span class="brand-mark">◆</span> FRONTIER <span class="brand-divider">/</span> <strong>WORLD FORGE</strong></div>
+    <div class="mode-switch" role="tablist" aria-label="World projection">
+      <button class="mode-tab selected" data-mode="Flat" role="tab">Flat continent</button>
+      <button class="mode-tab" data-mode="Planet" role="tab">Planet projection</button>
+    </div>
+    <div class="file-actions">
+      <button id="action-new" class="ghost">New vase</button>
+      <button id="action-open" class="ghost">Open</button>
+      <button id="action-save" class="ghost">Save project</button>
+      <button id="action-export" class="primary">Export ▾</button>
+      <div id="export-menu" class="export-menu hidden">
+        <button data-export="project">Project (.json)</button>
+        <button data-export="heightmap">Heightfield (16-bit .png)</button>
+        <button data-export="obj">Converted surface (.obj)</button>
+        <button data-export="report">Diagnostics (.json)</button>
+      </div>
+      <input type="file" id="file-input" accept=".json,application/json" hidden />
+    </div>
+  </header>
+
+  <div id="body-grid">
+
+    <aside id="left-rail" class="rail">
+
+      <section class="panel" data-panel="world">
+        <h2>World blockout <span class="panel-tag">SDF</span></h2>
+        <div class="field-row">
+          <label for="world-extent">Domain side</label>
+          <select id="world-extent">
+            <option value="204800">204.8 km</option>
+            <option value="409600" selected>409.6 km</option>
+            <option value="819200">819.2 km</option>
+            <option value="1638400">1638.4 km</option>
+            <option value="4096000">4096 km</option>
+          </select>
+        </div>
+        <div class="field-row"><label for="world-sea">Sea level <span class="unit">m</span></label><input id="world-sea" type="number" value="0" step="10" /></div>
+        <div class="field-row"><label for="world-flat">Blank vase <span class="unit">m</span></label><input id="world-flat" type="number" value="-260" step="20" /></div>
+        <div class="field-row"><label for="world-ocean">Ocean floor <span class="unit">m</span></label><input id="world-ocean" type="number" value="-3400" step="100" /></div>
+        <div class="field-row"><label for="world-mountain">Mountains <span class="unit">m</span></label><input id="world-mountain" type="number" value="2600" step="100" /></div>
+        <div class="field-row"><label for="world-seed">Noise seed</label><input id="world-seed" type="number" value="1337" step="1" /></div>
+        <div class="section-label">Continent presets</div>
+        <div class="preset-grid">
+          <button class="preset" data-preset="BlankVase">Blank vase</button>
+          <button class="preset" data-preset="AfricaBlockout">Africa + gulfs</button>
+          <button class="preset" data-preset="Archipelago">Archipelago</button>
+          <button class="preset" data-preset="PangaeaBlockout">Two masses</button>
+        </div>
+        <button id="action-rebuild" class="wide">Recompile crust field</button>
+        <p class="hint">Start flat, stamp a continental mass, carve gulfs, then flatten a city vase. Water is the default state everywhere the crust is below sea level.</p>
+      </section>
+
+      <section class="panel" data-panel="sculpt">
+        <h2>Sculpt tools <span class="panel-tag">heightmap</span></h2>
+        <div class="tool-grid" id="tool-grid">
+          <button class="tool selected" data-tool="Raise"><b>↥</b> Raise <kbd>1</kbd></button>
+          <button class="tool" data-tool="Lower"><b>↧</b> Lower <kbd>2</kbd></button>
+          <button class="tool" data-tool="Smooth"><b>∿</b> Smooth <kbd>3</kbd></button>
+          <button class="tool" data-tool="Flatten"><b>▬</b> Flatten <kbd>4</kbd></button>
+          <button class="tool" data-tool="Erode"><b>⩘</b> Erode <kbd>5</kbd></button>
+          <button class="tool" data-tool="Roughen"><b>⁘</b> Roughen <kbd>6</kbd></button>
+          <button class="tool" data-tool="Drop"><b>◉</b> Water drop <kbd>7</kbd></button>
+          <button class="tool" data-tool="Tsunami"><b>≋</b> Tsunami <kbd>8</kbd></button>
+        </div>
+        <div class="slider-row"><label for="brush-radius">Brush radius <span class="unit">km</span></label><input id="brush-radius" type="range" min="0.2" max="40" step="0.2" value="6" /><output id="brush-radius-out">6.0</output></div>
+        <div class="slider-row"><label for="brush-strength">Strength <span class="unit">m</span></label><input id="brush-strength" type="range" min="5" max="1200" step="5" value="260" /><output id="brush-strength-out">260</output></div>
+        <div class="field-row"><label for="brush-target">Flatten target <span class="unit">m</span></label><input id="brush-target" type="number" value="65" step="5" /></div>
+        <div class="section-label">Add SDF layer</div>
+        <div class="preset-grid">
+          <button class="layer-add" data-layer="Continent">Continent mass</button>
+          <button class="layer-add" data-layer="Gulf">Carve gulf</button>
+          <button class="layer-add" data-layer="IslandArc">Island arc</button>
+          <button class="layer-add" data-layer="Ridge">Mountain ridge</button>
+          <button class="layer-add" data-layer="Crater">Crater</button>
+          <button class="layer-add" data-layer="CityPad">City vase / pad</button>
+        </div>
+        <div class="button-pair"><button id="action-undo">Undo <kbd>⌘Z</kbd></button><button id="action-redo">Redo</button></div>
+      </section>
+
+      <section class="panel grow" data-panel="layers">
+        <h2>SDF layer stack <span class="panel-tag" id="layer-count">0</span></h2>
+        <div id="layer-list" class="layer-list"></div>
+        <div id="layer-editor" class="layer-editor hidden"></div>
+      </section>
+
+    </aside>
+
+    <main id="viewport">
+      <canvas id="gl-canvas"></canvas>
+      <div id="hud-top">
+        <div class="hud-chip" id="hud-mode">BEAUTY</div>
+        <div class="hud-chip" id="hud-scale">—</div>
+        <div class="hud-chip" id="hud-coords">X 0.0 km · Z 0.0 km · ALT 0.0 km</div>
+      </div>
+      <div id="hud-right">
+        <div class="view-chips" id="view-chips">
+          <button class="view-chip selected" data-view="beauty">Beauty</button>
+          <button class="view-chip" data-view="bathymetry">Bathymetry</button>
+          <button class="view-chip" data-view="eta">η field</button>
+          <button class="view-chip" data-view="velocity">Velocity</button>
+          <button class="view-chip" data-view="lod">LOD tiers</button>
+        </div>
+      </div>
+      <div id="compass"><div id="compass-needle">▲</div><span id="compass-label">N</span></div>
+      <div id="minimap-frame">
+        <div class="minimap-title">WORLD MAP <span id="minimap-scale"></span></div>
+        <canvas id="minimap" width="232" height="232"></canvas>
+        <div class="minimap-legend"><span class="dot land"></span> crust <span class="dot water"></span> ocean <span class="dot ring"></span> water tiers</div>
+      </div>
+      <div id="hud-help">
+        <b>WASD</b> fly · <b>Q/E</b> down/up · <b>RMB+drag</b> look · <b>MMB</b> pan · <b>wheel</b> speed · <b>Shift</b> boost · <b>F</b> focus · <b>LMB</b> sculpt/inject
+      </div>
+      <div id="loading" class="loading hidden"><div class="loading-box"><span id="loading-label">Compiling crust field…</span><div class="progress"><div id="progress-fill"></div></div></div></div>
+      <div id="fatal" class="fatal hidden"></div>
+    </main>
+
+    <aside id="right-rail" class="rail">
+
+      <section class="panel" data-panel="water">
+        <h2>2.5D ocean solver <span class="panel-tag live">LIVE</span></h2>
+        <p class="panel-note">Depth-integrated shallow water (continuity + momentum + wet/dry bathymetry). Not a wave texture.</p>
+        <div class="button-pair"><button id="action-solver" class="toggle on">Solver running</button><button id="action-reset-water">Reset fields</button></div>
+        <div class="slider-row"><label for="water-rings">Simulation tiers</label><input id="water-rings" type="range" min="3" max="8" step="1" value="7" /><output id="water-rings-out">7</output></div>
+        <div class="field-row"><label for="water-resolution">Cells / tier edge</label><select id="water-resolution"><option value="128">128²</option><option value="256" selected>256²</option><option value="384">384²</option></select></div>
+        <div class="slider-row"><label for="water-wind">Wind shear</label><input id="water-wind" type="range" min="0" max="2" step="0.02" value="0.42" /><output id="water-wind-out">0.42</output></div>
+        <div class="slider-row"><label for="water-swell">Boundary swell <span class="unit">m</span></label><input id="water-swell" type="range" min="0" max="4" step="0.05" value="0.75" /><output id="water-swell-out">0.75</output></div>
+        <div class="slider-row"><label for="water-damping">Bed friction</label><input id="water-damping" type="range" min="0" max="0.5" step="0.005" value="0.055" /><output id="water-damping-out">0.055</output></div>
+        <div class="button-pair"><button id="action-drop">Inject drop</button><button id="action-rain" class="toggle">Rain</button></div>
+        <div class="section-label">Live state probe</div>
+        <div class="stat-grid" id="probe-grid">
+          <div><span>η at camera</span><b id="probe-eta">0.00 m</b></div>
+          <div><span>|velocity|</span><b id="probe-velocity">0.00 m/s</b></div>
+          <div><span>water depth</span><b id="probe-depth">0.0 m</b></div>
+          <div><span>sim time</span><b id="probe-time">0.0 s</b></div>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="lod">
+        <h2>Adaptive tessellation <span class="panel-tag">clipmap</span></h2>
+        <div class="savings-block">
+          <div class="savings-head"><span>Uniform-grid waste avoided</span><b id="savings-factor">—</b></div>
+          <div class="savings-bar"><div id="savings-fill"></div></div>
+          <div class="savings-sub"><span id="uniform-cells">—</span> uniform cells → <span id="adaptive-cells">—</span> simulated cells</div>
+        </div>
+        <table class="data-table" id="ring-table">
+          <thead><tr><th>Tier</th><th>Extent</th><th>Δx</th><th>Δτ</th><th>Cells</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="checkbox-row"><label><input type="checkbox" id="toggle-grid" /> Show finest simulation cells</label></div>
+        <div class="checkbox-row"><label><input type="checkbox" id="toggle-bounds" /> Show tier boundaries</label></div>
+      </section>
+
+      <section class="panel" data-panel="mesh">
+        <h2>SDF → polygon surface</h2>
+        <p class="panel-note">Dual-contouring extraction of the crust volume. The converted surface is added as its own object.</p>
+        <div class="field-row"><label for="mesh-extent">Region <span class="unit">km</span></label><input id="mesh-extent" type="number" value="51.2" step="6.4" /></div>
+        <div class="field-row"><label for="mesh-voxel">Voxel <span class="unit">m</span></label><input id="mesh-voxel" type="number" value="800" step="100" /></div>
+        <button id="action-convert" class="wide primary">Convert SDF → mesh</button>
+        <div class="stat-grid" id="mesh-stats">
+          <div><span>vertices</span><b id="mesh-vertices">—</b></div>
+          <div><span>triangles</span><b id="mesh-triangles">—</b></div>
+          <div><span>voxels scanned</span><b id="mesh-voxels">—</b></div>
+          <div><span>conversion</span><b id="mesh-time">—</b></div>
+        </div>
+        <div class="checkbox-row"><label><input type="checkbox" id="toggle-surface" /> Show converted surface</label></div>
+        <div class="checkbox-row"><label><input type="checkbox" id="toggle-wireframe" /> Wireframe</label></div>
+      </section>
+
+      <section class="panel" data-panel="camera">
+        <h2>Camera &amp; light</h2>
+        <div class="field-row"><label for="camera-speed">Fly speed <span class="unit">m/s</span></label><output id="camera-speed-out">420</output></div>
+        <input id="camera-speed" class="wide-range" type="range" min="0" max="100" step="1" value="40" />
+        <div class="preset-grid three">
+          <button class="view-preset" data-viewpreset="Continent">Continent</button>
+          <button class="view-preset" data-viewpreset="Shoreline">Shore</button>
+          <button class="view-preset" data-viewpreset="SeaLevel">Sea level</button>
+          <button class="view-preset" data-viewpreset="TopDown">Top down</button>
+          <button class="view-preset" data-viewpreset="CityVase">City vase</button>
+          <button class="view-preset" data-viewpreset="Focus">Focus cursor</button>
+        </div>
+        <div class="slider-row"><label for="sun-angle">Sun elevation</label><input id="sun-angle" type="range" min="2" max="88" step="1" value="34" /><output id="sun-angle-out">34°</output></div>
+        <div class="slider-row"><label for="haze">Atmospheric haze</label><input id="haze" type="range" min="0.2" max="4" step="0.1" value="1" /><output id="haze-out">1.0</output></div>
+      </section>
+
+      <section class="panel" data-panel="diagnostics">
+        <h2>Diagnostics</h2>
+        <div class="stat-grid" id="frame-stats">
+          <div><span>fps</span><b id="stat-fps">—</b></div>
+          <div><span>draw calls</span><b id="stat-calls">—</b></div>
+          <div><span>triangles</span><b id="stat-tris">—</b></div>
+          <div><span>land / ocean</span><b id="stat-land">—</b></div>
+        </div>
+      </section>
+
+    </aside>
+  </div>
+
+  <footer id="status-bar">
+    <span id="status-left">Initialising…</span>
+    <span id="status-right">WebGL2 · float render targets · 2.5D SWE</span>
+  </footer>
+</div>
+<script type="module" src="./src/EditorWorkspace.js"></script>
+</body>
+</html>

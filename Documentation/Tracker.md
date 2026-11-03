@@ -22,6 +22,7 @@ Single progress and violation tracker. Detailed evidence belongs in Exhibits, no
 | 014 | Control Centre and quick panel        | CPU checked | Windows interaction validation next.  |
 | 015 | Open fonts and catalogue              | Checked     | Four families, 30 faces, OFL retained. |
 | 016 | Appearance persistence                | Checked     | Reload and invalid-save checks passed.|
+| 017 | World Forge crust/ocean prototype      | CPU checked | GPU capture blocked; see exhibit link. |
 
 ## Verification
 
@@ -32,6 +33,15 @@ Windows x64 cross-compilation succeeded using Zig 0.13.0 / Clang 18.1.6 obtained
 The unsigned Windows executable is packaged with fonts, SVGs, licences, and integrity metadata under ignored Binaries.
 Native MSVC and Windows runtime/GPU execution are still unavailable. No Linux product binary is delivered.
 No GitHub Actions are authorised.
+
+## World Forge prototype (017)
+
+`Experimental/WorldForge/` holds a standalone WebGL2 world-blocking editor (SDF crust, gulfs, city vases,
+SDF-to-polygon conversion, adaptive 2.5D shallow-water tiers, Unreal-style camera). Headless verification
+lives in `Exhibits/WorldForge/`: 22/22 checks passed, with generated crust/water images, wave and LOD graphs,
+and a numeric report. Real GPU capture and driver GLSL compilation remain blocked (no browser binary in the
+sandbox); mock-device render smoke tests, full GLSL parse and uniform/varying audits were run instead.
+See [the exhibit report](../Exhibits/WorldForge/README.md) for commands, measurements and limitations.
 
 ## Known rule findings
 

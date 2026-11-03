@@ -1,0 +1,447 @@
+{
+  "GeneratedAtUtc": "2026-11-03T12:27:25.922Z",
+  "Revision": "arena/23caea4c-frontier",
+  "Passed": 22,
+  "Failed": 0,
+  "Results": [
+    {
+      "Identifier": "01 Deterministic lattice noise",
+      "Passed": true,
+      "Measurements": {
+        "FractalSample": -0.14447953617725465,
+        "DifferentSeedSample": 0.13169523246061612,
+        "HashSample": 0.09793964261189103
+      },
+      "Explanation": "identical inputs reproduce -0.144480; seed change yields 0.131695"
+    },
+    {
+      "Identifier": "02 Coastline SDF and gulf carve",
+      "Passed": true,
+      "Measurements": {
+        "LandSamples": 963,
+        "OceanSamples": 1341,
+        "CarvedCells": 191,
+        "Representative": {
+          "WorldX": 2155.7894736842172,
+          "WorldZ": -114256.84210526315,
+          "WithCarve": 1000.8830821417187,
+          "WithoutCarve": -77192.58651037423
+        }
+      },
+      "Explanation": "963 inland / 1341 ocean samples; 191 inland cells converted to water by the gulf carve"
+    },
+    {
+      "Identifier": "03 Blank vase is exactly flat",
+      "Passed": true,
+      "Measurements": {
+        "Elevation": -260,
+        "MaximumDeviation": 0
+      },
+      "Explanation": "all 16,384 cells at -260 m (max deviation 0.00e+0)"
+    },
+    {
+      "Identifier": "04 Continental blockout with ocean",
+      "Passed": true,
+      "Measurements": {
+        "Minimum": -3760.65625,
+        "Maximum": 1844.9305419921875,
+        "LandFraction": 0.44239044189453125,
+        "OceanFraction": 0.5576095581054688,
+        "LandAreaSquareKilometres": 74220.80000000002,
+        "ShorelineKilometres": 931.2,
+        "CellCount": 262144,
+        "GenerationMilliseconds": 665,
+        "Resolution": 512
+      },
+      "Explanation": "44.2% land, 55.8% ocean, 931 km coastline, elevation -3761…1845 m"
+    },
+    {
+      "Identifier": "05 Heightmap sculpt / undo / redo",
+      "Passed": true,
+      "Measurements": {
+        "Before": 797.3910827636719,
+        "AfterStroke": 1180.6755981445312,
+        "AfterUndo": 797.3910827636719,
+        "AfterRedo": 1180.6755981445312,
+        "Delta": 383.2845153808594
+      },
+      "Explanation": "raise +383.3 m, undo restores 797.39 m, redo reapplies"
+    },
+    {
+      "Identifier": "06 Ray-to-crust intersection",
+      "Passed": true,
+      "Measurements": {
+        "HitY": 692.6756738996482,
+        "Expected": 692.6756744384766,
+        "Error": 5.388283170759678e-7
+      },
+      "Explanation": "sphere-trace + bisection landed 0.00 m from the raster elevation"
+    },
+    {
+      "Identifier": "07 Dual-contouring watertight genus-0 solid",
+      "Passed": true,
+      "Measurements": {
+        "VertexCount": 1818,
+        "TriangleCount": 3632,
+        "EulerCharacteristic": 2,
+        "VoxelCount": 13750,
+        "OutwardNormalFraction": 1
+      },
+      "Explanation": "V−E+F = 2, 3632 triangles, 100% outward normals"
+    },
+    {
+      "Identifier": "08 Authored crust SDF → OBJ surface",
+      "Passed": true,
+      "Measurements": {
+        "VertexCount": 2208,
+        "TriangleCount": 4412,
+        "VoxelCount": 8192,
+        "ConversionMilliseconds": 31,
+        "EulerCharacteristic": 2,
+        "WavefrontBytes": 235416
+      },
+      "Explanation": "4,412 triangles from 8,192 voxels in 31 ms"
+    },
+    {
+      "Identifier": "09 Camera-anchored rolling water clipmap",
+      "Passed": true,
+      "Measurements": {
+        "FinestSpacing": 6.25,
+        "CoarsestSpacing": 400,
+        "CoarsestExtent": 102400,
+        "UniformCells": 4294967296,
+        "AdaptiveCells": 458752,
+        "SavingsFactor": 9362.285714285714,
+        "SimulatedSecondsPerFrame": 0.9417132015497038,
+        "BytesPerStateField": 1048576,
+        "ExtentsDouble": true,
+        "Nested": true,
+        "ShiftConsistent": true,
+        "WindowCount": 7
+      },
+      "Explanation": "9362× fewer cells than a uniform fine grid; Δx 6.25 m → 400 m"
+    },
+    {
+      "Identifier": "10 Crust tessellation LOD",
+      "Passed": true,
+      "Measurements": {
+        "FinestSpacing": 200,
+        "CoarsestSpacing": 6400,
+        "UniformCells": 4194304,
+        "AdaptiveCells": 24576,
+        "SavingsFactor": 170.66666666666666,
+        "TriangleCount": 49152
+      },
+      "Explanation": "49,152 triangles across 6 tiers, 171× cell saving"
+    },
+    {
+      "Identifier": "11 Water volume conservation (500 steps)",
+      "Passed": true,
+      "Measurements": {
+        "InitialVolume": 576069965.9024606,
+        "FinalVolume": 576069965.9024588,
+        "RelativeDrift": 3.104031539746136e-15,
+        "Volume": 576069965.9024588,
+        "Energy": 22.84410586772236,
+        "WetCells": 9216,
+        "MinimumEta": -0.020602102497941664,
+        "MaximumEta": 0.042003896644720304,
+        "MaximumVelocity": 0.010938401160101124,
+        "ElapsedSeconds": 87.80074281193849,
+        "StepCount": 500
+      },
+      "Explanation": "relative drift 3.10e-13%, η range -0.021…0.042 m"
+    },
+    {
+      "Identifier": "12 Wave celerity ≈ √(g·h)",
+      "Passed": true,
+      "Measurements": {
+        "Measured": 31.637292451244146,
+        "Theoretical": 31.32091952673165,
+        "Ratio": 1.010101010101012,
+        "EarlyCrestCell": 21,
+        "LateCrestCell": 41,
+        "EarlyTime": 12.643306964919187,
+        "LateTime": 25.286613929838364
+      },
+      "Explanation": "measured 31.64 m/s vs theoretical 31.32 m/s (101%)"
+    },
+    {
+      "Identifier": "13 Wet/dry shoreline stays dry",
+      "Passed": true,
+      "Measurements": {
+        "LandCells": 4128,
+        "DryViolations": 0,
+        "VelocityViolations": 0,
+        "WetCells": 5088,
+        "MaximumVelocity": 0.009694833456061633
+      },
+      "Explanation": "4128 land cells, 0 flooded, 0 with velocity; 5088 wet cells"
+    },
+    {
+      "Identifier": "14 Solver stability over sloping bathymetry",
+      "Passed": true,
+      "Measurements": {
+        "Volume": 709330326.1489599,
+        "Energy": 223599.9398387107,
+        "WetCells": 16384,
+        "MinimumEta": -2.2070881061056338,
+        "MaximumEta": 2.1518996204303136,
+        "MaximumVelocity": 0.5720709333571293,
+        "ElapsedSeconds": 40.17761991074336,
+        "StepCount": 260,
+        "HasNonFinite": false,
+        "Bathymetry": "sloping shore with 0.02 m/s² wind forcing"
+      },
+      "Explanation": "260 steps, wind + shoaling bed, η -2.21…2.15 m, max |v| 0.57 m/s, no non-finite cells"
+    },
+    {
+      "Identifier": "15 Unreal-style fly camera",
+      "Passed": true,
+      "Measurements": {
+        "ForwardDistance": 374.01498243463135,
+        "Rise": 374.01498243463175,
+        "BoostDistance": 1496.0692843312972,
+        "PitchClamped": true,
+        "BasisOrthogonality": 0
+      },
+      "Explanation": "W 374 m, E 374 m, Shift+W 1496 m, pitch clamped, orthogonal basis"
+    },
+    {
+      "Identifier": "16 Dependency-free PNG encoding",
+      "Passed": true,
+      "Measurements": {
+        "HeightPngBytes": 524908,
+        "HeightPng": "512×512 @ 16-bit",
+        "ColourPng": "4×2 @ 8-bit type 2",
+        "IdatBytes": 524851
+      },
+      "Explanation": "16-bit heightfield 524,908 B; RGB evidence PNG validated"
+    },
+    {
+      "Identifier": "17 Project document round trip",
+      "Passed": true,
+      "Measurements": {
+        "Bytes": 5104,
+        "PrimitiveCount": 6,
+        "StrokeCount": 0
+      },
+      "Explanation": "5,104 B JSON, 6 SDF layers preserved"
+    },
+    {
+      "Identifier": "18 GLSL ES 3.00 structure and declarations",
+      "Passed": true,
+      "Measurements": {
+        "ShaderCount": 11,
+        "StructuralProblems": 0,
+        "DuplicateProblems": 0,
+        "NonAsciiProblems": 0
+      },
+      "Explanation": "11 shader sources, 0 duplicate uniforms, 0 unbalanced scopes, ASCII-only identifiers"
+    },
+    {
+      "Identifier": "19 Vertex/fragment varying interfaces",
+      "Passed": true,
+      "Measurements": {
+        "ProgramPairs": 6,
+        "Mismatches": 0
+      },
+      "Explanation": "6 program pairs checked, 0 type/name mismatches"
+    },
+    {
+      "Identifier": "20 CPU→GPU uniform wiring",
+      "Passed": true,
+      "Measurements": {
+        "DeclaredUniforms": 55,
+        "BoundUniforms": 55,
+        "Undeclared": []
+      },
+      "Explanation": "55 bound uniform names all declared across 55 GLSL declarations"
+    },
+    {
+      "Identifier": "21 WebGL2 render path (mock device)",
+      "Passed": true,
+      "Measurements": {
+        "Modes": 10,
+        "TotalDrawCalls": 95,
+        "TrianglesPerFrame": 147456,
+        "Problems": []
+      },
+      "Explanation": "10 mode/view combinations composed, 95 draw calls, no CPU-side exceptions"
+    },
+    {
+      "Identifier": "22 Editor DOM identifier contract",
+      "Passed": true,
+      "Measurements": {
+        "DeclaredIdentifiers": 97,
+        "ReferencedIdentifiers": 62,
+        "Missing": [],
+        "AbsentSelectors": []
+      },
+      "Explanation": "62 referenced identifiers resolve against 97 markup identifiers; 0 missing, 0 absent selector groups"
+    }
+  ],
+  "Metrics": {
+    "Noise": {
+      "FractalSample": -0.14447953617725465,
+      "DifferentSeedSample": 0.13169523246061612,
+      "HashSample": 0.09793964261189103
+    },
+    "Coast": {
+      "LandSamples": 963,
+      "OceanSamples": 1341,
+      "CarvedCells": 191,
+      "Representative": {
+        "WorldX": 2155.7894736842172,
+        "WorldZ": -114256.84210526315,
+        "WithCarve": 1000.8830821417187,
+        "WithoutCarve": -77192.58651037423
+      }
+    },
+    "FlatVase": {
+      "Elevation": -260,
+      "MaximumDeviation": 0
+    },
+    "Crust": {
+      "Minimum": -3760.65625,
+      "Maximum": 1844.9305419921875,
+      "LandFraction": 0.44239044189453125,
+      "OceanFraction": 0.5576095581054688,
+      "LandAreaSquareKilometres": 74220.80000000002,
+      "ShorelineKilometres": 931.2,
+      "CellCount": 262144,
+      "GenerationMilliseconds": 665,
+      "Resolution": 512
+    },
+    "Sculpt": {
+      "Before": 797.3910827636719,
+      "AfterStroke": 1180.6755981445312,
+      "AfterUndo": 797.3910827636719,
+      "AfterRedo": 1180.6755981445312,
+      "Delta": 383.2845153808594
+    },
+    "Dome": {
+      "VertexCount": 1818,
+      "TriangleCount": 3632,
+      "EulerCharacteristic": 2,
+      "VoxelCount": 13750,
+      "OutwardNormalFraction": 1
+    },
+    "RealConversion": {
+      "VertexCount": 2208,
+      "TriangleCount": 4412,
+      "VoxelCount": 8192,
+      "ConversionMilliseconds": 31,
+      "EulerCharacteristic": 2,
+      "WavefrontBytes": 235416
+    },
+    "Adaptivity": {
+      "FinestSpacing": 6.25,
+      "CoarsestSpacing": 400,
+      "CoarsestExtent": 102400,
+      "UniformCells": 4294967296,
+      "AdaptiveCells": 458752,
+      "SavingsFactor": 9362.285714285714,
+      "SimulatedSecondsPerFrame": 0.9417132015497038,
+      "BytesPerStateField": 1048576,
+      "ExtentsDouble": true,
+      "Nested": true,
+      "ShiftConsistent": true,
+      "WindowCount": 7
+    },
+    "TerrainLod": {
+      "FinestSpacing": 200,
+      "CoarsestSpacing": 6400,
+      "UniformCells": 4194304,
+      "AdaptiveCells": 24576,
+      "SavingsFactor": 170.66666666666666,
+      "TriangleCount": 49152
+    },
+    "Conservation": {
+      "InitialVolume": 576069965.9024606,
+      "FinalVolume": 576069965.9024588,
+      "RelativeDrift": 3.104031539746136e-15,
+      "Volume": 576069965.9024588,
+      "Energy": 22.84410586772236,
+      "WetCells": 9216,
+      "MinimumEta": -0.020602102497941664,
+      "MaximumEta": 0.042003896644720304,
+      "MaximumVelocity": 0.010938401160101124,
+      "ElapsedSeconds": 87.80074281193849,
+      "StepCount": 500
+    },
+    "Celerity": {
+      "Measured": 31.637292451244146,
+      "Theoretical": 31.32091952673165,
+      "Ratio": 1.010101010101012,
+      "EarlyCrestCell": 21,
+      "LateCrestCell": 41,
+      "EarlyTime": 12.643306964919187,
+      "LateTime": 25.286613929838364
+    },
+    "WetDry": {
+      "LandCells": 4128,
+      "DryViolations": 0,
+      "VelocityViolations": 0,
+      "WetCells": 5088,
+      "MaximumVelocity": 0.009694833456061633
+    },
+    "Stability": {
+      "Volume": 709330326.1489599,
+      "Energy": 223599.9398387107,
+      "WetCells": 16384,
+      "MinimumEta": -2.2070881061056338,
+      "MaximumEta": 2.1518996204303136,
+      "MaximumVelocity": 0.5720709333571293,
+      "ElapsedSeconds": 40.17761991074336,
+      "StepCount": 260,
+      "HasNonFinite": false,
+      "Bathymetry": "sloping shore with 0.02 m/s² wind forcing"
+    },
+    "Camera": {
+      "ForwardDistance": 374.01498243463135,
+      "Rise": 374.01498243463175,
+      "BoostDistance": 1496.0692843312972,
+      "PitchClamped": true,
+      "BasisOrthogonality": 0
+    },
+    "Codec": {
+      "HeightPngBytes": 524908,
+      "HeightPng": "512×512 @ 16-bit",
+      "ColourPng": "4×2 @ 8-bit type 2",
+      "IdatBytes": 524851
+    },
+    "Project": {
+      "Bytes": 5104,
+      "PrimitiveCount": 6,
+      "StrokeCount": 0
+    },
+    "GlslStructure": {
+      "ShaderCount": 11,
+      "StructuralProblems": 0,
+      "DuplicateProblems": 0,
+      "NonAsciiProblems": 0
+    },
+    "GlslVaryings": {
+      "ProgramPairs": 6,
+      "Mismatches": 0
+    },
+    "GlslWiring": {
+      "DeclaredUniforms": 55,
+      "BoundUniforms": 55,
+      "Undeclared": []
+    },
+    "RenderSmoke": {
+      "Modes": 10,
+      "TotalDrawCalls": 95,
+      "TrianglesPerFrame": 147456,
+      "Problems": []
+    },
+    "DomContract": {
+      "DeclaredIdentifiers": 97,
+      "ReferencedIdentifiers": 62,
+      "Missing": [],
+      "AbsentSelectors": []
+    }
+  }
+}
