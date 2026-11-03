@@ -52,7 +52,7 @@ Window.addEventListener('error', Event => Errors.push(Event.message));
 
 // 📝 A classic script's top-level `const` joins the shared global lexical scope; an eval's does not. Each file is wrapped and
 //    its export republished on the window so the next file sees it exactly as a browser would.
-const Files = ['TerrainField.js', 'Raster.js', 'OceanField.js', 'OceanMesh.js', 'Scenes.js', 'WorldBlockout.js'];
+const Files = ['TerrainField.js', 'Raster.js', 'OceanField.js', 'OceanMesh.js', 'Scenes.js', 'Renderer3D.js', 'WorldBlockout.js'];
 for (const File of Files)
 {
     const Name = File.replace('.js', '');
@@ -224,6 +224,38 @@ Assert('the record names the planet', Text('.export').includes('[planet]'), 'pla
 Assert('the record carries the ocean', Text('.export').includes('[ocean]'), 'ocean stanza');
 Assert('the record names the solver', Text('.export').includes('saint-venant 2.5D'), 'solver line');
 Assert('the record has no NaN', !Text('.export').includes('NaN'), 'clean');
+
+// 📝 The 3D view is the second way of looking at the same blockout, and it has to be reachable, framed, orbitable and
+//    leavable — four things a user does in the first ten seconds.
+Assert('the page offers a 3D tab', [...Document.querySelectorAll('.view-tab')].some(Button => Button.textContent === '3D'),
+    'Map · 3D');
+Assert('the 3D canvas exists', Document.getElementById('view-3d') !== null, 'canvas present');
+Assert('the map is the view the page opens on', Bridge.State.View === 'map' && !Document.querySelector('.stage').classList.contains('is-3d'),
+    'map');
+Bridge.SetView('3d');
+Assert('switching to 3D marks the stage', Document.querySelector('.stage').classList.contains('is-3d'), 'stage is-3d');
+const ViewFrames = Bridge.State.View3DStats;
+Assert('the 3D view draws both layers', ViewFrames && ViewFrames.TerrainTriangles > 1000 && ViewFrames.WaterTriangles > 1000,
+    ViewFrames ? `${ViewFrames.TerrainTriangles} land · ${ViewFrames.WaterTriangles} water` : 'no frame');
+Assert('the 3D view reports its frame', (Text('#status') || '').includes('3D'), Text('#status'));
+const BeforeOrbit = Bridge.State.Camera3D.TargetLon;
+Bridge.Orbit3D(40, 0);
+Assert('dragging turns the globe', Bridge.State.Camera3D.TargetLon !== BeforeOrbit,
+    `${BeforeOrbit.toFixed(1)}° → ${Bridge.State.Camera3D.TargetLon.toFixed(1)}°`);
+const BeforeZoom = Bridge.State.Camera3D.AltitudeKm;
+Bridge.Zoom3D(-2);
+Assert('the wheel changes the altitude', Bridge.State.Camera3D.AltitudeKm < BeforeZoom,
+    `${Math.round(BeforeZoom)} km → ${Math.round(Bridge.State.Camera3D.AltitudeKm)} km`);
+Assert('the three presets render', ['Globe', 'Coast', 'Waves'].every(Name =>
+{
+    Bridge.UsePreset(Name);
+    return Bridge.State.View3DStats && Bridge.State.View3DStats.TerrainTriangles > 0;
+}), 'globe · coast · waves');
+const Painted = Bridge.TogglePaint3D();
+Assert('the LOD paint is a mode, not a label', Painted === true && Document.querySelectorAll('.view-chip.is-on').length >= 1, 'chip lit');
+Bridge.TogglePaint3D();
+Bridge.SetView('map');
+Assert('the map comes back', Bridge.State.View === 'map' && !Document.querySelector('.stage').classList.contains('is-3d'), 'map');
 
 // 📝 The page runs the solve on a timer; without detaching, a jsdom process never exits.
 Bridge.Detach();

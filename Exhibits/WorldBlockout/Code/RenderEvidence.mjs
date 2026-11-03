@@ -21,6 +21,7 @@ const OceanField = Require(resolve(Prototype, 'OceanField.js'));
 const OceanMesh = Require(resolve(Prototype, 'OceanMesh.js'));
 const Scenes = Require(resolve(Prototype, 'Scenes.js'));
 const Raster = Require(resolve(Prototype, 'Raster.js'));
+const View3D = Require(resolve(Prototype, 'Renderer3D.js'));
 
 let Resvg = null, Jsdom = null;
 try
@@ -226,6 +227,61 @@ function RenderBudget(Summary, Width, Height)
 Write('OceanBudget.png', RenderBudget(Summary, 760, 290), 760);
 
 //------------------------------------------------------------------------------------------------------------------------
+//                                                     THE 3D VIEW
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 One figure, three scales, because a blockout is only legible at the scale that fits it: a planet is a disc, a coast is
+//    a few hundred kilometres of shelf, a swell is three kilometres of water. The frames are the renderer's own pixels,
+//    embedded in the SVG, so the figure cannot drift from the viewport.
+function Frame3D(Settings)
+{
+    const Camera = View3D.CreateCamera(Object.assign({ Width: 720, Height: 400 }, Settings));
+    const Stats = View3D.Render(Camera, Terra.Planet.RadiusKm, {
+        Terrain: View3D.BuildTerrain(Terra, Camera),
+        Water: View3D.BuildWater(Ocean, Camera, {})
+    }, {});
+    return { Uri: View3D.ToDataUrl(Stats), Stats };
+}
+
+const Panels = [
+    { Name: 'Globe', Note: '9,000 km over Africa · the whole blockout',
+        Frame: Frame3D({ AltitudeKm: 9000, TargetLon: 16, TargetLat: 6, Relief: 6, WaveScale: 8 }) },
+    { Name: 'Coast', Note: '520 km out · shelf, shore and the sea behind it',
+        Frame: Frame3D({ AltitudeKm: 0, DistanceKm: 520, ElevationDeg: 30, AzimuthDeg: 248, TargetLon: 9, TargetLat: -4,
+            Relief: 6, WaveScale: 24 }) },
+    { Name: 'Waves', Note: '3 km out · the 2.5D patch, waves displaced ×26',
+        Frame: Frame3D({ AltitudeKm: 0, DistanceKm: 3, ElevationDeg: 16, AzimuthDeg: 290, TargetLon: Anchor.Lon,
+            TargetLat: Anchor.Lat, Relief: 4, WaveScale: 26 }) }
+];
+
+const FrameWidth = 380, FrameHeight = Math.round(FrameWidth * 400 / 720), FrameGap = 16;
+const FigureWidth = Panels.length * FrameWidth + (Panels.length - 1) * FrameGap + 36;
+const FigureHeight = FrameHeight + 108;
+const Figure = [`<svg xmlns="http://www.w3.org/2000/svg" width="${FigureWidth}" height="${FigureHeight}" `
+    + `viewBox="0 0 ${FigureWidth} ${FigureHeight}" font-family="'Inter',system-ui,sans-serif">`,
+    `<rect width="${FigureWidth}" height="${FigureHeight}" fill="#0b1218"/>`,
+    `<text x="18" y="26" fill="${PAPER}" font-size="13">The blockout in three dimensions — ` +
+        `${Panels.map(Panel => Panel.Name.toLowerCase()).join(', ')}</text>`];
+Panels.forEach((Panel, Index) =>
+{
+    const X = 18 + Index * (FrameWidth + FrameGap), Y = 40;
+    Figure.push(`<image x="${X}" y="${Y}" width="${FrameWidth}" height="${FrameHeight}" href="${Panel.Frame.Uri}"/>`);
+    Figure.push(`<rect x="${X}" y="${Y}" width="${FrameWidth}" height="${FrameHeight}" fill="none" stroke="#22303a"/>`);
+    Figure.push(`<text x="${X}" y="${Y + FrameHeight + 20}" fill="${ACCENT}" font-size="11.5">${Panel.Name}</text>`);
+    Figure.push(`<text x="${X}" y="${Y + FrameHeight + 36}" fill="${PAPER}" font-size="10.5" fill-opacity="0.72">` +
+        `${Panel.Note}</text>`);
+    Figure.push(`<text x="${X}" y="${Y + FrameHeight + 52}" fill="${COOL}" font-size="10" ` +
+        `font-family="'JetBrains Mono',monospace">${Panel.Frame.Stats.TerrainTriangles.toLocaleString('en-GB')} land · ` +
+        `${Panel.Frame.Stats.WaterTriangles.toLocaleString('en-GB')} water · ` +
+        `${Panel.Frame.Stats.Milliseconds} ms</text>`);
+});
+Figure.push(`<text x="18" y="${FigureHeight - 8}" fill="${PAPER}" font-size="10" fill-opacity="0.55">` +
+    `software rasteriser · no wave textures and no uniform grid: every triangle is the field, sampled where the eye is</text>`);
+Figure.push('</svg>');
+Write('View3D.png', Figure.join(''), FigureWidth);
+console.log(`3d frames: ${Panels.map(Panel => `${Panel.Name} ${Panel.Frame.Stats.TerrainTriangles}+${Panel.Frame.Stats.WaterTriangles}`).join(', ')}`);
+
+//------------------------------------------------------------------------------------------------------------------------
 //                                                      SUMMARY
 //------------------------------------------------------------------------------------------------------------------------
 
@@ -245,6 +301,7 @@ const Lines = [
     `| \`OceanResolution.png\` | The adaptive ocean plan: ${Summary.Tiles} tiles coloured by cell size, the near footprint, the far fan |`,
     '| `OceanSection.png` | A cross-section through the 2.5D patch: solved surface, spectral field, sea bed, probes |',
     '| `OceanBudget.png` | Where the triangles went, against what a uniform grid would have cost |',
+    '| `View3D.png` | The blockout in three dimensions at three scales: the globe, a coast, and the wave patch |',
     ''
 ];
 writeFileSync(resolve(ResultsFolder, 'Evidence.md'), Lines.join('\n'));

@@ -20,6 +20,7 @@ const WorldBlockout = (function ()
     const OceanApi = typeof OceanField !== 'undefined' ? OceanField : require('./OceanField.js');
     const MeshApi = typeof OceanMesh !== 'undefined' ? OceanMesh : require('./OceanMesh.js');
     const SceneApi = typeof Scenes !== 'undefined' ? Scenes : require('./Scenes.js');
+    const RendererApi = typeof Renderer3D !== 'undefined' ? Renderer3D : require('./Renderer3D.js');
 
     const TOOLS = [
         { Key: 'Raise', Label: 'Raise', Glyph: '▲', Hint: 'lift the ground' },
@@ -48,7 +49,8 @@ const WorldBlockout = (function ()
         Cursor: { Lon: 20, Lat: 6 },
         CameraHeightKm: 2, FarOnly: false, Running: true,
         MapDirty: true, OceanDirty: true, MapWidth: 800, MapHeight: 400,
-        Frames: 0, Strokes: 0, Dragging: false, Ticker: null
+        Frames: 0, Strokes: 0, Dragging: false, Ticker: null,
+        View: 'map', Camera3D: null, ViewDirty: true, View3DStats: null, Paint3D: false, Orbiting: false
     };
 
     const Elements = {};
@@ -428,14 +430,38 @@ const WorldBlockout = (function ()
         const MeshLine = State.Mesh
             ? `${State.Mesh.Triangles.toLocaleString('en-GB')} ocean triangles`
             : 'ocean not built';
-        Elements.StageBar.replaceChildren(
+        const Children = [
             Make('strong', null, `${Tool.Label}`),
             Make('span', null, `${State.RadiusKm.toFixed(0)} km brush`),
             Make('span', null, `rev ${State.Field.Revision}`),
             Make('span', null, `${State.Field.Cities.length} pads`),
-            Make('span', 'spacer'),
-            Make('span', null, MeshLine)
-        );
+            Make('span', 'spacer')
+        ];
+        // 📝 A switch, then whatever the current view needs: the map has nothing to offer here, and the 3D view wants its
+        //    three presets and its LOD paint within reach.
+        const MapButton = Make('button', 'view-tab' + (State.View === 'map' ? ' is-on' : ''), 'Map');
+        MapButton.type = 'button';
+        MapButton.addEventListener('click', () => SetView('map'));
+        const ThreeButton = Make('button', 'view-tab' + (State.View === '3d' ? ' is-on' : ''), '3D');
+        ThreeButton.type = 'button';
+        ThreeButton.addEventListener('click', () => SetView('3d'));
+        Children.push(MapButton, ThreeButton);
+        if (State.View === '3d')
+        {
+            for (const Name of Object.keys(VIEW_PRESETS))
+            {
+                const PresetButton = Make('button', 'view-chip' + (State.Preset3D === Name ? ' is-on' : ''), VIEW_PRESETS[Name].Label);
+                PresetButton.type = 'button';
+                PresetButton.addEventListener('click', () => UsePreset(Name));
+                Children.push(PresetButton);
+            }
+            const PaintButton = Make('button', 'view-chip' + (State.Paint3D ? ' is-on' : ''), 'LOD paint');
+            PaintButton.type = 'button';
+            PaintButton.addEventListener('click', TogglePaint3D);
+            Children.push(PaintButton, Make('span', null, MeshLine));
+        }
+        else Children.push(Make('span', null, MeshLine));
+        Elements.StageBar.replaceChildren(...Children);
     }
 
     function RefreshMap()
@@ -459,6 +485,204 @@ const WorldBlockout = (function ()
     function RenderMapIfDirty()
     {
         if (State.MapDirty) RefreshMap();
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+    //                                                     THE 3D VIEW
+    //------------------------------------------------------------------------------------------------------------------------
+
+    // 📝 Three heights are worth having and they are not the same height. A globe is a disc that has to be framed from
+    //    outside it; a coast is a few hundred kilometres of shelf and shore; the wave patch is three kilometres of water
+    //    with a two-metre swell. The presets are those three questions, and orbit and zoom are free between them.
+    const VIEW_PRESETS = {
+        Globe: { Label: 'Globe', Camera: { AltitudeKm: 9000, DistanceKm: 0, TargetLon: 16, TargetLat: 6, Relief: 6, WaveScale: 8 } },
+        Coast: { Label: 'Coast', Camera: { AltitudeKm: 0, DistanceKm: 520, ElevationDeg: 30, AzimuthDeg: 248, TargetLon: 9, TargetLat: -4, Relief: 6, WaveScale: 24 } },
+        Waves: { Label: 'Waves', Camera: { AltitudeKm: 0, DistanceKm: 2.4, ElevationDeg: 34, AzimuthDeg: 290, Relief: 6, WaveScale: 30 } }
+    };
+
+    function UsePreset(Name)
+    {
+        const Preset = VIEW_PRESETS[Name];
+        if (!Preset) return null;
+        const Camera = State.Camera3D || RendererApi.CreateCamera({});
+        const Settings = Object.assign({}, Preset.Camera);
+        if (Name === 'Waves' && State.Patch)
+        {
+            Settings.TargetLon = State.Patch.FocusLon;
+            Settings.TargetLat = State.Patch.FocusLat;
+        }
+        Object.assign(Camera, Settings, { Width: Camera.Width, Height: Camera.Height, FieldOfViewDeg: Camera.FieldOfViewDeg,
+            LightAzimuthDeg: Camera.LightAzimuthDeg, LightElevationDeg: Camera.LightElevationDeg });
+        State.Camera3D = Camera;
+        State.Preset3D = Name;
+        State.ViewDirty = true;
+        RenderView3D();
+        RenderStageBar();
+        return Camera;
+    }
+
+    function ResizeView3D()
+    {
+        const Camera = State.Camera3D;
+        if (!Camera || !Elements.View3D) return Camera;
+        const Width = 720;
+        const Aspect = (State.MapWidth / State.MapHeight) || 2;
+        Camera.Width = Width;
+        Camera.Height = Math.max(240, Math.round(Width / Aspect));
+        // 📝 Only when there is a canvas to draw on. In a headless test there is not, and the render still has to happen so
+        //    the numbers can be checked.
+        if (Elements.View3D.width !== Camera.Width) Elements.View3D.width = Camera.Width;
+        if (Elements.View3D.height !== Camera.Height) Elements.View3D.height = Camera.Height;
+        return Camera;
+    }
+
+    function RenderView3D(Options)
+    {
+        Options = Options || {};
+        if (State.View !== '3d' || !State.Field) return null;
+        ResizeView3D();
+        const Camera = State.Camera3D;
+        const Layer = {};
+        if (Options.Water !== false && State.Ocean)
+        {
+            Layer.Water = RendererApi.BuildWater(State.Ocean, Camera, { Time: State.Ocean.Clock });
+        }
+        Layer.Terrain = RendererApi.BuildTerrain(State.Field, Camera);
+        const Stats = RendererApi.Render(Camera, State.Field.Planet.RadiusKm, Layer, { PaintTiers: State.Paint3D });
+        State.ViewDirty = false;
+        State.View3DStats = {
+            TerrainTriangles: Stats.TerrainTriangles, WaterTriangles: Stats.WaterTriangles,
+            Milliseconds: Stats.Milliseconds, MaxKm: Layer.Terrain.MaxKm
+        };
+        // 📝 Straight into the canvas: the raster is already the pixels, and encoding a PNG only to decode it again would
+        //    cost more than the frame did.
+        if (Elements.View3D && typeof Elements.View3D.getContext === 'function')
+        {
+            // 📝 A headless document has a canvas element and no 2D context at all — and asking for one throws rather than
+            //    returning null. The render is still the deliverable the tests read, so a canvas that cannot be painted is a
+            //    skipped paint, not a failure.
+            let Context = null;
+            // 📝 Feature-detect the context class before asking for one: jsdom has the element, no implementation, and a
+            //    console complaint for every asked-for context.
+            const CanPaint = typeof CanvasRenderingContext2D !== 'undefined';
+            if (CanPaint) { try { Context = Elements.View3D.getContext('2d'); } catch (Error) { Context = null; } }
+            if (Context && typeof Context.createImageData === 'function' && typeof Context.putImageData === 'function')
+            {
+                try
+                {
+                    const Image = Context.createImageData(Camera.Width, Camera.Height);
+                    Image.data.set(Stats.Raster.Pixels);
+                    Context.putImageData(Image, 0, 0);
+                }
+                catch (Error)
+                {
+                    State.View3DStats.CanvasError = String(Error && Error.message);
+                }
+            }
+        }
+        if (!Options.Quiet)
+        {
+            Status(`3D · ${Stats.TerrainTriangles.toLocaleString('en-GB')} land triangles · ` +
+                `${Stats.WaterTriangles.toLocaleString('en-GB')} water · ${Stats.Milliseconds} ms`, 'live');
+        }
+        return Stats;
+    }
+
+    function SetView(View)
+    {
+        State.View = View === '3d' ? '3d' : 'map';
+        const Stage = Elements.View3D ? Elements.View3D.closest('.stage') : null;
+        if (Stage) Stage.classList.toggle('is-3d', State.View === '3d');
+        if (State.View === '3d')
+        {
+            if (!State.Camera3D) UsePreset('Globe');
+            else RenderView3D();
+            Status('3D view · drag to orbit · wheel to zoom', 'live');
+        }
+        else
+        {
+            RefreshMap();
+            Status('Map view.', null);
+        }
+        RenderStageBar();
+        return State.View;
+    }
+
+    // 📝 Orbit is a pure function of the pointer delta, so a test can call it without a browser and the drag and the test
+    //    move the camera the same way.
+    function Orbit3D(DeltaX, DeltaY)
+    {
+        const Camera = State.Camera3D;
+        if (!Camera) return null;
+        if (Camera.AltitudeKm > 0)
+        {
+            // 📝 Over a globe, dragging turns the planet: there is no horizon to tilt.
+            Camera.TargetLon = ((Camera.TargetLon + DeltaX * 0.22 + 180) % 360 + 360) % 360 - 180;
+            Camera.TargetLat = Math.max(-85, Math.min(85, Camera.TargetLat - DeltaY * 0.18));
+        }
+        else
+        {
+            RendererApi.Orbit(Camera, DeltaX * 0.3, -DeltaY * 0.24);
+        }
+        State.ViewDirty = true;
+        return Camera;
+    }
+
+    function Zoom3D(Notches)
+    {
+        const Camera = State.Camera3D;
+        if (!Camera) return null;
+        const Factor = Math.pow(1.18, Notches);
+        if (Camera.AltitudeKm > 0)
+        {
+            Camera.AltitudeKm = Math.max(600, Math.min(40000, Camera.AltitudeKm * Factor));
+        }
+        else
+        {
+            Camera.DistanceKm = Math.max(1.5, Math.min(12000, Camera.DistanceKm * Factor));
+            Camera.ElevationDeg = Math.max(4, Math.min(84, Camera.ElevationDeg));
+        }
+        State.ViewDirty = true;
+        return Camera;
+    }
+
+    function ViewPointerDown(Event)
+    {
+        if (State.View !== '3d') return;
+        State.Orbiting = { X: Event.clientX, Y: Event.clientY };
+        if (Event.preventDefault) Event.preventDefault();
+    }
+
+    function ViewPointerMove(Event)
+    {
+        if (State.View !== '3d' || !State.Orbiting) return;
+        const DeltaX = Event.clientX - State.Orbiting.X;
+        const DeltaY = Event.clientY - State.Orbiting.Y;
+        State.Orbiting = { X: Event.clientX, Y: Event.clientY };
+        Orbit3D(DeltaX, DeltaY);
+        RenderView3D({ Quiet: true });
+    }
+
+    function ViewPointerUp()
+    {
+        State.Orbiting = false;
+        if (State.View === '3d') RenderView3D();
+    }
+
+    function ViewWheel(Event)
+    {
+        if (State.View !== '3d') return;
+        if (Event.preventDefault) Event.preventDefault();
+        Zoom3D(Math.sign(Event.deltaY || 0));
+        RenderView3D();
+    }
+
+    function TogglePaint3D()
+    {
+        State.Paint3D = !State.Paint3D;
+        RenderView3D();
+        RenderStageBar();
+        return State.Paint3D;
     }
 
     function RenderOceanNumbers()
@@ -750,6 +974,7 @@ const WorldBlockout = (function ()
         Elements.MapHit = Scope.getElementById('map-hit');
         Elements.Status = Scope.getElementById('status');
         Elements.BrushRing = Scope.getElementById('brush-ring');
+        Elements.View3D = Scope.getElementById('view-3d');
 
         CreateWorld('Terra');
         BuildToolRail();
@@ -766,6 +991,14 @@ const WorldBlockout = (function ()
         Elements.MapHit.addEventListener('pointermove', PointerMove);
         Elements.MapHit.addEventListener('pointerup', PointerUp);
         Elements.MapHit.addEventListener('pointercancel', PointerUp);
+        if (Elements.View3D)
+        {
+            Elements.View3D.addEventListener('pointerdown', ViewPointerDown);
+            Elements.View3D.addEventListener('pointermove', ViewPointerMove);
+            Elements.View3D.addEventListener('pointerup', ViewPointerUp);
+            Elements.View3D.addEventListener('pointerleave', ViewPointerUp);
+            Elements.View3D.addEventListener('wheel', ViewWheel, { passive: false });
+        }
         document.addEventListener('keydown', KeyDown);
         StartTicker();
         Status('Terra-01 blocked out: four continents, three gulfs, one settled ocean patch.', 'live');
@@ -824,6 +1057,7 @@ const WorldBlockout = (function ()
 
     Object.assign(Bridge, {
         Boot, Step, Snapshot, Detach, StartTicker, SetTool, SetFarOnly, Undo, Export,
+        SetView, UsePreset, Orbit3D, Zoom3D, RenderView3D, ResizeView3D, TogglePaint3D, VIEW_PRESETS,
         Sculpt, StampWorld, StampIsles, BuildOcean, BuildPlan,
         CreateWorld, Refresh: () => { RefreshMap(); RenderVitals(); RenderStageBar(); RenderOcean(); RenderCitySheet(); },
         State, TOOLS, CONTINENTS, GULFS,

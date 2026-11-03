@@ -1,6 +1,6 @@
 # Ocean mesh validation
 
-Generated 2026-11-03T08:27:50.827Z · Node v22.22.3 · 35/35 checks passed.
+Generated 2026-11-03T09:48:51.651Z · Node v22.22.3 · 35/35 checks passed.
 
 At the settings under test (12 km adaptive span, 2 km camera, 2.5 px budget, 120000 triangle budget) the mesh came out at **119,936 triangles** — 63,232 near, 49,536 mid, 7,168 far — against 7,372,800 for a uniform grid at the near cell size.
 

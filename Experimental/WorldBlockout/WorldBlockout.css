@@ -618,3 +618,73 @@ input[type='range']::-moz-range-thumb {
 .map-overlay circle {
     vector-effect: non-scaling-stroke;
 }
+
+/* 📝 The three-dimensional view sits in the same frame as the map and is hidden until it is asked for: one stage, two ways
+      of looking at it, so the eye never has to learn a second layout to see the same planet. */
+.view-3d
+{
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: none;
+    pointer-events: none;
+    image-rendering: auto;
+    background: #060a10;
+}
+
+.stage.is-3d .view-3d
+{
+    display: block;
+    pointer-events: auto;
+    cursor: grab;
+}
+
+.stage.is-3d .view-3d:active
+{
+    cursor: grabbing;
+}
+
+.stage.is-3d .map-frame,
+.stage.is-3d .map-overlay,
+.stage.is-3d .map-hint
+{
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* 📝 The map's hit layer is a sibling that sits above the canvas; left alone it swallows every drag meant for the camera. */
+.stage.is-3d .map-hit
+{
+    display: none;
+}
+
+.view-tab,
+.view-chip
+{
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    padding: 4px 11px;
+    cursor: pointer;
+    transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.view-tab:hover,
+.view-chip:hover
+{
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.09);
+}
+
+.view-tab.is-on,
+.view-chip.is-on
+{
+    color: #07130f;
+    background: var(--accent);
+    border-color: var(--accent);
+}

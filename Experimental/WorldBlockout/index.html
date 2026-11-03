@@ -10,6 +10,7 @@
 <script src="OceanField.js" defer></script>
 <script src="OceanMesh.js" defer></script>
 <script src="Scenes.js" defer></script>
+<script src="Renderer3D.js" defer></script>
 <script src="WorldBlockout.js" defer></script>
 </head>
 <body>
@@ -37,6 +38,8 @@
                 <circle id="brush-ring" cx="50%" cy="50%" r="24" fill="none" stroke="#6fc7a8" stroke-width="1.2"
                         stroke-opacity="0.75" stroke-dasharray="4 4"/>
             </svg>
+            <canvas class="view-3d" id="view-3d" width="720" height="400"
+                    aria-label="Three-dimensional view of the blockout: drag to orbit, wheel to zoom"></canvas>
             <div class="map-hit" id="map-hit" tabindex="0" role="application"
                  aria-label="Planet map: drag to sculpt, click to move the cursor"></div>
             <div class="map-hint" id="map-hint">Drag to sculpt · click to place the cursor · 1–5 tools · Z undo</div>

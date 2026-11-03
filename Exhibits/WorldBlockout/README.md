@@ -8,8 +8,9 @@ reports and the six figures the editor draws.
 | `Code/TerrainFieldValidation.mjs` | the planet record, sampling and the vertical SDF, the authored stamps, the brushes and their undo stack, the city pad rules, mesh extraction and the TOML record |
 | `Code/OceanFieldValidation.mjs` | the spectral sea state, the Saint-Venant patch, the Courant limit, volume and energy, wave propagation, the swell forcing, the probes and the near/far blend |
 | `Code/OceanMeshValidation.mjs` | the screen-space-error plan, the triangle budget, the near field at the solve's resolution, resolution falling with distance, skirts against cracks, refresh against rebuild |
+| `Code/Renderer3DValidation.mjs` | the 3D viewport: the projection its field of view implies, an orthogonal basis, the aim point on the centre pixel, globe framing, disc rings that reach the horizon and grow outwards, the sea never over dry land, a deterministic frame and a frame inside its budget |
 | `Code/WorldBlockoutPageValidation.mjs` | the real `index.html` in jsdom: tools, chips, sliders, map strokes, a refused pad and an accepted one, the ocean panel and the far-field toggle |
-| `Code/RenderEvidence.mjs` | the six PNGs, rendered from the same scene builders the page uses |
+| `Code/RenderEvidence.mjs` | the seven PNGs, rendered from the same scene builders and the same 3D camera the page uses |
 
 ## Running
 
@@ -58,6 +59,7 @@ budget):
 | `Results/CityPads.png` | The placed pads with their radius and levelled height |
 | `Results/OceanResolution.png` | The adaptive plan: 1,762 tiles coloured by cell size, the near footprint, the fan rings, and the near field magnified with both blend radii |
 | `Results/OceanSection.png` | A cross-section through the solve: the solved surface, the spectral field behind it, the bed, the probes and a labelled vertical scale |
+| `Results/View3D.png` | The blockout in three dimensions at three scales: the globe from 9,000 km, a 520 km coast, and the 2.5D patch at 2.4 km |
 | `Results/OceanBudget.png` | Where the triangles went against a uniform grid, on two scales so the tiers are legible |
 
 ## What the checks are actually guarding

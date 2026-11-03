@@ -17,6 +17,7 @@ Experimental/WorldBlockout/
   OceanMesh.js          screen-space-error plan, quadtree tiers, skirts, far fan, budget accounting
   Raster.js             software rasteriser and a small deflate/PNG writer (no canvas, no dependencies)
   Scenes.js             every drawing the editor shows, as SVG — the page and the evidence renderer share it
+  Renderer3D.js         software 3D viewport: disc sampling, depth-tested scanline fill, orbit and zoom
 ```
 
 ## The workflow
@@ -145,7 +146,8 @@ Open `index.html` from a static server (the scripts are classic scripts, no modu
 python3 -m http.server 8000 --directory Experimental/WorldBlockout
 ```
 
-Then `http://localhost:8000/`. Keys: `1`–`5` select tools, `Z` undoes a stroke, `C` toggles far-field-only.
+Then `http://localhost:8000/`. Keys: `1`–`5` select tools, `Z` undoes a stroke, `C` toggles far-field-only. The
+`Map | 3D` switch in the stage bar hands the same frame to the 3D viewport; drag to orbit there, wheel to zoom.
 
 The record is TOML: `[planet]` with coverage, stamps and city pads from `TerrainField.EncodeRecord`, `[ocean]` with
 the sea
@@ -161,15 +163,51 @@ state and solver settings from `OceanField.EncodeRecord`. The editor's **Export*
 - A city pad cannot be flatter than the grid it sits on. At 78 km per cell a small pad is one cell, which is why the
   editor
   levels pads of a few hundred kilometres.
-- The terrain mesh is extracted and checked but not rendered in the editor — the stage draws the field as a shaded
-  map, which is
-  what a blockout pass reads.
+- The 3D view samples the field on a disc; it does not draw the extracted mesh. The field is 78 km per cell, so a
+  close view is an interpolation, not new detail.
+- The 3D viewport is a rasteriser on one core: about 110 ms for a 640 × 400 frame of thirty thousand triangles. It
+  renders on demand, so a drag repaints when the pointer is released rather than on every move.
 - No GPU path yet. The solve, the spectral field and the plan are all CPU code that a renderer can port directly; the
   mesh
   arrays are already in the shape a vertex buffer wants.
 
+## The 3D view
+
+The page opens on the map, and the stage bar carries a `Map | 3D` switch. The 3D view is the same blockout, drawn by
+a software rasteriser with no WebGL and no dependencies. Drag to orbit, wheel to zoom, and the three presets in the
+stage bar are the three scales this data can be read at.
+
+| Preset | Camera | What it answers |
+|--------|--------|-----------------|
+| Globe | 9,000 km above the surface, looking at the planet's centre | Where are the continents? |
+| Coast | 520 km out, 30 degrees down | Where does the shelf meet the shore? |
+| Waves | 2.4 km out over the patch, 34 degrees down | What is the water actually doing? |
+
+Two decisions make it a viewport rather than a projection. Both layers are **discs centred under the camera**, not
+lat/lon rectangles: the rings crowd towards the eye and stretch to the horizon, so a three-kilometre view resolves
+metres where it is looked at and the sea still meets the sky. And the sea is **composited by height, not by depth**.
+The ground records the height of whatever landed on the pixel; the water is drawn only where that height is below the
+waterline. Ordering the two by depth drew them into each other — both meshes are kilometres to a triangle and their
+linear depths cross inside one pixel, which combed the far sea with wedges of seabed.
+
+Vertical exaggeration is two numbers, not one. Land relief is drawn at 4–6× and the water at 12–30×, because a
+one-metre swell and an eight-hundred-metre plateau cannot share a scale. The *drawn* depth is clamped to a fifth of
+the view distance, so the abyss is never a pit deep enough to swallow the frame. Shading normals come from the
+unexaggerated surface: a wave drawn sixty times over is a sixty-degree slope, and shading that would turn a calm sea
+into static.
+
+Nothing is drawn per frame. The view renders when asked — a preset, a wheel notch, the end of a drag, the LOD paint
+toggle — so the page can keep the solve running while the view stands still.
+
 ## Validation
 
-`Exhibits/WorldBlockout` holds the harnesses: 82 terrain checks, 54 ocean checks, 35 mesh checks and 65 page checks,
-plus six
-rendered figures. See `Exhibits/WorldBlockout/README.md` for the commands and the results.
+| Script | Checks | What it holds |
+|--------|--------|---------------|
+| `TerrainFieldValidation.mjs` | 82 | field, SDF, stamps, brushes, pads, mesh, record |
+| `OceanFieldValidation.mjs` | 54 | solve, conservation, boundary, spectrum, blend, section |
+| `OceanMeshValidation.mjs` | 35 | plan, tiers, skirts, fan, budget, screen error |
+| `Renderer3DValidation.mjs` | 37 | projection, disc, layers, determinism, frame budget |
+| `WorldBlockoutPageValidation.mjs` | 76 | the page, the rails, the map, the ocean panel, the 3D view |
+
+`Exhibits/WorldBlockout` holds the harnesses and the rendered figures; see its README for the commands. Each report
+is written to `Results/` and the script exits non-zero when a check fails.

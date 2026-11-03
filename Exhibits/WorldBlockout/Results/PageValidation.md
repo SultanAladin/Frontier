@@ -1,6 +1,6 @@
 # World blockout page validation
 
-Generated 2026-11-03T08:29:48.045Z · Node v22.22.3 · jsdom 24.1.3 · 65/65 checks passed.
+Generated 2026-11-03T09:51:43.771Z · Node v22.22.3 · jsdom 24.1.3 · 76/76 checks passed.
 
 The harness builds the real `index.html` in jsdom and evaluates `TerrainField.js`, `Raster.js`, `OceanField.js`,
 `OceanMesh.js`, `Scenes.js` and `WorldBlockout.js` in page order. It clicks the real tools, chips, toggles and sliders,
@@ -72,6 +72,17 @@ dispatches real pointer events at the map, and reads the DOM and the record back
 | the record carries the ocean | ✔️ pass | ocean stanza |
 | the record names the solver | ✔️ pass | solver line |
 | the record has no NaN | ✔️ pass | clean |
+| the page offers a 3D tab | ✔️ pass | Map · 3D |
+| the 3D canvas exists | ✔️ pass | canvas present |
+| the map is the view the page opens on | ✔️ pass | map |
+| switching to 3D marks the stage | ✔️ pass | stage is-3d |
+| the 3D view draws both layers | ✔️ pass | 17384 land · 7444 water |
+| the 3D view reports its frame | ✔️ pass | 3D view · drag to orbit · wheel to zoom |
+| dragging turns the globe | ✔️ pass | 16.0° → 24.8° |
+| the wheel changes the altitude | ✔️ pass | 9000 km → 6464 km |
+| the three presets render | ✔️ pass | globe · coast · waves |
+| the LOD paint is a mode, not a label | ✔️ pass | chip lit |
+| the map comes back | ✔️ pass | map |
 | detaching stops the ticker | ✔️ pass | ticker cleared |
 
 **🟢 all checks passed**
