@@ -227,7 +227,7 @@ int main(int ArgumentCount, char** Arguments)
         {
             ActivationOwnership Ownership(new ControlCentrePanel(ContentDir / "FontArchives",
                                                                  ScratchDir / "Personal.projectspace",
-                                                                 ProjectDir));
+                                                                 ProjectDir / "Everest.projectspace"));
             auto& Centre = *static_cast<ControlCentrePanel*>(Ownership.get());
             if (!Centre.Initialize() || !Centre.Activate())
             {

@@ -338,7 +338,7 @@ void VehicleInspector::ConstructHeroAndChips(ControlColumn& Page, const VehicleP
     std::snprintf(PeakT, sizeof(PeakT), "%.0f", Summary.PeakTorqueNm * TorqueScale);
     std::snprintf(PeakP, sizeof(PeakP), "%.0f", Summary.PeakPowerKw * PowerScale);
     const MetricTile DynoTiles[2] = {
-        {"Peak torque", PeakT, Imp ? "lb\xC2\xB7ft" : "Nm"},
+        {"Peak torque", PeakT, Imp ? "lb\xC2\xB7" "ft" : "Nm"},
         {"Peak power", PeakP, Imp ? "hp" : "kW"}};
     MetricTiles::Construct(Page, DynoTiles, 2, 0);
 
@@ -356,7 +356,7 @@ void VehicleInspector::ConstructHeroAndChips(ControlColumn& Page, const VehicleP
         NormTorque[Idx] = std::clamp(Tq / CeilTorque, 0.0f, 1.0f);
         NormPower[Idx]  = std::clamp(Pw / CeilPower, 0.0f, 1.0f);
     }
-    const InspectorPalette Palette = InspectorPalette::MakeForAccent(IM_COL32(232, 168, 74, 255));
+    const InspectorPalette Palette = InspectorPalette::Resolve();
     DiagramControls::ConstructCurvePlot(Palette, Page.QueryFaces(), "Torque (amber) & Power (ice) vs RPM",
                                         NormTorque.data(), NormTorque.size(), IM_COL32(232, 168, 74, 255),
                                         NormPower.data(), NormPower.size(), IM_COL32(159, 180, 214, 255));
@@ -417,7 +417,7 @@ void VehicleInspector::ConstructEngineSection(ControlColumn& Page, const Vehicle
     const bool  Imp    = Parameters.UnitDisplayImperial;
     const float TScale = Imp ? 0.73756215f : 1.0f;
     const float BScale = Imp ? 14.5037738f : 1.0f;
-    const char* TUnit  = Imp ? "lb\xC2\xB7ft" : "Nm";
+    const char* TUnit  = Imp ? "lb\xC2\xB7" "ft" : "Nm";
     const char* BUnit  = Imp ? "psi" : "bar";
 
     char LimiterText[48]{};
@@ -587,7 +587,7 @@ void VehicleInspector::ConstructCurvesSection(ControlColumn& Page, bool& Changed
         const float X = XMin + (XMax - XMin) * (static_cast<float>(Idx) / static_cast<float>(Samples.size() - 1u));
         Samples[Idx]  = std::clamp(EvaluateMonotoneVehicleCurve(ActivePoints, Parameters.CurveSmoothMonotone, X) / YMax, 0.0f, 1.0f);
     }
-    const InspectorPalette Palette = InspectorPalette::MakeForAccent(IM_COL32(159, 180, 214, 255));
+    const InspectorPalette Palette = InspectorPalette::Resolve();
     DiagramControls::ConstructCurvePlot(Palette, Page.QueryFaces(), CurveLabels[std::clamp(Parameters.SelectedCurveProfile, 0, 4)],
                                         Samples.data(), Samples.size(), IM_COL32(232, 168, 74, 255));
 
@@ -881,7 +881,7 @@ void VehicleInspector::ConstructInspector()
     (void)ChoiceRow::Construct(Page, "VehMode", "Workspace mode", ModeOptions, 2, Parameters.InspectorModeIndex);
 
     int UnitIdx = Parameters.UnitDisplayImperial ? 1 : 0;
-    static constexpr const char* UnitOptions[2] = {"Metric \xC2\xB7 kg \xC2\xB7 kW \xC2\xB7 Nm", "Imperial \xC2\xB7 lb \xC2\xB7 hp \xC2\xB7 lb\xC2\xB7ft"};
+    static constexpr const char* UnitOptions[2] = {"Metric \xC2\xB7 kg \xC2\xB7 kW \xC2\xB7 Nm", "Imperial \xC2\xB7 lb \xC2\xB7 hp \xC2\xB7 lb\xC2\xB7" "ft"};
     if (ChoiceRow::Construct(Page, "VehUnits", "Display units", UnitOptions, 2, UnitIdx))
     {
         Parameters.UnitDisplayImperial = (UnitIdx == 1);

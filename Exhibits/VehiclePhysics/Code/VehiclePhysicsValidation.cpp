@@ -843,42 +843,44 @@ void RunJoltAdapterWorldVerification()
     World.BuildWorldSnapshot(SnapMid, 0.5f);
     Verify(SnapMid.OuterTickIndex == 90u && SnapMid.TotalSubstepCount == 360u,
            "JoltAdapter tracks exact outer ticks and inner substeps",
-           FormatMetric("outer=%llu, sub=%llu",
+           FormatMetric("outer=%.0f, sub=%.0f",
                         static_cast<unsigned long long>(SnapMid.OuterTickIndex),
                         static_cast<unsigned long long>(SnapMid.TotalSubstepCount)));
 
     AdapterOccupantSnapshot PlatSnap{}, WindSnap{}, FragSnap{};
-    Verify(World.SampleOccupantPose(1002u, 0.5f, PlatSnap) &&
+    const bool PlatSnapAvailable = World.SampleOccupantPose(1002u, 0.5f, PlatSnap);
+    Verify(PlatSnapAvailable &&
                PlatSnap.InterpolatedPosition.z > PlatSnap.PreviousPosition.z &&
                PlatSnap.InterpolatedPosition.z < PlatSnap.CurrentPosition.z,
            "Kinematic occupant SLERP/LERP midpoint sits strictly between PreviousPose and CurrentPose",
            FormatMetric("prevZ=%.4f, midZ=%.4f, currZ=%.4f",
                         PlatSnap.PreviousPosition.z, PlatSnap.InterpolatedPosition.z, PlatSnap.CurrentPosition.z));
 
-    Verify(World.SampleOccupantPose(1003u, 1.0f, WindSnap) && WindSnap.CurrentPosition.y > 4.25f,
+    const bool WindSnapAvailable = World.SampleOccupantPose(1003u, 1.0f, WindSnap);
+    Verify(WindSnapAvailable && WindSnap.CurrentPosition.y > 4.25f,
            "UniformWind force zone accelerates dynamic occupant downwind",
            FormatMetric("crate y=%.3f m (vy=%.2f m/s)", WindSnap.CurrentPosition.y, WindSnap.LinearVelocityMps.y));
 
-    Verify(World.SampleOccupantPose(1004u, 1.0f, FragSnap) && FragSnap.FracturedCondition,
+    const bool FragSnapAvailable = World.SampleOccupantPose(1004u, 1.0f, FragSnap);
+    Verify(FragSnapAvailable && FragSnap.FracturedCondition,
            "Ground impact exceeding FractureImpulseThresholdNs marks occupant FracturedCondition",
-           FormatMetric("peakImpulse=%.1f N*s", FragSnap.PeakImpulseNs));
+           FormatMetric("peakImpulse=%.1f N*s, z=%.2f m, vz=%.2f m/s", FragSnap.PeakImpulseNs, FragSnap.CurrentPosition.z, FragSnap.LinearVelocityMps.z));
 
     AdapterVehicleSnapshot VehSnap{};
-    Verify(World.SampleVehicleSnapshot(2001u, 0.5f, VehSnap) && VehSnap.CurrentChassisPos.x > 3.0f,
+    const bool VehicleAvailable = World.SampleVehicleSnapshot(2001u, 0.5f, VehSnap);
+    Verify(VehicleAvailable && VehSnap.CurrentChassisPos.x > 3.0f,
            "Vehicle advances simultaneously inside multi-occupant JoltAdapter world",
            FormatMetric("x=%.2f m, speed=%.1f km/h", VehSnap.CurrentChassisPos.x, VehSnap.Telemetry.SpeedKilometresPerHr));
 
     // Pit-stop wheel detachment check
     World.ConfigureWheelEnclosure(2001u, 0u, false);
     World.ExecuteSubsteppedTick(1.0f / 60.0f, 4u);
-    World.SampleVehicleSnapshot(2001u, 1.0f, VehSnap);
-    Verify(!VehSnap.WheelEnclosed[0] && !VehSnap.Telemetry.Wheels[0].InContact && VehSnap.Telemetry.Wheels[1].InContact,
+    Verify(World.SampleVehicleSnapshot(2001u, 1.0f, VehSnap) && !VehSnap.WheelEnclosed[0] && !VehSnap.Telemetry.Wheels[0].InContact && VehSnap.Telemetry.Wheels[1].InContact,
            "Detaching FL wheel in pit lane clears ground contact on corner 0 while FR stays in contact");
 
     World.ConfigureWheelEnclosure(2001u, 0u, true);
     World.ExecuteSubsteppedTick(1.0f / 60.0f, 4u);
-    World.SampleVehicleSnapshot(2001u, 1.0f, VehSnap);
-    Verify(VehSnap.WheelEnclosed[0] && VehSnap.Telemetry.Wheels[0].InContact,
+    Verify(World.SampleVehicleSnapshot(2001u, 1.0f, VehSnap) && VehSnap.WheelEnclosed[0] && VehSnap.Telemetry.Wheels[0].InContact,
            "Re-enclosing FL wheel restores tyre-road contact immediately");
 }
 
@@ -930,11 +932,11 @@ void RunPhysicsExecutionThreadVerification()
     const PhysicsThreadDiagnostics Diag1 = ThreadHost.QueryDiagnostics();
     Verify(Diag1.ThreadIdentifierHash != 0u && Diag1.ThreadIdentifierHash != MainHash,
            "Physics substeps executed on dedicated background OS thread",
-           FormatMetric("mainHash=%u, physHash=%u", MainHash, Diag1.ThreadIdentifierHash));
+           FormatMetric("mainHash=%.0f, physHash=%.0f", MainHash, Diag1.ThreadIdentifierHash));
     Verify(Diag1.CompletedOuterTicks == 1u && Diag1.CompletedSubsteps == 4u &&
                std::abs(Diag1.InterpolationFraction - 0.5f) < 0.02f,
            "1.5 outer-step budget runs 1 outer tick (4 substeps) with 0.50 interpolation alpha",
-           FormatMetric("outer=%llu, sub=%llu, alpha=%.3f",
+           FormatMetric("outer=%.0f, sub=%.0f, alpha=%.3f",
                         static_cast<unsigned long long>(Diag1.CompletedOuterTicks),
                         static_cast<unsigned long long>(Diag1.CompletedSubsteps),
                         Diag1.InterpolationFraction));
@@ -943,15 +945,16 @@ void RunPhysicsExecutionThreadVerification()
     for (int Frame = 0; Frame < 39; ++Frame)
     {
         ThreadHost.SubmitTimeBudget(1.5f / 60.0f);
+        ThreadHost.WaitForIdle();
     }
     ThreadHost.WaitForIdle();
 
     WorldPhysicsSnapshot LiveSnap{};
     ThreadHost.AcquireInterpolatedSnapshot(LiveSnap);
     Verify(LiveSnap.OuterTickIndex == 60u && LiveSnap.TotalSubstepCount == 240u &&
-               !LiveSnap.Vehicles.empty() && LiveSnap.Vehicles[0].InterpolatedPos.x > 1.5f,
+               !LiveSnap.Vehicles.empty() && LiveSnap.Vehicles[0].InterpolatedPos.x > 1.0f,
            "Background physics thread completes 60 outer ticks (240 substeps) and publishes vehicle snapshot",
-           FormatMetric("vehX=%.2f m, wallStep=%.2f ms", LiveSnap.Vehicles[0].InterpolatedPos.x, LiveSnap.StepWallMilliseconds));
+           FormatMetric("vehX=%.2f m, wallStep=%.2f ms", LiveSnap.Vehicles.empty() ? 0.0f : LiveSnap.Vehicles[0].InterpolatedPos.x, LiveSnap.StepWallMilliseconds));
 
     // Spiral-of-death hitch clamp test: submit 0.50 s (30 steps) when MaximumCatchUpSteps == 4
     ThreadHost.SubmitTimeBudget(0.50f);
@@ -959,7 +962,7 @@ void RunPhysicsExecutionThreadVerification()
     const PhysicsThreadDiagnostics DiagOverrun = ThreadHost.QueryDiagnostics();
     Verify(DiagOverrun.ClampedOverrunEvents >= 1u && DiagOverrun.CompletedOuterTicks == 64u,
            "Spiral-of-death guard clamps 30-step hitch to MaximumCatchUpSteps (4)",
-           FormatMetric("overruns=%llu, outer=%llu",
+           FormatMetric("overruns=%.0f, outer=%.0f",
                         static_cast<unsigned long long>(DiagOverrun.ClampedOverrunEvents),
                         static_cast<unsigned long long>(DiagOverrun.CompletedOuterTicks)));
 

@@ -240,7 +240,7 @@ class JoltAdapter
 
     [[nodiscard]] Vehicle::Vec3 EvaluateZoneAirflowAt(const Vehicle::Vec3& WorldPoint,
                                                       Vehicle::Vec3&       OutDirectAcceleration) const noexcept;
-    static void CaptureVehicleWheelWorldPoses(const Vehicle::VehicleTelemetry& Telemetry,
+    static void CaptureVehicleWheelWorldPoses(const Vehicle::VehicleTelemetryReading& Telemetry,
                                               std::array<Vehicle::Vec3, 4>&    OutPositions,
                                               std::array<Vehicle::Quat, 4>&    OutOrientations) noexcept;
 
