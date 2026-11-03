@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frontier · World Blockout</title>
+<link rel="stylesheet" href="WorldBlockout.css">
+<script src="TerrainField.js" defer></script>
+<script src="Raster.js" defer></script>
+<script src="OceanField.js" defer></script>
+<script src="OceanMesh.js" defer></script>
+<script src="Scenes.js" defer></script>
+<script src="WorldBlockout.js" defer></script>
+</head>
+<body>
+<!-- 📝 A separate editor, not a tab of the vehicle inspector: blocking out the world is its own job, and cities only make
+      sense once the ground under them is settled. -->
+<header class="masthead">
+    <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div class="brand-text">
+            <h1>World Blockout</h1>
+            <p id="brand-record">Terra-01 · 6371 km radius · 512 × 256 cells</p>
+        </div>
+    </div>
+    <div class="vitals" id="vitals" aria-live="polite"></div>
+</header>
+
+<main class="shell">
+    <aside class="rail rail-tools" id="tool-rail" aria-label="Sculpt tools and stamps"></aside>
+
+    <section class="stage" aria-label="Planet map">
+        <div class="stage-bar" id="stage-bar"></div>
+        <div class="map-host" id="map-host">
+            <div class="map-frame" id="map-frame"></div>
+            <svg class="map-overlay" viewBox="0 0 800 400" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                <circle id="brush-ring" cx="50%" cy="50%" r="24" fill="none" stroke="#6fc7a8" stroke-width="1.2"
+                        stroke-opacity="0.75" stroke-dasharray="4 4"/>
+            </svg>
+            <div class="map-hit" id="map-hit" tabindex="0" role="application"
+                 aria-label="Planet map: drag to sculpt, click to move the cursor"></div>
+            <div class="map-hint" id="map-hint">Drag to sculpt · click to place the cursor · 1–5 tools · Z undo</div>
+        </div>
+    </section>
+
+    <aside class="rail rail-ocean" id="ocean-rail" aria-label="Ocean"></aside>
+</main>
+
+<footer class="status" id="status">Blockout ready.</footer>
+</body>
+</html>

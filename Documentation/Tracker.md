@@ -510,3 +510,32 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   rendered from the stylesheet's variables.
 - Still open: the tyre editor, and the C++ step — the same family hues and tones port as tokens in the editor's
   palette so the native inspector and the runtime dock read the same way.
+
+## Planet blockout editor: planet-scale terrain, SDF to mesh, adaptive 2.5D ocean (2026-11-03, arena/ca09b37f-frontier)
+
+- The owner asked for a separate editor that blocks out a world at planetary scale: sculpt the flat ground first, then
+  stamp continents (Africa, specifically) and carve gulfs, all surrounded by water at that scale. Water must be a real
+  2.5D simulation — wave textures and low-resolution water were rejected outright — and it must adapt, "like Nanite but
+  for water": a tessellated mesh far away, the 2.5D solve close in. Cities need their base before any city content.
+- `Experimental/WorldBlockout` is that editor, standalone: `index.html`, `WorldBlockout.js`, `TerrainField.js`,
+  `OceanField.js`, `OceanMesh.js`, `Raster.js`, `Scenes.js`. The vehicle inspector is untouched.
+- Terrain: Terra-01, 6371 km, 512 × 256 (78 km per cell at the equator), floor −4800 m, shelf −110 m, seed 20261103.
+  The height field's interface is a vertical SDF (`height − sea level`): the ocean reads its bathymetry through it, the
+  city rules test it for a waterline, and `ExtractMesh` triangulates it at kilometre spacing with edge-pair
+  watertightness checked (`ResolveManifold`). Four authored continents, three gulfs, an archipelago generator, four
+  brushes with a forty-stroke undo stack, and city pads refused below the waterline, above nine degrees or on a wet rim.
+- Ocean: a Saint-Venant patch (112² cells at 14.3 m over 1.6 km) with transport on faces, wet and dry cells coupled to
+  the SDF, volume and energy tracked, a Courant step of `0.45·dx/sqrt(g·h)` from the deepest water, and a nine-train
+  spectral field with deep-water dispersion driving the boundary and standing in past the blend. The limitation is in
+  the file, the record and the README: Saint-Venant is non-dispersive, so the solve runs on a mixed-layer depth clamp
+  and the spectrum carries dispersion.
+- Adaptive mesh: the near field is mandatory at the solve's cell size, the mid field is a max-heap quadtree split
+  worst-screen-error first with skirts deeper than the widest step, and the far field is a 7,168-triangle radial fan.
+  At the evidence settings the ocean is 119,936 triangles (63,232 / 49,536 / 7,168) against 5,644,800 for a uniform
+  grid — 47× — with the worst accepted screen error printed rather than hidden.
+- Verified: `TerrainFieldValidation.mjs` 82/82, `OceanFieldValidation.mjs` 54/54, `OceanMeshValidation.mjs` 35/35,
+  `WorldBlockoutPageValidation.mjs` 65/65 (jsdom, real pointer and keyboard events), and six figures from
+  `RenderEvidence.mjs` in `Exhibits/WorldBlockout/Results`.
+- Still open: no GPU path — the solve, the spectrum and the plan are CPU code with vertex-buffer-shaped output; the
+  terrain mesh is extracted and checked but not yet rendered in the stage (the stage draws the shaded field, which is
+  what a blockout reads); no foam, spray or underwater refraction.
