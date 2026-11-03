@@ -81,6 +81,7 @@ class VehicleInspector final : public RecordInspector
 
     VehicleConfiguration&      Parameters;
     int                        ActiveSection        = 0;
+    int                        DraggedCurvePoint    = -1;
     int                        PendingScrollSection = -1;
     std::array<float, 10>      SectionOffsets       {};
     float                      TelemetryElapsedSec  = 18.4f;

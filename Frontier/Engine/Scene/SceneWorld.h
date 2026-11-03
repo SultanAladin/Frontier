@@ -116,7 +116,6 @@ using FractureRecord       = TypedSceneRecord<FractureConfiguration, FractureIns
 using ParticleRecord       = TypedSceneRecord<ParticleConfiguration, ParticleInspector>;
 using GeometryRecord       = TypedSceneRecord<GeometryConfiguration, GeometryInspector>;
 using VehicleRecord        = TypedSceneRecord<VehicleConfiguration, VehicleInspector>;
-using TyreRecord           = TypedSceneRecord<TyreCornerConfiguration, TyreInspector>;
 #else
 using RenderPipelineRecord = TypedSceneRecord<RenderPipelineConfiguration>;
 using SolarRecord          = TypedSceneRecord<SolarConfiguration>;
@@ -135,8 +134,26 @@ using FractureRecord       = TypedSceneRecord<FractureConfiguration>;
 using ParticleRecord       = TypedSceneRecord<ParticleConfiguration>;
 using GeometryRecord       = TypedSceneRecord<GeometryConfiguration>;
 using VehicleRecord        = TypedSceneRecord<VehicleConfiguration>;
-using TyreRecord           = TypedSceneRecord<TyreCornerConfiguration>;
 #endif
+
+// 📝 A fitted tyre exposes the same corner configuration as its enclosing vehicle.
+class TyreRecord final : public SceneRecordBase
+{
+  public:
+    TyreRecord(RecordClassification Classification, std::string_view TypeIdentifier, std::string DisplayName,
+               const char* GlyphIdentifier, const char* GroupName, const char* AccentHex);
+    [[nodiscard]] TyreCornerConfiguration& AccessConfiguration() noexcept { return *Corner; }
+    [[nodiscard]] const TyreCornerConfiguration& QueryConfiguration() const noexcept { return *Corner; }
+    void AttachCorner(TyreCornerConfiguration& Target);
+    void DetachCorner();
+    void SerializeConfiguration(toml::table& OutTable) const override;
+    void DeserializeConfiguration(const toml::table& InTable) override;
+
+  private:
+    void RefreshInspector();
+    TyreCornerConfiguration LocalCorner{};
+    TyreCornerConfiguration* Corner = &LocalCorner;
+};
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                      COMPOSABLE MULTI-CONFIGURATION SCENE RECORDS
@@ -259,6 +276,8 @@ class SceneWorld
     RecordToken ConstructRecord(std::string_view TypeIdentifier,
                                 std::string      DisplayName = {},
                                 RecordToken      ParentToken = {});
+    RecordToken ConstructVehicleAssembly(std::string DisplayName = {});
+    RecordToken ConstructTyreAssembly(std::string DisplayName = {}, RecordToken Enclosure = {});
     bool        DestroyRecord(RecordToken Token);
     void        Clear();
 

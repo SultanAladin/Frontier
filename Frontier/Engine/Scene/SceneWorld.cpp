@@ -1262,6 +1262,10 @@ void SerializeTyreCornerTable(toml::table& OutTable, const TyreCornerConfigurati
     OutTable.insert_or_assign("pacejka_cx", static_cast<double>(Corner.PacejkaLongitudinalShape));
     OutTable.insert_or_assign("pacejka_cy", static_cast<double>(Corner.PacejkaLateralShape));
     OutTable.insert_or_assign("load_sensitivity", static_cast<double>(Corner.LoadSensitivity));
+    OutTable.insert_or_assign("detail_unit_display_imperial", Corner.UnitDisplayImperial);
+    OutTable.insert_or_assign("detail_optimal_surface_temp_c", static_cast<double>(Corner.OptimalSurfaceTempC));
+    OutTable.insert_or_assign("detail_thermal_window_half_width_c", static_cast<double>(Corner.ThermalWindowHalfWidthC));
+
 }
 
 void DeserializeTyreCornerTable(const toml::table& InTable, TyreCornerConfiguration& Corner)
@@ -1286,6 +1290,10 @@ void DeserializeTyreCornerTable(const toml::table& InTable, TyreCornerConfigurat
     Corner.PacejkaLongitudinalShape = ReadFloat(InTable, "pacejka_cx", Corner.PacejkaLongitudinalShape);
     Corner.PacejkaLateralShape      = ReadFloat(InTable, "pacejka_cy", Corner.PacejkaLateralShape);
     Corner.LoadSensitivity          = ReadFloat(InTable, "load_sensitivity", Corner.LoadSensitivity);
+    Corner.UnitDisplayImperial = ReadBool(InTable, "detail_unit_display_imperial", Corner.UnitDisplayImperial);
+    Corner.OptimalSurfaceTempC = ReadFloat(InTable, "detail_optimal_surface_temp_c", Corner.OptimalSurfaceTempC);
+    Corner.ThermalWindowHalfWidthC = ReadFloat(InTable, "detail_thermal_window_half_width_c", Corner.ThermalWindowHalfWidthC);
+
 }
 
 void WriteCurvePointsArray(toml::table& OutTable, std::string_view Key, const std::vector<VehicleCurveControlPoint>& Points)
@@ -1326,17 +1334,46 @@ void ReadCurvePointsArray(const toml::table& InTable, std::string_view Key, std:
 
 } // namespace
 
-template <>
-void TyreRecord::SerializeConfiguration(toml::table& OutTable) const
+TyreRecord::TyreRecord(RecordClassification Classification, std::string_view TypeIdentifier,
+                       std::string DisplayName, const char* GlyphIdentifier, const char* GroupName, const char* AccentHex)
+    : SceneRecordBase(Classification, TypeIdentifier, std::move(DisplayName))
 {
-    SerializeTyreCornerTable(OutTable, Parameters);
+    ConfigureEditorPresentation(GlyphIdentifier, GroupName, "Tyre", AccentHex);
+    RefreshInspector();
 }
 
-template <>
+void TyreRecord::RefreshInspector()
+{
+#if FRONTIER_EDITOR
+    InspectorRuntime::Instance().BindInspector(QueryToken(), std::make_unique<TyreInspector>(*Corner));
+#endif
+}
+
+void TyreRecord::AttachCorner(TyreCornerConfiguration& Target)
+{
+    if (Corner == &Target) return;
+    Target = *Corner;
+    Corner = &Target;
+    RefreshInspector();
+}
+
+void TyreRecord::DetachCorner()
+{
+    if (Corner == &LocalCorner) return;
+    LocalCorner = *Corner;
+    Corner = &LocalCorner;
+    RefreshInspector();
+}
+
+void TyreRecord::SerializeConfiguration(toml::table& OutTable) const
+{
+    SerializeTyreCornerTable(OutTable, *Corner);
+}
+
 void TyreRecord::DeserializeConfiguration(const toml::table& InTable)
 {
-    DeserializeTyreCornerTable(InTable, Parameters);
-    Parameters.AdvanceRevision();
+    DeserializeTyreCornerTable(InTable, *Corner);
+    Corner->AdvanceRevision();
 }
 
 template <>
@@ -1405,6 +1442,93 @@ void VehicleRecord::SerializeConfiguration(toml::table& OutTable) const
     WriteCurvePointsArray(OutTable, "engine_torque_points", Parameters.EngineTorqueCurve);
     WriteCurvePointsArray(OutTable, "brake_torque_points", Parameters.BrakeTorqueCurve);
     WriteCurvePointsArray(OutTable, "coolant_temperature_points", Parameters.CoolantTempCurve);
+
+    OutTable.insert_or_assign("detail_unit_display_imperial", Parameters.UnitDisplayImperial);
+    OutTable.insert_or_assign("detail_inspector_mode_index", static_cast<int64_t>(Parameters.InspectorModeIndex));
+    OutTable.insert_or_assign("detail_fuel_reserve_percent", static_cast<double>(Parameters.FuelReservePercent));
+    OutTable.insert_or_assign("detail_fuel_burn_kg_per_hour", static_cast<double>(Parameters.FuelBurnKgPerHour));
+    OutTable.insert_or_assign("detail_thermostat_opening_c", static_cast<double>(Parameters.ThermostatOpeningC));
+    OutTable.insert_or_assign("detail_supercharger_bypass_parasitic_pct", static_cast<double>(Parameters.SuperchargerBypassParasiticPct));
+    OutTable.insert_or_assign("detail_supercharger_bypass_throttle_pct", static_cast<double>(Parameters.SuperchargerBypassThrottlePct));
+    OutTable.insert_or_assign("detail_turbo_spool_up_rate", static_cast<double>(Parameters.TurboSpoolUpRate));
+    OutTable.insert_or_assign("detail_turbo_spool_down_rate", static_cast<double>(Parameters.TurboSpoolDownRate));
+    OutTable.insert_or_assign("detail_torque_gain_per_bar", static_cast<double>(Parameters.TorqueGainPerBar));
+    OutTable.insert_or_assign("detail_driveline_efficiency_pct", static_cast<double>(Parameters.DrivelineEfficiencyPct));
+    OutTable.insert_or_assign("detail_loaded_wheel_radius_mm", static_cast<double>(Parameters.LoadedWheelRadiusMm));
+    OutTable.insert_or_assign("detail_peak_tyre_friction", static_cast<double>(Parameters.PeakTyreFriction));
+    OutTable.insert_or_assign("detail_lsd_power_lock_percent", static_cast<double>(Parameters.LsdPowerLockPercent));
+    OutTable.insert_or_assign("detail_lsd_coast_lock_percent", static_cast<double>(Parameters.LsdCoastLockPercent));
+    OutTable.insert_or_assign("detail_awd_front_torque_percent", static_cast<double>(Parameters.AwdFrontTorquePercent));
+    OutTable.insert_or_assign("detail_shift_duration_ms", static_cast<double>(Parameters.ShiftDurationMs));
+    OutTable.insert_or_assign("detail_clutch_capacity_nm", static_cast<double>(Parameters.ClutchCapacityNm));
+    OutTable.insert_or_assign("detail_progressive_spring_factor", static_cast<double>(Parameters.ProgressiveSpringFactor));
+    OutTable.insert_or_assign("detail_front_rest_length_mm", static_cast<double>(Parameters.FrontRestLengthMm));
+    OutTable.insert_or_assign("detail_rear_rest_length_mm", static_cast<double>(Parameters.RearRestLengthMm));
+    OutTable.insert_or_assign("detail_bump_stop_stiffness_knpm", static_cast<double>(Parameters.BumpStopStiffnessKnpm));
+    OutTable.insert_or_assign("detail_front_bump_damping_nsm", static_cast<double>(Parameters.FrontBumpDampingNsm));
+    OutTable.insert_or_assign("detail_front_rebound_damping_nsm", static_cast<double>(Parameters.FrontReboundDampingNsm));
+    OutTable.insert_or_assign("detail_rear_bump_damping_nsm", static_cast<double>(Parameters.RearBumpDampingNsm));
+    OutTable.insert_or_assign("detail_rear_rebound_damping_nsm", static_cast<double>(Parameters.RearReboundDampingNsm));
+    OutTable.insert_or_assign("detail_high_speed_damping_ratio", static_cast<double>(Parameters.HighSpeedDampingRatio));
+    OutTable.insert_or_assign("detail_damper_knee_velocity_mps", static_cast<double>(Parameters.DamperKneeVelocityMps));
+    OutTable.insert_or_assign("detail_front_anti_roll_knpm", static_cast<double>(Parameters.FrontAntiRollKnpm));
+    OutTable.insert_or_assign("detail_rear_anti_roll_knpm", static_cast<double>(Parameters.RearAntiRollKnpm));
+    OutTable.insert_or_assign("detail_front_static_camber_deg", static_cast<double>(Parameters.FrontStaticCamberDeg));
+    OutTable.insert_or_assign("detail_rear_static_camber_deg", static_cast<double>(Parameters.RearStaticCamberDeg));
+    OutTable.insert_or_assign("detail_max_inner_steer_deg", static_cast<double>(Parameters.MaxInnerSteerDeg));
+    OutTable.insert_or_assign("detail_steering_rack_ratio", static_cast<double>(Parameters.SteeringRackRatio));
+    OutTable.insert_or_assign("detail_speed_sensitive_steer_floor_pct", static_cast<double>(Parameters.SpeedSensitiveSteerFloorPct));
+    OutTable.insert_or_assign("detail_mechanical_trail_mm", static_cast<double>(Parameters.MechanicalTrailMm));
+    OutTable.insert_or_assign("detail_launch_control_enabled", Parameters.LaunchControlEnabled);
+    OutTable.insert_or_assign("detail_drs_aid_enabled", Parameters.DrsAidEnabled);
+    OutTable.insert_or_assign("detail_rev_limiter_enabled", Parameters.RevLimiterEnabled);
+    OutTable.insert_or_assign("detail_telemetry_enabled", Parameters.TelemetryEnabled);
+    OutTable.insert_or_assign("detail_esc_yaw_gain", static_cast<double>(Parameters.EscYawGain));
+    OutTable.insert_or_assign("detail_tcs_slip_threshold_pct", static_cast<double>(Parameters.TcsSlipThresholdPct));
+    OutTable.insert_or_assign("detail_abs_slip_threshold_pct", static_cast<double>(Parameters.AbsSlipThresholdPct));
+    OutTable.insert_or_assign("detail_circumferential_node_count", static_cast<int64_t>(Parameters.CircumferentialNodeCount));
+    OutTable.insert_or_assign("detail_lateral_ring_count", static_cast<int64_t>(Parameters.LateralRingCount));
+    OutTable.insert_or_assign("detail_vertical_stiffness_knpm", static_cast<double>(Parameters.VerticalStiffnessKnpm));
+    OutTable.insert_or_assign("detail_pressure_stiffness_gain", static_cast<double>(Parameters.PressureStiffnessGain));
+    OutTable.insert_or_assign("detail_pneumatic_volume_weight_pct", static_cast<double>(Parameters.PneumaticVolumeWeightPct));
+    OutTable.insert_or_assign("detail_xpbd_substeps", static_cast<int64_t>(Parameters.XpbdSubsteps));
+    OutTable.insert_or_assign("detail_xpbd_iterations", static_cast<int64_t>(Parameters.XpbdIterations));
+    OutTable.insert_or_assign("detail_max_contact_bulge_pct", static_cast<double>(Parameters.MaxContactBulgePct));
+    OutTable.insert_or_assign("detail_fem_vertex_mass_kg", static_cast<double>(Parameters.FemVertexMassKg));
+    OutTable.insert_or_assign("detail_fem_damping_rate_hz", static_cast<double>(Parameters.FemDampingRateHz));
+    OutTable.insert_or_assign("detail_oil_target_c", static_cast<double>(Parameters.OilTargetC));
+    OutTable.insert_or_assign("detail_brake_target_c", static_cast<double>(Parameters.BrakeTargetC));
+    OutTable.insert_or_assign("detail_ambient_temperature_c", static_cast<double>(Parameters.AmbientTemperatureC));
+    OutTable.insert_or_assign("detail_cooling_capacity_kw", static_cast<double>(Parameters.CoolingCapacityKw));
+    OutTable.insert_or_assign("detail_coolant_heat_capacity_kj_k", static_cast<double>(Parameters.CoolantHeatCapacityKjK));
+    OutTable.insert_or_assign("detail_radiator_airflow_gain", static_cast<double>(Parameters.RadiatorAirflowGain));
+    OutTable.insert_or_assign("detail_radiator_fan_threshold_c", static_cast<double>(Parameters.RadiatorFanThresholdC));
+    OutTable.insert_or_assign("detail_overheat_derate_start_c", static_cast<double>(Parameters.OverheatDerateStartC));
+    OutTable.insert_or_assign("detail_specific_fuel_burn_gkwh", static_cast<double>(Parameters.SpecificFuelBurnGkwh));
+    OutTable.insert_or_assign("detail_frontal_area_m2", static_cast<double>(Parameters.FrontalAreaM2));
+    OutTable.insert_or_assign("detail_total_brake_torque_nm", static_cast<double>(Parameters.TotalBrakeTorqueNm));
+    OutTable.insert_or_assign("detail_brake_balance_front_pct", static_cast<double>(Parameters.BrakeBalanceFrontPct));
+    OutTable.insert_or_assign("detail_rolling_resistance", static_cast<double>(Parameters.RollingResistance));
+    OutTable.insert_or_assign("detail_aero_balance_front_pct", static_cast<double>(Parameters.AeroBalanceFrontPct));
+    OutTable.insert_or_assign("detail_pitch_aero_sensitivity", static_cast<double>(Parameters.PitchAeroSensitivity));
+    OutTable.insert_or_assign("detail_drs_drag_reduction_pct", static_cast<double>(Parameters.DrsDragReductionPct));
+    OutTable.insert_or_assign("detail_drs_downforce_loss_pct", static_cast<double>(Parameters.DrsDownforceLossPct));
+    OutTable.insert_or_assign("detail_drs_activation_speed_kmh", static_cast<double>(Parameters.DrsActivationSpeedKmh));
+    OutTable.insert_or_assign("detail_airbrake_extra_cd", static_cast<double>(Parameters.AirbrakeExtraCd));
+    OutTable.insert_or_assign("detail_airbrake_downforce_n", static_cast<double>(Parameters.AirbrakeDownforceN));
+    OutTable.insert_or_assign("detail_venturi_optimal_height_mm", static_cast<double>(Parameters.VenturiOptimalHeightMm));
+    OutTable.insert_or_assign("detail_venturi_choke_height_mm", static_cast<double>(Parameters.VenturiChokeHeightMm));
+    OutTable.insert_or_assign("detail_handbrake_torque_nm", static_cast<double>(Parameters.HandbrakeTorqueNm));
+    OutTable.insert_or_assign("detail_brake_fade_start_c", static_cast<double>(Parameters.BrakeFadeStartC));
+    OutTable.insert_or_assign("detail_max_brake_fade_pct", static_cast<double>(Parameters.MaxBrakeFadePct));
+    OutTable.insert_or_assign("detail_maximum_catch_up_steps", static_cast<int64_t>(Parameters.MaximumCatchUpSteps));
+    OutTable.insert_or_assign("detail_telemetry_sample_rate_hz", static_cast<int64_t>(Parameters.TelemetrySampleRateHz));
+    OutTable.insert_or_assign("detail_selected_curve_profile", static_cast<int64_t>(Parameters.SelectedCurveProfile));
+    OutTable.insert_or_assign("detail_selected_curve_point", static_cast<int64_t>(Parameters.SelectedCurvePoint));
+    OutTable.insert_or_assign("detail_selected_corner_index", static_cast<int64_t>(Parameters.SelectedCornerIndex));
+
+    WriteCurvePointsArray(OutTable, "oil_temperature_points", Parameters.OilTempCurve);
+    WriteCurvePointsArray(OutTable, "tyre_surface_temperature_points", Parameters.TyreSurfaceTempCurve);
 
     toml::array CornersArray;
     for (const TyreCornerConfiguration& Corner : Parameters.Corners)
@@ -1482,6 +1606,93 @@ void VehicleRecord::DeserializeConfiguration(const toml::table& InTable)
     ReadCurvePointsArray(InTable, "engine_torque_points", Parameters.EngineTorqueCurve);
     ReadCurvePointsArray(InTable, "brake_torque_points", Parameters.BrakeTorqueCurve);
     ReadCurvePointsArray(InTable, "coolant_temperature_points", Parameters.CoolantTempCurve);
+
+    Parameters.UnitDisplayImperial = ReadBool(InTable, "detail_unit_display_imperial", Parameters.UnitDisplayImperial);
+    Parameters.InspectorModeIndex = ReadInt(InTable, "detail_inspector_mode_index", Parameters.InspectorModeIndex);
+    Parameters.FuelReservePercent = ReadFloat(InTable, "detail_fuel_reserve_percent", Parameters.FuelReservePercent);
+    Parameters.FuelBurnKgPerHour = ReadFloat(InTable, "detail_fuel_burn_kg_per_hour", Parameters.FuelBurnKgPerHour);
+    Parameters.ThermostatOpeningC = ReadFloat(InTable, "detail_thermostat_opening_c", Parameters.ThermostatOpeningC);
+    Parameters.SuperchargerBypassParasiticPct = ReadFloat(InTable, "detail_supercharger_bypass_parasitic_pct", Parameters.SuperchargerBypassParasiticPct);
+    Parameters.SuperchargerBypassThrottlePct = ReadFloat(InTable, "detail_supercharger_bypass_throttle_pct", Parameters.SuperchargerBypassThrottlePct);
+    Parameters.TurboSpoolUpRate = ReadFloat(InTable, "detail_turbo_spool_up_rate", Parameters.TurboSpoolUpRate);
+    Parameters.TurboSpoolDownRate = ReadFloat(InTable, "detail_turbo_spool_down_rate", Parameters.TurboSpoolDownRate);
+    Parameters.TorqueGainPerBar = ReadFloat(InTable, "detail_torque_gain_per_bar", Parameters.TorqueGainPerBar);
+    Parameters.DrivelineEfficiencyPct = ReadFloat(InTable, "detail_driveline_efficiency_pct", Parameters.DrivelineEfficiencyPct);
+    Parameters.LoadedWheelRadiusMm = ReadFloat(InTable, "detail_loaded_wheel_radius_mm", Parameters.LoadedWheelRadiusMm);
+    Parameters.PeakTyreFriction = ReadFloat(InTable, "detail_peak_tyre_friction", Parameters.PeakTyreFriction);
+    Parameters.LsdPowerLockPercent = ReadFloat(InTable, "detail_lsd_power_lock_percent", Parameters.LsdPowerLockPercent);
+    Parameters.LsdCoastLockPercent = ReadFloat(InTable, "detail_lsd_coast_lock_percent", Parameters.LsdCoastLockPercent);
+    Parameters.AwdFrontTorquePercent = ReadFloat(InTable, "detail_awd_front_torque_percent", Parameters.AwdFrontTorquePercent);
+    Parameters.ShiftDurationMs = ReadFloat(InTable, "detail_shift_duration_ms", Parameters.ShiftDurationMs);
+    Parameters.ClutchCapacityNm = ReadFloat(InTable, "detail_clutch_capacity_nm", Parameters.ClutchCapacityNm);
+    Parameters.ProgressiveSpringFactor = ReadFloat(InTable, "detail_progressive_spring_factor", Parameters.ProgressiveSpringFactor);
+    Parameters.FrontRestLengthMm = ReadFloat(InTable, "detail_front_rest_length_mm", Parameters.FrontRestLengthMm);
+    Parameters.RearRestLengthMm = ReadFloat(InTable, "detail_rear_rest_length_mm", Parameters.RearRestLengthMm);
+    Parameters.BumpStopStiffnessKnpm = ReadFloat(InTable, "detail_bump_stop_stiffness_knpm", Parameters.BumpStopStiffnessKnpm);
+    Parameters.FrontBumpDampingNsm = ReadFloat(InTable, "detail_front_bump_damping_nsm", Parameters.FrontBumpDampingNsm);
+    Parameters.FrontReboundDampingNsm = ReadFloat(InTable, "detail_front_rebound_damping_nsm", Parameters.FrontReboundDampingNsm);
+    Parameters.RearBumpDampingNsm = ReadFloat(InTable, "detail_rear_bump_damping_nsm", Parameters.RearBumpDampingNsm);
+    Parameters.RearReboundDampingNsm = ReadFloat(InTable, "detail_rear_rebound_damping_nsm", Parameters.RearReboundDampingNsm);
+    Parameters.HighSpeedDampingRatio = ReadFloat(InTable, "detail_high_speed_damping_ratio", Parameters.HighSpeedDampingRatio);
+    Parameters.DamperKneeVelocityMps = ReadFloat(InTable, "detail_damper_knee_velocity_mps", Parameters.DamperKneeVelocityMps);
+    Parameters.FrontAntiRollKnpm = ReadFloat(InTable, "detail_front_anti_roll_knpm", Parameters.FrontAntiRollKnpm);
+    Parameters.RearAntiRollKnpm = ReadFloat(InTable, "detail_rear_anti_roll_knpm", Parameters.RearAntiRollKnpm);
+    Parameters.FrontStaticCamberDeg = ReadFloat(InTable, "detail_front_static_camber_deg", Parameters.FrontStaticCamberDeg);
+    Parameters.RearStaticCamberDeg = ReadFloat(InTable, "detail_rear_static_camber_deg", Parameters.RearStaticCamberDeg);
+    Parameters.MaxInnerSteerDeg = ReadFloat(InTable, "detail_max_inner_steer_deg", Parameters.MaxInnerSteerDeg);
+    Parameters.SteeringRackRatio = ReadFloat(InTable, "detail_steering_rack_ratio", Parameters.SteeringRackRatio);
+    Parameters.SpeedSensitiveSteerFloorPct = ReadFloat(InTable, "detail_speed_sensitive_steer_floor_pct", Parameters.SpeedSensitiveSteerFloorPct);
+    Parameters.MechanicalTrailMm = ReadFloat(InTable, "detail_mechanical_trail_mm", Parameters.MechanicalTrailMm);
+    Parameters.LaunchControlEnabled = ReadBool(InTable, "detail_launch_control_enabled", Parameters.LaunchControlEnabled);
+    Parameters.DrsAidEnabled = ReadBool(InTable, "detail_drs_aid_enabled", Parameters.DrsAidEnabled);
+    Parameters.RevLimiterEnabled = ReadBool(InTable, "detail_rev_limiter_enabled", Parameters.RevLimiterEnabled);
+    Parameters.TelemetryEnabled = ReadBool(InTable, "detail_telemetry_enabled", Parameters.TelemetryEnabled);
+    Parameters.EscYawGain = ReadFloat(InTable, "detail_esc_yaw_gain", Parameters.EscYawGain);
+    Parameters.TcsSlipThresholdPct = ReadFloat(InTable, "detail_tcs_slip_threshold_pct", Parameters.TcsSlipThresholdPct);
+    Parameters.AbsSlipThresholdPct = ReadFloat(InTable, "detail_abs_slip_threshold_pct", Parameters.AbsSlipThresholdPct);
+    Parameters.CircumferentialNodeCount = ReadInt(InTable, "detail_circumferential_node_count", Parameters.CircumferentialNodeCount);
+    Parameters.LateralRingCount = ReadInt(InTable, "detail_lateral_ring_count", Parameters.LateralRingCount);
+    Parameters.VerticalStiffnessKnpm = ReadFloat(InTable, "detail_vertical_stiffness_knpm", Parameters.VerticalStiffnessKnpm);
+    Parameters.PressureStiffnessGain = ReadFloat(InTable, "detail_pressure_stiffness_gain", Parameters.PressureStiffnessGain);
+    Parameters.PneumaticVolumeWeightPct = ReadFloat(InTable, "detail_pneumatic_volume_weight_pct", Parameters.PneumaticVolumeWeightPct);
+    Parameters.XpbdSubsteps = ReadInt(InTable, "detail_xpbd_substeps", Parameters.XpbdSubsteps);
+    Parameters.XpbdIterations = ReadInt(InTable, "detail_xpbd_iterations", Parameters.XpbdIterations);
+    Parameters.MaxContactBulgePct = ReadFloat(InTable, "detail_max_contact_bulge_pct", Parameters.MaxContactBulgePct);
+    Parameters.FemVertexMassKg = ReadFloat(InTable, "detail_fem_vertex_mass_kg", Parameters.FemVertexMassKg);
+    Parameters.FemDampingRateHz = ReadFloat(InTable, "detail_fem_damping_rate_hz", Parameters.FemDampingRateHz);
+    Parameters.OilTargetC = ReadFloat(InTable, "detail_oil_target_c", Parameters.OilTargetC);
+    Parameters.BrakeTargetC = ReadFloat(InTable, "detail_brake_target_c", Parameters.BrakeTargetC);
+    Parameters.AmbientTemperatureC = ReadFloat(InTable, "detail_ambient_temperature_c", Parameters.AmbientTemperatureC);
+    Parameters.CoolingCapacityKw = ReadFloat(InTable, "detail_cooling_capacity_kw", Parameters.CoolingCapacityKw);
+    Parameters.CoolantHeatCapacityKjK = ReadFloat(InTable, "detail_coolant_heat_capacity_kj_k", Parameters.CoolantHeatCapacityKjK);
+    Parameters.RadiatorAirflowGain = ReadFloat(InTable, "detail_radiator_airflow_gain", Parameters.RadiatorAirflowGain);
+    Parameters.RadiatorFanThresholdC = ReadFloat(InTable, "detail_radiator_fan_threshold_c", Parameters.RadiatorFanThresholdC);
+    Parameters.OverheatDerateStartC = ReadFloat(InTable, "detail_overheat_derate_start_c", Parameters.OverheatDerateStartC);
+    Parameters.SpecificFuelBurnGkwh = ReadFloat(InTable, "detail_specific_fuel_burn_gkwh", Parameters.SpecificFuelBurnGkwh);
+    Parameters.FrontalAreaM2 = ReadFloat(InTable, "detail_frontal_area_m2", Parameters.FrontalAreaM2);
+    Parameters.TotalBrakeTorqueNm = ReadFloat(InTable, "detail_total_brake_torque_nm", Parameters.TotalBrakeTorqueNm);
+    Parameters.BrakeBalanceFrontPct = ReadFloat(InTable, "detail_brake_balance_front_pct", Parameters.BrakeBalanceFrontPct);
+    Parameters.RollingResistance = ReadFloat(InTable, "detail_rolling_resistance", Parameters.RollingResistance);
+    Parameters.AeroBalanceFrontPct = ReadFloat(InTable, "detail_aero_balance_front_pct", Parameters.AeroBalanceFrontPct);
+    Parameters.PitchAeroSensitivity = ReadFloat(InTable, "detail_pitch_aero_sensitivity", Parameters.PitchAeroSensitivity);
+    Parameters.DrsDragReductionPct = ReadFloat(InTable, "detail_drs_drag_reduction_pct", Parameters.DrsDragReductionPct);
+    Parameters.DrsDownforceLossPct = ReadFloat(InTable, "detail_drs_downforce_loss_pct", Parameters.DrsDownforceLossPct);
+    Parameters.DrsActivationSpeedKmh = ReadFloat(InTable, "detail_drs_activation_speed_kmh", Parameters.DrsActivationSpeedKmh);
+    Parameters.AirbrakeExtraCd = ReadFloat(InTable, "detail_airbrake_extra_cd", Parameters.AirbrakeExtraCd);
+    Parameters.AirbrakeDownforceN = ReadFloat(InTable, "detail_airbrake_downforce_n", Parameters.AirbrakeDownforceN);
+    Parameters.VenturiOptimalHeightMm = ReadFloat(InTable, "detail_venturi_optimal_height_mm", Parameters.VenturiOptimalHeightMm);
+    Parameters.VenturiChokeHeightMm = ReadFloat(InTable, "detail_venturi_choke_height_mm", Parameters.VenturiChokeHeightMm);
+    Parameters.HandbrakeTorqueNm = ReadFloat(InTable, "detail_handbrake_torque_nm", Parameters.HandbrakeTorqueNm);
+    Parameters.BrakeFadeStartC = ReadFloat(InTable, "detail_brake_fade_start_c", Parameters.BrakeFadeStartC);
+    Parameters.MaxBrakeFadePct = ReadFloat(InTable, "detail_max_brake_fade_pct", Parameters.MaxBrakeFadePct);
+    Parameters.MaximumCatchUpSteps = ReadInt(InTable, "detail_maximum_catch_up_steps", Parameters.MaximumCatchUpSteps);
+    Parameters.TelemetrySampleRateHz = ReadInt(InTable, "detail_telemetry_sample_rate_hz", Parameters.TelemetrySampleRateHz);
+    Parameters.SelectedCurveProfile = ReadInt(InTable, "detail_selected_curve_profile", Parameters.SelectedCurveProfile);
+    Parameters.SelectedCurvePoint = ReadInt(InTable, "detail_selected_curve_point", Parameters.SelectedCurvePoint);
+    Parameters.SelectedCornerIndex = ReadInt(InTable, "detail_selected_corner_index", Parameters.SelectedCornerIndex);
+
+    ReadCurvePointsArray(InTable, "oil_temperature_points", Parameters.OilTempCurve);
+    ReadCurvePointsArray(InTable, "tyre_surface_temperature_points", Parameters.TyreSurfaceTempCurve);
 
     if (const toml::array* CornersArray = InTable["corners"].as_array())
     {
@@ -1784,8 +1995,8 @@ void SceneWorld::RegisterNativeEngineTypes()
     RegisterSimple.operator()<FluidPlumeRecord>("FluidPlume", "Solver · Fluid Plume", RecordClassification::Physics, "Flame", "Solvers", "#e8833a");
     RegisterSimple.operator()<FractureRecord>("Fracture", "Solver · Voronoi Fracture", RecordClassification::Physics, "Hammer", "Solvers", "#8fb3a4");
     RegisterSimple.operator()<ParticleRecord>("Particles", "Solver · GPU Particles", RecordClassification::Physics, "Sparkles", "Solvers", "#b494f4");
-    RegisterSimple.operator()<VehicleRecord>("Vehicle", "Vehicle · Chassis & Powertrain", RecordClassification::Physics, "Car", "Vehicle", "#e8a84a");
-    RegisterSimple.operator()<TyreRecord>("Tyre", "Vehicle · Corner Tyre", RecordClassification::Physics, "Torus", "Vehicle", "#8fc7b8");
+    RegisterSimple.operator()<VehicleRecord>("Vehicle", "Vehicle · Chassis & Powertrain", RecordClassification::Physics, "VehicleSilhouette", "Vehicle", "#e8a84a");
+    RegisterSimple.operator()<TyreRecord>("Tyre", "Vehicle · Corner Tyre", RecordClassification::Physics, "TyreTread", "Vehicle", "#8fc7b8");
 }
 
 RecordToken SceneWorld::ConstructRecord(std::string_view TypeIdentifier,
@@ -1817,6 +2028,62 @@ RecordToken SceneWorld::ConstructRecord(std::string_view TypeIdentifier,
     return {};
 }
 
+RecordToken SceneWorld::ConstructTyreAssembly(std::string DisplayName, RecordToken Enclosure)
+{
+    const RecordToken TyreToken = ConstructRecord("Tyre", std::move(DisplayName), Enclosure);
+    if (!TyreToken.IsValid()) return {};
+
+    const RecordToken RimToken = ConstructRecord("Geometry", "Rim", TyreToken);
+    auto* Rim = dynamic_cast<GeometryRecord*>(FindRecord(RimToken));
+    if (Rim == nullptr)
+    {
+        DestroyRecord(TyreToken);
+        return {};
+    }
+    GeometryConfiguration& RimConfiguration = Rim->AccessConfiguration();
+    RimConfiguration.ClaimsArchive = false;
+    RimConfiguration.ShapeName = "Torus";
+    RimConfiguration.GroupName = "Vehicle";
+    RimConfiguration.GlyphName = "RimSpokes";
+    // 📝 The rim has no vehicle-relative placement yet; keep it hidden rather than placing it at the world origin.
+    RimConfiguration.Visible = false;
+    Rim->ConfigureEditorPresentation("RimSpokes", "Vehicle", "Geometry", "#a8bbeb");
+    return TyreToken;
+}
+
+RecordToken SceneWorld::ConstructVehicleAssembly(std::string DisplayName)
+{
+    const RecordToken VehicleToken = ConstructRecord("Vehicle", std::move(DisplayName));
+    if (!VehicleToken.IsValid()) return {};
+
+    const char* Corners[] = {"FL", "FR", "RL", "RR"};
+    std::vector<RecordToken> Created;
+    for (size_t Index = 0; Index < 4; ++Index)
+    {
+        const RecordToken TyreToken = ConstructTyreAssembly(std::string("Tyre ") + Corners[Index], VehicleToken);
+        if (!TyreToken.IsValid())
+        {
+            for (const RecordToken TyreTokenToRemove : Created)
+            {
+                for (const SceneRecordBase* Rim : FindAllByType("Geometry"))
+                    if (Rim->QueryParentToken() == TyreTokenToRemove) { DestroyRecord(Rim->QueryToken()); break; }
+                DestroyRecord(TyreTokenToRemove);
+            }
+            DestroyRecord(VehicleToken);
+            return {};
+        }
+        Created.push_back(TyreToken);
+        auto* Tyre = dynamic_cast<TyreRecord*>(FindRecord(TyreToken));
+        auto* Vehicle = dynamic_cast<VehicleRecord*>(FindRecord(VehicleToken));
+        if (Tyre != nullptr && Vehicle != nullptr)
+        {
+            Tyre->AccessConfiguration() = Vehicle->QueryConfiguration().Corners[Index];
+            Tyre->AttachCorner(Vehicle->AccessConfiguration().Corners[Index]);
+        }
+    }
+    return VehicleToken;
+}
+
 bool SceneWorld::DestroyRecord(RecordToken Token)
 {
     if (!Token.IsValid())
@@ -1828,6 +2095,7 @@ bool SceneWorld::DestroyRecord(RecordToken Token)
     {
         if (Candidate && Candidate->QueryParentToken() == Token)
         {
+            if (auto* Tyre = dynamic_cast<TyreRecord*>(Candidate.get())) Tyre->DetachCorner();
             Candidate->AssignParentToken(RecordToken{});
         }
     }
@@ -1975,6 +2243,29 @@ bool SceneWorld::LoadLevelSpace(const std::filesystem::path& LevelSpacePath, std
                 if (const toml::table* ConfigTable = (*EntryTable)["configuration"].as_table())
                 {
                     Record->DeserializeConfiguration(*ConfigTable);
+                }
+            }
+        }
+    }
+
+    // 📝 Restore one fitted tyre per corner; unmatched or duplicate entries stay independent.
+    for (const auto& Entry : OwnedRecords)
+    {
+        auto* Vehicle = dynamic_cast<VehicleRecord*>(Entry.get());
+        if (Vehicle == nullptr) continue;
+        std::array<bool, 4> Occupied{};
+        for (const auto& Candidate : OwnedRecords)
+        {
+            auto* Tyre = dynamic_cast<TyreRecord*>(Candidate.get());
+            if (Tyre == nullptr || Tyre->QueryParentToken() != Vehicle->QueryToken()) continue;
+            for (size_t Index = 0; Index < Occupied.size(); ++Index)
+            {
+                auto& Corner = Vehicle->AccessConfiguration().Corners[Index];
+                if (!Occupied[Index] && Corner.CornerCode == Tyre->QueryConfiguration().CornerCode)
+                {
+                    Tyre->AttachCorner(Corner);
+                    Occupied[Index] = true;
+                    break;
                 }
             }
         }

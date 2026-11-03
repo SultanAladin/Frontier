@@ -59,7 +59,8 @@ struct DiagramControls
                                    const float*            SecondarySamples        = nullptr,
                                    size_t                  SecondaryCount          = 0,
                                    ImU32                   SecondaryTint           = 0,
-                                   float                   ThresholdRatio          = -1.0f);
+                                   float                   ThresholdRatio          = -1.0f,
+                                   float                   PlotWidth               = 0.0f);
 
     // Generic multi-stop colour ramp with normalized [0..1] cursor indicator.
     static void ConstructSpectrumBar(const InspectorPalette& Palette,

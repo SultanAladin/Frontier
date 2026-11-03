@@ -205,11 +205,12 @@ void DiagramControls::ConstructCurvePlot(const InspectorPalette& Palette,
                                          const float*            SecondarySamples,
                                          size_t                  SecondaryCount,
                                          ImU32                   SecondaryTint,
-                                         float                   ThresholdRatio)
+                                         float                   ThresholdRatio,
+                                         float                   PlotWidth)
 {
     ImDrawList*  DrawList = ImGui::GetWindowDrawList();
     const ImVec2 Min      = ImGui::GetCursorScreenPos();
-    const float  Width    = std::max(150.0f, ImGui::GetContentRegionAvail().x);
+    const float  Width    = std::max(150.0f, PlotWidth > 0.0f ? PlotWidth : ImGui::GetContentRegionAvail().x);
     const float  Height   = 86.0f;
     const ImVec2 Max(Min.x + Width, Min.y + Height);
     ConstructDiagramFrame(DrawList, Palette, Min, Max);

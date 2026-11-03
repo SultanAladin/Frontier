@@ -551,7 +551,9 @@ void EverestWorkspace::ServiceDynamicSceneRequests()
                 ParentToken = Solar->QueryToken();
             }
         }
-        const Frontier::RecordToken Created = QuerySceneWorld().ConstructRecord(*RequestedType, {}, ParentToken);
+        const Frontier::RecordToken Created = *RequestedType == "Vehicle" ? QuerySceneWorld().ConstructVehicleAssembly()
+            : *RequestedType == "Tyre" ? QuerySceneWorld().ConstructTyreAssembly()
+            : QuerySceneWorld().ConstructRecord(*RequestedType, {}, ParentToken);
         if (Created.IsValid())
         {
             OutlinerPanel.Synchronize(Frontier::SceneDirectory::Instance());
@@ -674,7 +676,9 @@ void EverestWorkspace::ServiceConstructOrder(const Frontier::ConstructOrder& Ord
         Frontier::RecordToken ParentToken{};
         if (Order.Entry.Identifier == "OpticalFlare")
             if (Frontier::SceneRecordBase* Solar = QuerySceneWorld().FindFirstByType("Solar")) ParentToken = Solar->QueryToken();
-        const Frontier::RecordToken Created = QuerySceneWorld().ConstructRecord(Order.Entry.Identifier, Name, ParentToken);
+        const Frontier::RecordToken Created = Order.Entry.Identifier == "Vehicle" ? QuerySceneWorld().ConstructVehicleAssembly(Name)
+            : Order.Entry.Identifier == "Tyre" ? QuerySceneWorld().ConstructTyreAssembly(Name)
+            : QuerySceneWorld().ConstructRecord(Order.Entry.Identifier, Name, ParentToken);
         if (!Created.IsValid()) return;
         if (!Order.Visible) (void)Frontier::SceneDirectory::Instance().ConfigureVisible(Created, false);
         OutlinerPanel.Synchronize(Frontier::SceneDirectory::Instance());

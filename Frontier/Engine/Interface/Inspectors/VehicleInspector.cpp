@@ -357,9 +357,10 @@ void VehicleInspector::ConstructHeroAndChips(ControlColumn& Page, const VehicleP
         NormPower[Idx]  = std::clamp(Pw / CeilPower, 0.0f, 1.0f);
     }
     const InspectorPalette Palette = InspectorPalette::Resolve();
+    ImGui::SetCursorScreenPos(Page.Space(94.0f / Page.QueryScale(), 0.0f, 8.0f));
     DiagramControls::ConstructCurvePlot(Palette, Page.QueryFaces(), "Torque (amber) & Power (ice) vs RPM",
                                         NormTorque.data(), NormTorque.size(), IM_COL32(232, 168, 74, 255),
-                                        NormPower.data(), NormPower.size(), IM_COL32(159, 180, 214, 255));
+                                        NormPower.data(), NormPower.size(), IM_COL32(159, 180, 214, 255), -1.0f, Page.QueryWidth());
     Page.EndCard();
 
     char MassStr[32]{}, PtwStr[32]{}, AccelStr[32]{}, TopStr[32]{};
@@ -380,7 +381,7 @@ void VehicleInspector::ConstructHeroAndChips(ControlColumn& Page, const VehicleP
         {"ABS", &Parameters.AntiLockBrakesEnabled, TileGlyph::Sun, false, false, "4-channel anti-lock braking", "Aperture"},
         {"Launch", &Parameters.LaunchControlEnabled, TileGlyph::Sun, false, false, "Standstill launch RPM hold", "Zap"},
         {"DRS", &Parameters.DrsAidEnabled, TileGlyph::Sun, false, false, "Rear-wing drag reduction", "Wind"},
-        {"Telemetry", &Parameters.TelemetryEnabled, TileGlyph::Sun, false, false, "Read-only telemetry dock", "Activity"}};
+        {"Telemetry", &Parameters.TelemetryEnabled, TileGlyph::Sun, false, false, "Illustrative telemetry preview", "Activity"}};
     Changed |= SwitchTiles::Construct(Page, "VehQuickAids", AidTiles, 6, 3);
 }
 
@@ -394,7 +395,7 @@ void VehicleInspector::ConstructChassisSection(ControlColumn& Page, bool& Change
     const char* LUnit  = Imp ? "in" : "mm";
     const char* VUnit  = Imp ? "gal" : "L";
 
-    BeginVehicleCard(Page, "Chassis and identity", "Car", Parameters.ClassificationCode.c_str(),
+    BeginVehicleCard(Page, "Chassis and identity", "VehicleSilhouette", Parameters.ClassificationCode.c_str(),
                      "Mass distribution, wheelbase, front/rear track, CG height, fuel tank, and drive layout.");
     SubHeadingLabel(Page, "Mass and dimensions");
     Changed |= SliderRow::Construct(Page, "KerbMass", "Kerb mass", Parameters.KerbMassKg, 900.0f, 1800.0f, 1.0f, MUnit, MScale);
@@ -523,7 +524,7 @@ void VehicleInspector::ConstructSoftBodySection(ControlColumn& Page, bool& Chang
     static constexpr const char* FormNames[3] = {"Spring", "XPBD", "3D Hex8 FEM"};
     static constexpr const char* SlipNames[3] = {"GRIT implicit", "Relaxation", "Quasi-static"};
 
-    BeginVehicleCard(Page, "Soft-body tyre continuum & slip", "Torus",
+    BeginVehicleCard(Page, "Soft-body tyre continuum & slip", "TyreTread",
                      FormNames[std::clamp(Parameters.SoftBodyFormulationIndex, 0, 2)],
                      "Selects Radial Spring, XPBD pneumatic carcass, or 3D Hex8 Neo-Hookean FEM plus transient slip dynamics.");
 
@@ -551,12 +552,38 @@ void VehicleInspector::ConstructSoftBodySection(ControlColumn& Page, bool& Chang
 
 void VehicleInspector::ConstructCurvesSection(ControlColumn& Page, bool& Changed)
 {
-    static constexpr const char* CurveLabels[5] = {"Torque", "Brake", "Coolant", "Oil", "Tyre"};
-    BeginVehicleCard(Page, "Monotone curve profiles", "Activity", "5 editable",
+    static constexpr const char* CurveLabels[6] = {"Torque", "Brake", "Coolant", "Oil", "Tyre", "Power"};
+    BeginVehicleCard(Page, "Monotone curve profiles", "Activity", "5 editable · 1 derived",
                      "Fritsch-Carlson monotone cubic Hermite splines guarantee zero overshoot between authored control points.");
 
-    Changed |= ChoiceRow::Construct(Page, "CurveSel", "Active profile", CurveLabels, 5, Parameters.SelectedCurveProfile);
+    Changed |= ChoiceRow::Construct(Page, "CurveSel", "Active profile", CurveLabels, 6, Parameters.SelectedCurveProfile);
     Changed |= ToggleRow::Construct(Page, "CurveMono", "Smooth Fritsch-Carlson monotone tangents", Parameters.CurveSmoothMonotone);
+
+    if (Parameters.SelectedCurveProfile == 5)
+    {
+        const auto& TorquePoints = Parameters.EngineTorqueCurve;
+        std::array<float, 48> PowerSamples{};
+        if (TorquePoints.size() >= 2)
+        {
+            const float FirstRpm = TorquePoints.front().X;
+            const float LastRpm = std::max(FirstRpm + 1.0f, TorquePoints.back().X);
+            float PeakPower = 1.0f;
+            for (size_t Index = 0; Index < PowerSamples.size(); ++Index)
+            {
+                const float Rpm = FirstRpm + (LastRpm - FirstRpm) * static_cast<float>(Index) / static_cast<float>(PowerSamples.size() - 1);
+                PowerSamples[Index] = std::max(0.0f, EvaluateMonotoneVehicleCurve(TorquePoints, Parameters.CurveSmoothMonotone, Rpm) * Rpm * VehiclePi / 30000.0f);
+                PeakPower = std::max(PeakPower, PowerSamples[Index]);
+            }
+            for (float& Sample : PowerSamples) Sample /= PeakPower;
+        }
+        const InspectorPalette Palette = InspectorPalette::Resolve();
+        ImGui::SetCursorScreenPos(Page.Space(94.0f / Page.QueryScale(), 0.0f, 8.0f));
+        DiagramControls::ConstructCurvePlot(Palette, Page.QueryFaces(), "Power (kW) from torque and RPM",
+                                            PowerSamples.data(), PowerSamples.size(), IM_COL32(159, 180, 214, 255), nullptr, 0, 0, -1.0f, Page.QueryWidth());
+        SubHeadingLabel(Page, "Derived from the torque profile; edit torque to change power.");
+        Page.EndCard();
+        return;
+    }
 
     auto ResolveCurveVector = [&]() -> std::vector<VehicleCurveControlPoint>& {
         switch (std::clamp(Parameters.SelectedCurveProfile, 0, 4))
@@ -588,8 +615,63 @@ void VehicleInspector::ConstructCurvesSection(ControlColumn& Page, bool& Changed
         Samples[Idx]  = std::clamp(EvaluateMonotoneVehicleCurve(ActivePoints, Parameters.CurveSmoothMonotone, X) / YMax, 0.0f, 1.0f);
     }
     const InspectorPalette Palette = InspectorPalette::Resolve();
+    ImGui::SetCursorScreenPos(Page.Space(94.0f / Page.QueryScale(), 0.0f, 8.0f));
     DiagramControls::ConstructCurvePlot(Palette, Page.QueryFaces(), CurveLabels[std::clamp(Parameters.SelectedCurveProfile, 0, 4)],
-                                        Samples.data(), Samples.size(), IM_COL32(232, 168, 74, 255));
+                                        Samples.data(), Samples.size(), IM_COL32(232, 168, 74, 255), nullptr, 0, 0, -1.0f, Page.QueryWidth());
+
+    // 📝 Reuse the plot's measured bounds for direct pointer editing of authored points.
+    const ImVec2 PlotMin = ImGui::GetItemRectMin();
+    const ImVec2 PlotMax = ImGui::GetItemRectMax();
+    const ImVec2 ResumePosition = ImGui::GetCursorScreenPos();
+    ImGui::SetCursorScreenPos(PlotMin);
+    ImGui::InvisibleButton("##VehicleCurvePointer", ImVec2(PlotMax.x - PlotMin.x, PlotMax.y - PlotMin.y));
+    const float Left = PlotMin.x + 12.0f;
+    const float Right = PlotMax.x - 12.0f;
+    const float Top = PlotMin.y + 24.0f;
+    const float Bottom = PlotMin.y + 76.0f;
+    const auto PointScreen = [&](const VehicleCurveControlPoint& Point) {
+        return ImVec2(Left + (Point.X - XMin) / (XMax - XMin) * (Right - Left),
+                      Bottom - std::clamp(Point.Y / YMax, 0.0f, 1.0f) * (Bottom - Top));
+    };
+    const ImVec2 Pointer = ImGui::GetIO().MousePos;
+    if (ImGui::IsItemActivated())
+    {
+        DraggedCurvePoint = -1;
+        float NearestSquared = 144.0f;
+        for (size_t Index = 0; Index < ActivePoints.size(); ++Index)
+        {
+            const ImVec2 Position = PointScreen(ActivePoints[Index]);
+            const float Dx = Position.x - Pointer.x;
+            const float Dy = Position.y - Pointer.y;
+            if (Dx * Dx + Dy * Dy < NearestSquared)
+            {
+                NearestSquared = Dx * Dx + Dy * Dy;
+                DraggedCurvePoint = static_cast<int>(Index);
+                Parameters.SelectedCurvePoint = DraggedCurvePoint;
+            }
+        }
+    }
+    if (ImGui::IsItemActive() && DraggedCurvePoint >= 0 && DraggedCurvePoint < static_cast<int>(ActivePoints.size()))
+    {
+        const size_t Index = static_cast<size_t>(DraggedCurvePoint);
+        const float Lower = Index == 0 ? 0.0f : ActivePoints[Index - 1].X + 1.0f;
+        const float Upper = Index + 1 == ActivePoints.size() ? std::max(10000.0f, XMax) : ActivePoints[Index + 1].X - 1.0f;
+        const float X = std::clamp(XMin + (Pointer.x - Left) / (Right - Left) * (XMax - XMin), Lower, std::max(Lower, Upper));
+        const float Y = std::clamp((Bottom - Pointer.y) / (Bottom - Top), 0.0f, 1.0f) * YMax;
+        if (X != ActivePoints[Index].X || Y != ActivePoints[Index].Y)
+        {
+            ActivePoints[Index] = {X, Y};
+            Changed = true;
+        }
+    }
+    if (ImGui::IsItemDeactivated()) DraggedCurvePoint = -1;
+    for (size_t Index = 0; Index < ActivePoints.size(); ++Index)
+    {
+        const ImVec2 Position = PointScreen(ActivePoints[Index]);
+        ImGui::GetWindowDrawList()->AddCircleFilled(Position, Index == static_cast<size_t>(Parameters.SelectedCurvePoint) ? 4.5f : 3.0f,
+                                                     IM_COL32(232, 168, 74, 255));
+    }
+    ImGui::SetCursorScreenPos(ResumePosition);
 
     SubHeadingLabel(Page, "Selected control point");
     Changed |= IntSliderRow(Page, "CurvePtIdx", "Control point index", Parameters.SelectedCurvePoint, 0,
@@ -604,9 +686,11 @@ void VehicleInspector::ConstructCurvesSection(ControlColumn& Page, bool& Changed
     Changed |= SliderRow::Construct(Page, "CurvePtX", "Point X", Chosen.X, LowerX, std::max(LowerX + 1.0f, UpperX), 5.0f, "");
     Changed |= SliderRow::Construct(Page, "CurvePtY", "Point Y", Chosen.Y, 0.0f, std::max(200.0f, YMax * 1.25f), 1.0f, "");
 
-    const ActionEntry Actions[2] = {
+    const ActionEntry Actions[4] = {
         {"AddPt", "+ Insert midpoint", true, "Inserts a control point in the widest interval"},
-        {"RemPt", "- Remove point", ActivePoints.size() > 2u, "A curve retains at least two points"}};
+        {"RemPt", "- Remove point", ActivePoints.size() > 2u, "A curve retains at least two points"},
+        {"ResetPt", "Reset curve", true, "Restore default points for this profile"},
+        {"CopyPt", "Copy CSV", true, "Copy the authored control points"}};
     const int Clicked = ActionRow::Construct(Page, Actions);
     if (Clicked == 0)
     {
@@ -628,6 +712,27 @@ void VehicleInspector::ConstructCurvesSection(ControlColumn& Page, bool& Changed
         ActivePoints.erase(ActivePoints.begin() + Parameters.SelectedCurvePoint);
         Parameters.SelectedCurvePoint = std::clamp(Parameters.SelectedCurvePoint, 0, static_cast<int>(ActivePoints.size()) - 1);
         Changed = true;
+    }
+    else if (Clicked == 2)
+    {
+        const VehicleConfiguration Defaults{};
+        switch (Parameters.SelectedCurveProfile)
+        {
+            case 1: ActivePoints = Defaults.BrakeTorqueCurve; break;
+            case 2: ActivePoints = Defaults.CoolantTempCurve; break;
+            case 3: ActivePoints = Defaults.OilTempCurve; break;
+            case 4: ActivePoints = Defaults.TyreSurfaceTempCurve; break;
+            default: ActivePoints = Defaults.EngineTorqueCurve; break;
+        }
+        Parameters.SelectedCurvePoint = 0;
+        Changed = true;
+    }
+    else if (Clicked == 3)
+    {
+        std::string Csv = "x,y\n";
+        for (const auto& Point : ActivePoints)
+            Csv += std::to_string(Point.X) + "," + std::to_string(Point.Y) + "\n";
+        ImGui::SetClipboardText(Csv.c_str());
     }
     Page.EndCard();
 }
@@ -660,15 +765,15 @@ void VehicleInspector::ConstructTyresSection(ControlColumn& Page, bool& Changed)
     std::snprintf(Status, sizeof(Status), "%d enclosed \xC2\xB7 %d pit", Enclosed, 4 - Enclosed);
 
     BeginVehicleCard(Page, "Corner tyres & pit-lane enclosure", "CircleDot", Status,
-                     "Each tyre is an independent record enclosed by the vehicle; detaching parks it in the pit lane.");
+                     "Each fitted tyre shares its corner settings with its outliner entry. Enclosure here does not yet move the entry or run physics.");
 
     static constexpr const char* CornerNames[4]   = {"FL", "FR", "RL", "RR"};
     static constexpr const char* CompoundNames[5] = {"Soft", "Medium", "Hard", "Inter", "Wet"};
     Changed |= ChoiceRow::Construct(Page, "CornerSel", "Selected corner", CornerNames, 4, Parameters.SelectedCornerIndex);
 
     TyreCornerConfiguration& Corner = Parameters.Corners[static_cast<size_t>(std::clamp(Parameters.SelectedCornerIndex, 0, 3))];
-    Changed |= ToggleRow::Construct(Page, "CornerEnc", "Enclosed by vehicle (false = Pit Lane)", Corner.EnclosedCondition);
-    Changed |= ToggleRow::Construct(Page, "CornerPunc", "Punctured carcass (rapid deflation)", Corner.PuncturedCondition);
+    Changed |= ToggleRow::Construct(Page, "CornerEnc", "Fitted status (no spatial relocation yet)", Corner.EnclosedCondition);
+    Changed |= ToggleRow::Construct(Page, "CornerPunc", "Punctured carcass (authored setting)", Corner.PuncturedCondition);
     Changed |= ChoiceRow::Construct(Page, "CornerCmp", "Compound", CompoundNames, 5, Corner.CompoundIndex);
     Changed |= SliderRow::Construct(Page, "CornerColdP", "Cold inflation pressure", Corner.ColdPressureKpa, 120.0f, 260.0f, 1.0f, "kPa");
     Changed |= SliderRow::Construct(Page, "CornerSurfT", "Surface temperature", Corner.SurfaceTemperatureC, 20.0f, 160.0f, 1.0f, "\xC2\xB0" "C");
@@ -799,7 +904,7 @@ void VehicleInspector::ConstructTelemetryDock(ControlColumn& Page)
 {
     if (!Parameters.TelemetryEnabled)
     {
-        BeginVehicleCard(Page, "Live telemetry dock detached", "Activity", "OFF",
+        BeginVehicleCard(Page, "Telemetry preview disabled", "Activity", "OFF",
                          "Telemetry is disabled on this vehicle record. Enable the Telemetry aid to attach the read-only dock.");
         if (NextButton::Construct(Page, "AttachTel", "Enable telemetry aid", true))
         {
@@ -825,8 +930,8 @@ void VehicleInspector::ConstructTelemetryDock(ControlColumn& Page)
                                 : Parameters.SuperchargerMaxBoostBar * (0.55f + 0.45f * std::max(0.0f, std::sin(Phase * 1.7f)));
     const float DeflectMm = 18.0f + 14.0f * (0.5f + 0.5f * std::cos(Phase * 2.1f));
 
-    BeginVehicleCard(Page, "Live telemetry dock \xC2\xB7 read-only", "Activity", TelemetryPaused ? "PAUSED" : "LIVE",
-                     "Read-only runtime instrumentation: watching telemetry never mutates the authored vehicle record.");
+    BeginVehicleCard(Page, "Telemetry preview \xC2\xB7 read-only", "Activity", TelemetryPaused ? "PAUSED" : "PREVIEW",
+                     "Illustrative readings only; this panel is not connected to the running physics solver.");
 
     char Spd[24]{}, RpmStr[24]{}, GrStr[16]{}, BstStr[24]{};
     std::snprintf(Spd, sizeof(Spd), "%.0f", SpeedKmh);
@@ -877,7 +982,7 @@ void VehicleInspector::ConstructInspector()
         Changed           = true;
     }
 
-    static constexpr const char* ModeOptions[2] = {"Inspector \xC2\xB7 Authoring", "Telemetry \xC2\xB7 Live Dock"};
+    static constexpr const char* ModeOptions[2] = {"Inspector \xC2\xB7 Authoring", "Telemetry \xC2\xB7 Preview"};
     (void)ChoiceRow::Construct(Page, "VehMode", "Workspace mode", ModeOptions, 2, Parameters.InspectorModeIndex);
 
     int UnitIdx = Parameters.UnitDisplayImperial ? 1 : 0;
@@ -890,7 +995,7 @@ void VehicleInspector::ConstructInspector()
     if (Parameters.InspectorModeIndex == 1)
     {
         ConstructTelemetryDock(Page);
-        FooterRow::Construct(Page, "Levelspace record \xC2\xB7 Vehicle", "Read-only telemetry dock");
+        FooterRow::Construct(Page, "Levelspace record \xC2\xB7 Vehicle", "Illustrative telemetry preview");
         Page.Finalize();
         return;
     }

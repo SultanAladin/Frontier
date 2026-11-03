@@ -62,6 +62,15 @@ void TyreInspector::ConstructInspector()
     const float LScale = Imp ? 0.03937008f : 1.0f;
     const char* PUnit  = Imp ? "psi" : "kPa";
     const char* LUnit  = Imp ? "in" : "mm";
+    const auto TemperatureRow = [&](const char* Identity, const char* Label, float& Celsius, float Minimum, float Maximum) {
+        float Reading = Imp ? Celsius * 1.8f + 32.0f : Celsius;
+        const float Low = Imp ? Minimum * 1.8f + 32.0f : Minimum;
+        const float High = Imp ? Maximum * 1.8f + 32.0f : Maximum;
+        if (!SliderRow::Construct(Page, Identity, Label, Reading, Low, High, Imp ? 1.8f : 1.0f,
+                                  Imp ? "\xC2\xB0" "F" : "\xC2\xB0" "C")) return false;
+        Celsius = Imp ? (Reading - 32.0f) / 1.8f : Reading;
+        return true;
+    };
 
     char PressStr[24]{}, SurfStr[24]{}, WearStr[24]{}, LapStr[24]{};
     std::snprintf(PressStr, sizeof(PressStr), "%.0f", Parameters.ColdPressureKpa * PScale);
@@ -81,18 +90,18 @@ void TyreInspector::ConstructInspector()
     Look.PaddingSide   = 14.0f;
     Look.PaddingBottom = 8.0f;
     Look.MarginBottom  = 16.0f;
-    Look.HeadingGlyph  = "Torus";
+    Look.HeadingGlyph  = "TyreTread";
     Page.BeginCard(Look, "Compound, carcass & Pacejka MF6.1", CompoundNames[std::clamp(Parameters.CompoundIndex, 0, 4)]);
 
     Changed |= ChoiceRow::Construct(Page, "TyreCmp", "Compound", CompoundNames, 5, Parameters.CompoundIndex);
-    Changed |= ToggleRow::Construct(Page, "TyreEnc", "Enclosed by vehicle (false = Pit Lane)", Parameters.EnclosedCondition);
-    Changed |= ToggleRow::Construct(Page, "TyrePunc", "Punctured carcass (rapid deflation)", Parameters.PuncturedCondition);
+    Changed |= ToggleRow::Construct(Page, "TyreEnc", "Fitted status (no spatial relocation yet)", Parameters.EnclosedCondition);
+    Changed |= ToggleRow::Construct(Page, "TyrePunc", "Punctured carcass (authored setting)", Parameters.PuncturedCondition);
     Changed |= SliderRow::Construct(Page, "TyreColdP", "Cold inflation pressure", Parameters.ColdPressureKpa, 120.0f, 260.0f, 1.0f, PUnit, PScale);
     Changed |= SliderRow::Construct(Page, "TyreHotP", "Operating carcass pressure", Parameters.HotPressureKpa, 140.0f, 320.0f, 1.0f, PUnit, PScale);
-    Changed |= SliderRow::Construct(Page, "TyreSurfT", "Surface temperature", Parameters.SurfaceTemperatureC, 20.0f, 160.0f, 1.0f, "\xC2\xB0" "C");
-    Changed |= SliderRow::Construct(Page, "TyreBeltT", "Belt intermediate temperature", Parameters.BeltTemperatureC, 20.0f, 160.0f, 1.0f, "\xC2\xB0" "C");
-    Changed |= SliderRow::Construct(Page, "TyreGasT", "Internal gas temperature (PV=mRT)", Parameters.GasTemperatureC, 20.0f, 150.0f, 1.0f, "\xC2\xB0" "C");
-    Changed |= SliderRow::Construct(Page, "TyreCoreT", "Inner ply core temperature", Parameters.CoreTemperatureC, 20.0f, 160.0f, 1.0f, "\xC2\xB0" "C");
+    Changed |= TemperatureRow("TyreSurfT", "Surface temperature", Parameters.SurfaceTemperatureC, 20.0f, 160.0f);
+    Changed |= TemperatureRow("TyreBeltT", "Belt intermediate temperature", Parameters.BeltTemperatureC, 20.0f, 160.0f);
+    Changed |= TemperatureRow("TyreGasT", "Internal gas temperature (PV=mRT)", Parameters.GasTemperatureC, 20.0f, 150.0f);
+    Changed |= TemperatureRow("TyreCoreT", "Inner ply core temperature", Parameters.CoreTemperatureC, 20.0f, 160.0f);
     Changed |= SliderRow::Construct(Page, "TyreWear", "Wear consumed", Parameters.WearPercent, 0.0f, 100.0f, 1.0f, "%");
     Changed |= SliderRow::Construct(Page, "TyreTread", "Tread groove depth", Parameters.TreadDepthMm, 1.5f, 9.5f, 0.1f, LUnit, LScale);
     Changed |= SliderRow::Construct(Page, "TyreRad", "Loaded outer radius", Parameters.LoadedRadiusMm, 280.0f, 400.0f, 1.0f, LUnit, LScale);
@@ -101,6 +110,8 @@ void TyreInspector::ConstructInspector()
     Changed |= SliderRow::Construct(Page, "TyrePcx", "Pacejka longitudinal shape (PCx1)", Parameters.PacejkaLongitudinalShape, 1.0f, 2.3f, 0.02f, "");
     Changed |= SliderRow::Construct(Page, "TyrePcy", "Pacejka lateral shape (PCy1)", Parameters.PacejkaLateralShape, 0.9f, 2.0f, 0.02f, "");
     Changed |= SliderRow::Construct(Page, "TyreSens", "Normal-load sensitivity", Parameters.LoadSensitivity, 0.0f, 0.45f, 0.01f, "");
+    Changed |= TemperatureRow("TyreOptT", "Optimal surface temperature", Parameters.OptimalSurfaceTempC, 20.0f, 160.0f);
+    Changed |= SliderRow::Construct(Page, "TyreWindow", "Thermal window half-width", Parameters.ThermalWindowHalfWidthC, 1.0f, 80.0f, 1.0f, Imp ? "\xC2\xB0" "F" : "\xC2\xB0" "C", Imp ? 1.8f : 1.0f);
     Page.EndCard();
 
     FooterRow::Construct(Page, "Levelspace record \xC2\xB7 Tyre", "Saved with the level");
