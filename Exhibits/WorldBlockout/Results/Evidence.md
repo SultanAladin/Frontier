@@ -1,6 +1,6 @@
 # World blockout evidence
 
-Generated 2026-11-03T09:51:46.608Z · 23452 land cells of 131072 · 3 pads · ocean 119936 triangles
+Generated 2026-11-03T11:11:52.952Z · 23452 land cells of 131072 · 3 pads · ocean 119936 triangles
 
 Every PNG in this folder is produced by `RenderEvidence.mjs` from the same scene builders the editor page uses.
 

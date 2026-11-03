@@ -1,14 +1,14 @@
 # Renderer 3D validation
 
-Generated 2026-11-03T09:51:10.152Z · 37 checks · all passed
+Generated 2026-11-03T11:11:54.911Z · 40 checks · all passed
 
 World: 23031 land cells of 131072, 6371 km radius. Patch: 112² at 14.3 m, anchored at 8.00° 4.00°.
 
 | Frame | Altitude / distance | Land triangles | Water triangles | Milliseconds |
 |-------|--------------------|----------------|-----------------|--------------|
 | Globe | 9000 km altitude | 17,384 | 7,447 | 78 |
-| Coast | 520.0 km out | 20,958 | 16,069 | 107 |
-| Waves | 2.4 km out | 12,243 | 9,759 | 94 |
+| Coast | 520.0 km out | 20,958 | 16,069 | 124 |
+| Waves | 2.4 km out | 12,243 | 9,759 | 93 |
 
 | Check | Result | Detail |
 |-------|--------|--------|
@@ -42,10 +42,13 @@ World: 23031 land cells of 131072, 6371 km radius. Patch: 112² at 14.3 m, ancho
 | Waves: the frame is not empty | pass | 100.0% of pixels carry scene |
 | Waves: both layers contribute | pass | 12,243 land · 9,759 water |
 | a frame is deterministic | pass | the same camera drew the same pixels twice |
-| a frame renders inside its budget | pass | slowest of six frames 107 ms |
+| a frame renders inside its budget | pass | slowest of six frames 124 ms |
 | no sea over a continent | pass | 0 water triangles over the Sahara |
 | the sea changes the coast frame | pass | 66.8% of channels differ with water off |
 | the LOD paint is a different picture | pass | 98.8% of channels differ |
 | the water surface is not flat | pass | σ 0.467 m across 0.08° of patch |
 | the viewport samples the solve at the patch and the spectrum away from it | pass | weight 0.000 at the focus, 1.000 four degrees out |
 | the sea shows its waves in the pixels | pass | σ 7.5 of the green channel |
+| the canvas buffer is four bytes a pixel | pass | 1,024,000 bytes for 256,000 pixels |
+| every canvas pixel is opaque | pass | alpha 255 throughout — a transparent canvas draws nothing |
+| the canvas channels are in order | pass | red, green and blue land in their own slots |

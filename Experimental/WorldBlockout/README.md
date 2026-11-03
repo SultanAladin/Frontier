@@ -206,7 +206,7 @@ toggle — so the page can keep the solve running while the view stands still.
 | `TerrainFieldValidation.mjs` | 82 | field, SDF, stamps, brushes, pads, mesh, record |
 | `OceanFieldValidation.mjs` | 54 | solve, conservation, boundary, spectrum, blend, section |
 | `OceanMeshValidation.mjs` | 35 | plan, tiers, skirts, fan, budget, screen error |
-| `Renderer3DValidation.mjs` | 37 | projection, disc, layers, determinism, frame budget |
+| `Renderer3DValidation.mjs` | 40 | projection, disc, layers, determinism, frame budget |
 | `WorldBlockoutPageValidation.mjs` | 78 | the page, the rails, the map, the ocean panel, the 3D view |
 
 `Exhibits/WorldBlockout` holds the harnesses and the rendered figures; see its README for the commands. Each report

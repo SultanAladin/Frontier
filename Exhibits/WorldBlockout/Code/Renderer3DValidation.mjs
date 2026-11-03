@@ -339,6 +339,26 @@ for (const [Name, Frame] of Object.entries({ Globe: Frames.Globe, Coast: Frames.
     Assert('the sea shows its waves in the pixels', Deviation > 1.5, `σ ${Round(Deviation, 1)} of the green channel`);
 }
 
+{
+    // 📝 The canvas path is the one a browser uses and the only one the tests cannot look at directly. It still has to be
+    //    checked: an RGBA buffer of the wrong length, or with a transparent alpha, draws a striped ghost of the frame.
+    const Statistics = Frames.Globe;
+    const Rgba = View3D.ToRgba(Statistics);
+    const Pixels = Statistics.Raster.Width * Statistics.Raster.Height;
+    Assert('the canvas buffer is four bytes a pixel', Rgba.length === Pixels * 4,
+        `${Rgba.length.toLocaleString('en-GB')} bytes for ${Pixels.toLocaleString('en-GB')} pixels`);
+    let Opaque = true, Ordered = true;
+    for (let Index = 0; Index < Pixels; ++Index)
+    {
+        if (Rgba[Index * 4 + 3] !== 255) { Opaque = false; break; }
+        if (Rgba[Index * 4] !== Statistics.Raster.Pixels[Index * 3]
+            || Rgba[Index * 4 + 1] !== Statistics.Raster.Pixels[Index * 3 + 1]
+            || Rgba[Index * 4 + 2] !== Statistics.Raster.Pixels[Index * 3 + 2]) { Ordered = false; break; }
+    }
+    Assert('every canvas pixel is opaque', Opaque, 'alpha 255 throughout — a transparent canvas draws nothing');
+    Assert('the canvas channels are in order', Ordered, 'red, green and blue land in their own slots');
+}
+
 //------------------------------------------------------------------------------------------------------------------------
 //                                                      THE REPORT
 //------------------------------------------------------------------------------------------------------------------------

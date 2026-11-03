@@ -1,6 +1,6 @@
 # World blockout page validation
 
-Generated 2026-11-03T11:06:31.940Z · Node v22.22.3 · jsdom 24.1.3 · 78/78 checks passed.
+Generated 2026-11-03T11:12:37.044Z · Node v22.22.3 · jsdom 24.1.3 · 78/78 checks passed.
 
 The harness builds the real `index.html` in jsdom and evaluates `TerrainField.js`, `Raster.js`, `OceanField.js`,
 `OceanMesh.js`, `Scenes.js` and `WorldBlockout.js` in page order. It clicks the real tools, chips, toggles and sliders,
@@ -78,10 +78,10 @@ dispatches real pointer events at the map, and reads the DOM and the record back
 | the 3D canvas exists | ✔️ pass | canvas present |
 | the map is the view the page opens on | ✔️ pass | map |
 | switching to 3D marks the stage | ✔️ pass | stage is-3d |
-| the 3D view draws both layers | ✔️ pass | 17384 land · 7444 water |
+| the 3D view draws both layers | ✔️ pass | 18304 land · 8250 water |
 | the 3D view reports its frame | ✔️ pass | 3D view · drag to orbit · wheel to zoom |
 | dragging turns the globe | ✔️ pass | 16.0° → 24.8° |
-| the wheel changes the altitude | ✔️ pass | 9000 km → 6464 km |
+| the wheel changes the altitude | ✔️ pass | 14180 km → 10184 km |
 | the three presets render | ✔️ pass | globe · coast · waves |
 | the LOD paint is a mode, not a label | ✔️ pass | chip lit |
 | the map comes back | ✔️ pass | map |

@@ -376,7 +376,10 @@ const Renderer3D = (function ()
         const Frame = ResolveFrame(Camera, PlanetRadiusKm);
         // 📝 The near plane has to be a fraction of the view, not a kilometre. At a globe a kilometre is nothing; at a
         //    three-kilometre view of a swell it is the entire foreground, and the sea came back with its bottom half missing.
-        const NearKm = Math.min(Camera.NearKm, Math.max(0.0005, Camera.DistanceKm * 0.05));
+        // 📝 "How big is this view" is the altitude when the camera is over a globe and the distance when it is over a coast;
+        //    using the distance in globe mode fogged a planet that was twenty thousand kilometres away into mud.
+        const ViewKm = Camera.AltitudeKm > 0 ? Camera.AltitudeKm : Camera.DistanceKm;
+        const NearKm = Math.min(Camera.NearKm, Math.max(0.0005, ViewKm * 0.05));
         const Depth = new Float32Array(Camera.Width * Camera.Height).fill(Infinity);
         // 📝 Two buffers the sea needs and depth alone cannot give. Ground records the height of whatever terrain landed on
         //    the pixel, and WaterDepth orders the sea against itself; the sea is then drawn wherever the ground under it is
@@ -494,7 +497,7 @@ const Renderer3D = (function ()
                 const Shade = Underwater
                     ? 0.46 + 0.22 * Math.max(0, Dot(Normal, Frame.Light))
                     : Math.max(0.28, Math.min(1.25, 0.35 + 0.78 * Math.max(0, Dot(Normal, Frame.Light))));
-                const Haze = Math.min(0.55, Math.max(0, (Screen[0].Z - Camera.DistanceKm * 2.2) / (Camera.DistanceKm * 8)));
+                const Haze = Math.min(0.55, Math.max(0, (Screen[0].Z - ViewKm * 2.2) / (ViewKm * 8)));
                 const Mixed = TerrainColour(MeanHeight);
                 const Drown = Underwater ? Math.min(0.75, (-MeanHeight) / 1400) : 0;
                 const Base = [Lerp(Mixed[0], 14, Drown), Lerp(Mixed[1], 36, Drown), Lerp(Mixed[2], 48, Drown)];
@@ -569,6 +572,38 @@ const Renderer3D = (function ()
         return RasterApi.ToDataUrl(RasterApi.EncodePng(Stats.Raster));
     }
 
+    // 📝 The raster is three bytes a pixel; a canvas ImageData is four, and the fourth is alpha. Handing the RGB stream to
+    //    ImageData.set() does not convert it, it shifts it — every pixel reads its neighbour's channels and the canvas comes
+    //    out transparent and striped. This is the conversion, and it is the only one.
+    function ToRgba(Stats)
+    {
+        const Source = Stats.Raster.Pixels;
+        const Count = Source.length / 3;
+        const Out = new Uint8ClampedArray(Count * 4);
+        for (let Index = 0; Index < Count; ++Index)
+        {
+            Out[Index * 4] = Source[Index * 3];
+            Out[Index * 4 + 1] = Source[Index * 3 + 1];
+            Out[Index * 4 + 2] = Source[Index * 3 + 2];
+            Out[Index * 4 + 3] = 255;
+        }
+        return Out;
+    }
+
+    // 📝 A planet seen from 9,000 km subtends forty-nine degrees, and a forty-two degree frame cuts it in half. The altitude
+    //    that fits is a function of the field of view and nothing else: sin(α) = R / (R + h) for the angular radius α the
+    //    frame can hold with a margin, so h = R / sin(α) − R.
+    function FrameGlobe(Camera, PlanetRadiusKm)
+    {
+        // 📝 The frame is not square and the field of view is vertical, so the tighter of the two half-angles is the one that
+        //    decides: a portrait stage clips the planet at the sides long before it clips it top and bottom.
+        const Half = (Camera.FieldOfViewDeg * DEG) / 2;
+        const Across = Math.atan(Math.tan(Half) * (Camera.Width / Camera.Height));
+        const Alpha = Math.min(1.2, Math.min(Half, Across) * 0.86);
+        Camera.AltitudeKm = Math.max(600, PlanetRadiusKm / Math.sin(Alpha) - PlanetRadiusKm);
+        return Camera.AltitudeKm;
+    }
+
     // 📝 Orbit and zoom are pure functions of the camera so the page, the evidence and a test all move the view the same way.
     function Orbit(Camera, DeltaAzimuthDeg, DeltaElevationDeg)
     {
@@ -584,7 +619,8 @@ const Renderer3D = (function ()
     }
 
     return {
-        CreateCamera, BuildDisc, BuildTerrain, BuildWater, Destination, DisplayHeight, Render, Orbit, Zoom, ToDataUrl,
+        CreateCamera, BuildDisc, BuildTerrain, BuildWater, Destination, DisplayHeight, FrameGlobe, Render, Orbit,
+        Zoom, ToDataUrl, ToRgba,
         ResolveFrame, SpherePoint, DEFAULTS
     };
 })();

@@ -515,6 +515,9 @@ const WorldBlockout = (function ()
         }
         Object.assign(Camera, Settings, { Width: Camera.Width, Height: Camera.Height, FieldOfViewDeg: Camera.FieldOfViewDeg,
             LightAzimuthDeg: Camera.LightAzimuthDeg, LightElevationDeg: Camera.LightElevationDeg });
+        // 📝 Globe framing depends on the frame's own shape: the altitude that fits a planet into a portrait stage is not the
+        //    one that fits a landscape one.
+        if (Camera.AltitudeKm > 0 && State.Field) RendererApi.FrameGlobe(Camera, State.Field.Planet.RadiusKm);
         State.Camera3D = Camera;
         State.Preset3D = Name;
         State.ViewDirty = true;
@@ -527,8 +530,13 @@ const WorldBlockout = (function ()
     {
         const Camera = State.Camera3D;
         if (!Camera || !Elements.View3D) return Camera;
-        const Width = 720;
-        const Aspect = (State.MapWidth / State.MapHeight) || 2;
+        // 📝 The stage is as wide as the rails leave it and often taller than it is broad, so the frame's aspect comes from the
+        //    box. A hard 2:1 letterboxed the globe into a band across the middle of a portrait stage.
+        let Aspect = (State.MapWidth / State.MapHeight) || 2;
+        const Host = Elements.View3D.parentElement;
+        if (Host && Host.clientWidth > 40 && Host.clientHeight > 40) Aspect = Host.clientWidth / Host.clientHeight;
+        Aspect = Math.max(0.7, Math.min(2.2, Aspect));
+        const Width = Math.round(Math.min(760, Math.sqrt(420000 * Aspect)));
         Camera.Width = Width;
         Camera.Height = Math.max(240, Math.round(Width / Aspect));
         // 📝 Only when there is a canvas to draw on. In a headless test there is not, and the render still has to happen so
@@ -573,7 +581,7 @@ const WorldBlockout = (function ()
                 try
                 {
                     const Image = Context.createImageData(Camera.Width, Camera.Height);
-                    Image.data.set(Stats.Raster.Pixels);
+                    Image.data.set(RendererApi.ToRgba(Stats));
                     Context.putImageData(Image, 0, 0);
                 }
                 catch (Error)

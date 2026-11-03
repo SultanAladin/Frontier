@@ -233,9 +233,10 @@ Write('OceanBudget.png', RenderBudget(Summary, 760, 290), 760);
 // 📝 One figure, three scales, because a blockout is only legible at the scale that fits it: a planet is a disc, a coast is
 //    a few hundred kilometres of shelf, a swell is three kilometres of water. The frames are the renderer's own pixels,
 //    embedded in the SVG, so the figure cannot drift from the viewport.
-function Frame3D(Settings)
+function Frame3D(Settings, Prepare)
 {
     const Camera = View3D.CreateCamera(Object.assign({ Width: 720, Height: 400 }, Settings));
+    if (Prepare) Prepare(Camera);
     const Stats = View3D.Render(Camera, Terra.Planet.RadiusKm, {
         Terrain: View3D.BuildTerrain(Terra, Camera),
         Water: View3D.BuildWater(Ocean, Camera, {})
@@ -244,8 +245,9 @@ function Frame3D(Settings)
 }
 
 const Panels = [
-    { Name: 'Globe', Note: '9,000 km over Africa · the whole blockout',
-        Frame: Frame3D({ AltitudeKm: 9000, TargetLon: 16, TargetLat: 6, Relief: 6, WaveScale: 8 }) },
+    { Name: 'Globe', Note: 'from orbit over Africa · the whole blockout',
+        Frame: Frame3D({ AltitudeKm: 1, TargetLon: 16, TargetLat: 6, Relief: 6, WaveScale: 8 },
+            Camera => View3D.FrameGlobe(Camera, Terra.Planet.RadiusKm)) },
     { Name: 'Coast', Note: '520 km out · shelf, shore and the sea behind it',
         Frame: Frame3D({ AltitudeKm: 0, DistanceKm: 520, ElevationDeg: 30, AzimuthDeg: 248, TargetLon: 9, TargetLat: -4,
             Relief: 6, WaveScale: 24 }) },

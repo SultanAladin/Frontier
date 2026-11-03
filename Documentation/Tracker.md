@@ -568,7 +568,7 @@ auto-size layer cards.
   come from the unexaggerated surface. Presets: globe from 9,000 km, a 520 km coast, the 2.4 km patch; drag orbits,
   wheel zooms, a chip tints the water by which field owns the surface, and nothing renders per frame.
 - Verified: `TerrainFieldValidation.mjs` 82/82, `OceanFieldValidation.mjs` 54/54, `OceanMeshValidation.mjs` 35/35,
-  `Renderer3DValidation.mjs` 37/37, `WorldBlockoutPageValidation.mjs` 78/78 (jsdom, real pointer and keyboard events,
+  `Renderer3DValidation.mjs` 40/40, `WorldBlockoutPageValidation.mjs` 78/78 (jsdom, real pointer and keyboard events,
   including the 3D tab, orbit, zoom and presets), and seven figures from `RenderEvidence.mjs` in
   `Exhibits/WorldBlockout/Results`.
 - Still open: no GPU path — the solve, the spectrum, the plan and the 3D rasteriser are CPU code; the 3D view samples
