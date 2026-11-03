@@ -630,6 +630,7 @@ input[type='range']::-moz-range-thumb {
     display: none;
     pointer-events: none;
     image-rendering: auto;
+    object-fit: contain;
     background: #060a10;
 }
 
