@@ -475,6 +475,61 @@ body[data-tool='orbit'] #viewport-canvas {
   border-color: rgba(90, 200, 250, 0.55);
 }
 
+/* ------------------------------------------------------------- diagnostics */
+
+.tp-diag {
+  position: fixed;
+  top: 54px;
+  right: 14px;
+  width: min(460px, calc(100vw - 28px));
+  max-height: 42vh;
+  overflow: auto;
+  z-index: 40;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 122, 112, 0.45);
+  background: #1a0f10;
+  color: #ffd7d2;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  font-family: var(--tp-mono);
+  font-size: 11px;
+}
+
+.tp-diag-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-bottom: 1px solid rgba(255, 122, 112, 0.28);
+  font-family: var(--tp-font);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  font-size: 10px;
+  color: var(--tp-danger);
+}
+
+.tp-diag-head button {
+  border: 0;
+  background: transparent;
+  color: var(--tp-danger);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.tp-diag ol {
+  margin: 0;
+  padding: 8px 12px 10px 26px;
+}
+
+.tp-diag li {
+  margin-bottom: 5px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
 /* ------------------------------------------------------------------- toast */
 
 .tp-toast {

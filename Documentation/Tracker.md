@@ -22,7 +22,7 @@ Single progress and violation tracker. Detailed evidence belongs in Exhibits, no
 | 014 | Control Centre and quick panel        | CPU checked | Windows interaction validation next.  |
 | 015 | Open fonts and catalogue              | Checked     | Four families, 30 faces, OFL retained. |
 | 016 | Appearance persistence                | Checked     | Reload and invalid-save checks passed.|
-| 017 | SDF planet studio, base stage          | CPU checked | Browser/GPU run pending; erosion next.|
+| 017 | SDF planet studio, base stage          | App executed headless | Browser pixel check pending; erosion next.|
 
 ## Verification
 
@@ -472,8 +472,44 @@ Delivered in `Experimental/SDFPlanetStudio/` (Vite + three.js, `node --test` cor
   excavate, smooth, plateau, ridge, island, gulf), brush and planet and ocean inspectors,
   HUD, coordinate teleport, journal save/load, undo, OBJ export.
 
-Validation: 112/112 core tests pass; Vite build clean. **No browser or GPU exists in this
-sandbox**, so the viewport has not been run against a real WebGL context and the evidence
-images are CPU raster output from the same meshes and shading maths, not screenshots.
+### Black viewport on first real load, and what closed the gap
+
+The first browser run showed the full editor chrome and an empty viewport. The core suite
+was green because it never imports the app layer. Two construction-order faults in
+`PlanetViewport` were responsible: `resize()` ran before `#initCamera()` (it reads the
+camera projection), and `#initCamera()` -> `teleportTo()` cleared `uploadQueue` before that
+field had been assigned. Frame-loop state now exists before any initialiser runs, and the
+init order is pinned by a test.
+
+Three things were added so this class of failure cannot hide again:
+
+- **The app is executed headlessly** (`tests/app-smoke.test.mjs`): the real editor module is
+  imported against a DOM shim and a `three` mock, then constructed, pumped for frames, and
+  driven through every tool, a pointer stroke, undo, teleport, ocean edits and the keyboard
+  shortcuts. A throw anywhere in that path fails the suite.
+- **The worker pipeline is round-tripped** (`tests/tile-worker.test.mjs`,
+  `tests/worker-roundtrip.test.mjs`): the worker module runs against a `self` shim, and the
+  real `TileWorkerPool` is driven through a Worker shim that executes it, so a protocol
+  mismatch fails as a test instead of as an empty planet.
+- **Shaders are parsed, not eyeballed** (`tests/shader-syntax.test.mjs`): all six GLSL
+  sources go through a real GLSL ES parser plus a declared-uniform check, because a failed
+  program draws nothing and three only reports it on the console.
+
+Runtime failures now surface in the UI: uncaught errors, rejected promises, shader compile
+errors and worker failures are listed in a dismissible panel, and if no patch arrives within
+four seconds the editor says so. If the worker pool cannot post (module workers blocked, bad
+MIME type, CSP) it degrades to main-thread meshing after two failures rather than showing
+nothing.
+
+Depth policy: `logarithmicDepthBuffer` is deliberately **off** — these are raw
+ShaderMaterials without three's log-depth chunks, and mixing log and non-log depth writes
+makes geometry disappear. Near/far planes follow the orbit distance instead (near tracks how
+close the camera gets, far covers the local horizon or the whole planet), and the sky dome is
+rescaled each frame to stay inside the far plane.
+
+Validation: 145/145 tests pass (112 core, 11 app smoke, 5 worker protocol, 2 pool round trip,
+15 shader syntax); Vite build clean. **No browser or GPU exists in this sandbox**, so the
+evidence images remain CPU raster output from the same meshes and shading maths rather than
+screenshots; the browser run is the user's.
 Erosion layers (particle, cracks, chemical, sedimentation, snow/frost, thermal) remain
 unported by design; they are the next stage, one at a time.

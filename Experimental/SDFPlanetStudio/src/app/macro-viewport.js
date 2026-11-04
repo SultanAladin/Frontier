@@ -19,6 +19,7 @@ import * as THREE from 'three';
 import { PlanetField } from '../core/planet-field.js';
 import { TileManager } from '../core/tile-manager.js';
 import { buildWaterTile } from '../core/water-tile.js';
+import { buildTileMesh } from '../core/narrow-band.js';
 import {
   airDensityAt,
   DEFAULT_OCEAN_PARAMS,
@@ -442,11 +443,15 @@ void main() {
 //                                                       WORKER POOL
 //----------------------------------------------------------------------------------------------------------------------
 
-class TileWorkerPool {
-  constructor(count, { onResync } = {}) {
+export class TileWorkerPool {
+  constructor(count, { onResync, fallback = null, onDiagnostic = null } = {}) {
     this.workers = [];
     this.pending = new Map();
     this.jobId = 0;
+    this.fallback = fallback;
+    this.onDiagnostic = onDiagnostic;
+    this.failures = 0;
+    this.degraded = false;
     this.revision = 0;
     this.onResync = onResync ?? (() => {});
     this.load = [];
@@ -454,7 +459,10 @@ class TileWorkerPool {
     for (let i = 0; i < count; i++) {
       const worker = new Worker(new URL('../worker/tile-worker.js', import.meta.url), { type: 'module' });
       worker.onmessage = (event) => this.#handle(i, event.data);
-      worker.onerror = (event) => console.error('[tile-worker]', event.message ?? event);
+      worker.onerror = (event) => {
+        console.error('[tile-worker]', event.message ?? event);
+        this.#noteFailure(null, new Error(event.message ?? 'worker error'), null);
+      };
       this.workers.push(worker);
       this.load.push(0);
     }
@@ -482,8 +490,8 @@ class TileWorkerPool {
       case 'error': {
         const entry = this.pending.get(message.jobId);
         if (entry) {
-          entry.reject(new Error(message.message));
           this.pending.delete(message.jobId);
+          this.#noteFailure(null, new Error(message.message), entry.reject);
         }
         this.load[workerIndex] = Math.max(0, this.load[workerIndex] - 1);
         break;
@@ -514,7 +522,14 @@ class TileWorkerPool {
     }
   }
 
-  build(tile) {
+  build(tile, fallback = this.fallback) {
+    // A worker that failed to start (module workers blocked, bad MIME type, CSP)
+    // would otherwise leave the viewport permanently empty. After two failures the
+    // pool meshes on the main thread instead of showing nothing.
+    if (this.degraded && fallback) {
+      return Promise.resolve().then(() => fallback(tile));
+    }
+
     const id = ++this.jobId;
     // Least loaded worker keeps the queue balanced without a scheduler.
     let best = 0;
@@ -523,8 +538,27 @@ class TileWorkerPool {
 
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.send(best, { type: 'build', jobId: id, tile });
+      try {
+        this.send(best, { type: 'build', jobId: id, tile });
+      } catch (error) {
+        this.pending.delete(id);
+        this.load[best] = Math.max(0, this.load[best] - 1);
+        this.#noteFailure(tile, error, reject);
+      }
+    }).catch((error) => {
+      if (!fallback) throw error;
+      return fallback(tile);
     });
+  }
+
+  /** Record a worker-side failure and degrade to main-thread meshing if it repeats. */
+  #noteFailure(tile, error, reject) {
+    this.failures++;
+    this.onDiagnostic?.(
+      `tile worker failed (${this.failures}): ${error?.message ?? error} — meshing on the main thread`,
+    );
+    if (this.failures >= 2) this.degraded = true;
+    if (reject) reject(error instanceof Error ? error : new Error(String(error)));
   }
 
   dispose() {
@@ -545,6 +579,7 @@ export class PlanetViewport {
     this.oceanParams = normalizeOceanParams({ ...DEFAULT_OCEAN_PARAMS, ...(options.ocean ?? {}) });
     this.onStats = options.onStats ?? (() => {});
     this.onCursor = options.onCursor ?? (() => {});
+    this.onDiagnostic = options.onDiagnostic ?? (() => {});
 
     this.tool = 'orbit';
     this.brush = { radius: 4200, strength: 320, falloff: 0.5 };
@@ -560,22 +595,26 @@ export class PlanetViewport {
       lastOp: null,
     };
 
+    // Frame-loop state exists before anything that can touch it: `teleportTo`
+    // (called from the camera setup) resets the upload queue.
+    this.uploadQueue = [];
+    this.accumulated = 0;
+    this.frames = 0;
+    this.lastFrame = performance.now();
+    this.time = 0;
+    this.running = true;
+
     this.#initRenderer();
     this.#initScene();
-    this.resize();
+    // The camera has to exist before the first resize: resize reads its
+    // projection and derives the water shader's radians-per-pixel from it.
     this.#initCamera();
+    this.resize();
     this.#initLayers();
     this.#initCursor();
     this.#installInput();
 
-    this.accumulated = 0;
-    this.frames = 0;
-    this.lastFrame = performance.now();
     this.clock = new THREE.Clock();
-    this.time = 0;
-
-    this.uploadQueue = [];
-    this.running = true;
     this.animate = this.animate.bind(this);
     requestAnimationFrame(this.animate);
   }
@@ -586,7 +625,10 @@ export class PlanetViewport {
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
       antialias: true,
-      logarithmicDepthBuffer: true,
+      // Deliberately *not* logarithmicDepthBuffer: these are raw ShaderMaterials
+      // without three's log-depth chunks, and mixing log and non-log depth writes
+      // makes geometry vanish. Precision comes from a near plane that scales with
+      // the orbit distance instead (see #updateCamera).
       powerPreference: 'high-performance',
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -601,9 +643,11 @@ export class PlanetViewport {
   }
 
   resize() {
+    if (!this.renderer) return;
     const width = this.canvas.clientWidth || 1;
     const height = this.canvas.clientHeight || 1;
     this.renderer.setSize(width, height, false);
+    if (!this.camera) return;
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
 
@@ -640,6 +684,7 @@ export class PlanetViewport {
       depthWrite: false,
       depthTest: false,
     });
+    this.skyRadius = this.field.radius * 2.4;
     this.sky = new THREE.Mesh(skyGeometry, skyMaterial);
     this.sky.renderOrder = -10;
     this.sky.frustumCulled = false;
@@ -668,7 +713,12 @@ export class PlanetViewport {
 
     this.workers = new TileWorkerPool(
       Math.max(2, Math.min(4, (navigator.hardwareConcurrency || 4) - 1)),
-      { onResync: () => this.resyncWorkers() },
+      {
+        onResync: () => this.resyncWorkers(),
+        onDiagnostic: (message) => this.onDiagnostic?.(message),
+        // Per-layer main-thread meshing keeps the scene alive when workers cannot
+        // run; TileManager passes the right fallback for its own layer.
+      },
     );
     this.workerOptions = { cellsPerTile: terrainOptions.cellsPerTile, skirts: true };
 
@@ -697,7 +747,7 @@ export class PlanetViewport {
     this.terrain = new TileManager({
       field: this.field,
       options: terrainOptions,
-      build: (tile) => this.workers.build(tile),
+      build: (tile) => this.workers.build(tile, (pending) => this.#buildTerrainLocally(pending)),
       onTileReady: (tile, mesh) => this.uploadQueue.push({ tile, mesh, water: false }),
       onTileDropped: (tile) => this.#dropMesh(tile, false),
     });
@@ -705,10 +755,7 @@ export class PlanetViewport {
     this.water = new TileManager({
       field: this.field,
       options: waterOptions,
-      build: async (tile) => buildWaterTile(this.field, tile, {
-        cells: waterOptions.cellsPerTile,
-        seaLevelOffset: this.oceanParams.seaLevelOffset,
-      }),
+      build: (tile) => this.workers.build(tile, (pending) => this.#buildWaterLocally(pending)),
       onTileReady: (tile, mesh) => this.uploadQueue.push({ tile, mesh, water: true }),
       onTileDropped: (tile) => this.#dropMesh(tile, true),
     });
@@ -722,6 +769,21 @@ export class PlanetViewport {
       this.terrain.revision,
       this.workerOptions,
     );
+  }
+
+  /**
+   * Main-thread build, used only when the worker pool has failed. Same meshers,
+   * synchronous, which is why it is the fallback and not the default.
+   */
+  #buildTerrainLocally(tile) {
+    return buildTileMesh(this.field, tile, this.workerOptions);
+  }
+
+  #buildWaterLocally(tile) {
+    return buildWaterTile(this.field, tile, {
+      cells: this.water.options.cellsPerTile,
+      seaLevelOffset: this.oceanParams.seaLevelOffset,
+    });
   }
 
   #createWaterMaterial() {
@@ -1179,7 +1241,7 @@ export class PlanetViewport {
     this.focusRadius = this.field.radius + this.field.elevationAt(unit);
     this.terrain?.clear();
     this.water?.clear();
-    this.uploadQueue.length = 0;
+    if (this.uploadQueue) this.uploadQueue.length = 0;
     for (const [, record] of this.terrainMeshes ?? []) this.#disposeRecord(record);
     for (const [, record] of this.waterMeshes ?? []) this.#disposeRecord(record);
     this.terrainMeshes?.clear();
@@ -1287,9 +1349,21 @@ export class PlanetViewport {
     this.camera.up.copy(upV);
     this.camera.lookAt(focusPoint);
 
-    this.camera.near = Math.max(0.35, this.viewDistance * 0.002);
-    this.camera.far = this.field.radius * 9;
+    // Near/far are derived from the orbit distance so depth precision stays usable
+    // without a logarithmic depth buffer: the near plane tracks how close the camera
+    // actually gets, and the far plane just covers the local horizon (plus the planet
+    // itself when the whole thing is in view).
+    const horizonDistance = Math.sqrt(2 * this.field.radius * Math.max(1, this.viewDistance));
+    this.camera.near = Math.max(0.35, this.viewDistance * 0.0012);
+    this.camera.far = Math.min(
+      this.field.radius * 6,
+      Math.max(horizonDistance * 2.5, this.viewDistance * 60, 20000),
+    );
     this.camera.updateProjectionMatrix();
+
+    // The sky dome is drawn first with depth test off, but its vertices would still
+    // be clipped if it poked past the far plane: keep it just inside.
+    if (this.sky) this.sky.scale.setScalar((this.camera.far * 0.8) / this.skyRadius);
 
     this.terrainMaterial.uniforms.uHazeDistance.value = Math.max(8000, this.viewDistance * 26);
   }

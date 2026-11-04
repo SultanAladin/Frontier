@@ -17,6 +17,7 @@
     "three": "^0.170.0"
   },
   "devDependencies": {
+    "@shaderfrog/glsl-parser": "^7.0.1",
     "vite": "^6.0.0"
   }
 }

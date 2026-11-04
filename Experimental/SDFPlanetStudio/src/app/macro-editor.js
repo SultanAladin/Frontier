@@ -51,12 +51,15 @@ class LandmassEditor {
     this.activeTool = 'orbit';
     this.brush = { radius: 4200, strength: 320, falloff: 0.5 };
 
+    this.#installDiagnostics();
+
     this.canvas = document.querySelector('#viewport-canvas');
     this.viewport = new PlanetViewport(this.canvas, {
       field: this.field,
       ocean: this.ocean,
       onStats: (stats) => this.renderStats(stats),
       onCursor: (cursor) => this.renderCursor(cursor),
+      onDiagnostic: (message) => this.reportDiagnostic(message),
     });
 
     this.viewport.onSculpt = (request) => this.applyBrush(request);
@@ -67,6 +70,69 @@ class LandmassEditor {
     this.#wireKeys();
     this.#seatCameraOnCoast();
     this.setTool('orbit');
+  }
+
+  //------------------------------------------------------------- DIAGNOSTICS
+
+  /**
+   * A failure inside the viewport used to mean a black canvas and nothing else.
+   * Everything that can go wrong at startup is surfaced here instead: exceptions,
+   * rejected promises, shader compile errors (which three only reports on the
+   * console), worker failures, and the case where the frame ran but no patch ever
+   * arrived.
+   */
+  #installDiagnostics() {
+    this.diagnosticLines = [];
+    const panel = document.querySelector('#boot-errors');
+    const list = document.querySelector('#boot-errors-list');
+
+    this.reportDiagnostic = (message) => {
+      const text = String(message ?? 'unknown error').slice(0, 500);
+      if (this.diagnosticLines.includes(text)) return;
+      this.diagnosticLines.push(text);
+      console.error('[sdf-planet]', text);
+      if (!panel || !list) return;
+      panel.hidden = false;
+      const item = document.createElement('li');
+      item.textContent = text;
+      list.appendChild(item);
+    };
+
+    document.querySelector('#boot-errors-close')?.addEventListener('click', () => {
+      if (panel) panel.hidden = true;
+    });
+
+    window.addEventListener('error', (event) => {
+      this.reportDiagnostic(event?.message ?? event?.error?.message ?? 'script error');
+    });
+    window.addEventListener('unhandledrejection', (event) => {
+      const reason = event?.reason;
+      this.reportDiagnostic(reason?.message ?? String(reason ?? 'unhandled rejection'));
+    });
+
+    // three reports shader compilation failures through console.error only; if a
+    // program fails, the object it belongs to simply draws nothing.
+    const originalError = console.error.bind(console);
+    console.error = (...args) => {
+      originalError(...args);
+      const text = args
+        .map((value) => (typeof value === 'string' ? value : value?.message ?? String(value)))
+        .join(' ');
+      if (/GLSL|shader|program|WebGL/i.test(text) && !text.startsWith('[sdf-planet]')) {
+        this.reportDiagnostic(text.slice(0, 400));
+      }
+    };
+
+    // The frame loop can be healthy while the terrain never arrives (workers
+    // blocked, build throwing). Say so instead of leaving an empty planet.
+    setTimeout(() => {
+      const resident = this.viewport?.terrain?.summary?.resident ?? 0;
+      if (resident === 0) {
+        this.reportDiagnostic(
+          'No terrain patches after 4 s: tile workers may not have started. Check the console; meshing falls back to the main thread after two worker failures.',
+        );
+      }
+    }, 4000);
   }
 
   //----------------------------------------------------------------- AUTHORING
