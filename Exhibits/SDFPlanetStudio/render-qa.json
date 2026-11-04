@@ -1,0 +1,43 @@
+{
+  "tool": "tools/render-qa.mjs",
+  "generatedAt": "2026-11-04T15:53:52.927Z",
+  "resolution": "1600x900",
+  "coastlineProbe": {
+    "latitude": -22.6,
+    "longitude": -133.56
+  },
+  "shots": [
+    {
+      "name": "island-sculpt",
+      "path": "/home/user/Frontier/Experimental/SDFPlanetStudio/Evidence/island-sculpt.png",
+      "resolution": "1600x900",
+      "terrainTiles": 1395,
+      "waterTiles": 542,
+      "terrainTriangles": 1013499,
+      "waterTriangles": 433600,
+      "blendedWaterFragments": 482238,
+      "renderMs": 12414,
+      "eye": {
+        "x": -244963.8297025396,
+        "y": -265636.725607781,
+        "z": -827768.1391222073
+      },
+      "target": {
+        "x": -251469.82084764837,
+        "y": -266407.28705503134,
+        "z": -823348.3987452226
+      },
+      "journal": 2,
+      "latLon": {
+        "latitude": -17.194890057454973,
+        "longitude": -106.98389470400444
+      },
+      "description": "Same coast after an Island stamp and a Gulf carve (journal: 2 ops), re-framed on the sculpted terrain"
+    }
+  ],
+  "notes": [
+    "Meshes are built by the same TileManager, PlanetField and meshers the viewport uses.",
+    "Shading is an independent CPU reimplementation of the viewport shaders (terrain palette + Beer-Lambert water).",
+    "No textures, no post-processing, no screenshots of the browser build."
+  ]
+}

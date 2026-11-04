@@ -1,0 +1,67 @@
+{
+  "environment": {
+    "runtime": "v22.22.3",
+    "platform": "linux x64",
+    "pageBytes": 163840,
+    "tilesPerPage": 20,
+    "containerMB": 32,
+    "tiles": 4096,
+    "repeats": 5,
+    "seekModelMs": 8
+  },
+  "results": [
+    {
+      "label": "per-tile 8 KiB reads (naive)",
+      "reads": 4096,
+      "megabytes": 32,
+      "medianBatchMs": 237.83,
+      "bestBatchMs": 205.55,
+      "measuredThroughputMBs": 134.5,
+      "seekModelMs": 33,
+      "fullSeeks": 4096,
+      "continuations": 0,
+      "modelledTotalMs": 33006,
+      "modelledThroughputMBs": 0.97,
+      "rssDeltaMB": 1.6
+    },
+    {
+      "label": "page reads, random order",
+      "reads": 205,
+      "megabytes": 32.03,
+      "medianBatchMs": 12.81,
+      "bestBatchMs": 11.03,
+      "measuredThroughputMBs": 2500.8,
+      "seekModelMs": 2,
+      "fullSeeks": 203,
+      "continuations": 2,
+      "modelledTotalMs": 1641,
+      "modelledThroughputMBs": 19.52,
+      "rssDeltaMB": 0
+    },
+    {
+      "label": "page reads, sorted (scheduler order)",
+      "reads": 205,
+      "megabytes": 32.03,
+      "medianBatchMs": 11.62,
+      "bestBatchMs": 9.18,
+      "measuredThroughputMBs": 2756.2,
+      "seekModelMs": 0,
+      "fullSeeks": 1,
+      "continuations": 204,
+      "modelledTotalMs": 428,
+      "modelledThroughputMBs": 74.91,
+      "rssDeltaMB": 0
+    }
+  ],
+  "ratios": {
+    "syscallsSavedVsPerTile": 19.98,
+    "measuredSpeedupSortedVsPerTile": 20.49,
+    "modelledSpeedupSortedVsPerTile": 77.23,
+    "modelledSpeedupSortedVsRandomPages": 3.84
+  },
+  "notes": [
+    "measured = real file IO in this sandbox (no seek penalty on this disk)",
+    "modelled = measured service time + 8 ms per non-contiguous read and 2.0 ms per contiguous continuation (7200 rpm seek / rotational latency)",
+    "identical working set and identical bytes in all three patterns"
+  ]
+}

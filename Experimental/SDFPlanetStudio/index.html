@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Frontier — SDF Planet Studio</title>
+  <link rel="stylesheet" href="/src/app/style.css" />
+</head>
+<body data-tool="orbit">
+
+  <header class="tp-header">
+    <div class="tp-brand">
+      <span class="tp-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8" />
+          <path d="M4.5 9.5c4 2.4 11 2.4 15 0" />
+          <path d="M4.5 14.5c4-2.4 11-2.4 15 0" />
+        </svg>
+      </span>
+      <span class="tp-brand-text">Frontier</span>
+      <span class="tp-brand-sep">/</span>
+      <span class="tp-brand-doc">SDF Planet Studio</span>
+    </div>
+
+    <div class="tp-header-stats">
+      <span class="tp-pill" title="Frames per second"><b id="stat-fps">–</b> fps</span>
+      <span class="tp-pill" title="Average frame time"><b id="stat-frame">–</b></span>
+      <span class="tp-pill" title="Triangles submitted"><b id="stat-tris">–</b> tris</span>
+      <span class="tp-pill" title="Resident patches / selected patches">
+        <b id="stat-tiles">–</b> tiles</span>
+      <span class="tp-pill" title="Geometry memory"><b id="stat-ram">–</b></span>
+    </div>
+
+    <div class="tp-header-actions">
+      <button type="button" id="btn-ocean" class="on" title="Toggle ocean (G)">Ocean on</button>
+      <button type="button" id="btn-wire" title="Wireframe (H)">Wire</button>
+      <button type="button" id="btn-save" title="Save the edit journal">Save</button>
+      <button type="button" id="btn-load" title="Load a journal">Load</button>
+      <input type="file" id="journal-file" accept="application/json" hidden />
+      <button type="button" id="btn-export" title="Export the resident mesh as OBJ">Export OBJ</button>
+    </div>
+  </header>
+
+  <main class="tp-layout">
+    <aside class="tp-rail" id="tool-rail" role="toolbar" aria-label="Landmass tools"></aside>
+
+    <section class="tp-stage">
+      <canvas id="viewport-canvas"></canvas>
+
+      <div class="tp-stage-head">
+        <span class="tp-doc-name">planet-01</span>
+        <span class="tp-sep"></span>
+        <span class="tp-hint" id="tool-hint">Orbit (drag), pan (middle/alt-drag), fly (right-drag + WASD)</span>
+      </div>
+
+      <div class="tp-readout" id="cursor-readout">elev — m</div>
+
+      <div class="tp-hud">
+        <div class="tp-hud-row"><span>Altitude</span><b id="stat-alt">–</b></div>
+        <div class="tp-hud-row"><span>Centre</span><b id="stat-latlon">–</b></div>
+        <div class="tp-hud-row"><span>Planet radius</span><b id="stat-radius">–</b></div>
+        <div class="tp-hud-row"><span>Last patch</span><b id="stat-build">–</b></div>
+        <div class="tp-hud-row"><span>Stream queue</span><b id="stat-queue">–</b></div>
+        <div class="tp-hud-row"><span>Ocean</span><b id="stat-water">–</b></div>
+      </div>
+    </section>
+
+    <aside class="tp-inspector">
+      <section class="tp-panel">
+        <h2 class="tp-panel-title">Brush</h2>
+        <div id="brush-sliders" class="tp-sliders"></div>
+        <p class="tp-note">
+          Every stroke appends one journal record (direction, radius, strength, falloff, seed).
+          Nothing is voxelised until a patch is meshed.
+        </p>
+      </section>
+
+      <section class="tp-panel">
+        <h2 class="tp-panel-title">Planet</h2>
+        <div id="planet-sliders" class="tp-sliders"></div>
+        <div class="tp-row">
+          <button type="button" id="btn-undo" class="tp-button">Undo</button>
+          <button type="button" id="btn-clear" class="tp-button danger">Clear edits</button>
+        </div>
+        <div class="tp-meta">
+          <span>Journal</span><b id="stat-journal">0</b><span>ops</span>
+        </div>
+      </section>
+
+      <section class="tp-panel">
+        <h2 class="tp-panel-title">Ocean</h2>
+        <div id="ocean-sliders" class="tp-sliders"></div>
+      </section>
+
+      <section class="tp-panel">
+        <h2 class="tp-panel-title">Teleport</h2>
+        <div class="tp-coords">
+          <label>Lat <input type="number" id="teleport-lat" step="0.5" min="-89" max="89" placeholder="12" /></label>
+          <label>Lon <input type="number" id="teleport-lon" step="0.5" min="-180" max="180" placeholder="24" /></label>
+          <label>Alt <input type="number" id="teleport-alt" step="100" min="10" value="3200" /></label>
+        </div>
+        <button type="button" id="btn-teleport" class="tp-button wide">Go to coordinate</button>
+      </section>
+    </aside>
+  </main>
+
+  <div id="toast" class="tp-toast" role="status"></div>
+
+  <script type="module" src="/src/app/macro-editor.js"></script>
+</body>
+</html>

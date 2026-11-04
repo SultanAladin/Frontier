@@ -22,6 +22,7 @@ Single progress and violation tracker. Detailed evidence belongs in Exhibits, no
 | 014 | Control Centre and quick panel        | CPU checked | Windows interaction validation next.  |
 | 015 | Open fonts and catalogue              | Checked     | Four families, 30 faces, OFL retained. |
 | 016 | Appearance persistence                | Checked     | Reload and invalid-save checks passed.|
+| 017 | SDF planet studio, base stage          | CPU checked | Browser/GPU run pending; erosion next.|
 
 ## Verification
 
@@ -434,3 +435,45 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
     unattended full-library pass (risk of silently regressing 100+ shipped pattern designs without
     per-pattern visual verification).
 
+
+## SDF planet studio, base stage (2026-11-04, branch arena/14f90059-frontier)
+
+Requested: a planet-scale terrain editor with a sculpting toolbar and a realistic ocean, on
+the base stage only (authoring before any erosion), volumetric rather than heightfield,
+working from an HDD, reusing the studio's editor skin.
+
+Delivered in `Experimental/SDFPlanetStudio/` (Vite + three.js, `node --test` core):
+
+- **The planet is an SDF, not a heightmap.** `f(p) = |p| - (radius + elevation(p/|p|))`,
+  with `elevation` an analytic 3D-noise field plus an ordered journal of brush ops
+  (direction, radius, strength, falloff, seed — tens of bytes each). Nothing is voxelised
+  until a patch is meshed, so authoring cost tracks stroke count, not planet area.
+  Default radius 900 km with ~4 km of relief.
+- **Patches are curved shells.** `(cells+1)^2` columns across a cube-face patch, a radial
+  band sized from that patch's own min/max surface radius, surface nets over the shell.
+  The mesher is a general scalar-field mesher, so true 3D CSG (caves, overhangs) plugs in
+  later without touching the streaming or app layers.
+- **Seams.** Surface nets emits one vertex per cell, so a raw mesh stops up to a cell short
+  of its patch and every tile shows a lateral slit that no radial skirt can hide. Fixed by
+  snapping the border ring onto the patch boundary (`snapBorderRing`) before the skirts are
+  built; `tests/tile-seams.test.mjs` pins equal-LOD sharing, four-tile corners, on-surface
+  border vertices and skirt-vs-chord coverage. Seven earlier seam defects were found by
+  rendering, not by tests.
+- **HDD streaming.** 160 KiB pages of 16 quantised bricks, FNV-1a keys, whole-page CRC32, a
+  byte-budgeted LRU, a page-ordered scheduler with readahead, and a quadtree manager with a
+  horizon cull and a selection-keyed stale-result gate. Measured: 19.98x fewer syscalls and
+  20.5x throughput over per-tile reads, 77.2x under the modelled 8 ms seek, 3.84x for sorted
+  over random page order (`Exhibits/SDFPlanetStudio/streaming-bench.json`).
+- **Ocean.** Gerstner spectrum with deep-water dispersion and directional spreading,
+  pixel-footprint wave LOD (kills far-sea moire), Beer-Lambert body colour over the mesher's
+  real per-vertex depth, depth-driven surf foam with noise breakup, sun glitter, and an
+  air-density term so the same shaders are correct on the beach and from orbit.
+- **Editor.** Charcoal `tp-*` skin matching the studio: vertical tool rail (landmass,
+  excavate, smooth, plateau, ridge, island, gulf), brush and planet and ocean inspectors,
+  HUD, coordinate teleport, journal save/load, undo, OBJ export.
+
+Validation: 112/112 core tests pass; Vite build clean. **No browser or GPU exists in this
+sandbox**, so the viewport has not been run against a real WebGL context and the evidence
+images are CPU raster output from the same meshes and shading maths, not screenshots.
+Erosion layers (particle, cracks, chemical, sedimentation, snow/frost, thermal) remain
+unported by design; they are the next stage, one at a time.
