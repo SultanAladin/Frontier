@@ -1,0 +1,41 @@
+Vehicle Acoustics Bench — validation suite
+generated 2026-11-04T11:06:12.218Z
+
+36/36 checks passed
+
+PASS  catalogue laFerrari
+PASS  catalogue gt-rNismoGt3
+PASS  catalogue mustangGt
+PASS  catalogue ageraRs
+PASS  catalogue spyder918
+PASS  catalogue taycanTurbo
+PASS  catalogue demonSrt
+PASS  catalogue viperAcr
+PASS  catalogue challengerScat
+PASS  V12 fires every 60°  — 60,60,60,60,60,60,60,60,60,60,60,60
+PASS  flat-plane V8 fires every 90°  — 90,90,90,90,90,90,90,90
+PASS  odd-fire V10 is uneven  — 54–90°
+PASS  cross-plane V8 totals 90° per event  — 90,90,90,90,90,90,90,90
+PASS  audible laFerrari  — rms 0.1870 peak 0.443
+PASS  bounded laFerrari  — peak 0.4433
+PASS  audible gt-rNismoGt3  — rms 0.2410 peak 0.512
+PASS  bounded gt-rNismoGt3  — peak 0.5119
+PASS  audible mustangGt  — rms 0.1615 peak 0.351
+PASS  bounded mustangGt  — peak 0.3514
+PASS  audible ageraRs  — rms 0.2124 peak 0.466
+PASS  bounded ageraRs  — peak 0.4661
+PASS  audible spyder918  — rms 0.2199 peak 0.515
+PASS  bounded spyder918  — peak 0.5147
+PASS  audible taycanTurbo  — rms 0.0280 peak 0.094
+PASS  bounded taycanTurbo  — peak 0.0938
+PASS  audible demonSrt  — rms 0.1886 peak 0.403
+PASS  bounded demonSrt  — peak 0.4033
+PASS  audible viperAcr  — rms 0.1586 peak 0.358
+PASS  bounded viperAcr  — peak 0.3583
+PASS  audible challengerScat  — rms 0.1583 peak 0.358
+PASS  bounded challengerScat  — peak 0.3580
+PASS  flat-plane carries more 4th order than cross-plane  — flat 0.218 > cross 0.062
+PASS  electric drive audible  — rms 0.0279
+PASS  drivetrain independent of block size  — worst field difference 0.00e+0
+PASS  audio independent of block size  — peak |Δ| 0.00e+0
+PASS  level stable across device quanta  — -13.14 vs -13.24 dBFS

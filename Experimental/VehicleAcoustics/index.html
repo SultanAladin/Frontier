@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<!--
+============================================================================================================================================
+                                                                  INDEX.HTML
+============================================================================================================================================
+ 🧩 Vehicle Acoustics Bench — nine cars, one physics-driven synthesiser, WASD drivetrain control, and a measured comparison of the sound against
+    its own operating point. Every engine note here is generated per audio sample from crank angle; no sample loops and no frame-rate clock.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Frontier · Vehicle Acoustics Bench</title>
+<link rel="stylesheet" href="Style/Bench.css">
+</head>
+<body>
+    <div id="bench">
+        <header id="masthead">
+            <div class="title-block">
+                <h1>Vehicle Acoustics Bench</h1>
+                <p id="subtitle">Physics-driven engine, induction and drivetrain sound · sample-locked, frame-rate independent</p>
+            </div>
+            <div class="engine-strip" id="engine-strip">
+                <button id="power" class="power" title="Start or stop the audio device">Start audio</button>
+                <div class="mode-readout">
+                    <span class="label">Transport</span>
+                    <span id="transport-mode">idle</span>
+                </div>
+                <div class="mode-readout">
+                    <span class="label">Ring fill</span>
+                    <span id="ring-fill">– </span>
+                </div>
+                <div class="mode-readout">
+                    <span class="label">Underrun</span>
+                    <span id="underrun">0</span>
+                </div>
+            </div>
+        </header>
+
+        <section id="garage">
+            <div class="section-head">
+                <h2>Garage</h2>
+                <div class="hint">Nine vehicles · click to load · the drivetrain keeps rolling</div>
+            </div>
+            <div id="car-list" class="car-list"></div>
+        </section>
+
+        <section id="cockpit">
+            <div class="section-head">
+                <h2>Drivetrain</h2>
+                <div class="hint">W throttle · S brake · A/D steer · Q/E shift · R reverse · N neutral · Space handbrake · M auto/manual</div>
+            </div>
+            <div class="cockpit-grid">
+                <div class="gauge-cluster">
+                    <div class="tachometer">
+                        <canvas id="tach" width="420" height="240"></canvas>
+                        <div class="tach-readout">
+                            <span id="rpm-value">0</span>
+                            <span class="unit">rpm</span>
+                        </div>
+                        <div class="gear-readout" id="gear-value">N</div>
+                        <div class="limiter-lamp" id="limiter-lamp"></div>
+                    </div>
+                    <div class="secondary-grid">
+                        <div class="readout"><span class="label">Speed</span><span id="speed-value">0</span><span class="unit">km/h</span></div>
+                        <div class="readout"><span class="label">Boost</span><span id="boost-value">0.00</span><span class="unit">bar</span></div>
+                        <div class="readout"><span class="label">Slip</span><span id="slip-value">0.00</span><span class="unit">-</span></div>
+                        <div class="readout"><span class="label">Firing</span><span id="firing-value">0</span><span class="unit">Hz</span></div>
+                        <div class="readout"><span class="label">Wheel</span><span id="wheel-value">0</span><span class="unit">rpm</span></div>
+                        <div class="readout"><span class="label">Steer</span><span id="steer-value">0.0</span><span class="unit">°</span></div>
+                    </div>
+                </div>
+
+                <div class="layer-panel">
+                    <h3>Active acoustic layers</h3>
+                    <div id="layer-bars" class="layer-bars"></div>
+                    <h3>Vehicle sheet</h3>
+                    <dl id="vehicle-sheet" class="vehicle-sheet"></dl>
+                </div>
+
+                <div class="analyser-panel">
+                    <h3>Live spectrum</h3>
+                    <canvas id="analyser" width="620" height="220"></canvas>
+                    <div class="position-row">
+                        <span class="label">Listening position</span>
+                        <div class="segmented" id="position-control">
+                            <button data-position="cabin">Cabin</button>
+                            <button data-position="exterior" class="active">Exterior</button>
+                            <button data-position="passBy">Pass-by</button>
+                        </div>
+                        <label class="slider-row">Master gain
+                            <input id="gain" type="range" min="0" max="1.5" step="0.01" value="0.9">
+                            <span id="gain-value">0.90</span>
+                        </label>
+                        <label class="slider-row">Frame budget
+                            <input id="framebudget" type="range" min="6" max="60" step="1" value="60">
+                            <span id="framebudget-value">60</span> fps
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="lab">
+            <div class="section-head">
+                <h2>Measurement</h2>
+                <div class="hint">Hold an operating point and render a WAV, or stress the pipeline at a chosen picture rate</div>
+            </div>
+            <div class="lab-grid">
+                <div class="lab-card">
+                    <h3>Steady-state audition</h3>
+                    <label class="field">Operating rpm <input id="hold-rpm" type="number" min="0" max="16000" step="50" value="4000"></label>
+                    <label class="field">Throttle <input id="hold-throttle" type="range" min="0" max="1" step="0.01" value="1"></label>
+                    <div class="button-row">
+                        <button id="hold-play">Hold this point</button>
+                        <button id="hold-stop">Release</button>
+                    </div>
+                    <div class="button-row">
+                        <button id="render-audition">Render 11 s audition WAV</button>
+                        <button id="render-steady">Render 2 s steady WAV</button>
+                    </div>
+                    <p id="render-status" class="status-line">Ready.</p>
+                </div>
+                <div class="lab-card">
+                    <h3>Self-test</h3>
+                    <p class="prose">Runs the same assertions the Node suite runs: catalogue integrity, firing geometry per crank layout,
+                        audible output and bounded peaks for all nine cars, the flat-plane/cross-plane order split, and drivetrain determinism
+                        against block size.</p>
+                    <div class="button-row"><button id="run-selftest">Run self-test</button></div>
+                    <pre id="selftest-result" class="probe-result">Not run.</pre>
+                </div>
+                <div class="lab-card">
+                    <h3>Frame-rate independence probe</h3>
+                    <p class="prose">Renders the same three-second pull at two picture rates. The audio is generated on its own thread, so the two
+                        waveforms must match: any dependence on the drawn frame rate shows up as a difference here.</p>
+                    <label class="field">Start rps input <input id="probe-rate" type="range" min="4" max="240" step="1" value="12"></label>
+                    <div class="button-row"><button id="run-probe">Run probe</button></div>
+                    <pre id="probe-result" class="probe-result">Not run.</pre>
+                </div>
+            </div>
+        </section>
+
+        <footer id="colophon">
+            <div id="telemetry-line">No device open.</div>
+            <div id="report-line"></div>
+        </footer>
+    </div>
+    <script type="module" src="Source/Bench.js"></script>
+</body>
+</html>

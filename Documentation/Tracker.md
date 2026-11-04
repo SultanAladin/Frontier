@@ -434,3 +434,15 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
     unattended full-library pass (risk of silently regressing 100+ shipped pattern designs without
     per-pattern visual verification).
 
+#### Vehicle Acoustics Bench (2026-11-04)
+
+- New prototype `Experimental/VehicleAcoustics/` — nine authored vehicles (LaFerrari, GT-R Nismo GT3, Mustang GT, Agera RS, 918 Spyder,
+  Taycan Turbo, Demon, Viper, Challenger 392) synthesised from physical mechanism, with WASD drivetrain control.
+- Frame-rate independence is the design constraint, not an afterthought: crank angle integrates per audio **sample**, the drivetrain runs on
+  an absolute 2 ms grid with an integer-nanosecond remainder, and synthesis happens in a render worker feeding a shared ring, so no part of
+  the sound samples the picture clock. The page adds real picture stalls (6–60 fps slider) to demonstrate it.
+- No recorded engine samples and no AudioContext scheduling in the audio path; the only device coupling is a ring drain.
+- Measured: 36/36 shared checks (catalogue integrity, per-layout firing geometry, audibility and peak bounds for all nine cars, flat-plane vs
+  cross-plane fourth-order split, drivetrain and audio determinism against block size, level stability across device quanta).
+  Synthesis runs 8–16x real time single-threaded on the Linux sandbox host. Evidence and limitations: `Experimental/VehicleAcoustics/README.md`
+  and `Validation/Results/`. Not yet captured in a GPU browser, and the Windows runtime path is unverified.

@@ -1,0 +1,28 @@
+Audition files · 48 kHz · 16-bit stereo · generated 2026-11-04T11:06:16.750Z
+
+audition-ageraRs.wav                              2063 KiB
+audition-challengerScat.wav                       2063 KiB
+audition-demonSrt.wav                             2063 KiB
+audition-gt-rNismoGt3.wav                         2063 KiB
+audition-laFerrari.wav                            2063 KiB
+audition-mustangGt.wav                            2063 KiB
+audition-spyder918.wav                            2063 KiB
+audition-taycanTurbo.wav                          2063 KiB
+audition-viperAcr.wav                             2063 KiB
+steady-ageraRs-5940.wav                            375 KiB
+steady-challengerScat-4464.wav                     375 KiB
+steady-demonSrt-4680.wav                           375 KiB
+steady-gt-rNismoGt3-5040.wav                       375 KiB
+steady-laFerrari-6660.wav                          375 KiB
+steady-mustangGt-5040.wav                          375 KiB
+steady-spyder918-6588.wav                          375 KiB
+steady-taycanTurbo-9000.wav                        375 KiB
+steady-viperAcr-4464.wav                           375 KiB
+
+Pipeline chart points (rms dBFS by block size):
+     64 samples  -12.050 dBFS  crest 3.380
+    128 samples  -12.076 dBFS  crest 3.289
+    256 samples  -12.122 dBFS  crest 3.386
+    512 samples  -12.059 dBFS  crest 3.268
+   1024 samples  -12.078 dBFS  crest 3.358
+   2048 samples  -12.155 dBFS  crest 3.401

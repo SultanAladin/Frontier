@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="430" viewBox="0 0 1040 430">
+  <rect width="100%" height="100%" fill="#0d1117"/>
+  <text x="78" y="22" fill="#e8edf4" font-size="15" font-family="Segoe UI, system-ui, sans-serif">
+    Measured firing-order ladder · wide-open throttle, steady revolution
+  </text>
+  <text x="1010" y="22" fill="#67748a" font-size="11" text-anchor="end" font-family="Segoe UI, system-ui, sans-serif">
+    Hann-windowed Goertzel over rendered samples · each car normalised to its own strongest order
+  </text>
+  <rect x="84" y="34" width="16" height="3" fill="#f4a259"/><text x="108" y="41" fill="#e8edf4" font-size="12">Mustang GT · cross-plane V8 · 3850 rpm · firing 257 Hz</text>
+  <rect x="84" y="54" width="16" height="3" fill="#3ec9c9"/><text x="108" y="61" fill="#e8edf4" font-size="12">Agera RS · flat-plane V8 · 4538 rpm · firing 303 Hz</text>
+  <rect x="84" y="74" width="16" height="3" fill="#e4572e"/><text x="108" y="81" fill="#e8edf4" font-size="12">LaFerrari · 65° V12 · 5088 rpm · firing 509 Hz</text>
+  <rect x="84" y="94" width="16" height="3" fill="#9b7bd4"/><text x="108" y="101" fill="#e8edf4" font-size="12">Viper · odd-fire V10 · 3410 rpm · firing 284 Hz</text>
+  <line x1="78" y1="96.0" x2="1010" y2="96.0" stroke="#263041"/><text x="68" y="100.0" fill="#8b99ae" font-size="11" text-anchor="end">0 dB</text>
+  <line x1="78" y1="185.3" x2="1010" y2="185.3" stroke="#263041"/><text x="68" y="189.3" fill="#8b99ae" font-size="11" text-anchor="end">-20 dB</text>
+  <line x1="78" y1="274.7" x2="1010" y2="274.7" stroke="#263041"/><text x="68" y="278.7" fill="#8b99ae" font-size="11" text-anchor="end">-40 dB</text>
+  <line x1="78" y1="364.0" x2="1010" y2="364.0" stroke="#263041"/><text x="68" y="368.0" fill="#8b99ae" font-size="11" text-anchor="end">-60 dB</text>
+  <text x="78.0" y="384" fill="#8b99ae" font-size="11" text-anchor="middle">×1</text>
+  <text x="211.1" y="384" fill="#8b99ae" font-size="11" text-anchor="middle">×2</text>
+  <text x="344.3" y="384" fill="#8b99ae" font-size="11" text-anchor="middle">×3</text>
+  <text x="477.4" y="384" fill="#8b99ae" font-size="11" text-anchor="middle">×4</text>
+  <text x="610.6" y="384" fill="#8b99ae" font-size="11" text-anchor="middle">×5</text>
+  <text x="743.7" y="384" fill="#8b99ae" font-size="11" text-anchor="middle">×6</text>
+  <text x="876.9" y="384" fill="#8b99ae" font-size="11" text-anchor="middle">×7</text>
+  <text x="1010.0" y="384" fill="#8b99ae" font-size="11" text-anchor="middle">×8</text>
+  <rect x="78" y="96" width="932" height="268" fill="none" stroke="#263041"/>
+  <polyline fill="none" stroke="#f4a259" stroke-width="1.8" points="78.0,96.0 211.1,151.9 344.3,170.1 477.4,206.3 610.6,221.3 743.7,229.1 876.9,249.1 1010.0,254.0"/>
+  <line x1="78.0" y1="364" x2="78.0" y2="96.0" stroke="#f4a259" stroke-opacity="0.28"/><circle cx="78.0" cy="96.0" r="3.4" fill="#f4a259"/>
+  <line x1="211.1" y1="364" x2="211.1" y2="151.9" stroke="#f4a259" stroke-opacity="0.28"/><circle cx="211.1" cy="151.9" r="3.4" fill="#f4a259"/>
+  <line x1="344.3" y1="364" x2="344.3" y2="170.1" stroke="#f4a259" stroke-opacity="0.28"/><circle cx="344.3" cy="170.1" r="3.4" fill="#f4a259"/>
+  <line x1="477.4" y1="364" x2="477.4" y2="206.3" stroke="#f4a259" stroke-opacity="0.28"/><circle cx="477.4" cy="206.3" r="3.4" fill="#f4a259"/>
+  <line x1="610.6" y1="364" x2="610.6" y2="221.3" stroke="#f4a259" stroke-opacity="0.28"/><circle cx="610.6" cy="221.3" r="3.4" fill="#f4a259"/>
+  <line x1="743.7" y1="364" x2="743.7" y2="229.1" stroke="#f4a259" stroke-opacity="0.28"/><circle cx="743.7" cy="229.1" r="3.4" fill="#f4a259"/>
+  <line x1="876.9" y1="364" x2="876.9" y2="249.1" stroke="#f4a259" stroke-opacity="0.28"/><circle cx="876.9" cy="249.1" r="3.4" fill="#f4a259"/>
+  <line x1="1010.0" y1="364" x2="1010.0" y2="254.0" stroke="#f4a259" stroke-opacity="0.28"/><circle cx="1010.0" cy="254.0" r="3.4" fill="#f4a259"/>
+  <polyline fill="none" stroke="#3ec9c9" stroke-width="1.8" points="78.0,96.0 211.1,152.8 344.3,166.2 477.4,154.4 610.6,200.8 743.7,198.7 876.9,236.5 1010.0,236.0"/>
+  <line x1="78.0" y1="364" x2="78.0" y2="96.0" stroke="#3ec9c9" stroke-opacity="0.28"/><circle cx="78.0" cy="96.0" r="3.4" fill="#3ec9c9"/>
+  <line x1="211.1" y1="364" x2="211.1" y2="152.8" stroke="#3ec9c9" stroke-opacity="0.28"/><circle cx="211.1" cy="152.8" r="3.4" fill="#3ec9c9"/>
+  <line x1="344.3" y1="364" x2="344.3" y2="166.2" stroke="#3ec9c9" stroke-opacity="0.28"/><circle cx="344.3" cy="166.2" r="3.4" fill="#3ec9c9"/>
+  <line x1="477.4" y1="364" x2="477.4" y2="154.4" stroke="#3ec9c9" stroke-opacity="0.28"/><circle cx="477.4" cy="154.4" r="3.4" fill="#3ec9c9"/>
+  <line x1="610.6" y1="364" x2="610.6" y2="200.8" stroke="#3ec9c9" stroke-opacity="0.28"/><circle cx="610.6" cy="200.8" r="3.4" fill="#3ec9c9"/>
+  <line x1="743.7" y1="364" x2="743.7" y2="198.7" stroke="#3ec9c9" stroke-opacity="0.28"/><circle cx="743.7" cy="198.7" r="3.4" fill="#3ec9c9"/>
+  <line x1="876.9" y1="364" x2="876.9" y2="236.5" stroke="#3ec9c9" stroke-opacity="0.28"/><circle cx="876.9" cy="236.5" r="3.4" fill="#3ec9c9"/>
+  <line x1="1010.0" y1="364" x2="1010.0" y2="236.0" stroke="#3ec9c9" stroke-opacity="0.28"/><circle cx="1010.0" cy="236.0" r="3.4" fill="#3ec9c9"/>
+  <polyline fill="none" stroke="#e4572e" stroke-width="1.8" points="78.0,96.0 211.1,149.3 344.3,164.4 477.4,200.9 610.6,214.3 743.7,224.1 876.9,228.3 1010.0,235.2"/>
+  <line x1="78.0" y1="364" x2="78.0" y2="96.0" stroke="#e4572e" stroke-opacity="0.28"/><circle cx="78.0" cy="96.0" r="3.4" fill="#e4572e"/>
+  <line x1="211.1" y1="364" x2="211.1" y2="149.3" stroke="#e4572e" stroke-opacity="0.28"/><circle cx="211.1" cy="149.3" r="3.4" fill="#e4572e"/>
+  <line x1="344.3" y1="364" x2="344.3" y2="164.4" stroke="#e4572e" stroke-opacity="0.28"/><circle cx="344.3" cy="164.4" r="3.4" fill="#e4572e"/>
+  <line x1="477.4" y1="364" x2="477.4" y2="200.9" stroke="#e4572e" stroke-opacity="0.28"/><circle cx="477.4" cy="200.9" r="3.4" fill="#e4572e"/>
+  <line x1="610.6" y1="364" x2="610.6" y2="214.3" stroke="#e4572e" stroke-opacity="0.28"/><circle cx="610.6" cy="214.3" r="3.4" fill="#e4572e"/>
+  <line x1="743.7" y1="364" x2="743.7" y2="224.1" stroke="#e4572e" stroke-opacity="0.28"/><circle cx="743.7" cy="224.1" r="3.4" fill="#e4572e"/>
+  <line x1="876.9" y1="364" x2="876.9" y2="228.3" stroke="#e4572e" stroke-opacity="0.28"/><circle cx="876.9" cy="228.3" r="3.4" fill="#e4572e"/>
+  <line x1="1010.0" y1="364" x2="1010.0" y2="235.2" stroke="#e4572e" stroke-opacity="0.28"/><circle cx="1010.0" cy="235.2" r="3.4" fill="#e4572e"/>
+  <polyline fill="none" stroke="#9b7bd4" stroke-width="1.8" points="78.0,96.0 211.1,135.0 344.3,151.3 477.4,186.4 610.6,204.2 743.7,216.2 876.9,225.3 1010.0,230.8"/>
+  <line x1="78.0" y1="364" x2="78.0" y2="96.0" stroke="#9b7bd4" stroke-opacity="0.28"/><circle cx="78.0" cy="96.0" r="3.4" fill="#9b7bd4"/>
+  <line x1="211.1" y1="364" x2="211.1" y2="135.0" stroke="#9b7bd4" stroke-opacity="0.28"/><circle cx="211.1" cy="135.0" r="3.4" fill="#9b7bd4"/>
+  <line x1="344.3" y1="364" x2="344.3" y2="151.3" stroke="#9b7bd4" stroke-opacity="0.28"/><circle cx="344.3" cy="151.3" r="3.4" fill="#9b7bd4"/>
+  <line x1="477.4" y1="364" x2="477.4" y2="186.4" stroke="#9b7bd4" stroke-opacity="0.28"/><circle cx="477.4" cy="186.4" r="3.4" fill="#9b7bd4"/>
+  <line x1="610.6" y1="364" x2="610.6" y2="204.2" stroke="#9b7bd4" stroke-opacity="0.28"/><circle cx="610.6" cy="204.2" r="3.4" fill="#9b7bd4"/>
+  <line x1="743.7" y1="364" x2="743.7" y2="216.2" stroke="#9b7bd4" stroke-opacity="0.28"/><circle cx="743.7" cy="216.2" r="3.4" fill="#9b7bd4"/>
+  <line x1="876.9" y1="364" x2="876.9" y2="225.3" stroke="#9b7bd4" stroke-opacity="0.28"/><circle cx="876.9" cy="225.3" r="3.4" fill="#9b7bd4"/>
+  <line x1="1010.0" y1="364" x2="1010.0" y2="230.8" stroke="#9b7bd4" stroke-opacity="0.28"/><circle cx="1010.0" cy="230.8" r="3.4" fill="#9b7bd4"/>
+  <text x="78" y="416" fill="#67748a" font-size="11" font-family="Segoe UI, system-ui, sans-serif">
+    ×n is the nth harmonic of the car's own firing frequency. The flat-plane V8 (Agera) keeps a strong fourth order; the cross-plane V8's
+    energy sits low.
+  </text>
+</svg>

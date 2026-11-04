@@ -1,0 +1,18 @@
+Vehicle Acoustics Bench — synthesis cost
+host: linux/x64 node v22.22.3 · single threaded · 48 kHz stereo · 128-sample blocks
+generated 2026-11-04T11:06:16.749Z
+
+car             audio s  wall s  real-time factor
+--------------  -------  ------  ----------------
+laFerrari       3.00     0.21    14.2×           
+gt-rNismoGt3    3.00     0.20    14.7×           
+mustangGt       3.00     0.21    14.4×           
+ageraRs         3.00     0.21    14.0×           
+spyder918       3.00     0.21    14.5×           
+taycanTurbo     3.00     0.19    16.1×           
+demonSrt        3.00     0.36    8.3×            
+viperAcr        3.00     0.22    13.9×           
+challengerScat  3.00     0.20    14.8×           
+
+Real-time factor = rendered audio seconds per wall-clock second. Anything above 1.0 can run live; the live bench runs the same code in a
+render worker, where the measured factor is the headroom available before the device starves.

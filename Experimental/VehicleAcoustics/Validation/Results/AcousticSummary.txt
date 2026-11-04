@@ -1,0 +1,19 @@
+Vehicle Acoustics Bench — measured summary
+generated 2026-11-04T11:06:12.217Z · sample rate 48000 Hz · audition 11 s · steady 2 s
+renderer: linux/x64 node v22.22.3
+
+car             cyl  layout         induction           events  even  firing Hz  peak   rms dBFS  crest  centroid Hz  top km/h
+--------------  ---  -------------  ------------------  ------  ----  ---------  -----  --------  -----  -----------  --------
+laFerrari       12   V65            naturallyAspirated  12      yes   666        0.777  -12.6     3.32   709          132     
+gt-rNismoGt3    6    V60            twinScrollTurbo     6       yes   252        0.819  -11.8     3.17   469          153     
+mustangGt       8    V90CrossPlane  naturallyAspirated  8       yes   336        0.754  -12.7     3.27   531          99      
+ageraRs         8    V90FlatPlane   twinScrollTurbo     8       yes   396        0.800  -11.9     3.16   572          128     
+spyder918       8    V90FlatPlane   naturallyAspirated  8       yes   439        0.638  -12.7     2.76   382          119     
+taycanTurbo     EV   Electric       electricDrive       0       yes   0          0.749  -20.2     7.66   318          127     
+demonSrt        8    V90CrossPlane  rootsSupercharger   8       yes   312        0.953  -10.6     3.24   369          155     
+viperAcr        10   V90OddFire     naturallyAspirated  10      no    372        0.771  -12.9     3.41   331          118     
+challengerScat  8    V90CrossPlane  naturallyAspirated  8       yes   298        0.717  -12.8     3.14   364          106     
+
+Steady-state points are rendered at 72% of each car's redline (9000 rpm for the electric car).
+"events" is firing events per combustion cycle; "even" is the derived firing-geometry verdict.
+Total render time for all auditions and steady tones: 13907 ms.
