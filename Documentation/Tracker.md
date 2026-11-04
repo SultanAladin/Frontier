@@ -526,7 +526,32 @@ The fix is structural rather than another patch:
 - the header carries a **build stamp** (also logged at startup), so "which code is this" is
   answered by looking at the page rather than by guessing.
 
-Validation: 145/145 tests pass (112 core, 11 app smoke, 5 worker protocol, 2 pool round trip,
+### Third run: the frame loop died on a uniform that was never declared
+
+With the hashed build in place the page finally ran its own code, and the new panel named
+the failure: `Cannot set properties of undefined (setting 'value')`, with the HUD frozen at
+0 fps. The water material's uniforms dictionary was missing `uAirDensity` while `animate()`
+wrote `uniforms.uAirDensity.value` every frame, so the first frame threw and the loop never
+drew once. It had been invisible because the `three` mock returned an auto-vivifying proxy
+for `uniforms`, making `uniforms.anything.value = x` succeed. The mock now has a faithful
+`StubShaderMaterial` that keeps its uniforms object exactly as passed, real three's own
+behaviour.
+
+Gates added so this class cannot recur:
+
+- **Uniform completeness** (`app-smoke`): every uniform a shader declares must exist on the
+  material that owns it. This is the exact test that fails on the old code.
+- **No stage may use a uniform it does not declare** (`shader-syntax`), which is a GLSL
+  compile error even when the dictionary is right.
+- World uniforms (`uSunDirection`, `uSkyTop`, `uSkyHorizon`, `uAirDensity`) are now shared
+  objects rather than per-material copies, so one write updates every program and there is
+  no second place to forget.
+- The frame loop survives a throwing frame (reports up to three distinct errors, keeps
+  drawing) instead of freezing at 0 fps.
+- A tile job that gets no answer within 4 s counts as a worker failure, so a worker that
+  failed to load can no longer leave the pool waiting forever with an empty planet.
+
+Validation: 147/147 tests pass (112 core, 11 app smoke, 5 worker protocol, 2 pool round trip,
 15 shader syntax); Vite build clean. **No browser or GPU exists in this sandbox**, so the
 evidence images remain CPU raster output from the same meshes and shading maths rather than
 screenshots; the browser run is the user's.

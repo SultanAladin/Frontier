@@ -99,6 +99,40 @@ test('ocean parameter changes reach the water material', () => {
   shim.pump(1);
 });
 
+test('every uniform a shader declares exists on its material', async () => {
+  // A shader can declare a uniform that the JS uniforms dictionary omits. The driver
+  // then sees zero, and any write to `uniforms.name.value` throws — which is exactly
+  // how the first real browser run died on its first frame (`uAirDensity` was missing
+  // from the water material while the frame loop wrote it every frame).
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/app/macro-viewport.js', import.meta.url), 'utf8');
+
+  const shaders = {};
+  for (const match of source.matchAll(/const\s+([A-Z_]+)\s*=\s*\/\*\s*glsl\s*\*\/\s*`([\s\S]*?)`;/g)) {
+    shaders[match[1]] = match[2];
+  }
+
+  const declaredFor = (names) =>
+    new Set(
+      names.flatMap((name) =>
+        [...shaders[name].matchAll(/uniform\s+\w+\s+(\w+)\s*(\[[^\]]*\])?\s*;/g)].map((m) => m[1]),
+      ),
+    );
+
+  const viewport = editor.viewport;
+  const programs = [
+    ['terrain', declaredFor(['TERRAIN_VERTEX', 'TERRAIN_FRAGMENT']), viewport.terrainMaterial.uniforms],
+    ['water', declaredFor(['WATER_VERTEX', 'WATER_FRAGMENT']), viewport.waterMaterial.uniforms],
+    ['sky', declaredFor(['SKY_VERTEX', 'SKY_FRAGMENT']), viewport.skyUniforms],
+  ];
+
+  for (const [label, declared, uniforms] of programs) {
+    assert.ok(declared.size >= 6, `${label}: no uniforms were parsed`);
+    const missing = [...declared].filter((name) => !(name in uniforms)).sort();
+    assert.deepEqual(missing, [], `${label}: shader declares uniforms the material cannot set`);
+  }
+});
+
 test('cursor picking returns a surface hit or null, never a throw', () => {
   const hit = editor.viewport.pickSurface(800, 450);
   assert.ok(hit === null || typeof hit === 'object');

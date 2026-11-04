@@ -443,6 +443,8 @@ void main() {
 //                                                       WORKER POOL
 //----------------------------------------------------------------------------------------------------------------------
 
+const JOB_TIMEOUT_MS = 4000;
+
 export class TileWorkerPool {
   constructor(count, { onResync, fallback = null, onDiagnostic = null } = {}) {
     this.workers = [];
@@ -473,6 +475,7 @@ export class TileWorkerPool {
       case 'tile': {
         const entry = this.pending.get(message.jobId);
         if (!entry) return;
+        clearTimeout(entry.timer);
         entry.resolve({
           positions: message.positions,
           normals: message.normals,
@@ -490,6 +493,7 @@ export class TileWorkerPool {
       case 'error': {
         const entry = this.pending.get(message.jobId);
         if (entry) {
+          clearTimeout(entry.timer);
           this.pending.delete(message.jobId);
           this.#noteFailure(null, new Error(message.message), entry.reject);
         }
@@ -537,10 +541,23 @@ export class TileWorkerPool {
     this.load[best]++;
 
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      // A worker that never answers is indistinguishable from one that is slow, so a
+      // job that misses its deadline counts as a failure and hands the patch to the
+      // fallback. Without this, a worker that failed to load left the pool waiting
+      // forever and the planet stayed empty.
+      const timer = setTimeout(() => {
+        const entry = this.pending.get(id);
+        if (!entry) return;
+        this.pending.delete(id);
+        this.load[best] = Math.max(0, this.load[best] - 1);
+        this.#noteFailure(tile, new Error(`worker ${best} did not answer within ${JOB_TIMEOUT_MS} ms`), entry.reject);
+      }, JOB_TIMEOUT_MS);
+
+      this.pending.set(id, { resolve, reject, timer });
       try {
         this.send(best, { type: 'build', jobId: id, tile });
       } catch (error) {
+        clearTimeout(timer);
         this.pending.delete(id);
         this.load[best] = Math.max(0, this.load[best] - 1);
         this.#noteFailure(tile, error, reject);
@@ -611,6 +628,9 @@ export class PlanetViewport {
     this.#initCamera();
     this.resize();
     this.#initLayers();
+    // The water material exists only now, and it needs the radians-per-pixel value
+    // resize() derives from the camera.
+    this.resize();
     this.#initCursor();
     this.#installInput();
 
@@ -724,7 +744,7 @@ export class PlanetViewport {
 
     this.terrainMaterial = new THREE.ShaderMaterial({
       uniforms: {
-        uSunDirection: { value: new THREE.Vector3(this.sunDirection.x, this.sunDirection.y, this.sunDirection.z) },
+        uSunDirection: this.skyUniforms.uSunDirection,
         uSkyTop: this.skyUniforms.uSkyTop,
         uSkyHorizon: this.skyUniforms.uSkyHorizon,
         uCameraPosition: { value: new THREE.Vector3() },
@@ -801,7 +821,7 @@ export class PlanetViewport {
         uWaveCount: { value: 0 },
         uTime: { value: 0 },
         uSeaRadius: { value: this.field.radius },
-        uSunDirection: { value: new THREE.Vector3(this.sunDirection.x, this.sunDirection.y, this.sunDirection.z) },
+        uSunDirection: this.skyUniforms.uSunDirection,
         uCameraPosition: { value: new THREE.Vector3() },
         uSkyTop: this.skyUniforms.uSkyTop,
         uSkyHorizon: this.skyUniforms.uSkyHorizon,
@@ -811,6 +831,12 @@ export class PlanetViewport {
         uAbsorption: { value: this.oceanParams.absorption },
         uScattering: { value: this.oceanParams.scattering },
         uRipple: { value: this.oceanParams.rippleScale },
+        // Shared with the sky: one object, written once per frame, so it cannot be
+        // missing here and present there.
+        uAirDensity: this.skyUniforms.uAirDensity,
+        // Radians per screen pixel; resize() overwrites it every time the canvas or
+        // the field of view changes.
+        uPixelAngle: { value: 0.0015 },
       },
       vertexShader: WATER_VERTEX,
       fragmentShader: WATER_FRAGMENT,
@@ -1213,12 +1239,12 @@ export class PlanetViewport {
       uScattering: this.oceanParams.scattering,
       uRipple: this.oceanParams.rippleScale,
     })) {
-      this.waterMaterial.uniforms[key].value = value;
+      const uniform = this.waterMaterial.uniforms[key];
+      if (uniform) uniform.value = value;
+      else this.onDiagnostic?.(`ocean parameter ${key} has no uniform on the water material`);
     }
     this.sunDirection = sunDirection(this.oceanParams);
     this.skyUniforms.uSunDirection.value.set(this.sunDirection.x, this.sunDirection.y, this.sunDirection.z);
-    this.terrainMaterial.uniforms.uSunDirection.value.set(this.sunDirection.x, this.sunDirection.y, this.sunDirection.z);
-    this.waterMaterial.uniforms.uSunDirection.value.set(this.sunDirection.x, this.sunDirection.y, this.sunDirection.z);
     this.water.invalidate();
     this.water.markDirtyNear(this.focusDir, this.field.radius);
   }
@@ -1258,6 +1284,20 @@ export class PlanetViewport {
     if (!this.running) return;
     requestAnimationFrame(this.animate);
 
+    // A throw in the middle of a frame used to stop the loop for good: the canvas
+    // stayed black and nothing said why. The loop now survives and reports instead.
+    try {
+      this.#frame();
+    } catch (error) {
+      this.frameFailures = (this.frameFailures ?? 0) + 1;
+      const message = `frame error ${this.frameFailures}: ${error?.message ?? error}`;
+      if (this.frameFailures <= 3) this.onDiagnostic?.(message);
+      else if (this.frameFailures === 4) this.onDiagnostic?.('further frame errors suppressed');
+      if (this.frameFailures > 240) this.running = false;
+    }
+  }
+
+  #frame() {
     const now = performance.now();
     const dt = Math.min(0.1, (now - this.lastFrame) / 1000);
     this.lastFrame = now;
@@ -1276,8 +1316,6 @@ export class PlanetViewport {
     const cameraAltitude =
       this.camera.position.length() - (this.field.radius + this.oceanParams.seaLevelOffset);
     const density = airDensityAt(cameraAltitude);
-    this.terrainMaterial.uniforms.uAirDensity.value = density;
-    this.waterMaterial.uniforms.uAirDensity.value = density;
     this.skyUniforms.uAirDensity.value = density;
     this.skyUniforms.uLocalUp.value.copy(this.camera.position).normalize();
     this.terrainMaterial.uniforms.uCameraPosition.value.copy(this.camera.position);

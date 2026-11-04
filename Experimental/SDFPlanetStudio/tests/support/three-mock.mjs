@@ -57,6 +57,47 @@ function makeProxy(name = 'three') {
 
 const THREE = makeProxy('THREE');
 
+/**
+ * Materials that keep their `uniforms` object exactly as passed.
+ *
+ * This matters more than it looks: with a permissive proxy, `uniforms.anything`
+ * returns another proxy, so `uniforms.uThing.value = x` silently succeeds even when
+ * the uniform was never declared on the material. Real three.js throws
+ * "Cannot set properties of undefined" there — which is precisely how a black
+ * viewport happened. These two classes reproduce the real behaviour; everything else
+ * in this file stays permissive.
+ */
+class StubMaterial {
+  constructor(params = {}) {
+    Object.assign(this, params);
+    this.uniforms = params.uniforms ?? {};
+    this.dispose = () => {};
+    this.needsUpdate = true;
+  }
+
+  clone() {
+    const copy = new this.constructor(this);
+    copy.uniforms = { ...this.uniforms };
+    return copy;
+  }
+}
+
+class StubShaderMaterial extends StubMaterial {
+  constructor(params = {}) {
+    super(params);
+    this.type = 'ShaderMaterial';
+    this.isShaderMaterial = true;
+  }
+}
+
+class StubBasicMaterial extends StubMaterial {
+  constructor(params = {}) {
+    super(params);
+    this.type = 'MeshBasicMaterial';
+    this.isMeshBasicMaterial = true;
+  }
+}
+
 // Values that behave like real numbers/strings where the app does arithmetic or
 // comparisons on them in control flow.
 THREE.SRGBColorSpace = 'srgb';
@@ -168,8 +209,8 @@ export const Scene = THREE.Scene;
 export const Group = THREE.Group;
 export const Mesh = THREE.Mesh;
 export const PerspectiveCamera = THREE.PerspectiveCamera;
-export const ShaderMaterial = THREE.ShaderMaterial;
-export const MeshBasicMaterial = THREE.MeshBasicMaterial;
+export const ShaderMaterial = StubShaderMaterial;
+export const MeshBasicMaterial = StubBasicMaterial;
 export const BufferGeometry = THREE.BufferGeometry;
 export const BufferAttribute = THREE.BufferAttribute;
 export const SphereGeometry = THREE.SphereGeometry;

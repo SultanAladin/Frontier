@@ -111,3 +111,17 @@ test('the terrain program declares the uniforms the app writes each frame', () =
     assert.ok(declared.has(name), `TERRAIN_FRAGMENT does not declare ${name}`);
   }
 });
+
+test('no stage references a uniform it does not declare', () => {
+  // GLSL requires the declaration in the stage that uses it. A uniform named only in
+  // the vertex stage and used in the fragment stage is a compile error, and a compile
+  // error is a black viewport.
+  for (const shader of shaders) {
+    const declared = new Set(
+      [...shader.body.matchAll(/uniform\s+\w+\s+(\w+)\s*(\[[^\]]*\])?\s*;/g)].map((match) => match[1]),
+    );
+    const used = new Set([...shader.body.matchAll(/\b(u[A-Z]\w*)\b/g)].map((match) => match[1]));
+    const undeclared = [...used].filter((name) => !declared.has(name)).sort();
+    assert.deepEqual(undeclared, [], `${shader.name} uses undeclared uniforms`);
+  }
+});
