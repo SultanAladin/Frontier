@@ -33,8 +33,12 @@ class VehicleAcousticsProcessor extends AudioWorkletProcessor
         const Configuration = Options.processorOptions || {};
         this.SampleCapacity = Configuration.SampleCapacity || 65536;
         this.ChannelCount = Configuration.ChannelCount || 2;
-        this.Control = new Int32Array(Configuration.ControlBuffer || new SharedArrayBuffer(128));
-        this.SamplePlane = new Float32Array(Configuration.SampleBuffer || new SharedArrayBuffer(this.SampleCapacity * 4 * 2));
+        // 📝 Atomics is only legal on a SharedArrayBuffer. When a host refuses cross-origin isolation the buffers arrive as plain ArrayBuffers,
+        //    and this flag is what keeps the processor on the message-queue path instead of throwing inside every audio callback.
+        this.Control = new Int32Array(Configuration.ControlBuffer || new ArrayBuffer(128));
+        this.SamplePlane = new Float32Array(Configuration.SampleBuffer || new ArrayBuffer(4));
+        this.RingMode = Configuration.RingMode === true && typeof SharedArrayBuffer !== "undefined" &&
+                        this.Control.buffer instanceof SharedArrayBuffer && this.SamplePlane.length > 1;
         this.DrainGain = 1.0;
         this.SilenceRamp = 0.0;
         this.Messages = [];
@@ -109,24 +113,25 @@ class VehicleAcousticsProcessor extends AudioWorkletProcessor
         const Left = Output[0];
         const Right = Output.length > 1 ? Output[1] : Output[0];
         const Count = Left.length;
-        const RingMode = this.SamplePlane !== null && this.SamplePlane.length > 0;
-        const Fed = RingMode ? this.DrainFromRing(Left, Right, Count) : this.DrainFromQueue(Left, Right, Count);
-        // 📝 A short fade instead of a hard cut: an underrun becomes a dip, not a click. Recovery is immediate on the next fed block.
+        const Fed = this.RingMode ? this.DrainFromRing(Left, Right, Count) : this.DrainFromQueue(Left, Right, Count);
+        // 📝 A short fade instead of a hard cut: an underrun becomes a dip, not a click. The ramp advances PER SAMPLE — a per-block step would
+        //    turn a 2.7 ms recovery into a five-second swell — and it is asymmetric, decaying fast and recovering slowly.
         const Target = Fed ? 1.0 : 0.0;
-        if (Target < this.SilenceRamp) this.SilenceRamp = Math.max(Target, this.SilenceRamp - 1.0 / 64.0);
-        else this.SilenceRamp = Math.min(Target, this.SilenceRamp + 1.0 / 256.0);
-        if (this.SilenceRamp < 0.999)
+        for (let Index = 0; Index < Count; ++Index)
         {
-            for (let Index = 0; Index < Count; ++Index)
+            if (this.SilenceRamp < Target) this.SilenceRamp = Math.min(Target, this.SilenceRamp + 1.0 / 256.0);
+            else if (this.SilenceRamp > Target) this.SilenceRamp = Math.max(Target, this.SilenceRamp - 1.0 / 64.0);
+            if (this.SilenceRamp < 0.9999)
             {
-                const Applied = this.SilenceRamp;
-                Left[Index] *= Applied;
-                Right[Index] *= Applied;
+                Left[Index] *= this.SilenceRamp;
+                Right[Index] *= this.SilenceRamp;
             }
-            this.SilenceRamp += 1.0 / 256.0;
         }
-        if ((currentFrame & 1023) === 0)
-            this.port.postMessage({ Type: "status", Frame: currentFrame, Underrun: Atomics.load(this.Control, 2) });
+        if (typeof currentFrame === "number" && (currentFrame & 1023) === 0)
+        {
+            const Underrun = this.RingMode ? Atomics.load(this.Control, 2) : 0;
+            this.port.postMessage({ Type: "status", Frame: currentFrame, Underrun });
+        }
         return true;
     }
 }

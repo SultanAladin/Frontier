@@ -1,4 +1,4 @@
-Measured firing-order ladder · 48 kHz · 1.2 s Hann-windowed render at 55% of redline · generated 2026-11-04T11:06:12.667Z
+Measured firing-order ladder · 48 kHz · 1.2 s Hann-windowed render at 55% of redline · generated 2026-11-04T11:14:52.878Z
 
 Mustang GT · cross-plane V8    ×1    0.0 dB   ×2  -12.5 dB   ×3  -16.6 dB   ×4  -24.7 dB
 Agera RS · flat-plane V8       ×1    0.0 dB   ×2  -12.7 dB   ×3  -15.7 dB   ×4  -13.1 dB

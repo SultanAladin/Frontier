@@ -6,7 +6,7 @@
   "description": "Physics-driven vehicle sound bench: nine cars, WASD drivetrain, sample-locked synthesis that ignores the drawn frame rate.",
   "scripts": {
     "serve": "python3 Tools/Serve.py",
-    "test": "node --test Tools/VehicleAcoustics.test.mjs && node Tools/BenchSmoke.mjs && node Tools/WorkerSmoke.mjs",
+    "test": "node --test Tools/VehicleAcoustics.test.mjs && node Tools/BenchSmoke.mjs && node Tools/WorkerSmoke.mjs && node Tools/WorkletSmoke.mjs",
     "evidence": "node Tools/RenderEvidence.mjs"
   }
 }

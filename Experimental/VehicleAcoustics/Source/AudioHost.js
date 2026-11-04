@@ -108,12 +108,11 @@ export class VehicleAudioHost
             const Url = URL.createObjectURL(new Blob([Source], { type: "application/javascript" }));
             await this.Context.audioWorklet.addModule(Url);
             URL.revokeObjectURL(Url);
-            const ProcessorOptions = UseSharedMemory
-                ? { SampleCapacity: RingLayout.SampleCapacity, ChannelCount: 2,
-                    ControlBuffer: this.Control.buffer, SampleBuffer: this.SamplePlane.buffer }
-                : { SampleCapacity: RingLayout.SampleCapacity, ChannelCount: 2,
-                    ControlBuffer: new ArrayBuffer(RingLayout.ControlWords * 4),
-                    SampleBuffer: new ArrayBuffer(4) };
+            const ProcessorOptions = {
+                SampleCapacity: RingLayout.SampleCapacity, ChannelCount: 2, RingMode: UseSharedMemory,
+                ControlBuffer: UseSharedMemory ? this.Control.buffer : new ArrayBuffer(RingLayout.ControlWords * 4),
+                SampleBuffer: UseSharedMemory ? this.SamplePlane.buffer : new ArrayBuffer(4)
+            };
             this.WorkletNode = new AudioWorkletNode(this.Context, "vehicle-acoustics", {
                 numberOfInputs: 0, numberOfOutputs: 1,
                 outputChannelCount: [2], processorOptions: ProcessorOptions

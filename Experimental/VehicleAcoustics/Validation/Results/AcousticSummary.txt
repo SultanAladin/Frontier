@@ -1,5 +1,5 @@
 Vehicle Acoustics Bench — measured summary
-generated 2026-11-04T11:06:12.217Z · sample rate 48000 Hz · audition 11 s · steady 2 s
+generated 2026-11-04T11:14:52.427Z · sample rate 48000 Hz · audition 11 s · steady 2 s
 renderer: linux/x64 node v22.22.3
 
 car             cyl  layout         induction           events  even  firing Hz  peak   rms dBFS  crest  centroid Hz  top km/h
@@ -16,4 +16,4 @@ challengerScat  8    V90CrossPlane  naturallyAspirated  8       yes   298       
 
 Steady-state points are rendered at 72% of each car's redline (9000 rpm for the electric car).
 "events" is firing events per combustion cycle; "even" is the derived firing-geometry verdict.
-Total render time for all auditions and steady tones: 13907 ms.
+Total render time for all auditions and steady tones: 14254 ms.

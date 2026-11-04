@@ -1,5 +1,7 @@
 # Vehicle Acoustics Bench
 
+## Purpose
+
 Nine cars, one synthesiser, driven from physics. Every engine note is generated per audio **sample** from crank angle — no sample loops and
 no dependence on the drawn frame rate.
 
@@ -34,7 +36,7 @@ npm run evidence                  # regenerates Validation/
 | 8 | Dodge Viper | 8.4 V10, odd-fire | NA | genuinely uneven firing (90/54), 0.5-order partials, long system |
 | 9 | Dodge Challenger 392 | 6.4 V8, cross-plane | NA | cross-plane burble at a lower redline, heavier flywheel |
 
-## Architecture
+## System layout
 
 ```text
 VehicleCatalogue.js    nine sheets + derived firing geometry, pipe modes, gas sound speed
@@ -72,7 +74,7 @@ See [`Validation/Results/AcousticSummary.txt`](Validation/Results/AcousticSummar
 
 36/36 shared checks pass; synthesis runs 8–16× faster than real time single-threaded on this host.
 
-## Honest limits
+## Limitations
 
 - The catalogue's **topology** (cycle, cylinders, crank layout, idle/limiter) is manufacturer data. Pipe lengths, spool constants, bypass
   schedules and cabin insulation are engineering estimates (`Estimate: true` in the sheet) and are labelled as such — this is not a measured
