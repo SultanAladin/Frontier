@@ -10,11 +10,19 @@ weathering) are meant to be ported in one at a time on top of this field later.
 
 ```
 npm install
-npm run dev        # http://localhost:5173  (binds 0.0.0.0)
-npm test           # node --test tests/*.test.mjs   (112 tests)
+npm start          # build + serve on 0.0.0.0:5173  (the preview entry point)
+npm run dev        # internal source server on 127.0.0.1:5174, HMR while editing
+npm test           # node --test tests/*.test.mjs   (145 tests)
 npm run bench      # streaming IO benchmark  -> Exhibits/SDFPlanetStudio/
 npm run qa-render  # offline CPU renders      -> Exhibits/SDFPlanetStudio/
 ```
+
+`npm start` is deliberate rather than `vite dev` on the public port: the preview sits
+behind a caching proxy, and dev-mode module URLs (`/src/app/macro-viewport.js`) carry no
+content hash, so a cached copy can outlive its fix. The built bundle hashes every asset
+name, which makes that impossible; `tools/serve-preview.mjs` also proxies `/src/**` to the
+dev server so an old cached page still loads instead of going blank. The header shows a
+build stamp — if it does not match the newest build, the page is stale.
 
 ## What it is, precisely
 

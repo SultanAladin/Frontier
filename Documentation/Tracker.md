@@ -507,6 +507,25 @@ makes geometry disappear. Near/far planes follow the orbit distance instead (nea
 close the camera gets, far covers the local horizon or the whole planet), and the sky dome is
 rescaled each frame to stay inside the far plane.
 
+### Second browser run: a cached module, not a new bug
+
+The reload reported `resize()` setting `aspect` on an undefined camera at
+`macro-viewport.js:607` with the constructor at `:565`. Those lines do not exist in the
+current source — the fixed constructor is at `:575` and `resize()` is at `:609` — so the
+browser executed a module from before the fix: dev-mode module URLs carry no content hash,
+so the caching proxy in front of the preview was free to serve the old copy. The guard that
+would have caught it (`if (!this.camera) return`) was already in the newer file.
+
+The fix is structural rather than another patch:
+
+- the public entry point is now the **built bundle** (`npm start`), where every asset name is
+  content-hashed, so a cached copy of the app can never outlive its fix;
+- `tools/serve-preview.mjs` serves `dist/` with `no-store` for HTML, `immutable` for
+  `/assets/**`, and proxies `/src/**`, `/@vite/**`, `/node_modules/**` to an internal dev
+  server on `127.0.0.1:5174`, so an old cached dev-mode page still loads instead of 404-ing;
+- the header carries a **build stamp** (also logged at startup), so "which code is this" is
+  answered by looking at the page rather than by guessing.
+
 Validation: 145/145 tests pass (112 core, 11 app smoke, 5 worker protocol, 2 pool round trip,
 15 shader syntax); Vite build clean. **No browser or GPU exists in this sandbox**, so the
 evidence images remain CPU raster output from the same meshes and shading maths rather than

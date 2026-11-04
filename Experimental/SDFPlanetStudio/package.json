@@ -5,13 +5,14 @@
   "type": "module",
   "description": "Planet-scale SDF landmass sculpting base + ocean for the Frontier terrain studio",
   "scripts": {
-    "dev": "vite --host 0.0.0.0 --port 5173",
+    "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "preview": "node tools/serve-preview.mjs",
+    "start": "vite build && node tools/serve-preview.mjs",
     "test": "node --test tests/*.test.mjs",
     "qa-render": "node tools/render-qa.mjs",
     "bench": "node tools/bench-streaming.mjs",
-    "bake": "node tools/bake-cli.mjs"
+    "bake": "node tools/bake-tiles.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"

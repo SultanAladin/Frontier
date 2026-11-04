@@ -12,6 +12,13 @@ import { PlanetField } from '../core/planet-field.js';
 import { BRUSH_TOOLS, BRUSH_TOOL_BY_ID, createBrushOp } from '../core/brushes.js';
 import { DEFAULT_OCEAN_PARAMS } from '../core/ocean-model.js';
 import { PlanetViewport } from './macro-viewport.js';
+
+/**
+ * Baked in by `vite build` (see `define` in vite.config.js), and 'dev' in node tests.
+ * If the value the page reports does not match the newest build, the browser is
+ * running a cached copy — which has already cost one debugging round.
+ */
+const BUILD_STAMP = typeof __BUILD_STAMP__ !== 'undefined' ? __BUILD_STAMP__ : 'dev';
 import { directionFromLatLon, latLonFromDirection } from '../core/cube-sphere.js';
 import { normalize } from '../core/vec3.js';
 
@@ -51,7 +58,11 @@ class LandmassEditor {
     this.activeTool = 'orbit';
     this.brush = { radius: 4200, strength: 320, falloff: 0.5 };
 
+    this.buildStamp = BUILD_STAMP;
+    console.info('[sdf-planet-studio] build', BUILD_STAMP);
     this.#installDiagnostics();
+    const stampElement = document.querySelector('#build-stamp');
+    if (stampElement) stampElement.textContent = BUILD_STAMP;
 
     this.canvas = document.querySelector('#viewport-canvas');
     this.viewport = new PlanetViewport(this.canvas, {
