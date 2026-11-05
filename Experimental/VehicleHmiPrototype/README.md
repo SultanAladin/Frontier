@@ -22,7 +22,8 @@ cove washes), dark truss ceiling, glossy turntable floor, and five cars **arrang
 on the centre turntable and four display cars on their own turntables around it at radius 10.5 m, nose-in. Each
 display car has its **own paint** (sage, brass, steel blue, rose) and its **own wheel-light colour** (teal, amber,
 blue, magenta); the hero's rims glow cyan. All five are lit by the one enlarged softbox (24 × 11 m) in a studio
-scaled for the fleet (cyclorama radius 20 m). There is **no UI** on the page — no panels, toolbar, HUD or buttons.
+scaled for the fleet (cyclorama radius 20 m). After startup there are no panels, toolbar, HUD or buttons;
+a loading screen reports progress and shows errors while the studio initializes.
 
 On entry the camera **fades in from black** and dollies wide-and-low into the hero framing (any touch takes over).
 The orbit camera **lags** behind your drag (eye τ ≈ 0.34 s, look target τ ≈ 0.20 s) and is **contained in the
@@ -51,13 +52,23 @@ Gold, Diamond) plus the Rank in words. The field is one editable list, `LobbyDri
 ```sh
 # From Experimental/VehicleHmiPrototype
 npm ci && npm --prefix Tools ci                  # Jolt (browser WASM) and Dawn (headless validation)
-python3 -m http.server 8080 --bind 0.0.0.0       # then open http://localhost:8080/  (Chrome / Edge with WebGPU)
+python3 Tools/Serve.py --lobby --port 8081 --quality low
+# Open http://localhost:8081/ for the Lobby; /index.html still opens the Proving Grounds.
+# Omit --lobby for the original Proving Grounds landing page. Add ?quality=high to override the preview default.
 ```
+
+The Lobby needs WebGPU in a secure context (HTTPS or localhost), with browser hardware acceleration enabled.
+Preparing shaders and distance volumes can take a while, especially on a software adapter. Its loading screen
+stays up until the first frame completes; if the device is lost, try closing other GPU-heavy tabs or lowering the
+quality. Recognized software adapters use a slower readback presentation path automatically because some cannot
+present a WebGPU canvas reliably; `?capture=0` opts out and `?capture=1` forces it. The four guest cars share
+the hero's geometry-only distance volumes; their separate paint and lighting materials are retained.
 
 ### Tests, all of which have been run
 
 ```sh
 npm test                                         # unit tests, CPU only (a few seconds)
+python3 Tools/Serve.test.py                      # preview routing and query preservation
 npm --prefix Tools run validate:modes            # the whole app on Dawn's null backend in 20 URL modes: every shader, layout and pipeline validated
 npm --prefix Tools run validate                  # …and validate:screen, :effects, :slate, :orbit, :emissive
 RUN_GPU=1 npm test                               # adds the EXECUTED tests: WGSL really runs on CPU cores through SwiftShader (needs registry.npmjs.org once; ~30 min)

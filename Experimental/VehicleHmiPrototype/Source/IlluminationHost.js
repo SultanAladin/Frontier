@@ -14,7 +14,7 @@ import { EmissiveLightSpace } from "./EmissiveLightSpace.js";
 //============================================================================================================================================
 // 🧩 Exhibit entry point: bring-up of every stage, then the frame — drive, invalidate, relight, gather, resolve, present.
 
-import { DeviceExchange } from "./DeviceExchange.js";
+import { DeviceExchange, IsSoftwareAdapter } from "./DeviceExchange.js";
 import { ShaderInterchange } from "./ShaderInterchange.js";
 import { SceneStructure, OccupantStride, GroundLayout, OccupantRole } from "./FacetStructure.js";
 import { ConstructMaterialSpecification, EncodeMaterialRecords, CourseMaterial, MarkedFamilyFirst, MarkedFamilyLast,
@@ -186,9 +186,10 @@ class IlluminationHost
         this.ScriptedInput = null;
         // 🔍 Diagnostic only: ?omit=Union,Cards,Shadow,... leaves the named stages out of the frame.
         this.Omitted = new Set((Query.get("omit") || "").split(",").filter((Name) => Name.length > 0));
-        // 🔍 Diagnostic only: ?capture=1 presents into an offscreen texture read back into a 2D canvas, for hosts
-        //    (headless software adapters) whose WebGPU canvas presentation is unavailable.
+        // 📝 Offscreen readback presentation also serves as a compatibility path for software WebGPU adapters.
+        //    ?capture=1 forces it; ?capture=0 opts out of automatic Lobby detection.
         this.Capture = Query.get("capture") === "1";
+        this.AutomaticCapture = this.Lobby && Query.get("capture") !== "0";
     }
 
     ReportProgress(Caption, Fraction)
@@ -208,7 +209,12 @@ class IlluminationHost
         this.ReportProgress("Negotiating the WebGPU device", 0.02);
         this.Exchange = new DeviceExchange();
         const Device = await this.Exchange.ConstructDevice();
-        this.Exchange.ErrorListeners.push((Message) => this.ReportFailure(Message, false));
+        this.Exchange.ErrorListeners.push((Message) => this.ReportFailure(Message, Message.startsWith("Device lost:")));
+        if (!this.Capture && this.AutomaticCapture && IsSoftwareAdapter(this.Exchange.Adapter))
+        {
+            console.info("[WebGPU] Using readback presentation for a software adapter");
+            this.Capture = true;
+        }
         this.Canvas = document.getElementById("viewport");
         if (this.Capture)
         {
@@ -474,19 +480,35 @@ class IlluminationHost
             this.Stress.Assign(this.StressInitial);
         }
         await Device.queue.onSubmittedWorkDone();
-        this.ReportProgress("Ready", 1.0);
-        document.getElementById("bring-up")?.classList.add("hidden");
+        if (this.Failed)
+            return;
         this.Ready = true;
         if (this.Lobby)
         {
             this.LobbyIdleSince = performance.now();
-            // 📝 The cinematic fade-in: the black veil lifts over the opening dolly.
-            const Veil = document.getElementById("cinematic-fade");
-            if (Veil?.style) Veil.style.opacity = "0";
+            // Keep the loading screen visible until a frame has actually finished on the GPU.
+            this.ReportProgress("Rendering the first frame", 0.98);
+        }
+        else
+        {
+            this.ReportProgress("Ready", 1.0);
+            document.getElementById("bring-up")?.classList.add("hidden");
         }
         this.LastTime = performance.now();
         window.IlluminationExhibit = this;
         requestAnimationFrame((Now) => this.AdvanceFrame(Now));
+    }
+
+    RevealLobby()
+    {
+        if (this.Failed || this.LobbyPresented)
+            return;
+        this.LobbyPresented = true;
+        this.ReportProgress("Ready", 1.0);
+        document.getElementById("bring-up")?.classList.add("hidden");
+        // 📝 The cinematic fade-in: the black veil lifts over the opening dolly.
+        const Veil = document.getElementById("cinematic-fade");
+        if (Veil?.style) Veil.style.opacity = "0";
     }
 
     // 📝 The Frontier Editor around the viewport; the dock owns overlay visibility (readout, inset, editor columns).
@@ -1268,6 +1290,9 @@ class IlluminationHost
                                                                    viewFormats: ["rgba8unorm-srgb"] });
             this.CaptureView = this.CaptureTexture.createView({ format: "rgba8unorm-srgb" });
             this.CaptureStride = Math.ceil(Width * 4 / 256) * 256;
+            // A readback already being mapped is released by ProjectCapture when it notices the resize.
+            if (this.CaptureRecords && !this.CapturePending)
+                this.CaptureRecords.destroy();
             this.CaptureRecords = this.Exchange.ConstructRecords(this.CaptureStride * Height, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST, "Capture readback");
             this.CapturePending = false;
         }
@@ -1777,11 +1802,22 @@ class IlluminationHost
         Device.queue.submit([Encoder.finish()]);
         if (this.TyreCarcass) this.TyreCarcass.Harvest();
         this.FramesInFlight = (this.FramesInFlight || 0) + 1;
-        Device.queue.onSubmittedWorkDone().then(() => { this.FramesInFlight--; });
+        const FirstLobbyFrame = this.Lobby && this.FrameIndex === 0;
+        Device.queue.onSubmittedWorkDone().then(() =>
+        {
+            this.FramesInFlight--;
+            if (FirstLobbyFrame && !this.Capture)
+                this.RevealLobby();
+        }).catch((Failure) => this.ReportFailure(`Rendering failed: ${Failure.message || Failure}`, true));
         if (Timed)
             this.Metrics.CollectDurations();
         if (CaptureReady)
-            this.ProjectCapture(this.FrameIndex);
+            this.ProjectCapture(this.FrameIndex).then((Presented) =>
+            {
+                // A resize can supersede the first readback; reveal only after a current frame is displayed.
+                if (this.Lobby && Presented)
+                    this.RevealLobby();
+            }).catch((Failure) => this.ReportFailure(`Rendering failed: ${Failure.message || Failure}`, true));
         this.PriorValid = true;
 
         if (!this.Lobby)
@@ -1799,7 +1835,11 @@ class IlluminationHost
         const Records = this.CaptureRecords;
         await Records.mapAsync(GPUMapMode.READ);
         if (Records !== this.CaptureRecords)
-            return;
+        {
+            Records.unmap();
+            Records.destroy();
+            return false;
+        }
         const Source = new Uint8Array(Records.getMappedRange());
         const Pixels = new Uint8ClampedArray(Width * Height * 4);
         for (let Row = 0; Row < Height; ++Row)
@@ -1811,6 +1851,7 @@ class IlluminationHost
         Canvas.getContext("2d").putImageData(new ImageData(Pixels, Width, Height), 0, 0);
         this.CapturedFrame = CapturedFrame;
         this.CapturePending = false;
+        return true;
     }
 
     PresentMeasurements(Now, Light)
@@ -1891,23 +1932,30 @@ class IlluminationHost
 
     ReportFailure(Message, Fatal)
     {
+        if (this.Failed && Fatal)
+            return;
+        if (Fatal)
+        {
+            this.Failed = true;
+            document.getElementById("bring-up")?.classList.add("hidden");
+        }
         const Panel = document.getElementById("failure");
-        if (!Panel) { console.error(Message); if (Fatal) this.Failed = true; return; }
+        if (!Panel) { console.error(Message); return; }
         Panel.classList.remove("hidden");
         const Line = document.createElement("div");
         Line.textContent = Message;
         Panel.appendChild(Line);
-        if (Fatal)
-            this.Failed = true;
     }
 }
 
 const Host = new IlluminationHost();
+window.IlluminationExhibit = Host;
+// Errors in animation callbacks and asynchronous GPU work happen after ConstructExhibit has returned.
+window.addEventListener("error", (Event) => Host.ReportFailure(`Unexpected error: ${Event.message || "unknown error"}`, true));
+window.addEventListener("unhandledrejection", (Event) =>
+    Host.ReportFailure(`Unexpected error: ${Event.reason?.message || Event.reason || "unknown error"}`, true));
 Host.ConstructExhibit().catch((Failure) =>
 {
     console.error(Failure);
     Host.ReportFailure(String(Failure && Failure.message ? Failure.message : Failure), true);
-    const Overlay = document.getElementById("bring-up");
-    if (Overlay)
-        Overlay.classList.add("hidden");
 });

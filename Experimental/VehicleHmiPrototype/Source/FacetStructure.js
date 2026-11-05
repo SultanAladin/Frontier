@@ -120,13 +120,21 @@ export class SceneStructure
         {
             const Paints = [CourseMaterial.DisplayPaintA, CourseMaterial.DisplayPaintB, CourseMaterial.DisplayPaintC, CourseMaterial.DisplayPaintD];
             const Lights = [CourseMaterial.DisplayLightA, CourseMaterial.DisplayLightB, CourseMaterial.DisplayLightC, CourseMaterial.DisplayLightD];
-            const Remap = (SourceSet, From, To) => this.FacetSets[SourceSet].Facets.map((Facet) =>
-                Facet.Family === From ? { ...Facet, Family: To } : Facet);
+            // 📝 These sets only change material families; their local triangle positions and voxel sizes are identical.
+            //    Distance transfer depends on geometry alone, so all variants can sample the source set's volume.
+            const MaterialVariant = (Name, SourceIndex, From, To) =>
+            {
+                const Source = this.FacetSets[SourceIndex];
+                const Facets = Source.Facets.map((Facet) => Facet.Family === From ? { ...Facet, Family: To } : Facet);
+                const Index = this.ConstructFacetSet(Name, Facets, Source.DistanceVoxel, Source.CardDensity);
+                this.FacetSets[Index].DistanceSource = SourceIndex;
+                return Index;
+            };
             const GuestBodySets = Paints.map((Paint, Index) =>
-                this.ConstructFacetSet(`Display body ${Index}`, Remap(BodySet, CourseMaterial.BodyCoat, Paint), 0.05, 40.0));
+                MaterialVariant(`Display body ${Index}`, BodySet, CourseMaterial.BodyCoat, Paint));
             const GuestWheelSets = Lights.map((Light, Index) => [
-                this.ConstructFacetSet(`Display wheel ${Index} (left)`, Remap(WheelLeftSet, CourseMaterial.Hub, Light), 0.025, 40.0),
-                this.ConstructFacetSet(`Display wheel ${Index} (right)`, Remap(WheelRightSet, CourseMaterial.Hub, Light), 0.025, 40.0)]);
+                MaterialVariant(`Display wheel ${Index} (left)`, WheelLeftSet, CourseMaterial.Hub, Light),
+                MaterialVariant(`Display wheel ${Index} (right)`, WheelRightSet, CourseMaterial.Hub, Light)]);
             // 📝 Number plates: every car, hero included, wears its driver's nametag and Rank badge front and
             //    rear (LobbyDrivers). Plate occupants ride at each car's rest pose, card-less (packed albedo).
             const PlateRoles = OccupantRole.Raster | OccupantRole.Distance | OccupantRole.Fallback;

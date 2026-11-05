@@ -1,10 +1,30 @@
-/* The Lobby: nothing but the rendered studio, full-bleed. */
+/* The Lobby: the studio fills the page; progress and failures are visible until it is ready. */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 100%; height: 100%; overflow: hidden; background: #060606; }
 #viewport { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; cursor: grab; touch-action: none; }
 #viewport:active { cursor: grabbing; }
 .capture { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; }
 .capture:not([width]) { display: none; }
-/* The cinematic veil: black at load, lifted by the host as the entrance dolly begins; not a control, never interactive. */
+/* The cinematic veil lifts as the entrance dolly begins; it is never interactive. */
 #cinematic-fade { position: fixed; inset: 0; background: #000; opacity: 1; pointer-events: none; transition: opacity 2.6s ease; z-index: 5; }
+#bring-up {
+    position: fixed; inset: 0; z-index: 10; display: grid; place-items: end start;
+    padding: clamp(24px, 5vw, 64px);
+    background: linear-gradient(90deg, rgba(4, 8, 11, .94), rgba(4, 8, 11, .48)), url('../LobbyPreview.png') center / cover;
+    color: #f0f6f4; font: 14px/1.5 system-ui, sans-serif;
+}
+.bring-up-panel { width: min(480px, 100%); }
+.bring-up-panel h1 { font-size: clamp(25px, 4vw, 38px); font-weight: 600; letter-spacing: -.035em; margin-bottom: 8px; }
+.bring-up-caption { color: #c5e6e2; margin-bottom: 12px; }
+.bring-up-bar { height: 4px; background: rgba(220, 246, 242, .16); overflow: hidden; border-radius: 4px; }
+.bring-up-bar > div { height: 100%; width: 0; background: #8adbd2; transition: width .2s ease; }
+.bring-up-panel p { color: #a3b6b6; margin-top: 12px; }
+#failure, .script-warning {
+    position: fixed; z-index: 20; left: 24px; right: 24px; bottom: 24px; max-width: 620px;
+    padding: 20px; border: 1px solid #936f64; border-radius: 10px;
+    background: #251c1a; color: #ffe3dc; font: 14px/1.5 system-ui, sans-serif;
+}
+#failure p { margin: 5px 0 10px; color: #d8bfb8; }
+#failure a { color: #fff; }
+#failure div { overflow-wrap: anywhere; margin-top: 8px; }
 .hidden { display: none !important; }

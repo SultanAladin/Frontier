@@ -14,6 +14,18 @@ const OptionalFeatures = ["timestamp-query"];
 const RaisedLimits = ["maxStorageBuffersPerShaderStage", "maxComputeWorkgroupStorageSize", "maxBufferSize",
                       "maxStorageBufferBindingSize", "maxSampledTexturesPerShaderStage", "maxTextureDimension3D"];
 
+// 📝 Some software WebGPU adapters cannot present a canvas reliably; readback presentation is safer for them.
+export function IsSoftwareAdapter(Adapter)
+{
+    if (!Adapter)
+        return false;
+    if (Adapter.isFallbackAdapter === true)
+        return true;
+    const Information = Adapter.info || {};
+    return /swiftshader|llvmpipe|lavapipe|software/i.test([Information.vendor, Information.architecture,
+                                                           Information.device, Information.description].filter(Boolean).join(" "));
+}
+
 export class DeviceExchange
 {
     constructor()
@@ -28,8 +40,8 @@ export class DeviceExchange
 
     async ConstructDevice()
     {
-        if (!("gpu" in navigator))
-            throw new Error("This browser does not expose WebGPU (navigator.gpu is absent). Use a current Chrome, Edge or Safari.");
+        if (!navigator.gpu || typeof navigator.gpu.requestAdapter !== "function")
+            throw new Error("This browser does not expose WebGPU (navigator.gpu is unavailable). Use a current Chrome, Edge or Safari with WebGPU enabled.");
         this.Adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
         if (!this.Adapter)
             throw new Error("No WebGPU adapter is available on this system.");

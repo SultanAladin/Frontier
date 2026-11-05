@@ -48,21 +48,31 @@ export class OccupantDistanceSpace
         }
 
         let Width = 0, Height = 0, Depth = 0;
+        const SourceVolumes = new Map();
         for (const SetIndex of Required)
         {
             const Set = Scene.FacetSets[SetIndex];
-            let Voxel = Set.DistanceVoxel * VoxelScale;
-            const Extent = [0, 1, 2].map((Axis) => Set.LocalMaximum[Axis] - Set.LocalMinimum[Axis]);
+            const SourceIndex = Set.DistanceSource ?? SetIndex;
+            if (SourceVolumes.has(SourceIndex))
+            {
+                Set.VolumeIndex = SourceVolumes.get(SourceIndex);
+                continue;
+            }
+            // A material-only variant may be required even when its source has no occupant in this scene.
+            const Source = Scene.FacetSets[SourceIndex];
+            let Voxel = Source.DistanceVoxel * VoxelScale;
+            const Extent = [0, 1, 2].map((Axis) => Source.LocalMaximum[Axis] - Source.LocalMinimum[Axis]);
             const Margin = () => Math.max(4.0 * Voxel, 0.12);
-            let Longest = Math.max(...Extent.map((Length) => Length + 2.0 * Margin()));
+            const Longest = Math.max(...Extent.map((Length) => Length + 2.0 * Margin()));
             if (Longest / Voxel > MaximumVolumeTexels)
                 Voxel = Longest / MaximumVolumeTexels;
             const Resolution = Extent.map((Length) =>
                 Math.max(MinimumVolumeTexels, Math.min(MaximumVolumeTexels, Math.ceil((Length + 2.0 * Margin()) / Voxel))));
-            const Centre = [0, 1, 2].map((Axis) => 0.5 * (Set.LocalMinimum[Axis] + Set.LocalMaximum[Axis]));
+            const Centre = [0, 1, 2].map((Axis) => 0.5 * (Source.LocalMinimum[Axis] + Source.LocalMaximum[Axis]));
             const Minimum = [0, 1, 2].map((Axis) => Centre[Axis] - 0.5 * Resolution[Axis] * Voxel);
-            const Volume = { FacetSet: SetIndex, VoxelExtent: Voxel, Resolution, Minimum, TexelOrigin: [0, 0, Depth] };
+            const Volume = { FacetSet: SourceIndex, VoxelExtent: Voxel, Resolution, Minimum, TexelOrigin: [0, 0, Depth] };
             Set.VolumeIndex = this.Volumes.length;
+            SourceVolumes.set(SourceIndex, Set.VolumeIndex);
             this.Volumes.push(Volume);
             Width  = Math.max(Width, Resolution[0]);
             Height = Math.max(Height, Resolution[1]);

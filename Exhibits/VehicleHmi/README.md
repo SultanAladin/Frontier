@@ -6,7 +6,7 @@ This exhibit records the prototype and native **scaffolding**, not a completed n
 software presenter. The configurator's supplied `Truck.tsx` is the scan and paint timing reference.
 It is not included in this checkout; pass its path to the comparison tool.
 
-Validated on Linux x64 at base revision `e1ce5629e892` with the accompanying uncommitted changes,
+Validated on Linux x64 from base revision `e1ce5629e892` with the subsequent HMI and Lobby changes,
 GCC 12.2, Node 22.22.3 and SwiftShader/Dawn. Windows execution has not been verified.
 
 ## Evidence
@@ -20,6 +20,11 @@ GCC 12.2, Node 22.22.3 and SwiftShader/Dawn. Windows execution has not been veri
   The 4.6 s sweep, 1 s hold, 1 s fade, capped animation step, disable/re-enable behavior and global-time
   sparkle motion are checked. The prototype's sparkle motion, pixel blending/depth and paint ripple have
   separate executed WGSL probes.
+- A headless Chromium 153/SwiftShader Lobby smoke test loaded the default low-quality preview using the
+  automatic readback presentation path, presented its first frame at about 127 s, and accepted an orbit
+  drag and the `M` tablet shortcut. No GPU errors were reported on that run. The direct WebGPU canvas
+  lost its device in this headless environment; hardware-browser behavior has not been verified. The
+  scene transfer now shares 12 geometry-identical guest-car volumes, checked against separate volumes.
 - All eight native scan entry points compile to SPIR-V with a reflected 208-byte frame uniform. The
   native sparkle raster probe passed **36 component comparisons over 12 pixels**, plus size scaling and
   depth occlusion. SwiftShader reports unsupported capability 4427 for draw parameters; the probe does
@@ -47,7 +52,10 @@ ctest --test-dir /tmp/frontier-build --output-on-failure
 /tmp/frontier-build/LobbySession --guests 4 --xray --render /tmp/lobby-scan.ppm
 
 node --test Experimental/VehicleHmiPrototype/Tools/HmiConfiguratorEffects.test.mjs \
-  Experimental/VehicleHmiPrototype/Tools/VehicleAppearance.test.mjs
+  Experimental/VehicleHmiPrototype/Tools/VehicleAppearance.test.mjs \
+  Experimental/VehicleHmiPrototype/Tools/LobbyDistanceSpace.test.mjs \
+  Experimental/VehicleHmiPrototype/Tools/LobbyStartup.test.mjs
+python3 Experimental/VehicleHmiPrototype/Tools/Serve.test.py
 node Experimental/VehicleHmiPrototype/Tools/RunOnSoftwareGpu.mjs \
   node Exhibits/VehicleHmi/Code/ValidateScanParticlesGpu.mjs
 node Experimental/VehicleHmiPrototype/Tools/RunOnSoftwareGpu.mjs \
@@ -75,7 +83,8 @@ node Experimental/VehicleHmiPrototype/Tools/RunOnSoftwareGpu.mjs \
 ```
 
 This software-GPU render is slow. The headless validation host stubs the browser DOM and does not render the tablet's
-2D UI; a real-browser interactive session and hardware GPU coverage are still required.
+2D UI; the Chromium smoke test covers basic navigation only. Tablet controls, visual comparison and hardware GPU
+coverage still require interactive testing.
 
 ## Remaining gaps
 

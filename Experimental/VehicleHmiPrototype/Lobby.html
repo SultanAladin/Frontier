@@ -18,6 +18,30 @@
     <canvas id="viewport"></canvas>
     <canvas id="capture" class="capture"></canvas>
     <div id="cinematic-fade"></div>
-    <script type="module" src="Source/IlluminationHost.js"></script>
+    <div id="bring-up" role="status" aria-live="polite">
+        <div class="bring-up-panel">
+            <h1>Frontier Lobby</h1>
+            <div class="bring-up-caption">Starting the studio…</div>
+            <div class="bring-up-bar" aria-hidden="true"><div></div></div>
+            <p>Preparing the scene and shaders. This can take several minutes on software graphics devices.</p>
+        </div>
+    </div>
+    <div id="failure" class="hidden" role="alert">
+        <strong>The Lobby encountered an error.</strong>
+        <p>Check that WebGPU and hardware acceleration are enabled in a current browser. Close GPU-heavy tabs, then <a href="">try again</a>, <a href="?quality=low">try lower quality</a>, or <a href="?quality=low&amp;capture=1">try compatibility mode</a>.</p>
+    </div>
+    <noscript><div class="script-warning">JavaScript is required to run the Lobby.</div></noscript>
+    <script id="lobby-module" type="module" src="Source/IlluminationHost.js"></script>
+    <script>
+        // A failed module download cannot report its own error.
+        document.getElementById("lobby-module").addEventListener("error", () => {
+            document.getElementById("bring-up").classList.add("hidden");
+            const panel = document.getElementById("failure");
+            const message = document.createElement("div");
+            message.textContent = "The Lobby scripts could not be loaded. Check the connection and reload.";
+            panel.appendChild(message);
+            panel.classList.remove("hidden");
+        });
+    </script>
 </body>
 </html>
