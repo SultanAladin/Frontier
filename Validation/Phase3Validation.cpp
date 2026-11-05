@@ -20,7 +20,9 @@
 #include "Frontier/Engine/Rendering/LightClusterSpace.h"
 #include "Frontier/Engine/Rendering/NearestDepthSpace.h"
 #include "Frontier/Engine/Rendering/Photometry.h"
+#include "Frontier/Engine/Rendering/PlumeSourceProjection.h"
 #include "Frontier/Engine/Rendering/PlumeSpace.h"
+#include "Frontier/Engine/Rendering/SmokeSequence.h"
 #include "Frontier/Engine/Scene/FacetArchive.h"
 #include "Frontier/Engine/Scene/VehicleCabin.h"
 #include "Frontier/Game/SoftwarePresentation.h"
@@ -1175,6 +1177,401 @@ void ValidatePlumeSpace()
     Check(Detail[0] != Detail[1] || Detail[4] != Detail[5], "3B: the detail volume carries real structure");
 }
 
+//--------------------------------------------------------------------------------------------------------------------------------------
+//                                       TRACK 3C — TYRE PLUME SOURCES AND FIRE LIGHT
+//--------------------------------------------------------------------------------------------------------------------------------------
+
+void ValidatePlumeSourceProjection()
+{
+    // 📝 The turning operators: a quarter turn about +Z sends +X to +Y.
+    const Rotor Quarter = AxisRotor({ 0.0f, 0.0f, 1.0f }, 1.5707963267948966f);
+    const Vec3 Turned = RotateByRotor(Quarter, { 1.0f, 0.0f, 0.0f });
+    Check(Near(Turned.X, 0.0f, 1e-5f) && Near(Turned.Y, 1.0f, 1e-5f) && Near(Turned.Z, 0.0f, 1e-5f),
+          "3C: a quarter turn about the upright sends the forward axis to the left axis");
+    const Vec3 Unturned = RotateByRotor(Rotor{}, { 0.3f, -0.7f, 1.1f });
+    Check(Near(Unturned.X, 0.3f) && Near(Unturned.Y, -0.7f) && Near(Unturned.Z, 1.1f),
+          "3C: the identity rotor leaves a vector alone");
+    const Rotor Twice = ComposeRotor(Quarter, Quarter);
+    const Vec3 Halved = RotateByRotor(Twice, { 1.0f, 0.0f, 0.0f });
+    Check(Near(Halved.X, -1.0f, 1e-5f) && Near(Halved.Y, 0.0f, 1e-5f),
+          "3C: composing two quarter turns is a half turn");
+
+    // 📝 The onset hysteresis: entry needs power AND slip speed sustained; release has grace; losing
+    //    contact cuts the source at once.
+    PlumeSourceProjection Projection;
+    Check(!Projection.AdvanceOnset(0u, 5000.0f, 5.0f, true, 0.01f),
+          "3C: a single short frame above the onset power does not start a tyre smoking");
+    Check(Projection.AdvanceOnset(0u, 5000.0f, 5.0f, true, 0.06f),
+          "3C: the onset power held for the onset time starts a tyre smoking");
+    Check(Projection.AdvanceOnset(0u, 150.0f, 5.0f, true, 0.02f),
+          "3C: power above the release ratio but below the onset holds a smoking tyre smoking");
+    Check(Projection.AdvanceOnset(0u, 10.0f, 5.0f, true, 0.10f) == false,
+          "3C: power below the release ratio for the release time stops the tyre smoking");
+    Check(!Projection.AdvanceOnset(1u, 5000.0f, 5.0f, true, 0.06f) == false,
+          "3C: each wheel keeps its own onset");
+    Check(Projection.AdvanceOnset(1u, 5000.0f, 5.0f, true, 0.06f), "3C: a second wheel can smoke on its own");
+    Check(!Projection.AdvanceOnset(1u, 5000.0f, 5.0f, false, 0.06f),
+          "3C: losing contact cuts the source at once, with no grace");
+    Check(!Projection.AdvanceOnset(0u, 5000.0f, 0.1f, true, 0.06f),
+          "3C: power without slip speed never starts a tyre smoking");
+
+    // 📝 A four-wheel burnout: every wheel past the onset, hot enough to vapourise.
+    Projection.Reset();
+    PlumeTelemetry Telemetry;
+    Telemetry.Position = { -1.2f, 0.8f, 0.0f };
+    Telemetry.Velocity = { 0.0f, 0.0f, 0.0f };
+    for (uint32_t Wheel = 0u; Wheel < 4u; ++Wheel)
+    {
+        PlumeWheelReading Reading;
+        Reading.ContactPoint = { -1.2f + 0.3f * float(Wheel % 2u), 0.7f - 0.9f * float(Wheel / 2u), 0.0f };
+        Reading.HubPosition = Reading.ContactPoint + Vec3{ 0.0f, 0.0f, 0.35f };
+        Reading.ContactVelocity = { 0.0f, 0.0f, 0.0f };
+        Reading.Longitudinal = { 1.0f, 0.0f, 0.0f };
+        Reading.SlipSpeed = 18.0f;
+        Reading.SlidingPower = 9000.0f;
+        Reading.SurfaceSpeed = 18.0f;
+        Reading.Radius = 0.35f;
+        Reading.InContact = true;
+        Reading.Thermal.SurfaceTemperature = 420.0f;              // well past the warm base
+        Telemetry.Wheels.push_back(Reading);
+    }
+
+    PlumeProjectionOptions Options;
+    const uint32_t Count = Projection.Project(Telemetry, 0.10f, Options);
+    Check(Count == 8u, "3C: a four-wheel burnout sheds a patch source and an arch source per tyre");
+    Check(Projection.ActiveTyres() == 4u, "3C: all four tyres are smoking");
+    Check(Projection.Records().size() == size_t(Count) * PlumeSourceStride, "3C: the source table is 12 floats per source");
+
+    const PlumeSourceEntry Patch = Projection.Source(0u);
+    Check(Near(Patch.Radius, SmokeSpecification::PatchRadius * 1.4f), "3C: the patch source is 1.4 patch radii across");
+    Check(Near(Patch.Position.Z, 0.04f, 1e-5f), "3C: the patch source sits 4 cm above the contact point");
+    Check(Patch.Smoke > 0.0f && Patch.Heat > 0.0f && Patch.Flame == 0.0f && Patch.Soot == 0.0f,
+          "3C: a sliding tyre sheds smoke and heat, no flame and no soot");
+    Check(Near(Patch.Velocity.X, -SmokeFlingShare * 18.0f, 1e-4f),
+          "3C: the patch smoke is thrown rearward along the tread with a share of the surface slip");
+    Check(Near(Projection.Source(1u).Smoke, SmokeArchShare * Patch.Smoke, 1e-3f),
+          "3C: the wheel arch sheds a third of the patch's smoke");
+
+    // 📝 Smoke follows the tread's heat: a cold tyre barely smokes.
+    PlumeSourceProjection Cold = Projection;
+    PlumeTelemetry ColdTelemetry = Telemetry;
+    for (PlumeWheelReading& Wheel : ColdTelemetry.Wheels)
+        Wheel.Thermal.SurfaceTemperature = 293.15f;
+    Cold.Project(ColdTelemetry, 0.10f, Options);
+    // 📝 The Warm factor: 0.35 at the floor, 1.0 once the tread vapourises, so a tread at 420 K sheds
+    //    about 1.85 times what a cold one does.
+    Check(Near(Cold.Source(0u).Smoke, SmokeSpecification::DensityRate * (0.35f) * 1.0f * 0.0f
+                                      + SmokeSpecification::DensityRate * 0.5f * 0.35f, 1e-3f)
+          || Cold.Source(0u).Smoke < Patch.Smoke * 0.6f, "3C: a cold tread smokes far less than a hot one");
+    Check(Near(Patch.Smoke / Cold.Source(0u).Smoke, (0.35f + 0.65f * (420.0f - SmokeWarmBase) / SmokeWarmSpan) / 0.35f, 1e-3f),
+          "3C: the smoke a tread sheds follows its surface temperature");
+
+    // 📝 Burning rubber: two flame seats per tyre, black soot instead of white rubber smoke, a fire
+    //    light and an ember emitter.
+    PlumeTelemetry BurningTelemetry = Telemetry;
+    for (PlumeWheelReading& Wheel : BurningTelemetry.Wheels)
+    {
+        Wheel.Thermal.Ignited = true;
+        Wheel.Thermal.CombustionPower = 42000.0f;
+    }
+    PlumeSourceProjection Fire;
+    const uint32_t FireCount = Fire.Project(BurningTelemetry, 0.10f, Options);
+    Check(FireCount == 16u, "3C: four burning tyres shed a patch, an arch and two flame seats each");
+    Check(Fire.Lights().size() == 4u, "3C: every burning tyre publishes one fire light");
+    Check(Fire.Embers().size() == 4u, "3C: every burning tyre publishes one ember emitter");
+    Check(Near(Fire.Lights()[0].Radiance.Y, SmokeFireColour[1] * Fire.Lights()[0].Radiance.X, 1e-3f),
+          "3C: the fire light is the colour of a sooty rubber flame");
+
+    bool Seats = true;
+    uint32_t SootSources = 0u;
+    for (uint32_t Index = 0u; Index < FireCount; ++Index)
+    {
+        const PlumeSourceEntry Entry = Fire.Source(Index);
+        if (Entry.Soot > 0.0f)
+        {
+            ++SootSources;
+            if (Entry.Flame <= 0.0f)
+                Seats = false;
+        }
+    }
+    Check(SootSources == 8u && Seats, "3C: the eight flame seats shed soot and incandescence");
+
+    // 📝 A shredded tyre has no rubber left to vapourise: the telemetry zeroes its sliding power, so
+    //    it never passes the onset.
+    PlumeTelemetry BareTelemetry = Telemetry;
+    for (PlumeWheelReading& Wheel : BareTelemetry.Wheels)
+        Wheel.SlidingPower = 0.0f;
+    PlumeSourceProjection Bare;
+    Check(Bare.Project(BareTelemetry, 0.10f, Options) == 0u && Bare.ActiveTyres() == 0u,
+          "3C: a shredded tyre sheds nothing");
+
+    // 📝 Afterfire pops: the window opens, a tip fires, and the pop dies out.
+    PlumeTelemetry ExhaustTelemetry = Telemetry;
+    ExhaustTelemetry.Wheels.clear();
+    ExhaustTelemetry.AfterfireSeconds = 2.0f;
+    ExhaustTelemetry.Exhausts.push_back(PlumeExhaustReading{ { -2.0f, 0.0f, 0.4f }, { -1.0f, 0.0f, 0.0f } });
+    PlumeProjectionOptions Popping;
+    Popping.Afterfire = true;
+    PlumeSourceProjection Exhaust;
+    uint32_t Onsets = 0u;
+    uint32_t Sounding = 0u;
+    bool WasPopping = false;
+    for (uint32_t Frame = 0u; Frame < 400u; ++Frame)
+    {
+        Exhaust.Project(ExhaustTelemetry, 1.0f / 60.0f, Popping);
+        if (Exhaust.IsPopping())
+        {
+            ++Sounding;
+            if (!WasPopping)
+                ++Onsets;
+        }
+        WasPopping = Exhaust.IsPopping();
+    }
+    // 📝 Each tip fires 35-90 ms bursts with random gaps, so over 400 frames the exhaust starts many
+    //    separate pops and is silent for a good part of the time.
+    Check(Onsets > 4u && Onsets < 200u, "3C: an open afterfire window fires separate pops, not one long one");
+    Check(Sounding > Onsets && Sounding < 400u, "3C: a pop sounds for several frames but not for all of them");
+    Check(Exhaust.Lights().size() <= 1u, "3C: a pop publishes one fire light while it burns");
+
+    PlumeTelemetry Quiet = ExhaustTelemetry;
+    Quiet.AfterfireSeconds = 0.0f;
+    PlumeSourceProjection Silent;
+    Silent.Project(Quiet, 1.0f / 60.0f, Options);
+    Check(!Silent.IsPopping() && Silent.Count() == 0u, "3C: a closed afterfire window pops not at all");
+
+    // 📝 Transient bursts: queued with a duration, shed while it lasts, dropped when it is spent, and
+    //    capped at four.
+    PlumeSourceProjection Transient;
+    for (uint32_t Index = 0u; Index < 6u; ++Index)
+    {
+        PlumeBurst Burst;
+        Burst.Position = { float(Index), 0.0f, 0.5f };
+        Burst.Seconds = 1.0f;
+        Burst.Smoke = 10.0f;
+        Transient.QueueBurst(Burst);
+    }
+    Check(Transient.Project(PlumeTelemetry{}, 0.5f, Options) == 4u, "3C: at most four transient bursts are held");
+    Check(Near(Transient.Source(0u).Smoke, 10.0f, 1e-3f), "3C: a fresh burst sheds its full rate");
+    // 📝 Halfway through its life a burst sheds half its rate; the moment it is spent it is dropped.
+    Check(Transient.Project(PlumeTelemetry{}, 0.3f, Options) == 4u, "3C: a burst is still shed while it lasts");
+    Check(Near(Transient.Source(0u).Smoke, 5.0f, 1e-3f), "3C: a burst halfway through its life sheds half its rate");
+    Check(Transient.Project(PlumeTelemetry{}, 0.3f, Options) == 4u, "3C: a burst is shed right up to its last moment");
+    Check(Near(Transient.Source(0u).Smoke, 2.0f, 1e-3f), "3C: a burst nearly spent sheds nearly nothing");
+    Check(Transient.Project(PlumeTelemetry{}, 0.3f, Options) == 0u, "3C: a burst is dropped the moment its time is spent");
+
+    // 📝 Bounds: every source grown by 3.5 of its radii — the Gaussian's reach.
+    Vec3 Low = {};
+    Vec3 High = {};
+    Check(Projection.ResolveBounds(Low, High), "3C: a projected plume has bounds");
+    const PlumeSourceEntry First = Projection.Source(0u);
+    const float Reach = std::max(First.Radius, 0.3f) * 3.5f;
+    Check(Low.X <= First.Position.X - Reach + 1e-4f && High.X >= First.Position.X + Reach - 1e-4f,
+          "3C: the bounds cover each source grown by 3.5 of its radii");
+    Check(Low.X <= High.X && Low.Y <= High.Y && Low.Z <= High.Z, "3C: the bounds are ordered");
+    PlumeSourceProjection Empty;
+    Check(!Empty.ResolveBounds(Low, High), "3C: a plume with no sources has no bounds");
+
+    // 📝 The table never overruns its capacity, whatever the telemetry asks for.
+    PlumeSourceProjection Flood;
+    PlumeTelemetry FloodTelemetry = BurningTelemetry;
+    for (uint32_t Wheel = 0u; Wheel < 8u; ++Wheel)
+        FloodTelemetry.Wheels.push_back(BurningTelemetry.Wheels[0]);
+    Check(Flood.Project(FloodTelemetry, 0.10f, Options) <= PlumeSourceCapacity,
+          "3C: the source table never overruns its 24-source capacity");
+    Check(!Flood.AppendSource({ 0.0f, 0.0f, 0.0f }, 0.3f, { 0.0f, 0.0f, 1.0f }, 1.0f, 1.0f, 1.0f, 1.0f)
+          || Flood.Count() <= PlumeSourceCapacity, "3C: a full table refuses another source");
+    Check(!Flood.AppendSource({ 0.0f, 0.0f, 0.0f }, 0.3f, { 0.0f, 0.0f, 1.0f }, 0.0f, 0.0f, 0.0f, 0.0f)
+          || Flood.Count() < PlumeSourceCapacity, "3C: a source that sheds nothing is not appended");
+}
+
+void ValidateSmokeSequence()
+{
+    // 📝 The catalogue: every parameter has a default, a range and a step, and the defaults are the
+    //    ones the exhibit opens with.
+    const std::span<const GasParameterDescriptor> Catalogue = GasParameterCatalogue();
+    Check(Catalogue.size() == 33u, "3C: the gas catalogue carries every parameter the editor drives");
+    bool Catalogued = true;
+    for (const GasParameterDescriptor& Entry : Catalogue)
+        if (Entry.Slot == nullptr || Entry.Name == nullptr || Entry.Name[0] == '\0'
+            || !(Entry.Minimum < Entry.Maximum) || !(Entry.Step > 0.0f)
+            || !(Entry.Default >= Entry.Minimum) || !(Entry.Default <= Entry.Maximum))
+            Catalogued = false;
+    Check(Catalogued, "3C: every catalogue entry names a slot and a sane range");
+
+    const GasParameters Defaults = ConstructGasParameters();
+    Check(Near(Defaults.Buoyancy, 2.4f) && Near(Defaults.Dissipation, 0.10f) && Near(Defaults.Albedo, 0.88f)
+          && Near(Defaults.FlameCore, 1800.0f), "3C: the catalogue defaults are the exhibit's");
+    bool Applied = true;
+    for (const GasParameterDescriptor& Entry : Catalogue)
+        if (!Near(Defaults.*Entry.Slot, Entry.Default, 1e-6f))
+            Applied = false;
+    Check(Applied, "3C: ConstructGasParameters applies every catalogue default");
+
+    GasParameters Set = Defaults;
+    Check(AssignGasParameter(Set, "Vorticity", 99.0f) && Near(Set.Vorticity, 6.0f),
+          "3C: assigning a parameter clamps it to the catalogue's maximum");
+    Check(AssignGasParameter(Set, "WindHeading", -50.0f) && Near(Set.WindHeading, 0.0f),
+          "3C: assigning a parameter clamps it to the catalogue's minimum");
+    Check(!AssignGasParameter(Set, "NoSuchParameter", 1.0f), "3C: assigning an unknown parameter is refused");
+    Check(Near(ReadGasParameter(Set, "Vorticity"), 6.0f) && ReadGasParameter(Set, "NoSuchParameter") == 0.0f,
+          "3C: reading a parameter by name returns what was assigned");
+    Set.Heat = 1.0e9f;
+    ClampGasParameters(Set);
+    Check(Set.Heat <= 4.0f, "3C: clamping brings every parameter back into range");
+
+    // 📝 The mapping onto the lattice's settings.
+    const PlumeSettings Mapped = MapGasParameters(Defaults, true);
+    Check(Mapped.PlumeEnabled, "3C: an enabled plume maps to an enabled lattice");
+    Check(Near(Mapped.PlumeDensity, 1.2f * Defaults.Density), "3C: the density multiplier carries the exhibit's 1.2");
+    Check(Near(Mapped.PlumeFlameCore, Defaults.FlameCore * Defaults.FlameTemperature),
+          "3C: the flame temperature scales the core temperature");
+    Check(Near(Mapped.PlumeFlameTip, Defaults.FlameTip * Defaults.FlameTemperature),
+          "3C: the flame temperature scales the tip temperature");
+    Check(Near(Mapped.PlumeFlameDecay, -std::log(1.0f - Defaults.FlameLoss), 1e-4f),
+          "3C: the per-second flame loss becomes a per-second decay rate");
+    Check(!MapGasParameters(Defaults, false).PlumeEnabled, "3C: a disabled plume maps to a disabled lattice");
+
+    GasParameters Retained = Defaults;
+    Retained.FlameLoss = 0.999f;
+    Check(MapGasParameters(Retained, true).PlumeFlameDecay > 0.0f,
+          "3C: a flame that is never lost still decays, clamped away from zero");
+
+    // 📝 The telemetry projection: the steered tread heading, the contact decision, the thermal state.
+    SmokeVehicleState Vehicle;
+    Vehicle.Position = { 4.0f, -2.0f, 0.0f };
+    Vehicle.LinearVelocity = { 12.0f, 0.0f, 0.0f };
+    Vehicle.Orientation = AxisRotor({ 0.0f, 0.0f, 1.0f }, 1.5707963267948966f);       // body facing +Y
+    for (uint32_t Wheel = 0u; Wheel < 4u; ++Wheel)
+    {
+        SmokeWheelState State;
+        State.Radius = 0.35f;
+        State.Spin = 40.0f;
+        State.Steer = AxisRotor({ 0.0f, 0.0f, 1.0f }, 0.0f);
+        Vehicle.Wheels.push_back(State);
+    }
+    std::vector<SmokeContactReading> Readings(4);
+    for (uint32_t Wheel = 0u; Wheel < 4u; ++Wheel)
+    {
+        Readings[Wheel].ContactPoint = { 4.0f, -2.0f, 0.0f };
+        Readings[Wheel].HubPosition = { 4.0f, -2.0f, 0.35f };
+        Readings[Wheel].ContactVelocity = { 12.0f, 0.0f, 0.0f };
+        Readings[Wheel].ContactFraction = 1.0f;
+        Readings[Wheel].SlipSpeed = 9.0f;
+        Readings[Wheel].SlidingPower = 6000.0f;
+    }
+    Readings[2].ContactFraction = 0.2f;                  // barely touching: not a source
+    Readings[3].OnDebris = true;                         // on debris: not a source
+    std::vector<SmokeThermalReading> Thermal(4);
+    for (SmokeThermalReading& Reading : Thermal)
+        Reading.Surface = 500.0f;
+
+    const PlumeTelemetry Projected = ProjectPlumeTelemetry(Vehicle, Readings, Thermal);
+    Check(Projected.Wheels.size() == 4u, "3C: every wheel is projected");
+    Check(Near(Projected.Wheels[0].Longitudinal.X, 0.0f, 1e-5f) && Near(Projected.Wheels[0].Longitudinal.Y, 1.0f, 1e-5f),
+          "3C: the tread heading is the body's turn applied to the forward axis");
+    Check(Projected.Wheels[0].InContact && Projected.Wheels[1].InContact
+          && !Projected.Wheels[2].InContact && !Projected.Wheels[3].InContact,
+          "3C: a patch half off the road, or on debris, is not a source");
+    Check(Near(Projected.Wheels[0].SurfaceSpeed, 40.0f * 0.35f), "3C: the surface speed is the spin times the radius");
+    Check(Near(Projected.Position.X, 4.0f) && Near(Projected.Velocity.X, 12.0f), "3C: the telemetry carries the vehicle");
+
+    Readings[1].Shredded = true;
+    const PlumeTelemetry Bare = ProjectPlumeTelemetry(Vehicle, Readings, Thermal);
+    Check(Bare.Wheels[1].SlidingPower == 0.0f && Bare.Wheels[0].SlidingPower == 6000.0f,
+          "3C: a shredded tyre has no rubber left, so its sliding power is zero");
+    Thermal[1].Ignited = true;
+    const PlumeTelemetry BareIgnited = ProjectPlumeTelemetry(Vehicle, Readings, Thermal);
+    Check(!BareIgnited.Wheels[1].Thermal.Ignited, "3C: a shredded tyre cannot be burning");
+
+    // 📝 The advance: a burnout makes the plume resident and steps it.
+    SmokeSequence Sequence(PlumeGrades[0]);
+    SmokeAdvanceFrame Frame;
+    Frame.Enabled = true;
+    Frame.Vehicle = Vehicle;
+    Frame.Readings = Readings;
+    Frame.Thermal = Thermal;
+    Frame.Gas = Defaults;
+    Frame.SunDirection = { 0.3f, 0.4f, 0.86f };
+
+    // 📝 The onset needs the sliding power sustained for SourceOnsetSeconds, so a burnout takes a few
+    //    frames to light.
+    for (uint32_t Index = 0u; Index < 8u; ++Index)
+    {
+        Sequence.Advance(1.0f / 60.0f, Frame);
+        Sequence.CommitStep();                     // the renderer recorded the transport of this step
+        if (Index == 0u)
+            Check(Sequence.SourceCount() == 0u, "3C: one frame of scrub is not yet a smoking tyre");
+    }
+    Check(Sequence.SourceCount() > 0u, "3C: a sustained burnout projects tyre sources");
+    Check(Sequence.Plume().IsResident(), "3C: sources make the plume resident");
+    Check(Sequence.StepsTaken() >= 1u, "3C: the frame the burnout starts steps the lattice");
+    Check(Sequence.Settings().PlumeEnabled && Near(Sequence.Settings().PlumeBuoyancy, Defaults.Buoyancy),
+          "3C: the advance runs the mapped settings");
+    Check(Sequence.QueryReadout().size() == 2u && !Sequence.QueryReadout()[0].empty(),
+          "3C: the editor readout describes the resident plume");
+
+    // 📝 Driving the car across the pad relabels the toroidal window without a copy.
+    const uint32_t StepsBefore = Sequence.StepsTaken();
+    for (uint32_t Index = 0u; Index < 400u; ++Index)
+    {
+        Frame.Vehicle.Position = { 4.0f + 0.25f * float(Index), -2.0f, 0.0f };
+        Sequence.Advance(1.0f / 60.0f, Frame);
+        Sequence.CommitStep();
+    }
+    Check(Sequence.StepsTaken() > StepsBefore, "3C: the plume keeps stepping as the car drives");
+    Check(Sequence.Relocations() > 0u, "3C: driving across the pad relabels the window's texels");
+
+    // 📝 Extra emissions: the first four slots are the tyres', so only the extras are appended.
+    SmokeAdvanceFrame Extras = Frame;
+    Extras.Emissions.assign(6, SmokeEmission{});
+    Extras.Emissions[5].Active = true;
+    Extras.Emissions[5].SmokeRate = 4.0f;
+    Sequence.Advance(1.0f / 60.0f, Extras);
+    Check(Sequence.SourceCount() <= PlumeSourceCapacity, "3C: extra emissions never overrun the source table");
+    Check(Sequence.QueuedSources() >= Sequence.SourceCount(), "3C: the queued count reports every source appended");
+
+    // 📝 Pressure sweeps follow the editor's iterations, rounded to an even count.
+    SmokeAdvanceFrame Sweeps = Frame;
+    Sweeps.Gas.PressureSweeps = 7.0f;
+    Sequence.Advance(1.0f / 60.0f, Sweeps);
+    Check(Sequence.Plume().Configuration().PressureSweeps % 2u == 0u,
+          "3C: the pressure sweeps are rounded to an even count");
+    Sweeps.Gas.PressureSweeps = 1.0f;
+    Sequence.Advance(1.0f / 60.0f, Sweeps);
+    Check(Sequence.Plume().Configuration().PressureSweeps >= 4u,
+          "3C: the pressure sweeps never fall below four");
+
+    // 📝 Fire lights: a burning tyre publishes one, and the aggregate is their luminance-weighted centre.
+    SmokeAdvanceFrame Aflame = Frame;
+    for (SmokeThermalReading& Reading : Aflame.Thermal)
+    {
+        Reading.Ignited = true;
+        Reading.CombustionPower = 42000.0f;
+    }
+    Aflame.Readings[1].Shredded = false;
+    Sequence.Advance(1.0f / 60.0f, Aflame);
+    Check(Sequence.Sources().Lights().size() >= 3u, "3C: burning tyres publish fire lights");
+    Check(Sequence.FireLight().Intensity > 0.0f, "3C: the aggregate fire light carries their total intensity");
+    Check(Sequence.FireLight().Position[0] != 0.0f || Sequence.FireLight().Position[1] != 0.0f,
+          "3C: the aggregate fire light sits at their luminance-weighted centre");
+
+    // 📝 Switching the plume off, and clearing it.
+    SmokeAdvanceFrame Off = Aflame;
+    Off.Enabled = false;
+    Sequence.Advance(1.0f / 60.0f, Off);
+    Check(!Sequence.Settings().PlumeEnabled, "3C: switching the plume off disables the lattice");
+    Check(Sequence.Sources().Lights().size() >= 3u, "3C: the sources are still projected when the plume is off");
+
+    const uint32_t Lifetime = Sequence.StepsTaken();
+    Sequence.Clear();
+    Check(!Sequence.Plume().IsResident() && !Sequence.Plume().IsStepPending(),
+          "3C: clearing the sequence forgets the plume");
+    // 📝 Steps taken is a lifetime metric (the readout's "steps"), not a per-plume one.
+    Check(Sequence.StepsTaken() == Lifetime, "3C: clearing the sequence keeps the lifetime step count");
+    Check(Sequence.FireLight().Intensity == 0.0f, "3C: clearing the sequence puts the fire light out");
+    Check(!Sequence.Sources().Onsets()[0].Active, "3C: clearing the sequence forgets the onset hysteresis");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1196,6 +1593,8 @@ int main(int argc, char** argv)
     ValidateEmissiveLightSpace();
     ValidateNearestDepthSpace();
     ValidatePlumeSpace();
+    ValidatePlumeSourceProjection();
+    ValidateSmokeSequence();
 
     std::printf("Phase3Validation: %d checks, %d failures\n", CheckCount, FailureCount);
     return FailureCount == 0 ? 0 : 1;

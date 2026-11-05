@@ -187,6 +187,14 @@ void PlumeSpace::Schedule(float Seconds,
     StepPending = true;
 }
 
+void PlumeSpace::AssignPressureSweeps(uint32_t Sweeps) noexcept
+{
+    // 📝 Red-black Jacobi relaxes in pairs of sweeps, so an odd count is rounded up to the next even
+    //    one; below four the projection has not converged enough to be worth running.
+    const uint32_t Paired = (std::max(Sweeps, 4u) + 1u) & ~1u;
+    Grade.PressureSweeps = Paired;
+}
+
 void PlumeSpace::RecentreWindow(std::array<float, 3> Focus, bool Force)
 {
     const std::array<int32_t, 2> Cell = { int32_t(std::floor(Focus[0] / CoarseEdge)),

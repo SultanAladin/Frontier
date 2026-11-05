@@ -113,12 +113,14 @@ struct PlumeSettings
 };
 
 // 📝 One fire light: a world position, a reach, and a linear radiance. Brightest first; the record
-//    keeps the first PlumeFireLightLimit of them.
+//    keeps the first PlumeFireLightLimit of them. Intensity is the aggregate's scalar: the sum of the
+//    published lights' luminance, which the direct pass reads for a single soft light.
 struct PlumeFireLight
 {
     std::array<float, 3> Position = { 0.0f, 0.0f, 0.0f };
     float Radius = 0.0f;
     std::array<float, 3> Radiance = { 0.0f, 0.0f, 0.0f };
+    float Intensity = 0.0f;
 };
 
 class PlumeSpace
@@ -129,6 +131,11 @@ class PlumeSpace
     // 📝 Switches to another grade: new lattices, a clean plume. The programs do not depend on the
     //    extents — the record carries them — so a grade change costs allocations, never compiles.
     void ReconstructGrade(const PlumeGrade& Configuration);
+
+    // 📝 Sets the pressure sweeps of the resident grade (the editor's Pressure iterations, rounded to
+    //    an even count as the red-black relaxation needs). Costs nothing: the sweep count is a host
+    //    dispatch, not a program.
+    void AssignPressureSweeps(uint32_t Sweeps) noexcept;
 
     // 📝 Called once per frame with the sources of this frame. Decides residency and whether a step
     //    runs, moves the window when the focus leaves its middle half, and writes the step record, the
