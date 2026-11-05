@@ -23,6 +23,9 @@
 #include "Frontier/Engine/Rendering/PlumeSourceProjection.h"
 #include "Frontier/Engine/Rendering/PlumeSpace.h"
 #include "Frontier/Engine/Rendering/SmokeSequence.h"
+#include "Frontier/Engine/Rendering/SparkCollision.h"
+#include "Frontier/Engine/Rendering/SparkSequence.h"
+#include "Frontier/Engine/Rendering/EffectSequence.h"
 #include "Frontier/Engine/Scene/FacetArchive.h"
 #include "Frontier/Engine/Scene/VehicleCabin.h"
 #include "Frontier/Game/SoftwarePresentation.h"
@@ -1572,6 +1575,599 @@ void ValidateSmokeSequence()
     Check(!Sequence.Sources().Onsets()[0].Active, "3C: clearing the sequence forgets the onset hysteresis");
 }
 
+//==========================================================================================================================================
+//                                                        3D · SPARK COLLISION
+//==========================================================================================================================================
+
+void ValidateSparkCollision()
+{
+    // 📝 The planes of a box: six outward normals with the far edge in the offset, so the inside is
+    //    negative and a spark is outside whenever its signed distance is positive.
+    const std::array<float, 24> Planes = BoxPlanes({ -1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, 1.0f });
+    Check(Planes.size() == 24u, "3D: a box is six planes, four floats each");
+    Check(Near(Planes[0], 1.0f) && Near(Planes[3], 1.0f) && Near(Planes[4], -1.0f) && Near(Planes[7], 1.0f),
+          "3D: a box's +X plane faces out with its far edge in the offset, its −X plane faces back");
+
+    // 📝 A step through the box meets the near face, a skin clear of it, on the way in.
+    const std::optional<SparkContact> Through = SweepConvex({ -3.0f, 0.0f, 0.0f }, { 3.0f, 0.0f, 0.0f }, Planes);
+    Check(Through.has_value(), "3D: a step straight through a box meets it");
+    Check(Through && Near(Through->Time, 1.997f / 6.0f, 2.0e-3f), "3D: the contact is where the step crosses the near face");
+    Check(Through && Near(Through->Normal.X, -1.0f, 1e-5f), "3D: the contact normal faces back along the step");
+    Check(Through && Near(Through->Push, SparkSkin), "3D: the contact lifts the spark a skin clear of the face");
+
+    // 📝 A step that misses is clear — no contact at all, and no phantom push.
+    Check(!SweepConvex({ -3.0f, 5.0f, 0.0f }, { 3.0f, 5.0f, 0.0f }, Planes), "3D: a step past a box is clear");
+    Check(!SweepConvex({ -3.0f, 0.0f, 0.0f }, { -5.0f, 0.0f, 0.0f }, Planes), "3D: a step away from a box is clear");
+
+    // 📝 A point already inside is put out through the nearest face, at once.
+    const std::optional<SparkContact> Inside = SweepConvex({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 5.0f }, Planes);
+    Check(Inside && Inside->Time == 0.0f, "3D: a point inside a box is in contact at once");
+    Check(Inside && Inside->Push > 1.0f, "3D: a point inside a box is pushed clear of the nearest face");
+    Check(Inside && Near(Inside->Normal.X, 1.0f, 1.0e-5f), "3D: it leaves through the face it is nearest");
+
+    // 📝 The course: the flat pad, and a slope whose normal tilts back against the rise.
+    FlatSparkCourse Pad;
+    Check(Near(Pad.Height(12.0f, -4.0f), 0.0f), "3D: the pad is flat and at zero");
+    Check(Near(Pad.Normal(0.0f, 0.0f).Z, 1.0f, 1e-6f), "3D: the pad's normal is straight up");
+
+    struct Slope final : public SparkCourseSurface
+    {
+        [[nodiscard]] float Height(float X, float) const noexcept override { return 0.1f * X; }
+    } Ramp;
+    const Vec3 Tilt = Ramp.Normal(0.0f, 0.0f);
+    Check(Tilt.X < 0.0f && Near(Tilt.Z, 1.0f / std::sqrt(1.01f), 1e-5f),
+          "3D: a slope's normal tilts back against the rise, by central differences over ±0.15 m");
+
+    // 📝 A falling spark meets the pad a skin above it, not at it.
+    const std::optional<SparkContact> Landing = SweepSpark({ 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, -1.0f }, {}, {}, &Pad);
+    Check(Landing && Near(Landing->Time, 0.997f / 2.0f, 3.0e-3f), "3D: a falling spark meets the pad a skin above it");
+    Check(Landing && Near(Landing->Normal.Z, 1.0f, 1e-6f), "3D: it meets the pad's normal");
+    Check(!SweepSpark({ 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 0.5f }, {}, {}, &Pad), "3D: a spark still above the pad is clear");
+
+    // 📝 Sweeping everything takes the earliest contact.
+    SparkBox Wall;
+    Wall.Minimum = { 1.0f, -1.0f, -1.0f };
+    Wall.Maximum = { 3.0f, 1.0f, 1.0f };
+    const std::array<SparkBox, 1> Walls{ Wall };
+    const std::optional<SparkContact> HitWall = SweepSpark({ -5.0f, 0.0f, 0.5f }, { 5.0f, 0.0f, 0.5f }, Walls, {}, &Pad);
+    Check(HitWall && Near(HitWall->Time, 5.997f / 10.0f, 4.0e-3f), "3D: a spark meets the wall it is thrown at");
+    const std::optional<SparkContact> HitPad = SweepSpark({ -5.0f, 0.0f, 0.5f }, { 5.0f, 0.0f, -0.5f }, Walls, {}, &Pad);
+    Check(HitPad && HitWall && HitPad->Time < HitWall->Time, "3D: the earliest of the wall and the pad wins");
+    const std::optional<SparkContact> HitAlone = SweepSpark({ -5.0f, 0.0f, 0.5f }, { 5.0f, 0.0f, 0.5f }, Walls, {}, nullptr);
+    Check(HitAlone && HitWall && Near(HitAlone->Time, HitWall->Time, 1e-6f),
+          "3D: without a course the wall is still swept, at the same contact");
+
+    // 📝 A box given its own planes is swept by them, not by its bounds.
+    SparkBox Overridden = Wall;
+    Overridden.Planes.assign(Planes.begin(), Planes.end());
+    const std::array<SparkBox, 1> Overrides{ Overridden };
+    const std::optional<SparkContact> HitPlanes = SweepSpark({ -3.0f, 0.0f, 0.0f }, { 3.0f, 0.0f, 0.0f }, Overrides, {}, nullptr);
+    Check(HitPlanes && HitPlanes->Time < 0.4f, "3D: a box carrying its own planes is swept by them, not by its bounds");
+
+    // 📝 A convex debris body sweeps like a box, through its bounding sphere's broadphase.
+    SparkConvexBody Debris;
+    Debris.Position = { 0.0f, 0.0f, 0.0f };
+    Debris.Radius = 1.0f;
+    Debris.WorldPlanes.assign(Planes.begin(), Planes.end());
+    const std::array<SparkConvexBody, 1> Bodies{ Debris };
+    const std::optional<SparkContact> HitBody = SweepSpark({ -3.0f, 0.0f, 0.0f }, { 3.0f, 0.0f, 0.0f }, {}, Bodies, nullptr);
+    Check(HitBody && Near(HitBody->Time, 1.997f / 6.0f, 2.0e-3f), "3D: a convex debris body is swept like a box");
+    const std::optional<SparkContact> MissBody = SweepSpark({ -3.0f, 5.0f, 0.0f }, { 3.0f, 5.0f, 0.0f }, {}, Bodies, nullptr);
+    Check(!MissBody, "3D: a debris body's bounding sphere rejects a step that cannot reach it");
+
+    // 📐 A spark skips: it keeps 55 % of its tangential speed and 28 % of its approach, reflected.
+    const Vec3 Dropped = BounceSpark({ 0.0f, 0.0f, -10.0f }, { 0.0f, 0.0f, 1.0f });
+    Check(Near(Dropped.Z, 2.8f, 1e-5f), "3D: a spark dropped on the road leaves at 28 % of its speed");
+    const Vec3 Grazing = BounceSpark({ 10.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f });
+    Check(Near(Grazing.X, 5.5f, 1e-5f), "3D: a spark grazing the road keeps 55 % of its speed along it");
+    const Vec3 Oblique = BounceSpark({ 10.0f, 0.0f, -10.0f }, { 0.0f, 0.0f, 1.0f });
+    Check(Near(Oblique.X, 5.5f, 1e-5f) && Near(Oblique.Z, 2.8f, 1e-5f),
+          "3D: an oblique skip splits into 55 % along the road and 28 % back off it");
+    const Vec3 Leaving = BounceSpark({ 0.0f, 0.0f, 10.0f }, { 0.0f, 0.0f, 1.0f });
+    Check(Near(Leaving.Z, 5.5f, 1e-5f), "3D: with no approach there is no rebound, only the tangential loss");
+}
+
+//==========================================================================================================================================
+//                                                        3D · SPARK SEQUENCE
+//==========================================================================================================================================
+
+void ValidateSparkSequence()
+{
+    // 📐 Blackbody radiance: a spark is a few hundred times brighter than the road it flies over, and
+    //    its brightness follows the fourth power of its temperature.
+    const std::array<float, 3> Hot = ResolveSparkRadiance(2450.0f);
+    const std::array<float, 3> Cool = ResolveSparkRadiance(1500.0f);
+    const float Ratio = std::pow(2450.0f / 1500.0f, 4.0f);
+    Check(Near(Hot[0] / Cool[0], Ratio, 1.0e-3f), "3D: a spark's brightness follows the fourth power of its temperature");
+    Check(Hot[2] > 0.0f && Cool[2] == 0.0f, "3D: a hotter spark is bluer — at 1500 K there is no blue yet");
+    Check(Near(ResolveSparkRadiance(950.0f)[0], 0.0f, 1e-6f), "3D: a spark at the visible threshold is dark — it is gone");
+    Check(Hot[0] > 5.0f, "3D: a fresh spark outshines sunlit white");
+
+    // 📝 The end-of-life fade and the flicker, shared with the pooled GI light proxies.
+    SparkParticle Fresh = {};
+    Fresh.LifeSeconds = 2.5f;
+    Fresh.Age = 0.0f;
+    Check(Near(ResolveSparkGain(Fresh), 1.0f, 1e-6f), "3D: a fresh spark carries its full energy");
+    SparkParticle Dying = Fresh;
+    Dying.Age = 2.5f;
+    Check(ResolveSparkGain(Dying) == 0.0f, "3D: a spark that has lived its life is faded out");
+    SparkParticle Flickering = Fresh;
+    Flickering.Flicker = 0.1f;
+    Flickering.Frequency = 10.0f;
+    Flickering.Phase = 0.0f;
+    Flickering.Age = 0.025f;                       // a quarter of a flicker cycle: the bottom of the dip
+    Check(Near(ResolveSparkGain(Flickering), 1.0f - Flickering.Flicker, 1e-6f),
+          "3D: the flicker dips a spark's gain by its depth at the bottom of the cycle");
+    Flickering.Age = 0.075f;                       // the top of the ripple: full gain again
+    Check(Near(ResolveSparkGain(Flickering), 1.0f, 1e-6f), "3D: the flicker restores it at the top");
+
+    // 📝 A hull scrape: metal dragged along the asphalt throws sparks along the slide, fanned and
+    //    kicked off the surface.
+    SparkSequence Sparks;
+    SparkScrape Hull;
+    Hull.Point = { 0.0f, 0.0f, 0.02f };
+    Hull.Velocity = { -18.0f, 0.0f, 0.0f };
+    Hull.Normal = { 0.0f, 0.0f, 1.0f };
+    Hull.Strength = 1.0f;
+    const std::array<SparkScrape, 1> HullScrape{ Hull };
+    Sparks.Emit(HullScrape, 1.0f / 60.0f);
+    Check(Sparks.Emitted() > 0u, "3D: a scrape throws sparks");
+    Check(Sparks.Live() == Sparks.Emitted(), "3D: every spark thrown is live");
+    Check(Sparks.Emitted() < uint32_t(SparkMaximumPerScrape),
+          "3D: one frame of one scrape is well under the per-scrape packet cap");
+    Check(Sparks.LastScrapeCount() == 1u, "3D: the readout reports the frame's scrapes");
+    Check(Sparks.PulseCount() == 1u, "3D: one scraping source is one correlated packet");
+
+    // 📝 Packets, not a hose: the same contact's rate is re-rolled every 40–130 ms, so the stream
+    //    swells and fades instead of running flat.
+    uint32_t Least = ~0u;
+    uint32_t Most = 0u;
+    for (uint32_t Frame = 0u; Frame < 60u; ++Frame)
+    {
+        const uint32_t Before = Sparks.Emitted();
+        Sparks.Emit(HullScrape, 1.0f / 60.0f);
+        Least = std::min(Least, Sparks.Emitted() - Before);
+        Most = std::max(Most, Sparks.Emitted() - Before);
+    }
+    Check(Most > Least, "3D: the packets swell and fade the stream, rather than running it flat");
+    Check(Sparks.PulseCount() == 1u, "3D: the same contact keeps its packet, it does not start a new one");
+
+    // 📝 A rim scrape of the same wheel shares the packet; a second wheel starts its own.
+    SparkScrape Rim = Hull;
+    Rim.Rim = true;
+    Rim.Wheel = 2;
+    Rim.SpinSpeed = -20.0f;
+    Rim.Forward = { 1.0f, 0.0f, 0.0f };
+    Rim.Radius = 0.35f;
+    SparkSequence Rims;
+    SparkScrape OtherRim = Rim;
+    OtherRim.Wheel = 3;
+    const std::array<SparkScrape, 2> TwoRims{ Rim, OtherRim };
+    Rims.Emit(TwoRims, 1.0f / 60.0f);
+    Check(Rims.PulseCount() == 2u, "3D: each scraping wheel is its own packet");
+    Rims.Emit(TwoRims, 1.0f / 60.0f);
+    Check(Rims.PulseCount() == 2u, "3D: the same wheels keep their packets");
+
+    // 📝 In flight: gravity, drag, cooling, and a landing that counts as an impact.
+    SparkSequence Flight;
+    Flight.Settings().Variation = 0.0f;                  // the neutral spark: no spread at all
+    SparkScrape Flat = Hull;
+    Flat.Velocity = { -18.0f, 0.0f, 0.0f };
+    const std::array<SparkScrape, 1> FlatScrape{ Flat };
+    for (uint32_t Frame = 0u; Frame < 6u; ++Frame)
+        Flight.Emit(FlatScrape, 1.0f / 60.0f);
+    Check(Flight.Live() > 0u, "3D: the neutral spark still throws");
+
+    FlatSparkCourse Pad;
+    const uint32_t LiveBefore = Flight.Live();
+    Flight.Advance(1.0f / 60.0f, {}, {}, &Pad);
+    Check(Flight.Live() <= LiveBefore, "3D: sparks die in flight, none are born");
+    Check(Flight.Live() > 0u, "3D: a frame of flight does not empty the pool");
+    Check(Flight.Instances().size() == size_t(Flight.Live()) * SparkInstanceFloats,
+          "3D: the instance table is twelve floats per live spark");
+    Check(Flight.Particles().size() == Flight.Live(), "3D: the particle span is the live sparks");
+
+    // 📝 The instance: a streak from where the camera saw the spark a frame ago to where it is now,
+    //    2.2 mm across, with the shutter and the pixel width the raster reads.
+    const SparkInstance First = Flight.Instance(0u);
+    const SparkParticle& Head = Flight.Particles()[0];
+    Check(Near(First.Head.X, Head.Position.X, 1e-5f) && Near(First.Head.Z, Head.Position.Z, 1e-5f),
+          "3D: the streak's head is where the spark is");
+    Check(Near(First.Tail.X, Head.Prior.X, 1e-5f) && Near(First.Tail.Z, Head.Prior.Z, 1e-5f),
+          "3D: the streak's tail is where the camera saw it a frame ago");
+    Check(Near(First.Width, SparkWidth * Head.Size, 1e-8f), "3D: the streak is 2.2 mm across, times the spark's size");
+    Check(First.Radiance.X > 0.0f && First.Shutter > 0.0f && First.Shutter <= 1.0f,
+          "3D: the streak carries the spark's radiance and its shutter fraction");
+    Check(First.Head.Z >= 0.0f, "3D: a spark that has landed is lifted clear of the pad, not sunk into it");
+
+    // 📝 Cooling: sparks fade below the visible threshold and are gone.
+    SparkSequence Cooling;
+    Cooling.Settings().Variation = 0.0f;
+    Cooling.Emit(FlatScrape, 1.0f / 60.0f);
+    for (uint32_t Frame = 0u; Frame < 600u && Cooling.Live() > 0u; ++Frame)
+        Cooling.Advance(1.0f / 60.0f, {}, {}, nullptr);
+    Check(Cooling.Live() == 0u, "3D: sparks cool below the visible threshold and are gone");
+    Check(Cooling.Instances().empty(), "3D: nothing is drawn for a pool with nothing in it");
+
+    // 📝 Landing on the pad counts impacts, and a spark that has skipped eight times and stopped is gone.
+    SparkSequence Bounces;
+    Bounces.Settings().Variation = 0.0f;
+    for (uint32_t Frame = 0u; Frame < 4u; ++Frame)
+        Bounces.Emit(FlatScrape, 1.0f / 60.0f);
+    for (uint32_t Frame = 0u; Frame < 240u; ++Frame)
+        Bounces.Advance(1.0f / 60.0f, {}, {}, &Pad);
+    Check(Bounces.Live() == 0u, "3D: every spark has either cooled or come to rest");
+
+    // 📝 Walls: sparks thrown into a box are swept against it.
+    SparkSequence Wall;
+    Wall.Settings().Variation = 0.0f;
+    SparkScrape IntoWall = Hull;
+    IntoWall.Point = { -4.0f, 0.0f, 0.5f };
+    IntoWall.Velocity = { 25.0f, 0.0f, 0.0f };
+    const std::array<SparkScrape, 1> WallScrape{ IntoWall };
+    for (uint32_t Frame = 0u; Frame < 4u; ++Frame)
+        Wall.Emit(WallScrape, 1.0f / 60.0f);
+    SparkBox Barrier;
+    Barrier.Minimum = { -0.5f, -50.0f, -50.0f };
+    Barrier.Maximum = { 0.5f, 50.0f, 50.0f };
+    const std::array<SparkBox, 1> Barriers{ Barrier };
+    for (uint32_t Frame = 0u; Frame < 25u; ++Frame)
+        Wall.Advance(1.0f / 60.0f, Barriers, {}, nullptr);
+    Check(Wall.Live() > 0u, "3D: the sparks are still in flight when the wall is checked");
+    bool Penetrated = false;
+    for (const SparkParticle& Spark : Wall.Particles())
+        if (Spark.Position.X > Barrier.Maximum.X)
+            Penetrated = true;
+    Check(!Penetrated, "3D: no spark ends up inside the wall it was thrown at");
+
+    // 📝 The cap: however hard the scrape, the pool never overruns.
+    SparkSequence Flood;
+    SparkScrape Hard = Hull;
+    Hard.Strength = 40.0f;
+    const std::array<SparkScrape, 1> HardScrape{ Hard };
+    for (uint32_t Frame = 0u; Frame < 400u; ++Frame)
+    {
+        Flood.Emit(HardScrape, 1.0f / 60.0f);
+        Flood.Advance(1.0f / 60.0f, {}, {}, nullptr);
+    }
+    Check(Flood.Live() <= SparkCapacity, "3D: the pool never overruns its capacity");
+    Check(Flood.PulseCount() <= 128u, "3D: the packet table is capped at 128 sources");
+
+    // 📝 Packets expire: half a second without the contact and the source is forgotten.
+    SparkSequence Idle;
+    Idle.Emit(HullScrape, 1.0f / 60.0f);
+    Check(Idle.PulseCount() == 1u, "3D: a scrape registers its packet");
+    for (uint32_t Frame = 0u; Frame < 60u; ++Frame)
+        Idle.Emit({}, 1.0f / 60.0f);
+    Check(Idle.PulseCount() == 0u, "3D: a source silent for half a second is forgotten");
+
+    // 📝 Switching sparks off: nothing is thrown, and the pool is emptied.
+    SparkSequence Off;
+    Off.Emit(HullScrape, 1.0f / 60.0f);
+    Off.Settings().Enabled = false;
+    const uint32_t Held = Off.Emitted();
+    Off.Emit(HullScrape, 1.0f / 60.0f);
+    Check(Off.Emitted() == Held, "3D: sparks switched off throw nothing");
+    Off.Advance(1.0f / 60.0f, {}, {}, &Pad);
+    Check(Off.Live() == 0u, "3D: sparks switched off are cleared");
+
+    // 📝 Clearing, and the readout.
+    Off.Settings().Enabled = true;
+    Off.Emit(HullScrape, 1.0f / 60.0f);
+    const uint32_t Lifetime = Off.Emitted();
+    Check(Lifetime > Held, "3D: switched back on, the scrape throws again");
+    Off.Clear();
+    Check(Off.Live() == 0u && Off.PulseCount() == 0u && Off.Instances().empty(), "3D: clearing forgets every spark");
+    Check(Off.Emitted() == Lifetime, "3D: clearing does not rewind the lifetime emission count");
+    Check(!Off.QueryReadout().empty() && Off.QueryReadout().find("sparks live") != std::string::npos,
+          "3D: the editor readout counts the live sparks");
+}
+
+//==========================================================================================================================================
+//                                                        3D · EFFECT SEQUENCE
+//==========================================================================================================================================
+
+void ValidateEffectSequence()
+{
+    // 📐 "#35d6ff" (sRGB) → linear: the cyan the cubes glow.
+    const std::array<float, 3> Cyan = ParseEffectColour("#35d6ff");
+    Check(Near(Cyan[2], 1.0f, 1.0e-3f) && Cyan[0] < Cyan[1] && Cyan[1] < Cyan[2],
+          "3D: the derez cyan decodes to linear Rec.709, blue-dominant");
+    Check(Near(ParseEffectColour("#ffffff")[0], 1.0f, 1e-6f), "3D: white decodes to one");
+    Check(Near(ParseEffectColour("#000000")[0], 0.0f, 1e-6f), "3D: black decodes to zero");
+    Check(Near(ParseEffectColour(nullptr)[0], 0.0f, 1e-6f), "3D: a missing colour decodes to zero");
+    // 📝 sRGB is not linear: a mid grey decodes well below a half.
+    Check(ParseEffectColour("#808080")[0] < 0.25f, "3D: a mid grey decodes below a quarter, as sRGB demands");
+
+    // 📝 The palette: three material records, the white-hot core twice as luminous as the glow.
+    EffectSettings Look = {};
+    Look.Glow = ParseEffectColour("#35d6ff");
+    Look.Hot = ParseEffectColour("#ffffff");
+    Look.Glitch = ParseEffectColour("#ff2d6f");
+    const std::array<std::array<float, 12>, 3> Palette = ResolveDerezPalette(Look);
+    Check(Palette[1][5] > Palette[0][5], "3D: the white-hot core is more emissive than the cyan glow");
+    Check(Near(Palette[0][3], 0.3f, 1e-6f) && Near(Palette[0][10], 0.04f, 1e-6f),
+          "3D: the palette records carry the albedo and material words the demo writes");
+    EffectSettings Dim = Look;
+    Dim.Intensity = 0.5f;
+    Check(Near(ResolveDerezPalette(Dim)[0][6], 0.5f * Palette[0][6], 1e-6f),
+          "3D: the intensity scales the palette's emission");
+
+    // 📝 Anchors spread over facets by area: a big facet gets its share, a degenerate one none.
+    const EffectFacet Big = { { { { 0.0f, 0.0f, 0.0f }, { 10.0f, 0.0f, 0.0f }, { 0.0f, 10.0f, 0.0f } } }, 6u };
+    const EffectFacet Small = { { { { 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } } }, 9u };
+    const EffectFacet Flat = { { { { 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 2.0f, 0.0f, 0.0f } } }, 32u };
+    const std::array<EffectFacet, 3> Facets{ Big, Small, Flat };
+    const std::vector<float> Cells = SpreadEffectCells(Facets, 2000u);
+    Check(Cells.size() == 2000u * EffectCellFloats, "3D: an anchor is eight floats");
+    uint32_t OnBig = 0u;
+    uint32_t OnSmall = 0u;
+    for (uint32_t Index = 0u; Index < 2000u; ++Index)
+    {
+        const float* Cell = Cells.data() + size_t(Index) * EffectCellFloats;
+        float Family = 0.0f;
+        std::memcpy(&Family, &Cell[3], sizeof(Family));
+        if (Family == 6.0f)
+            ++OnBig;
+        if (Family == 9.0f)
+            ++OnSmall;
+        Check(Cell[7] == 0.0f, "3D: an anchor's spare word is zero");
+    }
+    Check(OnBig > OnSmall * 20u, "3D: anchors are spread by area, so the big facet takes almost all of them");
+    Check(OnSmall > 0u, "3D: the small facet still gets its share of anchors");
+    Check(Near(Cells[4], 0.0f, 1e-6f) && Near(Cells[5], 0.0f, 1e-6f) && Near(Cells[6], 1.0f, 1e-6f),
+          "3D: an anchor carries the facet's normal");
+
+    // 📝 Deterministic: the same facets give the same anchors every run.
+    Check(SpreadEffectCells(Facets, 64u) == SpreadEffectCells(Facets, 64u), "3D: the anchors are deterministic");
+    Check(SpreadEffectCells(Facets, 64u) != SpreadEffectCells(Facets, 65u), "3D: the anchors differ with the count");
+    Check(SpreadEffectCells({}, 16u).size() == 16u * EffectCellFloats, "3D: an empty facet set still yields a sized table");
+
+    // 📝 A transform takes the anchors into the emitter's local frame.
+    std::array<float, 16> Shift = { 1.0f, 0.0f, 0.0f, 0.0f,
+                                    0.0f, 1.0f, 0.0f, 0.0f,
+                                    0.0f, 0.0f, 1.0f, 0.0f,
+                                    5.0f, 0.0f, 0.0f, 1.0f };
+    const std::vector<float> Moved = SpreadEffectCells(Facets, 64u, &Shift);
+    Check(Moved[0] > Cells[0] + 4.0f, "3D: a transform carries the anchors into the emitter's frame");
+
+    // 📝 Poses: the shorter arc through the quaternion's double cover.
+    const EffectPoseSample Start = { { 0.0f, 0.0f, 0.0f }, 0.0f, { 0.0f, 0.0f, 0.0f, 1.0f }, { 10.0f, 0.0f, 0.0f }, {} };
+    EffectPoseSample End = Start;
+    End.Clock = 1.0f;
+    End.Position = { 10.0f, 0.0f, 0.0f };
+    End.Rotation = { 0.0f, 0.0f, 0.9999f, -0.01f };       // nearly a full turn, reached the short way
+    const EffectPoseSample Middle = InterpolateEffectPose(Start, End, 0.5f, 0.5f);
+    Check(Near(Middle.Position[0], 5.0f, 1e-5f) && Near(Middle.Clock, 0.5f, 1e-6f),
+          "3D: a pose interpolates its position and carries the clock");
+    Check(Near(Middle.Velocity[0], 10.0f, 1e-5f), "3D: a pose interpolates its velocity");
+    const EffectPoseSample Arrived = InterpolateEffectPose(Start, End, 1.0f, 1.0f);
+    Check(End.Rotation[3] < 0.0f && Arrived.Rotation[3] > 0.0f,
+          "3D: the shorter arc through the quaternion's double cover is taken, keeping the near representation");
+    Check(Near(std::fabs(Arrived.Rotation[2]), std::fabs(End.Rotation[2]) / std::sqrt(End.Rotation[2] * End.Rotation[2] + End.Rotation[3] * End.Rotation[3]), 1e-4f),
+          "3D: the far end of the arc is the same rotation, renormalised");
+    Check(Near(Middle.Rotation[0] * Middle.Rotation[0] + Middle.Rotation[1] * Middle.Rotation[1]
+             + Middle.Rotation[2] * Middle.Rotation[2] + Middle.Rotation[3] * Middle.Rotation[3], 1.0f, 1e-5f),
+          "3D: an interpolated pose's quaternion is renormalised");
+    const EffectPoseSample Clamped = InterpolateEffectPose(Start, End, 2.0f, 1.0f);
+    Check(Near(Clamped.Position[0], End.Position[0], 1e-5f), "3D: the fraction is clamped to the segment");
+
+    // 📝 The units: eight emitters of 128 B on a 96 B header; 1 920 anchors for a car, 216 for a cone.
+    Check(EffectRecordExtent == EffectRecordHeader + EffectEmitterSlots * EffectEmitterStride,
+          "3D: the record is a 96 B header and eight 128 B emitters");
+    Check(EffectVehicleCellCount == EffectVehicleBodyCells + 4u * EffectVehicleWheelCells,
+          "3D: a car is 1 536 body anchors and four wheels of 96");
+    Check(EffectBoxCellCount == 6u * 36u, "3D: a cone is a 6 × 6 grid on each of its six faces");
+    Check(EffectPoseCapacity * EffectPoseSpacing >= 5.9f, "3D: the pose ring holds six seconds at 60 Hz");
+    Check(EffectCornerCount == 36u * 9u, "3D: a cube draw is 36 corners, each with its parent and eight children");
+
+    // 📝 The derez: the mask goes on, the car's motion is recorded, and one emitter carries it.
+    EffectSequence Effects;
+    Check(Effects.RecordBytes().size() == EffectRecordExtent, "3D: the record is its declared extent");
+    Check(Effects.Mask() == EffectMaskMode::Off && Effects.Live() == 0u, "3D: a fresh sequence is idle");
+    const std::array<float, 16> Body = { 1.0f, 0.0f, 0.0f, 0.0f,
+                                         0.0f, 1.0f, 0.0f, 0.0f,
+                                         0.0f, 0.0f, 1.0f, 0.0f,
+                                         0.0f, 0.0f, 0.4f, 1.0f };
+    const float DerezSeconds = Effects.DerezVehicle(Body, { 12.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.5f }, Start);
+    Check(Effects.Mask() == EffectMaskMode::Derez, "3D: derezing the car turns its mask on");
+    Check(Effects.Live() == 1u, "3D: derezing the car emits one emitter");
+    Check(Effects.IsRecording(), "3D: derezing the car records its motion");
+    Check(Near(DerezSeconds, Effects.QueryMaskDuration(EffectMaskMode::Derez), 1e-6f),
+          "3D: the derez returns how long until every cell has let go");
+    Check(DerezSeconds > Effects.Settings().HoldOffset, "3D: the mask outlasts its hold");
+    Check(Effects.PoseCount() == 1u, "3D: the first pose sample is the pose the derez started from");
+    Check(Effects.RecordBytes().size() == EffectRecordExtent, "3D: the record keeps its extent");
+
+    // 📝 The record's header: the clock, the mask, the bounds, the editor's controls and the pose count.
+    std::array<float, 24> Header = {};
+    std::memcpy(Header.data(), Effects.RecordBytes().data(), sizeof(Header));
+    Check(Near(Header[0], 0.0f, 1e-6f), "3D: the record's clock is the sequence's");
+    uint32_t Mode = 0u;
+    std::memcpy(&Mode, &Header[1], sizeof(Mode));
+    Check(Mode == uint32_t(EffectMaskMode::Derez), "3D: the record carries the mask mode");
+    Check(Near(Header[4], Effects.BoundsMinimum()[0], 1e-6f) && Near(Header[7], Effects.Settings().HoldOffset, 1e-6f),
+          "3D: the record's bounds and hold share their fourth word");
+    Check(Near(Header[12], Effects.Settings().Burst, 1e-6f) && Near(Header[19], Effects.Settings().Flight, 1e-6f),
+          "3D: the record carries the editor's launch, drag, life, size, wave and flight");
+    Check(Near(Header[20], 1.0f, 1e-6f), "3D: the record carries the face-colours flag");
+    Check(Near(Header[22], 0.0f, 1e-6f), "3D: one pose sample is not enough to interpolate, so the count reads zero");
+
+    // 📝 Advancing: the pose ring fills at 60 Hz while the car is still moving.
+    EffectPoseSample Moving = Start;
+    Moving.Clock = 1.0f / 60.0f;
+    Moving.Position = { 0.2f, 0.0f, 0.0f };
+    Effects.Advance(1.0f / 60.0f);
+    Effects.RecordPoses(Moving);
+    Check(Effects.PoseCount() == 2u, "3D: a frame of motion appends one 60 Hz pose sample");
+    Check(Effects.Clock() > 0.0f, "3D: the clock advances");
+    for (uint32_t Frame = 0u; Frame < 30u; ++Frame)
+    {
+        Moving.Clock += 1.0f / 60.0f;
+        Moving.Position[0] += 0.2f;
+        Effects.Advance(1.0f / 60.0f);
+        Effects.RecordPoses(Moving);
+    }
+    Check(Effects.PoseCount() == 32u, "3D: half a second of motion is thirty-two pose samples");
+    Check(Effects.Poses().size() == size_t(Effects.PoseCount()) * EffectPoseFloats, "3D: a pose is sixteen floats");
+    std::array<float, 24> Filled = {};
+    std::memcpy(Filled.data(), Effects.RecordBytes().data(), sizeof(Filled));
+    Check(Near(Filled[22], float(Effects.PoseCount()), 1e-6f), "3D: the record reports the pose count once it can interpolate");
+
+    // 📝 The poses carry the car's motion: the last sample is at the car's latest position.
+    const float* LastPose = Effects.Poses().data() + size_t(Effects.PoseCount() - 1u) * EffectPoseFloats;
+    Check(Near(LastPose[0], Moving.Position[0], 0.25f), "3D: the pose ring tracks the car as it drives away");
+
+    // 📝 A derez is followed by the car being hidden, then reassembled.
+    Effects.StopPoses();
+    Check(!Effects.IsRecording(), "3D: the recording ends when the car is hidden");
+    Effects.HideVehicle();
+    Check(Effects.Mask() == EffectMaskMode::Hidden, "3D: a finished derez hides the car");
+    const float RezSeconds = Effects.RezVehicle(Body);
+    Check(Effects.Mask() == EffectMaskMode::Rez, "3D: rezing the car turns its mask the other way");
+    Check(Near(RezSeconds, Effects.QueryMaskDuration(EffectMaskMode::Rez), 1e-6f), "3D: the rez returns its own duration");
+    Check(RezSeconds > Effects.Settings().Flight, "3D: the rez outlasts the cubes' flight");
+    Effects.ClearVehicleMask();
+    Check(Effects.Mask() == EffectMaskMode::Off, "3D: a finished rez clears the mask");
+
+    // 📝 The mask's emitter is drawn first: the surface raster reads its seed from slot zero.
+    EffectSequence Ordered;
+    Ordered.DerezBox(Body, { 0.0f, 0.0f, 0.0f }, { 0.5f, 0.5f, 0.5f }, { 0.0f, 0.0f, 0.0f }, 60u);
+    Check(Ordered.Live() == 1u, "3D: a cone derez emits one emitter");
+    Ordered.DerezVehicle(Body, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, Start);
+    Check(Ordered.Live() == 2u, "3D: two emitters are live at once");
+    const std::array<std::optional<uint32_t>, EffectEmitterSlots>& Order = Ordered.DrawOrder();
+    Check(Order[0].has_value() && Ordered.Emitters()[*Order[0]].has_value()
+          && Ordered.Emitters()[*Order[0]]->Kind == EffectKind::VehicleDerez,
+          "3D: the mask's emitter is drawn first, because the surface raster reads slot zero's seed");
+
+    // 📝 The record's emitter: its transform, its velocity, its kind and its particle count.
+    std::array<float, 32> Slot = {};
+    std::memcpy(Slot.data(), Ordered.RecordBytes().data() + EffectRecordHeader, sizeof(Slot));
+    Check(Near(Slot[12], 0.0f, 1e-6f) && Near(Slot[14], 0.4f, 1e-6f), "3D: the emitter's transform carries the car's centre");
+    uint32_t Kind = 0u;
+    std::memcpy(&Kind, &Slot[23], sizeof(Kind));
+    Check(Kind == uint32_t(EffectKind::VehicleDerez), "3D: the emitter's kind rides in its angular velocity's spare word");
+    Check(uint32_t(Slot[27]) == EffectVehicleCellCount, "3D: the emitter carries the car's 1 920 anchors");
+    Check(Near(Slot[24], 1.0f, 1e-6f) && Near(Slot[28], 0.0f, 1e-6f),
+          "3D: a car emitter's extent is unit and its centre is the car's origin");
+
+    // 📝 Empty slots read as no kind and no particles, so the draw for them produces nothing.
+    std::array<float, 32> Empty = {};
+    std::memcpy(Empty.data(), Ordered.RecordBytes().data() + EffectRecordHeader + 4u * EffectEmitterStride, sizeof(Empty));
+    Check(Empty[23] == 255.0f, "3D: an empty emitter slot reads as no kind");
+    Check(Empty[27] == 0.0f, "3D: an empty emitter slot carries no particles");
+
+    // 📝 A box: the family rides in the transform's spare word, where the affine transform leaves it free.
+    Ordered.RezBox(Body, { 0.0f, 0.0f, 0.0f }, { 0.3f, 0.3f, 0.3f }, 61u);
+    uint32_t Family = 0u;
+    for (uint32_t Record = 0u; Record < EffectEmitterSlots; ++Record)
+    {
+        const uint8_t* Emitter = Ordered.RecordBytes().data() + EffectRecordHeader + Record * EffectEmitterStride;
+        float Kind = 0.0f;
+        std::memcpy(&Kind, Emitter + 23u * sizeof(float), sizeof(Kind));
+        if (uint32_t(Kind) != uint32_t(EffectKind::BoxRez))
+            continue;
+        float Packed = 0.0f;
+        std::memcpy(&Packed, Emitter + 3u * sizeof(float), sizeof(Packed));
+        Family = uint32_t(Packed);
+    }
+    Check(Family == 61u, "3D: a box emitter's family rides in its transform's spare word");
+
+    // 📝 A burst tyre: rubber thrown at once, with the car's velocity, and never glowing.
+    Ordered.BurstTyre(Body, { 0.35f, 0.35f, 0.25f }, { 30.0f, 0.0f, 2.0f }, 9u);
+    bool Thrown = false;
+    for (const std::optional<EffectEmitterState>& Emitter : Ordered.Emitters())
+        if (Emitter && Emitter->Kind == EffectKind::Debris && Emitter->Velocity[0] > 29.0f)
+            Thrown = true;
+    Check(Thrown, "3D: a burst tyre throws its rubber with the car's velocity");
+
+    // 📝 Eight emitters at once, and the one closest to finishing gives way to a ninth.
+    EffectSequence Busy;
+    for (uint32_t Index = 0u; Index < EffectEmitterSlots; ++Index)
+        Busy.DerezBox(Body, { 0.0f, 0.0f, 0.0f }, { 0.2f, 0.2f, 0.2f });
+    Check(Busy.Live() == EffectEmitterSlots, "3D: eight emitters run at once");
+    Check(Busy.Emitted() == EffectEmitterSlots, "3D: eight emissions, eight emitters");
+    Busy.RezBox(Body, { 0.0f, 0.0f, 0.0f }, { 0.2f, 0.2f, 0.2f });
+    Check(Busy.Live() == EffectEmitterSlots, "3D: a ninth emitter takes a slot without overrunning the table");
+    Check(Busy.Emitted() == EffectEmitterSlots + 1u, "3D: the ninth emission is counted");
+    float Soonest = 1.0e30f;
+    for (const std::optional<EffectEmitterState>& Emitter : Busy.Emitters())
+        if (Emitter)
+            Soonest = std::min(Soonest, Emitter->End);
+    Check(Soonest <= Busy.QueryDuration(EffectKind::BoxRez) + 1.0e-6f,
+          "3D: the emitter closest to finishing is the one that gave way");
+
+    // 📝 Presets: the three from the Particle Editor, applied by name.
+    EffectSequence Presets;
+    Check(Presets.ApplyPreset("Derez cube"), "3D: the derez cube preset is known by name");
+    Check(Near(Presets.Settings().Size, DerezPresets()[0].Size, 1e-6f), "3D: a preset applies its cube size");
+    Check(Presets.Settings().Glow[2] > Presets.Settings().Glow[0], "3D: a preset applies its glow colour");
+    Check(Presets.ApplyPreset("Glitch dissolve") && Presets.Settings().Style == 1u, "3D: the glitch preset is the glitch style");
+    Check(Presets.Settings().Drag > DerezPresets()[0].Drag, "3D: the glitch preset drags its cubes harder");
+    Check(!Presets.ApplyPreset("No such preset"), "3D: an unknown preset is refused");
+    Check(!Presets.ApplyPreset(nullptr), "3D: a missing preset name is refused");
+    // 📝 The glitch preset's wave is twice the hold's, because it lets go in bands.
+    Presets.ApplyPreset("Derez cube");
+    const float Cubes = Presets.QueryMaskDuration(EffectMaskMode::Derez);
+    Presets.ApplyPreset("Glitch dissolve");
+    Check(Presets.QueryMaskDuration(EffectMaskMode::Derez) != Cubes, "3D: the style changes the mask's duration");
+
+    // 📝 Durations: a cube outlives its release wave, and a cone's is shorter than a car's.
+    Check(Presets.QueryDuration(EffectKind::VehicleDerez) > Presets.QueryMaskDuration(EffectMaskMode::Derez),
+          "3D: a derez emitter outlives the mask, for the cubes still in flight");
+    Check(Presets.QueryDuration(EffectKind::BoxDerez) < Presets.QueryDuration(EffectKind::VehicleDerez),
+          "3D: a cone comes apart faster than a car");
+    Check(Presets.QueryDuration(EffectKind::Debris) > 0.0f, "3D: a burst tyre's rubber lasts a while");
+
+    // 📝 The frame: emitters retire when their time is up, the mask's when the mask is cleared.
+    EffectSequence Lifetimes;
+    const float CubeSeconds = Lifetimes.QueryDuration(EffectKind::BoxDerez);
+    Lifetimes.DerezBox(Body, { 0.0f, 0.0f, 0.0f }, { 0.2f, 0.2f, 0.2f });
+    Check(Lifetimes.Live() == 1u, "3D: a cone derez is live");
+    for (uint32_t Frame = 0u; Frame < uint32_t(std::ceil(CubeSeconds * 60.0f)) + 2u; ++Frame)
+        Lifetimes.Advance(1.0f / 60.0f);
+    Check(Lifetimes.Live() == 0u, "3D: an emitter retires when its time is up");
+
+    EffectSequence Masked;
+    Masked.DerezVehicle(Body, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, Start);
+    for (uint32_t Frame = 0u; Frame < uint32_t(std::ceil(Masked.QueryDuration(EffectKind::VehicleDerez) * 60.0f)) + 2u; ++Frame)
+        Masked.Advance(1.0f / 60.0f);
+    Check(Masked.Live() == 1u, "3D: the mask's emitter is kept, because the surface raster still reads its seed");
+    Check(Masked.Mask() == EffectMaskMode::Derez, "3D: the mask stays on until it is cleared");
+    Masked.ClearVehicleMask();
+    Masked.Advance(1.0f / 60.0f);
+    Check(Masked.Live() == 0u, "3D: clearing the mask retires its emitter");
+
+    // 📝 The pose ring is six seconds: a long derez stops recording rather than overrunning it.
+    EffectSequence Ring;
+    Ring.DerezVehicle(Body, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, Start);
+    EffectPoseSample Steady = Start;
+    for (uint32_t Frame = 0u; Frame < 600u; ++Frame)
+    {
+        Steady.Clock += 1.0f / 60.0f;
+        Ring.Advance(1.0f / 60.0f);
+        Ring.RecordPoses(Steady);
+    }
+    Check(Ring.PoseCount() == EffectPoseCapacity, "3D: the pose ring fills to its six-second capacity and stops");
+    Check(!Ring.IsRecording(), "3D: a full pose ring stops recording");
+
+    // 📝 Bounds: the mask and the anchors share the car's local bounds.
+    Ring.AssignBounds({ -2.4f, -0.95f, -0.55f }, { 2.4f, 0.95f, 0.85f });
+    Check(Near(Ring.BoundsMaximum()[0], 2.4f, 1e-6f), "3D: the car's bounds are assigned");
+    Ring.Advance(1.0f / 60.0f);
+    std::array<float, 24> Bounds = {};
+    std::memcpy(Bounds.data(), Ring.RecordBytes().data(), sizeof(Bounds));
+    Check(Near(Bounds[8], 2.4f, 1e-6f), "3D: the car's bounds are uploaded to the record");
+
+    // 📝 The readout, and clearing.
+    Check(Ring.QueryReadout().size() == 3u && !Ring.QueryReadout()[0].empty(), "3D: the editor readout describes the effect");
+    Check(Ring.QueryReadout()[1].find("1920") != std::string::npos, "3D: the readout counts the car's anchors");
+    Ring.Clear();
+    Check(Ring.Live() == 0u && Ring.PoseCount() == 0u && Ring.Mask() == EffectMaskMode::Off, "3D: clearing forgets everything");
+    Check(Ring.RecordBytes().size() == EffectRecordExtent, "3D: the record keeps its extent through a clear");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1595,6 +2191,9 @@ int main(int argc, char** argv)
     ValidatePlumeSpace();
     ValidatePlumeSourceProjection();
     ValidateSmokeSequence();
+    ValidateSparkCollision();
+    ValidateSparkSequence();
+    ValidateEffectSequence();
 
     std::printf("Phase3Validation: %d checks, %d failures\n", CheckCount, FailureCount);
     return FailureCount == 0 ? 0 : 1;
