@@ -1,6 +1,14 @@
 cmake_minimum_required(VERSION 3.21)
 project(FrontierUIFoundation LANGUAGES C CXX)
 
+# 📝 Defines/caches BUILD_TESTING (default ON) via the standard CTest module. This must run before any
+# `if(BUILD_TESTING)` guard below - on a from-scratch configure (no existing CMakeCache.txt) the variable
+# is otherwise unset at that point, so a guard checked earlier in the file would silently evaluate false
+# on a brand-new checkout even though CTest ends up enabled later in the same configure pass. The
+# TextureStudio RUNTIME_OUTPUT_DIRECTORY guard a little further down (keeping its bundled EngineContent
+# copy out of the flat host-verification ctest binary directory) depends on this ordering.
+include(CTest)
+
 find_package(Git QUIET)
 set(FRONTIER_BUILD_COMMIT "local")
 if(GIT_FOUND)
@@ -73,10 +81,14 @@ target_include_directories(FrontierVectorAuthoring PUBLIC "${CMAKE_SOURCE_DIR}"
 target_include_directories(FrontierVectorAuthoring PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
 target_link_libraries(FrontierVectorAuthoring PUBLIC thorvg_static)
 add_library(FrontierTextureStudioUI STATIC UI/TextureStudio/MaterialLibraryPanel.cpp UI/TextureStudio/PatternWorkspacePanel.cpp
-    UI/TextureStudio/StampWorkspacePanel.cpp
-    UI/TextureStudio/PatternThumbnailRaster.cpp UI/TextureStudio/VectorMaskControls.cpp Engine/Interface/VectorAuthoringControls.cpp)
+    UI/TextureStudio/StampWorkspacePanel.cpp UI/TextureStudio/BakingWorkspacePanel.cpp UI/TextureStudio/TexturePaintWorkspacePanel.cpp
+    UI/TextureStudio/PaintStampEngine.cpp UI/TextureStudio/PaintStampTools.cpp UI/TextureStudio/StampLibrary.cpp
+    UI/TextureStudio/PatternThumbnailRaster.cpp UI/TextureStudio/TypefaceCatalogue.cpp UI/TextureStudio/VectorMaskControls.cpp
+    Engine/ContentInterchange/BakeMesh.cpp Engine/ContentInterchange/BakeField.cpp Engine/ContentInterchange/VolumeDistanceField.cpp Engine/ContentInterchange/VolumePreview.cpp Engine/ContentInterchange/BakeSurfaceImport.cpp Engine/ContentInterchange/BakeTiledOutput.cpp
+    Engine/Render/StbImageWriteImplementation.cpp)
 target_link_libraries(FrontierTextureStudioUI PUBLIC FrontierMaterialLibrary FrontierInterface FrontierVectorAuthoring)
 target_compile_definitions(FrontierTextureStudioUI PUBLIC FRONTIER_EDITOR=1)
+target_include_directories(FrontierTextureStudioUI PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
 add_library(FrontierInterface STATIC
     Engine/Interface/IconArt.cpp Engine/Interface/IconPresentation.cpp
     Engine/Interface/PixelSpace.cpp Engine/Interface/GlyphSpace.cpp
@@ -89,13 +101,297 @@ add_library(FrontierInterface STATIC
     Engine/Interface/ConfigurationStructure.cpp Engine/Interface/InputPreferencesCodec.cpp
     Engine/Interface/MonitorPlacement.cpp Engine/Interface/PanelDockspaceMonitor.cpp
     Engine/Interface/PanelDockspace.cpp Engine/Interface/PanelDockspaceLayout.cpp Engine/Interface/NotificationSequence.cpp Engine/Interface/ConfirmationDialogue.cpp
-    Engine/ContentInterchange/ProjectSpaceCodec.cpp)
+    Engine/ContentInterchange/ProjectSpaceCodec.cpp
+    Engine/ContentInterchange/ProjectGenerator.cpp)
 target_include_directories(FrontierInterface PUBLIC "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
 target_link_libraries(FrontierInterface PUBLIC FrontierImGui thorvg_static FrontierTextFiles FrontierThumbnailAtlasCache)
+# Interface extension (Frontier/Extensions/Interface): GizmoSpace, the gizmo SolidArc and the Frontier editor share, and its
+# interface rasterization. The Vulkan texture bridge (ViewportTexture) compiles into each host beside the ImGui Vulkan adapter.
+add_library(FrontierInterfaceExtension STATIC
+    Frontier/Extensions/Interface/GizmoSpace.cpp
+    Frontier/Extensions/Interface/GizmoRasterization.cpp)
+target_include_directories(FrontierInterfaceExtension PUBLIC "${CMAKE_SOURCE_DIR}")
+target_compile_features(FrontierInterfaceExtension PUBLIC cxx_std_20)
+target_link_libraries(FrontierInterfaceExtension PUBLIC FrontierImGui)
+# Reuse the existing Texture Workspace controls and chrome without linking its painting implementation.
+add_library(FrontierAuthoringControls STATIC Engine/Interface/VectorAuthoringControls.cpp UI/TextureStudio/PanelChrome.cpp)
+target_link_libraries(FrontierAuthoringControls PUBLIC FrontierInterface FrontierVectorAuthoring)
+target_link_libraries(FrontierTextureStudioUI PUBLIC FrontierAuthoringControls)
 add_library(FrontierEditorUI STATIC UI/Editor/ProjectBrowserPanel.cpp UI/Editor/FoundationPanel.cpp UI/Editor/EditorWorkspace.cpp UI/Editor/ControlCentrePanel.cpp UI/Editor/ContentBrowserPanel.cpp)
 target_link_libraries(FrontierEditorUI PUBLIC FrontierInterface)
 target_compile_definitions(FrontierEditorUI PUBLIC FRONTIER_EDITOR=1)
+find_package(Threads REQUIRED)
+# 📝 Vehicle physics: Project Drive (GRIT's translation, renamed and proven identical to its source), the soft tyre carcasses
+#    (spring, XPBD lattice, Hex8 finite elements) and the authored specification. No Jolt here; the Physics extension hosts it.
+add_library(FrontierVehicleDynamics STATIC
+    Frontier/Engine/PhysicalDynamics/Vehicle/Aerodynamics.cpp
+    Frontier/Engine/PhysicalDynamics/Vehicle/Drivetrain.cpp
+    Frontier/Engine/PhysicalDynamics/Vehicle/PacejkaMagicFormula.cpp
+    Frontier/Engine/PhysicalDynamics/Vehicle/TyreSlipDynamics.cpp
+    Frontier/Engine/PhysicalDynamics/Vehicle/VehicleGeometry.cpp
+    Frontier/Engine/PhysicalDynamics/Vehicle/VehicleSolver.cpp
+    Frontier/Engine/PhysicalDynamics/Vehicle/TyreCarcassLattice.cpp
+    Frontier/Engine/PhysicalDynamics/Vehicle/TyreCarcassSolid.cpp
+    Frontier/Engine/PhysicalDynamics/Vehicle/VehicleSpecification.cpp)
+target_include_directories(FrontierVehicleDynamics PUBLIC "${CMAKE_SOURCE_DIR}" "${CMAKE_SOURCE_DIR}/Frontier")
+add_library(FrontierSceneEditorUI STATIC
+    Frontier/Engine/Scene/RecordStore.cpp
+    Frontier/Engine/Scene/RecordEntry.cpp
+    Frontier/Engine/Scene/Agent.cpp
+    Frontier/Engine/Scene/SceneDirectory.cpp
+    Frontier/Engine/Scene/WorldSpace.cpp
+    Frontier/Engine/Scene/WorldRegister.cpp
+    Frontier/Engine/Scene/VehicleRecordCodec.cpp
+    Frontier/Engine/Scene/VehicleReadings.cpp
+    Frontier/Engine/Scene/GeometryLayout.cpp
+    Frontier/Engine/Input/InputEncoder.cpp
+    Frontier/Engine/Input/InputDriver.cpp
+    Frontier/Engine/Input/SyntheticDriver.cpp
+    Frontier/Engine/Session/PlayerStore.cpp
+    Frontier/Engine/Session/SessionConfiguration.cpp
+    Frontier/Engine/Session/TransferConfiguration.cpp
+    Frontier/Engine/Session/SessionPolicy.cpp
+    Frontier/Engine/Session/SpawnPolicy.cpp
+    Frontier/Engine/Session/SessionSpace.cpp
+    Frontier/Engine/Session/LevelTransition.cpp
+    Frontier/Engine/Diagnostics/LogCategories.cpp
+    Frontier/Engine/Diagnostics/LogRingStore.cpp
+    Frontier/Engine/Diagnostics/LogStream.cpp
+    Frontier/Engine/Interface/ProjectContent.cpp
+    Frontier/Engine/Interface/ProjectDescriptor.cpp
+    Frontier/Engine/Interface/StackRailControls.cpp
+    Frontier/Engine/Interface/LogStreamPanel.cpp
+    Frontier/Engine/Interface/LogStreamPanelPresentation.cpp
+    Frontier/Engine/Interface/SceneDirectoryPanel.cpp
+    Frontier/Engine/Interface/SceneDirectoryPanelPresentation.cpp
+    Frontier/Engine/Interface/InspectorRuntime.cpp
+    Frontier/Engine/Interface/InspectorControls.cpp
+    Frontier/Engine/Interface/DiagramControls.cpp
+    Frontier/Engine/Interface/FractureEditor.cpp
+    Frontier/Engine/Interface/FluidPlumeEditor.cpp
+    Frontier/Engine/Interface/ParticleEditor.cpp
+    Frontier/Engine/Interface/ParticleEditor/ParticleFieldOverlay.cpp
+    Frontier/Engine/Interface/ParticleEditor/ParticleEditorPages.cpp
+    Frontier/Engine/Interface/ParticleEditor/ParticleEditorWorkspace.cpp
+    Frontier/Engine/Interface/Controls/ControlTheme.cpp
+    Frontier/Engine/Interface/Controls/ControlColumn.cpp
+    Frontier/Engine/Interface/Controls/GlyphRun.cpp
+    Frontier/Engine/Interface/Controls/GlyphSymbol.cpp
+    Frontier/Engine/Interface/Controls/DiagramPen.cpp
+    Frontier/Engine/Interface/Controls/DiagramCanvas.cpp
+    Frontier/Engine/Interface/Controls/PageHeading.cpp
+    Frontier/Engine/Interface/Controls/RasterPlate.cpp
+        Frontier/Engine/Interface/Controls/ActionRow.cpp
+        Frontier/Engine/Interface/Controls/AxisFields.cpp
+    Frontier/Engine/Interface/Controls/WorldVectorOverlay.cpp
+    Frontier/Engine/Interface/Controls/SectionHeading.cpp
+    Frontier/Engine/Interface/Controls/DisclosureRow.cpp
+    Frontier/Engine/Interface/Controls/SwitchRow.cpp
+    Frontier/Engine/Interface/Controls/TabStrip.cpp
+    Frontier/Engine/Interface/Controls/ReadoutBlock.cpp
+    Frontier/Engine/Interface/Controls/TagPill.cpp
+    Frontier/Engine/Interface/Controls/MetricTiles.cpp
+    Frontier/Engine/Interface/Controls/SwitchTiles.cpp
+    Frontier/Engine/Interface/Controls/SliderRow.cpp
+    Frontier/Engine/Interface/Controls/SelectRow.cpp
+    Frontier/Engine/Interface/Controls/PresetStrip.cpp
+    Frontier/Engine/Interface/Controls/ChoiceRow.cpp
+    Frontier/Engine/Interface/Controls/ChoiceList.cpp
+    Frontier/Engine/Interface/Controls/ToggleRow.cpp
+    Frontier/Engine/Interface/Controls/NextButton.cpp
+    Frontier/Engine/Interface/Controls/DateRow.cpp
+    Frontier/Engine/Interface/Controls/TintRow.cpp
+    Frontier/Engine/Interface/Controls/CaptionText.cpp
+    Frontier/Engine/Interface/Controls/FooterRow.cpp
+    Frontier/Engine/Interface/Controls/RecordHeading.cpp
+    Frontier/Engine/Interface/Controls/CardTitleRow.cpp
+    Frontier/Engine/Interface/Controls/NotesField.cpp
+    Frontier/Engine/Interface/Controls/TransformTable.cpp
+    Frontier/Engine/Interface/Controls/QuickTiles.cpp
+    Frontier/Engine/Interface/Controls/ModifierPanel.cpp
+    Frontier/Engine/Interface/Controls/ChannelRows.cpp
+    Frontier/Engine/Interface/Controls/PlacementGizmo.cpp
+    Frontier/Engine/Interface/ConstructPanel.cpp
+    Frontier/Engine/Interface/Inspectors/RenderInspectionModes.cpp
+    Frontier/Engine/Interface/Inspectors/SpatialInspector.cpp
+    Frontier/Engine/Interface/Inspectors/PhysicsInspector.cpp
+    Frontier/Engine/Interface/Inspectors/ThermalInspector.cpp
+    Frontier/Engine/Interface/Inspectors/ChemicalInspector.cpp
+    Frontier/Engine/Interface/Inspectors/SurfaceOpticsInspector.cpp
+    Frontier/Engine/Interface/Inspectors/RenderSettingsInspector.cpp
+    Frontier/Engine/Interface/Inspectors/RenderSettings/RenderSettingsReadings.cpp
+    Frontier/Engine/Interface/Controls/SectionRows.cpp
+    Frontier/Engine/Interface/Inspectors/RenderSettings/SamplingSection.cpp
+    Frontier/Engine/Interface/Inspectors/RenderSettings/IlluminationSection.cpp
+    Frontier/Engine/Interface/Inspectors/RenderSettings/ReflectionSection.cpp
+    Frontier/Engine/Interface/Inspectors/RenderSettings/ShadowSection.cpp
+    Frontier/Engine/Interface/Inspectors/RenderSettings/DenoiseSection.cpp
+    Frontier/Engine/Interface/Inspectors/RenderSettings/ExposureSection.cpp
+    Frontier/Engine/Interface/Inspectors/RenderSettings/GeometrySection.cpp
+    Frontier/Engine/Interface/Inspectors/RenderSettings/ViewSection.cpp
+    Frontier/Engine/Interface/Inspectors/RenderSettings/TimingSection.cpp
+    Frontier/Engine/Interface/Inspectors/SolarInspector.cpp
+    Frontier/Engine/Interface/Inspectors/OpticalReference.cpp
+    Frontier/Engine/Interface/Inspectors/OpticalFlareInspector.cpp
+    Frontier/Engine/Interface/Inspectors/AtmosphereInspector.cpp
+    Frontier/Engine/Interface/Inspectors/AtmosphereBakeImages.cpp
+    Frontier/Engine/Interface/Inspectors/CloudDensityReference.cpp
+    Frontier/Engine/Interface/Inspectors/CloudInspector.cpp
+    Frontier/Engine/Interface/Inspectors/StarCatalogueReference.cpp
+    Frontier/Engine/Interface/Inspectors/StarInspector.cpp
+    Frontier/Engine/Interface/Inspectors/LunarSurfaceReference.cpp
+    Frontier/Engine/Interface/Inspectors/MoonInspector.cpp
+    Frontier/Engine/Interface/Inspectors/PlanetInspector.cpp
+    Frontier/Engine/Interface/Inspectors/PlanetSurfacePreview.cpp
+    Frontier/Engine/Interface/Inspectors/FogInspector.cpp
+    Frontier/Engine/Interface/Inspectors/LightningInspector.cpp
+    Frontier/Engine/Interface/Inspectors/WindInspector.cpp
+    Frontier/Engine/Interface/Inspectors/ForceFieldInspector.cpp
+    Frontier/Engine/Interface/Inspectors/ForceSourceInspector.cpp
+    Frontier/Engine/Interface/ForceFieldVisualization/ForceFieldVisualization.cpp
+    Frontier/Engine/Interface/Inspectors/ForceField/ForceFieldPageReading.cpp
+    Frontier/Engine/Interface/Inspectors/ForceField/ForceFieldPieces.cpp
+    Frontier/Engine/Interface/Inspectors/ForceField/FieldViewSection.cpp
+    Frontier/Engine/Interface/Inspectors/ForceField/FieldRangeSection.cpp
+    Frontier/Engine/Interface/Inspectors/ForceField/FieldForcesSection.cpp
+    Frontier/Engine/Interface/Inspectors/ForceField/FieldReceiversSection.cpp
+    Frontier/Engine/Interface/Inspectors/ForceField/FieldTimelineSection.cpp
+    Frontier/Engine/Interface/Inspectors/ForceField/FieldVectorsSection.cpp
+    Frontier/Engine/Interface/Inspectors/ForceField/FieldBudgetSection.cpp
+    Frontier/Engine/Interface/Inspectors/ForceField/WindFlowSection.cpp
+    Frontier/Engine/Interface/Inspectors/ForceField/WindGustSection.cpp
+    Frontier/Engine/Interface/Inspectors/ForceField/WindAltitudeSection.cpp
+    Frontier/Engine/Interface/Inspectors/ForceField/WindEddySection.cpp
+    Frontier/Engine/Interface/Inspectors/ForceField/WindMesoscaleSection.cpp
+    Frontier/Engine/Interface/Inspectors/FluidPlumeInspector.cpp
+    Frontier/Engine/Interface/Inspectors/FractureInspector.cpp
+    Frontier/Engine/Interface/Inspectors/ParticleInspector.cpp
+    Frontier/Engine/Interface/Inspectors/GeometryInspector.cpp
+    Frontier/Engine/Interface/Inspectors/VehicleInspector.cpp
+    Frontier/Engine/Interface/Inspectors/TyreInspector.cpp
+    Frontier/Engine/Interface/Inspectors/Geometry/TransformSection.cpp
+    Frontier/Engine/Interface/Inspectors/Geometry/QuickControlSection.cpp
+    Frontier/Engine/Interface/Inspectors/Geometry/ModifierStackSection.cpp
+    Frontier/Engine/Interface/Inspectors/Geometry/MaterialSection.cpp
+    Frontier/Engine/Interface/Inspectors/Geometry/FractureSection.cpp
+    Frontier/Engine/Interface/SceneInspectorPanel.cpp
+    Frontier/Engine/Interface/ViewportChromeControls.cpp)
+target_include_directories(FrontierSceneEditorUI PUBLIC
+    "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/Frontier"
+    "${CMAKE_SOURCE_DIR}/ExternalPackages/glfw/include")
+target_compile_definitions(FrontierSceneEditorUI PUBLIC FRONTIER_WITH_INTERFACE_SDK=1 FRONTIER_EDITOR_PROFILE=1 FRONTIER_EDITOR=1)
+target_include_directories(FrontierSceneEditorUI PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+target_link_libraries(FrontierSceneEditorUI PUBLIC FrontierEditorUI FrontierInterfaceExtension FrontierVehicleDynamics Threads::Threads glfw PRIVATE FrontierSurfaceRasterization FrontierEnvironmentRendering)
+
+include(Automation/StageProjectContent.cmake)
+
+# Extensions (Frontier/Extensions/<Name>/): the bridges between engine systems and the applications or runtime that use them.
+add_library(FrontierRenderingExtension STATIC
+    Frontier/Extensions/Rendering/RenderingExtension.cpp
+    Frontier/Extensions/Rendering/SceneGeometryOccupancy.cpp)
+target_link_libraries(FrontierRenderingExtension PUBLIC FrontierSceneEditorUI FrontierSceneViewport)
+add_library(FrontierParticleExtension STATIC
+    Frontier/Extensions/Particle/ParticleExtension.cpp)
+target_link_libraries(FrontierParticleExtension PUBLIC FrontierSceneEditorUI FrontierParticleSimulation)
+# 📝 Networking providers: the EOS and Photon SDKs stay optional; without them the adapters compile as honest stubs.
+option(FRONTIER_EOS_SDK "Link the Epic Online Services SDK behind EosAdapter" OFF)
+option(FRONTIER_PHOTON_SDK "Link the Photon Realtime SDK behind PhotonAdapter" OFF)
+set(FRONTIER_EOS_SDK_ROOT "" CACHE PATH "EOS SDK root (Include/, Lib/ or Bin/) when FRONTIER_EOS_SDK is on")
+set(FRONTIER_PHOTON_ROOT "" CACHE PATH "Photon Realtime root (realtime/include) when FRONTIER_PHOTON_SDK is on")
+add_library(FrontierNetworkingExtension STATIC
+    Frontier/Extensions/Networking/NetworkingSpace.cpp
+    Frontier/Extensions/Networking/NetworkingTransport.cpp
+    Frontier/Extensions/Networking/NetworkingExtension.cpp
+    Frontier/Extensions/Networking/NetworkRecordIndex.cpp
+    Frontier/Extensions/Networking/ReplicationCodec.cpp
+    Frontier/Extensions/Networking/EosAdapter.cpp
+    Frontier/Extensions/Networking/PhotonAdapter.cpp
+    Frontier/Extensions/Networking/NetworkingSession.cpp)
+target_link_libraries(FrontierNetworkingExtension PUBLIC FrontierSceneEditorUI)
+if(FRONTIER_EOS_SDK)
+    target_compile_definitions(FrontierNetworkingExtension PUBLIC FRONTIER_EOS_SDK)
+    target_include_directories(FrontierNetworkingExtension PUBLIC "${FRONTIER_EOS_SDK_ROOT}/Include")
+endif()
+if(FRONTIER_PHOTON_SDK)
+    target_compile_definitions(FrontierNetworkingExtension PUBLIC FRONTIER_PHOTON_SDK)
+    target_include_directories(FrontierNetworkingExtension PUBLIC "${FRONTIER_PHOTON_ROOT}/realtime/include")
+endif()
+# 📝 Physics: JoltPhysics (pinned, Automation/JoltPhysics.cmake) behind PhysicsSpace; only the extension sees Jolt's headers.
+include(Automation/JoltPhysics.cmake)
+frontier_add_jolt()
+add_library(FrontierPhysicsExtension STATIC
+    Frontier/Extensions/Physics/JoltExtension.cpp
+    Frontier/Extensions/Physics/JoltAdapter.cpp
+    Frontier/Extensions/Physics/PhysicsSpace.cpp
+    Frontier/Extensions/Physics/PhysicsThread.cpp
+    Frontier/Extensions/Physics/PhysicsVehicle.cpp
+    Frontier/Extensions/Physics/VehicleDeployment.cpp
+    Frontier/Extensions/Physics/PhysicsExtension.cpp)
+target_link_libraries(FrontierPhysicsExtension PUBLIC FrontierSceneEditorUI PRIVATE Jolt)
+
+add_library(FrontierSessionExtension STATIC
+    Frontier/Extensions/Session/SessionExtension.cpp)
+target_link_libraries(FrontierSessionExtension PUBLIC FrontierSceneEditorUI FrontierPhysicsExtension FrontierNetworkingExtension)
+
+add_library(EverestProjectEditor STATIC
+    Projects/Everest/Source/EverestApplication.cpp
+    Projects/Everest/Source/EverestSimulationRecords.cpp
+    Projects/Everest/Source/EverestViewportNavigation.cpp
+    Projects/Everest/Source/EverestWorkspace.cpp
+    Projects/Everest/Source/EverestFieldViewport.cpp
+    Projects/Everest/Source/Session/SessionPolicy.cpp)
+target_include_directories(EverestProjectEditor PUBLIC
+    "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/Frontier"
+    "${CMAKE_SOURCE_DIR}/Projects/Everest/Source")
+target_compile_definitions(EverestProjectEditor PUBLIC FRONTIER_WITH_INTERFACE_SDK=1 FRONTIER_EDITOR_PROFILE=1 FRONTIER_EDITOR=1)
+target_link_libraries(EverestProjectEditor PUBLIC FrontierSceneEditorUI FrontierRenderingExtension FrontierParticleExtension FrontierPhysicsExtension FrontierNetworkingExtension FrontierSessionExtension)
+frontier_stage_project_content(EverestProjectEditor
+    "${CMAKE_SOURCE_DIR}/Projects/Everest/Everest.projectspace"
+    "${CMAKE_SOURCE_DIR}/EngineContent"
+    "${CMAKE_SOURCE_DIR}/Projects/Everest/Content")
+
+add_library(EverestProjectRuntime STATIC
+    Frontier/Engine/Scene/RecordStore.cpp
+    Frontier/Engine/Scene/RecordEntry.cpp
+    Frontier/Engine/Scene/Agent.cpp
+    Frontier/Engine/Scene/SceneDirectory.cpp
+    Frontier/Engine/Scene/WorldSpace.cpp
+    Frontier/Engine/Scene/VehicleRecordCodec.cpp
+    Frontier/Engine/PhysicalDynamics/ForceSourceCatalogue.cpp
+    Frontier/Engine/Scene/GeometryLayout.cpp
+    Frontier/Engine/Input/InputEncoder.cpp
+    Frontier/Engine/Input/InputDriver.cpp
+    Frontier/Engine/Input/SyntheticDriver.cpp
+    Frontier/Engine/Session/PlayerStore.cpp
+    Frontier/Engine/Session/SessionConfiguration.cpp
+    Frontier/Engine/Session/TransferConfiguration.cpp
+    Frontier/Engine/Session/SessionPolicy.cpp
+    Frontier/Engine/Session/SpawnPolicy.cpp
+    Frontier/Engine/Session/SessionSpace.cpp
+    Frontier/Engine/Session/LevelTransition.cpp
+    Frontier/Engine/Diagnostics/LogCategories.cpp
+    Frontier/Engine/Diagnostics/LogRingStore.cpp
+    Frontier/Engine/Diagnostics/LogStream.cpp
+    Projects/Everest/Source/EverestApplication.cpp
+    Projects/Everest/Source/EverestSimulationRecords.cpp
+    Projects/Everest/Source/EverestViewportNavigation.cpp
+    Projects/Everest/Source/EverestWorkspace.cpp
+    Projects/Everest/Source/Session/SessionPolicy.cpp)
+target_include_directories(EverestProjectRuntime PUBLIC
+    "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/Frontier"
+    "${CMAKE_SOURCE_DIR}/Projects/Everest/Source"
+    "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include"
+    "${CMAKE_SOURCE_DIR}/ExternalPackages/glfw/include")
+target_compile_definitions(EverestProjectRuntime PUBLIC FRONTIER_SHIPPING_PROFILE=1 FRONTIER_EDITOR=0)
+target_link_libraries(EverestProjectRuntime PUBLIC FrontierVehicleDynamics Threads::Threads)
+frontier_stage_project_content(EverestProjectRuntime
+    "${CMAKE_SOURCE_DIR}/Projects/Everest/Everest.projectspace"
+    "${CMAKE_SOURCE_DIR}/EngineContent"
+    "${CMAKE_SOURCE_DIR}/Projects/Everest/Content")
 
 # GLFW owns windows/input on every platform; DX11 is only the legacy Windows-only exhibit's display
 # adapter, not the primary renderer, and never needs GLFW built differently per platform.
@@ -158,13 +454,14 @@ if(WIN32)
     target_compile_definitions(FrontierUI PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES GLFW_INCLUDE_NONE)
     target_link_libraries(FrontierUI PRIVATE FrontierEditorUI glfw)
     add_executable(Frontier Experimental/Frontier/Native/WindowsFrontier.cpp
+        Frontier/Extensions/Interface/ViewportTexture.cpp
         Engine/Interface/WindowsApplication.cpp Engine/Interface/VulkanPresentation.cpp
         "${IMGUI_ROOT}/backends/imgui_impl_glfw.cpp" "${IMGUI_ROOT}/backends/imgui_impl_vulkan.cpp")
     target_include_directories(Frontier PRIVATE "${IMGUI_ROOT}/backends"
         "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
     target_compile_definitions(Frontier PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES GLFW_INCLUDE_NONE
         FRONTIER_BUILD_COMMIT=\"${FRONTIER_BUILD_COMMIT}\")
-    target_link_libraries(Frontier PRIVATE FrontierEditorUI FrontierSurfaceRasterization glfw ole32)
+    target_link_libraries(Frontier PRIVATE FrontierEditorUI EverestProjectEditor FrontierSurfaceRasterization glfw ole32)
     if(MSVC)
         enable_language(RC)
         foreach(WORKSPACE_TARGET Frontier TextureStudio)
@@ -201,9 +498,9 @@ if(WIN32)
     install(TARGETS FrontierUI FrontierUIDX11 Frontier RUNTIME DESTINATION .)
 endif()
 
-include(CTest)
 include(Automation/SurfaceRasterization.cmake)
 include(Automation/VectorCoverage.cmake)
+include(Automation/BakeRasterization.cmake)
 if(BUILD_TESTING)
     find_program(FRONTIER_PATTERN_IMPORT_NODE NAMES node)
     if(FRONTIER_PATTERN_IMPORT_NODE)
@@ -263,6 +560,16 @@ if(BUILD_TESTING)
     target_link_libraries(VectorSelectionValidation PRIVATE FrontierVectorAuthoring)
     add_test(NAME VectorSelectionValidation COMMAND VectorSelectionValidation)
     set_tests_properties(VectorSelectionValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(VectorAuthoringEditingValidation Exhibits/TextureStudio/Code/VectorAuthoringEditingValidation.cpp)
+    target_link_libraries(VectorAuthoringEditingValidation PRIVATE FrontierVectorAuthoring)
+    add_test(NAME VectorAuthoringEditingValidation COMMAND VectorAuthoringEditingValidation)
+    set_tests_properties(VectorAuthoringEditingValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(LayerDragReorderValidation Exhibits/TextureStudio/Code/LayerDragReorderValidation.cpp)
+    target_link_libraries(LayerDragReorderValidation PRIVATE FrontierVectorAuthoring)
+    add_test(NAME LayerDragReorderValidation COMMAND LayerDragReorderValidation)
+    set_tests_properties(LayerDragReorderValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(LayerDragReorderEvidence Exhibits/TextureStudio/Code/LayerDragReorderEvidence.cpp)
+    target_link_libraries(LayerDragReorderEvidence PRIVATE FrontierVectorAuthoring FrontierImGui)
     add_executable(StampTextOutlineValidation Exhibits/TextureStudio/Code/StampTextOutlineValidation.cpp)
     target_link_libraries(StampTextOutlineValidation PRIVATE FrontierVectorAuthoring)
     add_test(NAME StampTextOutlineValidation COMMAND StampTextOutlineValidation)
@@ -275,6 +582,54 @@ if(BUILD_TESTING)
     target_link_libraries(StampWorkspacePanelConstructionValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME StampWorkspacePanelConstructionValidation COMMAND StampWorkspacePanelConstructionValidation)
     set_tests_properties(StampWorkspacePanelConstructionValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(StampFidelityValidation Exhibits/TextureStudio/Code/StampFidelityValidation.cpp)
+    target_link_libraries(StampFidelityValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME StampFidelityValidation COMMAND StampFidelityValidation)
+    set_tests_properties(StampFidelityValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+    add_executable(Bake16kStress EXCLUDE_FROM_ALL Exhibits/TextureStudio/Code/Bake16kStress.cpp)
+    target_link_libraries(Bake16kStress PRIVATE FrontierTextureStudioUI)
+
+    add_executable(BakeFieldTilingValidation Exhibits/TextureStudio/Code/BakeFieldTilingValidation.cpp)
+    target_link_libraries(BakeFieldTilingValidation PRIVATE FrontierTextureStudioUI)
+    target_include_directories(BakeFieldTilingValidation PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    add_test(NAME BakeFieldTilingValidation COMMAND BakeFieldTilingValidation)
+
+    add_executable(BakingMatchingValidation Exhibits/TextureStudio/Code/BakingMatchingValidation.cpp)
+    target_link_libraries(BakingMatchingValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME BakingMatchingValidation COMMAND BakingMatchingValidation)
+
+    add_executable(BakeSurfaceImportValidation Exhibits/TextureStudio/Code/BakeSurfaceImportValidation.cpp)
+    target_link_libraries(BakeSurfaceImportValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME BakeSurfaceImportValidation COMMAND BakeSurfaceImportValidation)
+
+    add_executable(VolumePreviewValidation Exhibits/TextureStudio/Code/VolumePreviewValidation.cpp)
+    target_link_libraries(VolumePreviewValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME VolumePreviewValidation COMMAND VolumePreviewValidation)
+    add_executable(VolumeDistanceFieldValidation Exhibits/TextureStudio/Code/VolumeDistanceFieldValidation.cpp)
+    target_link_libraries(VolumeDistanceFieldValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME VolumeDistanceFieldValidation COMMAND VolumeDistanceFieldValidation)
+    add_executable(BakingWorkspacePanelConstructionValidation Exhibits/TextureStudio/Code/BakingWorkspacePanelConstructionValidation.cpp)
+    target_link_libraries(BakingWorkspacePanelConstructionValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME BakingWorkspacePanelConstructionValidation COMMAND BakingWorkspacePanelConstructionValidation)
+    set_tests_properties(BakingWorkspacePanelConstructionValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(TexturePaintWorkspacePanelConstructionValidation Exhibits/TextureStudio/Code/TexturePaintWorkspacePanelConstructionValidation.cpp)
+    target_link_libraries(TexturePaintWorkspacePanelConstructionValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME TexturePaintWorkspacePanelConstructionValidation COMMAND TexturePaintWorkspacePanelConstructionValidation)
+    set_tests_properties(TexturePaintWorkspacePanelConstructionValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(PaintStampEngineValidation Exhibits/TextureStudio/Code/PaintStampEngineValidation.cpp)
+    target_link_libraries(PaintStampEngineValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME PaintStampEngineValidation COMMAND PaintStampEngineValidation)
+    set_tests_properties(PaintStampEngineValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(StampLibraryValidation Exhibits/TextureStudio/Code/StampLibraryValidation.cpp)
+    target_link_libraries(StampLibraryValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME StampLibraryValidation COMMAND StampLibraryValidation)
+    set_tests_properties(StampLibraryValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(StampTextGestureValidation Exhibits/TextureStudio/Code/StampTextGestureValidation.cpp)
+    target_link_libraries(StampTextGestureValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME StampTextGestureValidation COMMAND StampTextGestureValidation
+        "${CMAKE_SOURCE_DIR}/EngineContent/FontArchives/DMSans/DMSans-Regular.ttf")
+    set_tests_properties(StampTextGestureValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
     add_executable(PatternLibraryGalleryValidation Exhibits/TextureStudio/Code/PatternLibraryGalleryValidation.cpp)
     target_link_libraries(PatternLibraryGalleryValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME PatternLibraryGalleryValidation COMMAND PatternLibraryGalleryValidation)
@@ -287,8 +642,60 @@ if(BUILD_TESTING)
     target_link_libraries(PatternAtlasDiskCacheValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME PatternAtlasDiskCacheValidation COMMAND PatternAtlasDiskCacheValidation "${CMAKE_BINARY_DIR}/pattern-atlas-cache-evidence")
     set_tests_properties(PatternAtlasDiskCacheValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(StampTextThumbnailContrastValidation Exhibits/TextureStudio/Code/StampTextThumbnailContrastValidation.cpp)
+    target_link_libraries(StampTextThumbnailContrastValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME StampTextThumbnailContrastValidation COMMAND StampTextThumbnailContrastValidation)
+    set_tests_properties(StampTextThumbnailContrastValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(StampTextLiveFitValidation Exhibits/TextureStudio/Code/StampTextLiveFitValidation.cpp)
+    target_link_libraries(StampTextLiveFitValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME StampTextLiveFitValidation COMMAND StampTextLiveFitValidation)
+    set_tests_properties(StampTextLiveFitValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(WorkspaceZoomValidation Exhibits/TextureStudio/Code/WorkspaceZoomValidation.cpp)
+    target_link_libraries(WorkspaceZoomValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME WorkspaceZoomValidation COMMAND WorkspaceZoomValidation)
+    set_tests_properties(WorkspaceZoomValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
     add_executable(MaterialLibraryValidation Exhibits/TextureStudio/Code/MaterialLibraryValidation.cpp)
     target_link_libraries(MaterialLibraryValidation PRIVATE FrontierTextureStudioUI)
+    add_executable(SliderPaddingEvidence Exhibits/TextureStudio/Code/SliderPaddingEvidence.cpp)
+    target_link_libraries(SliderPaddingEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(StampCanvasGridEvidence Exhibits/TextureStudio/Code/StampCanvasGridEvidence.cpp)
+    target_link_libraries(StampCanvasGridEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(PatternCanvasRepeatEvidence Exhibits/TextureStudio/Code/PatternCanvasRepeatEvidence.cpp)
+    target_link_libraries(PatternCanvasRepeatEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(StampGradientStopEvidence Exhibits/TextureStudio/Code/StampGradientStopEvidence.cpp)
+    target_link_libraries(StampGradientStopEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(PatternGradientStopEvidence Exhibits/TextureStudio/Code/PatternGradientStopEvidence.cpp)
+    target_link_libraries(PatternGradientStopEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(GradientAxisFreeformEvidence Exhibits/TextureStudio/Code/GradientAxisFreeformEvidence.cpp)
+    target_link_libraries(GradientAxisFreeformEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(PolygonPenPolylineEvidence Exhibits/TextureStudio/Code/PolygonPenPolylineEvidence.cpp)
+    target_link_libraries(PolygonPenPolylineEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(ArrayPatternEvidence Exhibits/TextureStudio/Code/ArrayPatternEvidence.cpp)
+    target_link_libraries(ArrayPatternEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(ArrayModifierStackEvidence Exhibits/TextureStudio/Code/ArrayModifierStackEvidence.cpp)
+    target_link_libraries(ArrayModifierStackEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(BakingWorkspaceEvidence Exhibits/TextureStudio/Code/BakingWorkspaceEvidence.cpp)
+    target_link_libraries(BakingWorkspaceEvidence PRIVATE FrontierTextureStudioUI)
+    add_executable(BakingLayoutEvidence Exhibits/TextureStudio/Code/BakingLayoutEvidence.cpp)
+    target_link_libraries(BakingLayoutEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(BakingMeshMapCompletionEvidence Exhibits/TextureStudio/Code/BakingMeshMapCompletionEvidence.cpp)
+    target_link_libraries(BakingMeshMapCompletionEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(MirrorNoiseOffsetModifierEvidence Exhibits/TextureStudio/Code/MirrorNoiseOffsetModifierEvidence.cpp)
+    target_link_libraries(MirrorNoiseOffsetModifierEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(ColourModifierEvidence Exhibits/TextureStudio/Code/ColourModifierEvidence.cpp)
+    target_link_libraries(ColourModifierEvidence PRIVATE FrontierTextureStudioUI)
     add_test(NAME MaterialLibraryValidation COMMAND MaterialLibraryValidation
         "${CMAKE_SOURCE_DIR}/Exhibits/Renderer/Materials" "${CMAKE_BINARY_DIR}/MaterialLibraryEvidence")
     set_tests_properties(MaterialLibraryValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
@@ -353,6 +760,12 @@ if(BUILD_TESTING)
     target_link_libraries(DockingValidation PRIVATE FrontierEditorUI)
     add_test(NAME DockingValidation COMMAND DockingValidation
         "${CMAKE_SOURCE_DIR}/EngineContent" "${CMAKE_BINARY_DIR}/docking-evidence")
+    add_executable(DockCycleRecoveryValidation Exhibits/Docking/Code/DockCycleRecoveryValidation.cpp)
+    target_link_libraries(DockCycleRecoveryValidation PRIVATE FrontierInterface)
+    add_test(NAME DockCycleRecoveryValidation COMMAND DockCycleRecoveryValidation)
+    add_executable(FrameFaultRecoveryValidation Exhibits/Docking/Code/FrameFaultRecoveryValidation.cpp)
+    target_link_libraries(FrameFaultRecoveryValidation PRIVATE FrontierInterface)
+    add_test(NAME FrameFaultRecoveryValidation COMMAND FrameFaultRecoveryValidation)
     add_executable(NotificationValidation Exhibits/Notifications/Code/NotificationValidation.cpp)
     target_link_libraries(NotificationValidation PRIVATE FrontierEditorUI)
     add_test(NAME NotificationValidation COMMAND NotificationValidation
@@ -365,4 +778,196 @@ if(BUILD_TESTING)
     target_link_libraries(InterfaceValidation PRIVATE FrontierEditorUI)
     add_test(NAME InterfaceValidation COMMAND InterfaceValidation
         "${CMAKE_SOURCE_DIR}/EngineContent/Icons" "${CMAKE_BINARY_DIR}/evidence")
+
+    add_executable(CelestialWorkspaceValidation
+        Exhibits/CelestialWorkspace/Code/CelestialWorkspaceValidation.cpp
+        Engine/Render/StbImageWriteImplementation.cpp)
+    target_include_directories(CelestialWorkspaceValidation PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    target_link_libraries(CelestialWorkspaceValidation PRIVATE EverestProjectEditor)
+    add_test(NAME CelestialWorkspaceValidation COMMAND CelestialWorkspaceValidation
+        "${CMAKE_SOURCE_DIR}/EngineContent" "${CMAKE_SOURCE_DIR}/Projects/Everest"
+        "${CMAKE_BINARY_DIR}/ShaderArchives" "${CMAKE_BINARY_DIR}/celestial-workspace-exhibits")
+
+    add_executable(SceneMediaValidation
+        Exhibits/LocalMedia/Code/SceneMediaValidation.cpp
+        Engine/Render/StbImageWriteImplementation.cpp)
+    target_include_directories(SceneMediaValidation PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    target_link_libraries(SceneMediaValidation PRIVATE EverestProjectEditor)
+    add_test(NAME SceneMediaValidation COMMAND SceneMediaValidation
+        "${CMAKE_SOURCE_DIR}/EngineContent" "${CMAKE_SOURCE_DIR}/Projects/Everest"
+        "${CMAKE_BINARY_DIR}/ShaderArchives" "${CMAKE_BINARY_DIR}/scene-media-exhibits")
+    set_tests_properties(SceneMediaValidation PROPERTIES RUN_SERIAL TRUE WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+    add_executable(EnvironmentInspectorValidation
+        Exhibits/EnvironmentInspectors/Code/EnvironmentInspectorValidation.cpp
+        Engine/Render/StbImageWriteImplementation.cpp)
+    target_include_directories(EnvironmentInspectorValidation PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    target_link_libraries(EnvironmentInspectorValidation PRIVATE EverestProjectEditor)
+    add_test(NAME EnvironmentInspectorValidation COMMAND EnvironmentInspectorValidation
+        "${CMAKE_SOURCE_DIR}/EngineContent"
+        "${CMAKE_SOURCE_DIR}/Projects/Everest"
+        "${CMAKE_BINARY_DIR}/environment-inspector-exhibits"
+        "${CMAKE_SOURCE_DIR}/Exhibits/EnvironmentInspectors/Results/ReferenceExpectations.tsv")
+    set_tests_properties(EnvironmentInspectorValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 240)
+
+    # 📝 The C++ force field against the approved Force Field editor prototype (ForceFieldCatalogue.js): every contribution,
+    #    activation, profile and the budget of the demo field, and the level's ForceSource records.
+    add_executable(ForceFieldCatalogueValidation
+        Exhibits/ForceFieldEditor/Code/ForceFieldCatalogueValidation.cpp)
+    target_link_libraries(ForceFieldCatalogueValidation PRIVATE EverestProjectEditor)
+    add_test(NAME ForceFieldCatalogueValidation COMMAND ForceFieldCatalogueValidation "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(ForceFieldCatalogueValidation PROPERTIES TIMEOUT 120)
+
+    # 📝 The C++ Particle editor library and GPU payloads against the approved prototype (eos presets.js, fillSys, fillFibre,
+    #    the prototype's camera, field and lensing packing, and the eos force taxonomy).
+    add_executable(ParticleLibraryValidation
+        Exhibits/ParticleEditor/Code/ParticleLibraryValidation.cpp)
+    target_include_directories(ParticleLibraryValidation PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
+    target_link_libraries(ParticleLibraryValidation PRIVATE FrontierEnvironmentRendering)
+    add_test(NAME ParticleLibraryValidation COMMAND ParticleLibraryValidation "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(ParticleLibraryValidation PROPERTIES TIMEOUT 60)
+
+    add_executable(PhysicsSpaceValidation
+        Exhibits/Physics/Code/PhysicsSpaceValidation.cpp
+        Engine/Render/StbImageWriteImplementation.cpp)
+    target_include_directories(PhysicsSpaceValidation PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    target_link_libraries(PhysicsSpaceValidation PRIVATE FrontierPhysicsExtension)
+    add_test(NAME PhysicsSpaceValidation COMMAND PhysicsSpaceValidation "${CMAKE_SOURCE_DIR}/Exhibits/Physics")
+    set_tests_properties(PhysicsSpaceValidation PROPERTIES TIMEOUT 300)
+
+    # 📝 Vehicle physics: physics checks of the slip, tyre and powertrain models on the Jolt-hosted car, the three tyre carcasses,
+    #    and Project Drive's own suites run against the renamed core (RunProjectDriveIdentity.sh compares them with the source).
+    add_executable(VehicleDynamicsValidation Exhibits/VehiclePhysics/Code/VehicleDynamicsValidation.cpp)
+    target_link_libraries(VehicleDynamicsValidation PRIVATE FrontierPhysicsExtension)
+    add_test(NAME VehicleDynamicsValidation COMMAND VehicleDynamicsValidation "${CMAKE_SOURCE_DIR}/Exhibits/VehiclePhysics")
+    set_tests_properties(VehicleDynamicsValidation PROPERTIES TIMEOUT 900)
+    add_executable(TyreCarcassValidation Exhibits/VehiclePhysics/Code/TyreCarcassValidation.cpp)
+    target_link_libraries(TyreCarcassValidation PRIVATE FrontierPhysicsExtension)
+    add_test(NAME TyreCarcassValidation COMMAND TyreCarcassValidation "${CMAKE_SOURCE_DIR}/Exhibits/VehiclePhysics")
+    set_tests_properties(TyreCarcassValidation PROPERTIES TIMEOUT 900)
+    add_executable(VehicleWorkspaceCapture
+        Exhibits/VehiclePhysics/Code/VehicleWorkspaceCapture.cpp
+        Engine/Render/StbImageWriteImplementation.cpp)
+    target_include_directories(VehicleWorkspaceCapture PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    target_link_libraries(VehicleWorkspaceCapture PRIVATE EverestProjectEditor)
+    foreach(ProjectDriveSuite VehicleValidation VehicleDrivingValidation AbsSuperchargerValidation AerodynamicsValidation BrakingValidation
+            SuperchargerValidation VehicleInputValidation ProjectDriveTrace)
+        add_executable(ProjectDrive${ProjectDriveSuite} Exhibits/VehiclePhysics/Code/ProjectDrive/${ProjectDriveSuite}.cpp)
+        target_include_directories(ProjectDrive${ProjectDriveSuite} PRIVATE "${CMAKE_SOURCE_DIR}/Frontier/Engine/PhysicalDynamics/Vehicle")
+        target_link_libraries(ProjectDrive${ProjectDriveSuite} PRIVATE FrontierVehicleDynamics)
+        if(NOT MSVC)
+            target_compile_options(ProjectDrive${ProjectDriveSuite} PRIVATE -w)
+        endif()
+        if(NOT ProjectDriveSuite STREQUAL "ProjectDriveTrace")
+            add_test(NAME ProjectDrive${ProjectDriveSuite} COMMAND ProjectDrive${ProjectDriveSuite})
+            set_tests_properties(ProjectDrive${ProjectDriveSuite} PROPERTIES TIMEOUT 300)
+        endif()
+    endforeach()
+
+    add_executable(NetworkingSpaceValidation
+        Exhibits/Networking/Code/NetworkingSpaceValidation.cpp)
+    target_link_libraries(NetworkingSpaceValidation PRIVATE FrontierNetworkingExtension)
+    add_test(NAME NetworkingSpaceValidation COMMAND NetworkingSpaceValidation "${CMAKE_SOURCE_DIR}/Exhibits/Networking/Results/NetworkingSpaceValidation.md")
+    set_tests_properties(NetworkingSpaceValidation PROPERTIES TIMEOUT 60)
+    add_executable(NetworkingProviderValidation
+        Exhibits/Networking/Code/NetworkingProviderValidation.cpp)
+    target_link_libraries(NetworkingProviderValidation PRIVATE FrontierNetworkingExtension)
+    add_test(NAME NetworkingProviderValidation COMMAND NetworkingProviderValidation "${CMAKE_SOURCE_DIR}/Exhibits/Networking/Results/NetworkingProviderValidation.md")
+    set_tests_properties(NetworkingProviderValidation PROPERTIES TIMEOUT 60)
+
+    add_executable(SessionValidation
+        Exhibits/SessionValidation/Code/SessionValidation.cpp)
+    target_link_libraries(SessionValidation PRIVATE EverestProjectEditor glfw)
+    add_test(NAME SessionValidation COMMAND SessionValidation "${CMAKE_SOURCE_DIR}/Projects/Everest" "${CMAKE_SOURCE_DIR}/Exhibits/SessionValidation/Results/SessionValidation.md")
+    set_tests_properties(SessionValidation PROPERTIES TIMEOUT 120 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+    add_executable(ParticleSpaceValidation
+        Exhibits/ParticleEditor/Code/ParticleSpaceValidation.cpp)
+    target_include_directories(ParticleSpaceValidation PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
+    target_link_libraries(ParticleSpaceValidation PRIVATE FrontierEnvironmentRendering)
+    add_test(NAME ParticleSpaceValidation COMMAND ParticleSpaceValidation "${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/ParticleSpaceScratch")
+    set_tests_properties(ParticleSpaceValidation PROPERTIES TIMEOUT 60)
+
+    add_executable(EverestInterfaceValidation
+        Exhibits/EverestInterface/Code/EverestInterfaceValidation.cpp
+        Engine/Render/StbImageWriteImplementation.cpp)
+    target_include_directories(EverestInterfaceValidation PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    target_link_libraries(EverestInterfaceValidation PRIVATE EverestProjectEditor)
+    add_test(NAME EverestInterfaceValidation COMMAND EverestInterfaceValidation
+        "${CMAKE_SOURCE_DIR}/EngineContent"
+        "${CMAKE_SOURCE_DIR}/Projects/Everest"
+        "${CMAKE_BINARY_DIR}/everest-interface-exhibits")
+
+    # 📝 The engine shapes' signed distance volumes (EngineContent/ShapeArchives/<Name>.sdfspace); "check" compares instead of writing.
+    add_executable(ShapeArchiveBake
+        Exhibits/SceneViewport/Code/ShapeArchiveBake.cpp)
+    target_link_libraries(ShapeArchiveBake PRIVATE FrontierSceneViewport)
+    add_test(NAME ShapeArchiveBakeValidation COMMAND ShapeArchiveBake "${CMAKE_SOURCE_DIR}/EngineContent/ShapeArchives" check)
+
+    # 📝 The level's Geometry records against the scene archive, no device — Exhibits/SceneViewport/README.md.
+    add_executable(SceneGeometryValidation
+        Exhibits/SceneViewport/Code/SceneGeometryValidation.cpp)
+    target_link_libraries(SceneGeometryValidation PRIVATE EverestProjectEditor)
+    add_test(NAME SceneGeometryValidation COMMAND SceneGeometryValidation
+        "${CMAKE_SOURCE_DIR}/Projects/Everest"
+        "${CMAKE_SOURCE_DIR}/EngineContent/EnvironmentArchives/ProvingGround"
+        "${CMAKE_BINARY_DIR}/scene-geometry-exhibits")
+
+    # 📝 GPU picking against the shown triangles and the editor's click path (own device) — Exhibits/SceneViewport/README.md.
+    add_executable(SceneViewportPickValidation
+        Exhibits/SceneViewport/Code/SceneViewportPickValidation.cpp)
+    target_link_libraries(SceneViewportPickValidation PRIVATE EverestProjectEditor)
+    add_test(NAME SceneViewportPickValidation COMMAND SceneViewportPickValidation
+        "${CMAKE_SOURCE_DIR}/Projects/Everest" "${CMAKE_BINARY_DIR}/ShaderArchives"
+        "${CMAKE_BINARY_DIR}/scene-viewport-pick-exhibits")
+    # 📝 From the repository root: the engine shapes (the torus) resolve through EngineContent when the shaders come from the build.
+    set_tests_properties(SceneViewportPickValidation PROPERTIES RUN_SERIAL TRUE WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+    # 📝 The Everest workspace with its live Scene Viewport (own device), CPU-rasterized — Exhibits/SceneViewport/README.md.
+    add_executable(SceneViewportWorkspaceCapture
+        Exhibits/SceneViewport/Code/SceneViewportWorkspaceCapture.cpp
+        Engine/Render/StbImageWriteImplementation.cpp)
+    target_include_directories(SceneViewportWorkspaceCapture PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    target_link_libraries(SceneViewportWorkspaceCapture PRIVATE EverestProjectEditor)
+
+    # 📝 The Force Field in the workspace: the Field view from 100 m to 100 km, the slice over the scene and the Force Field,
+    #    Wind and force inspector pages — Exhibits/ForceFieldEditor/README.md.
+    add_executable(ForceFieldWorkspaceCapture
+        Exhibits/ForceFieldEditor/Code/ForceFieldWorkspaceCapture.cpp
+        Engine/Render/StbImageWriteImplementation.cpp)
+    target_include_directories(ForceFieldWorkspaceCapture PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    target_link_libraries(ForceFieldWorkspaceCapture PRIVATE EverestProjectEditor)
+
+    # 📝 The Particle editor in the workspace: opened from a Particles record, the GPU particle engine read back into the image,
+    #    the Outliner, Inspector pages, field overlay and preset library — Exhibits/ParticleEditor/README.md.
+    add_executable(ParticleEditorCapture
+        Exhibits/ParticleEditor/Code/ParticleEditorCapture.cpp
+        Engine/Render/StbImageWriteImplementation.cpp)
+    target_include_directories(ParticleEditorCapture PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    target_link_libraries(ParticleEditorCapture PRIVATE EverestProjectEditor)
+
+    # 📝 The scene objects in the workspace: the geometry groups, five geometry inspector pages, the viewport before and after edits.
+    add_executable(SceneGeometryCapture
+        Exhibits/SceneViewport/Code/SceneGeometryCapture.cpp
+        Engine/Render/StbImageWriteImplementation.cpp)
+    target_include_directories(SceneGeometryCapture PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    target_link_libraries(SceneGeometryCapture PRIVATE EverestProjectEditor)
+
+    add_executable(EverestShippingValidation
+        Exhibits/EverestInterface/Code/EverestShippingValidation.cpp)
+    target_link_libraries(EverestShippingValidation PRIVATE EverestProjectRuntime)
+    add_test(NAME EverestShippingValidation COMMAND EverestShippingValidation
+        "${CMAKE_SOURCE_DIR}/Projects/Everest")
+endif()
+
+include(Automation/EnvironmentRendering.cmake)
+include(Automation/VirtualizedGeometryRendering.cmake)
+include(Automation/AnalyticIlluminationRendering.cmake)
+include(Automation/ParticleSimulationRendering.cmake)
+include(Automation/GlobalIlluminationRendering.cmake)
+
+# SolidArc CAD workspace: reuse shared Frontier interface, dependencies and browser.
+option(FRONTIER_BUILD_SOLIDARC "Build the integrated SolidArc CAD workspace" ON)
+if(FRONTIER_BUILD_SOLIDARC)
+    include("${CMAKE_SOURCE_DIR}/Experimental/SolidArc/Native/SolidArc.cmake")
 endif()

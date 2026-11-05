@@ -8,6 +8,7 @@
 
 #pragma once
 #include "EpicExchange.h"
+#include "Frontier/Extensions/Networking/PhotonAdapter.h"
 #include <cstddef>
 #include <cstdint>
 
@@ -51,4 +52,6 @@ void StopPhotonTransport() noexcept;
 // Sends one codec packet. Only valid while Joined; returns false otherwise.
 bool SendPhotonPacket(const std::uint8_t* Bytes, std::size_t Length, bool Reliable) noexcept;
 PhotonStatus InspectPhotonStatus() noexcept;
+// The one Photon adapter the game session borrows (AttachTransport) to replicate over the cloud room.
+Frontier::PhotonAdapter& QueryPhotonLink() noexcept;
 }

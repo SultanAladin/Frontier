@@ -64,4 +64,8 @@ LoginProgress InspectLogin() noexcept;
 bool CopyEpicIdentityToken(char* Out, std::size_t Capacity) noexcept;
 void* InspectEpicPlatformHandle() noexcept;
 void* InspectEpicAccountHandle() noexcept;
+// The local Connect product user (P2P identity); null while signed out.
+void* InspectEpicProductUser() noexcept;
+// Copies the local product-user string (the greeting identity); false while signed out.
+bool CopyLocalProductUserString(char* Out, std::size_t Capacity) noexcept;
 }

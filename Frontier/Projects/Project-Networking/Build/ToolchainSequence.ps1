@@ -15,6 +15,7 @@ $Include = Join-Path $SdkRoot 'Include'
 $Library = Join-Path $SdkRoot 'Lib/EOSSDK-Win64-Shipping.lib'
 $Runtime = Join-Path $SdkRoot 'Bin/EOSSDK-Win64-Shipping.dll'
 $Interchange = Join-Path $SlateRoot 'Frontier/Engine/ProjectInterchange'
+$EngineRoot = (Resolve-Path (Join-Path $ProjectRoot '../../..')).Path
 $PhotonInclude = Join-Path $PhotonRoot 'realtime/include'
 $PhotonLibDir = Join-Path $SdkRoot 'Photon/Lib'
 foreach ($Required in @($Library, $Runtime, (Join-Path $Include 'eos_sdk.h'), (Join-Path $Include 'eos_ecom.h'),
@@ -32,7 +33,7 @@ $PhotonLinked = $PhotonLibs.Count -ge 3
 if ($PhotonLinked) {
     Write-Host "Photon: linking official libs: $($PhotonLibs.Name -join ', ')"
 } else {
-    Write-Host 'Photon: official /MD x64 libs absent; compiling the real transport as a check and linking the stub.'
+    Write-Host 'Photon: official /MD x64 libs absent; compiling the engine adapter as a check, linking it unlinked.'
 }
 if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
     throw 'Run from an x64 Visual Studio developer PowerShell with cl.exe available.'
@@ -41,22 +42,22 @@ if ($env:VSCMD_ARG_TGT_ARCH -ne 'x64') {
     throw 'Use the x64 Visual Studio developer environment.'
 }
 New-Item -ItemType Directory -Force $Output | Out-Null
-$Flags = @('/nologo', '/std:c++20', '/MD', '/EHsc', '/W4', '/utf-8', '/D_CRT_SECURE_NO_WARNINGS', "/I$Include", "/I$Interchange", "/I$PhotonInclude")
-$Exchange = @('EpicExchange.cpp', 'LobbyRuntime.cpp', 'SessionHistory.cpp', 'TransportRouter.cpp', 'EcomOwnership.cpp', 'EosTransport.cpp', 'XsollaStore.cpp') | ForEach-Object { Join-Path $ProjectRoot "Source/$_" }
+$Flags = @('/nologo', '/std:c++20', '/MD', '/EHsc', '/W4', '/utf-8', '/D_CRT_SECURE_NO_WARNINGS', '/DFRONTIER_EOS_SDK', "/I$Include", "/I$Interchange", "/I$PhotonInclude", "/I$EngineRoot")
+$Exchange = @('EpicExchange.cpp', 'LobbyRuntime.cpp', 'SessionHistory.cpp', 'TransportRouter.cpp', 'EcomOwnership.cpp', 'EosTransport.cpp', 'XsollaStore.cpp', 'PhotonTransport.cpp') | ForEach-Object { Join-Path $ProjectRoot "Source/$_" }
+$Exchange += @('NetworkingSpace.cpp', 'NetworkingTransport.cpp', 'ReplicationCodec.cpp', 'EosAdapter.cpp', 'PhotonAdapter.cpp') | ForEach-Object { Join-Path $EngineRoot "Frontier/Extensions/Networking/$_" }
 if ($PhotonLinked) {
-    $Exchange += Join-Path $ProjectRoot 'Source/PhotonTransport.cpp'
+    $Flags += '/DFRONTIER_PHOTON_SDK'
     # Photon archives need these OS libs named explicitly (no #pragma comment in headers).
     $LinkLibs = @($Library) + @($PhotonLibs | ForEach-Object { $_.FullName }) + @('winhttp.lib', 'Bcrypt.lib', 'ws2_32.lib', 'winmm.lib')
 } else {
-    $Exchange += Join-Path $ProjectRoot 'Source/PhotonLinkStub.cpp'
     $LinkLibs = @($Library)
 }
 Push-Location $Output
 try {
     if (-not $PhotonLinked) {
-        # Compile-now guarantee: the real transport must always type-check against the pinned headers.
-        & cl.exe @Flags /c (Join-Path $ProjectRoot 'Source/PhotonTransport.cpp') '/Fo:PhotonTransport.check.obj' 2>&1 | Write-Host
-        if ($LASTEXITCODE -ne 0) { throw 'Photon transport compile check failed.' }
+        # Compile-now guarantee: the engine Photon adapter must always type-check against the pinned headers.
+        & cl.exe @Flags '/DFRONTIER_PHOTON_SDK' /c (Join-Path $EngineRoot 'Frontier/Extensions/Networking/PhotonAdapter.cpp') '/Fo:PhotonAdapter.check.obj' 2>&1 | Write-Host
+        if ($LASTEXITCODE -ne 0) { throw 'Photon adapter compile check failed.' }
     }
     $Compile = & cl.exe @Flags @Exchange (Join-Path $ProjectRoot 'Source/LoginHost.cpp') '/Fe:LoginHost.exe' /link $LinkLibs 2>&1
     $Code = $LASTEXITCODE

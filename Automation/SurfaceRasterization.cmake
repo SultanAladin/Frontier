@@ -81,7 +81,9 @@ elseif(FRONTIER_SLANG_WASM)
         VERBATIM)
     add_custom_target(FrontierSurfaceShaders ALL DEPENDS ${SURFACE_SHADER_OUTPUTS})
 else()
-    message(STATUS "Surface C++ unit builds; supply slangc or FRONTIER_SLANG_WASM for shader/readback validation")
+    # 📝 Frontier.exe and Texture Studio still start: the stored EngineContent/ShaderArchives/Surface (Automation/StoreShaderArchives.py)
+    #    arrives beside them with the EngineContent copy. Only the compiler-dependent readback tests below stay unregistered.
+    message(STATUS "Surface shaders: no slangc or FRONTIER_SLANG_WASM; the editor uses the stored EngineContent/ShaderArchives/Surface")
 endif()
 
 if(BUILD_TESTING)
@@ -96,6 +98,14 @@ if(BUILD_TESTING)
     target_link_libraries(PreviewPbrRasterizationValidation PRIVATE FrontierSurfaceRasterization ${CMAKE_DL_LIBS})
     add_executable(MaterialRasterizationValidation Exhibits/Renderer/Code/MaterialRasterizationValidation.cpp)
     target_link_libraries(MaterialRasterizationValidation PRIVATE FrontierSurfaceRasterization ${CMAKE_DL_LIBS})
+    # 📝 Frontier.exe's first rendering, from the stored Surface archives it ships with (no Slang compiler involved).
+    add_executable(BrowserPreviewStartupValidation Exhibits/Renderer/Code/BrowserPreviewStartupValidation.cpp)
+    target_link_libraries(BrowserPreviewStartupValidation PRIVATE FrontierSurfaceRasterization ${CMAKE_DL_LIBS})
+    if(FRONTIER_VULKAN_DRIVER)
+        add_test(NAME BrowserPreviewStartupValidation COMMAND BrowserPreviewStartupValidation
+            "${FRONTIER_VULKAN_DRIVER}" "${CMAKE_SOURCE_DIR}/EngineContent/ShaderArchives/Surface"
+            "${CMAKE_BINARY_DIR}/BrowserStartupEvidence")
+    endif()
     if(TARGET FrontierSurfaceShaders)
         add_dependencies(MaterialRasterizationValidation FrontierSurfaceShaders)
         add_dependencies(PreviewPbrRasterizationValidation FrontierSurfaceShaders)

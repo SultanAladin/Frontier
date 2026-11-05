@@ -30,7 +30,7 @@ if(PHOTON_LIB_COUNT GREATER_EQUAL 3)
     set(PHOTON_LINKED TRUE)
     message(STATUS "Photon: linking ${PHOTON_LIBS}")
 else()
-    message(STATUS "Photon: official /MD x64 libs absent; linking the stub (compile check still runs).")
+    message(STATUS "Photon: official /MD x64 libs absent; the adapter reports unavailable (compile check still runs).")
 endif()
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -47,25 +47,33 @@ add_library(LoginImGui STATIC
 target_include_directories(LoginImGui PUBLIC "${IMGUI}" "${IMGUI}/backends")
 target_link_libraries(LoginImGui PUBLIC glfw OpenGL::GL)
 set(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../../Source")
+# 📝 Engine-owned transports (Frontier/Extensions/Networking): the codec, the wire form, the space and both adapters.
+# NetworkingSession.cpp stays out: it needs a WorldSpace the login window does not have.
+set(ENGINE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../..")
 set(NETWORKING_SOURCES "${SOURCE}/EpicExchange.cpp" "${SOURCE}/LobbyRuntime.cpp" "${SOURCE}/SessionHistory.cpp"
     "${SOURCE}/TransportRouter.cpp" "${SOURCE}/EcomOwnership.cpp" "${SOURCE}/EosTransport.cpp"
-    "${SOURCE}/XsollaStore.cpp")
-if(PHOTON_LINKED)
-    list(APPEND NETWORKING_SOURCES "${SOURCE}/PhotonTransport.cpp")
-else()
-    list(APPEND NETWORKING_SOURCES "${SOURCE}/PhotonLinkStub.cpp")
-endif()
+    "${SOURCE}/XsollaStore.cpp" "${SOURCE}/PhotonTransport.cpp"
+    "${ENGINE}/Frontier/Extensions/Networking/NetworkingSpace.cpp"
+    "${ENGINE}/Frontier/Extensions/Networking/NetworkingTransport.cpp"
+    "${ENGINE}/Frontier/Extensions/Networking/ReplicationCodec.cpp"
+    "${ENGINE}/Frontier/Extensions/Networking/EosAdapter.cpp"
+    "${ENGINE}/Frontier/Extensions/Networking/PhotonAdapter.cpp")
 add_executable(NetworkingLogin WIN32 "${SOURCE}/WindowHost.cpp" ${NETWORKING_SOURCES})
-target_include_directories(NetworkingLogin PRIVATE "${EOS_SDK_ROOT}/Include" "${PHOTON_INCLUDE}")
+target_include_directories(NetworkingLogin PRIVATE "${EOS_SDK_ROOT}/Include" "${PHOTON_INCLUDE}" "${ENGINE}")
+target_compile_definitions(NetworkingLogin PRIVATE FRONTIER_EOS_SDK)
+if(PHOTON_LINKED)
+    target_compile_definitions(NetworkingLogin PRIVATE FRONTIER_PHOTON_SDK)
+endif()
 target_link_libraries(NetworkingLogin PRIVATE LoginImGui)
 if(PHOTON_LINKED)
     target_link_libraries(NetworkingLogin PRIVATE ${PHOTON_LIBS})
     # Photon archives need these OS libs named explicitly (no #pragma comment in headers).
     target_link_libraries(NetworkingLogin PRIVATE winhttp Bcrypt ws2_32 winmm)
 endif()
-# Compile-now guarantee: the real transport always type-checks against the pinned headers.
-add_library(PhotonCompileCheck OBJECT "${SOURCE}/PhotonTransport.cpp")
-target_include_directories(PhotonCompileCheck PRIVATE "${PHOTON_INCLUDE}")
+# Compile-now guarantee: the engine Photon adapter always type-checks against the pinned headers.
+add_library(PhotonCompileCheck OBJECT "${ENGINE}/Frontier/Extensions/Networking/PhotonAdapter.cpp")
+target_include_directories(PhotonCompileCheck PRIVATE "${PHOTON_INCLUDE}" "${ENGINE}")
+target_compile_definitions(PhotonCompileCheck PRIVATE FRONTIER_PHOTON_SDK)
 if(WIN32)
     target_compile_options(PhotonCompileCheck PRIVATE /W4 /utf-8)
     target_compile_definitions(PhotonCompileCheck PRIVATE _CRT_SECURE_NO_WARNINGS)

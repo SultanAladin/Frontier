@@ -31,15 +31,19 @@ def main():
     output = project / 'Build/Output'
     output.mkdir(parents=True, exist_ok=True)
     shutil.copy2(runtime, output / runtime.name)
-    flags = ['g++', '-std=c++20', '-Wall', '-Wextra', '-Werror', '-pthread',
-             '-I' + str(sdk / 'Include'), '-I' + str(interchange)]
+    engine = project.parent.parent.parent
+    flags = ['g++', '-std=c++20', '-Wall', '-Wextra', '-Werror', '-pthread', '-DFRONTIER_EOS_SDK',
+             '-I' + str(sdk / 'Include'), '-I' + str(interchange), '-I' + str(engine)]
     link = ['-L' + str(output), '-lEOSSDK-Linux-Shipping', '-Wl,-rpath,$ORIGIN', '-Wl,-z,defs']
     source = project / 'Source'
+    transports = [str(source / name) for name in ('TransportRouter.cpp', 'EcomOwnership.cpp', 'EosTransport.cpp', 'PhotonTransport.cpp', 'XsollaStore.cpp')]
+    transports += [str(engine / 'Frontier/Extensions/Networking' / name) for name in (
+        'NetworkingSpace.cpp', 'NetworkingTransport.cpp', 'ReplicationCodec.cpp', 'EosAdapter.cpp', 'PhotonAdapter.cpp')]
     commands = [
-        flags + [str(source / 'EpicExchange.cpp'), str(source / 'LobbyRuntime.cpp'), str(source / 'SessionHistory.cpp'), str(source / 'LoginHost.cpp')]
-        + link + ['-o', str(output / 'LoginHost')],
-        flags + ['-fPIC', '-shared', str(source / 'EpicExchange.cpp'), str(source / 'LobbyRuntime.cpp'), str(source / 'SessionHistory.cpp'), str(source / 'NetworkingInterchange.cpp')]
-        + link + ['-o', str(output / 'ProjectNetworking.so')],
+        flags + [str(source / 'EpicExchange.cpp'), str(source / 'LobbyRuntime.cpp'), str(source / 'SessionHistory.cpp')]
+        + transports + [str(source / 'LoginHost.cpp')] + link + ['-o', str(output / 'LoginHost')],
+        flags + ['-fPIC', '-shared', str(source / 'EpicExchange.cpp'), str(source / 'LobbyRuntime.cpp'), str(source / 'SessionHistory.cpp')]
+        + transports + [str(source / 'NetworkingInterchange.cpp')] + link + ['-o', str(output / 'ProjectNetworking.so')],
     ]
     for command in commands:
         subprocess.run(command, check=True)

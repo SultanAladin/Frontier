@@ -44,6 +44,10 @@ inline TransportKind SelectTransportKind(bool PremiumAccess, bool PhotonLinked) 
 bool ResolvePremiumAccess() noexcept;
 void SetPremiumMultiplayer(bool Enabled) noexcept;
 
+// The "Networking" toggle: disabled refuses StartMultiplayerTransport (the login auto-start
+// included). Starts enabled to preserve the automatic transport.
+void SetNetworkingEnabled(bool Enabled) noexcept;
+bool QueryNetworkingEnabled() noexcept;
 // Called once EOS login reaches Connected; safe to call again (restarts selection).
 bool StartMultiplayerTransport(DiagnosticReception Reception) noexcept;
 void TickMultiplayerTransport() noexcept;

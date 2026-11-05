@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace Frontier
@@ -88,6 +89,31 @@ class SceneDirectoryPanel
     void RequestSpawn(RecordClassification Classification);
     [[nodiscard]] std::optional<RecordClassification> TakeSpawnRequest();
 
+    // Dynamic Game Engine Editor construction / deletion catalogue (populated by WorldSpace).
+    void ConfigureVisibleTypes(std::vector<std::string> Types) { VisibleTypes = {Types.begin(),Types.end()}; }
+    void ConfigureConstructibleTypes(std::vector<std::pair<std::string, std::string>> TypeEntries);
+    [[nodiscard]] const std::vector<std::pair<std::string, std::string>>& QueryConstructibleTypes() const noexcept
+    {
+        return ConstructibleTypes;
+    }
+    void RequestConstructRecord(std::string TypeIdentifier);
+    [[nodiscard]] std::optional<std::string> ConsumeConstructRequest();
+    void RequestDeleteRecord(RecordToken Token);
+    [[nodiscard]] std::optional<RecordToken> ConsumeDeleteRequest();
+
+    // 📝 The row menu's and the keys' requests (the Project Zero editor's row menu: Rename, Hide, Fracture, Duplicate, Remove);
+    //    the host services them against the level's records, as it does construction and deletion.
+    void RequestDuplicateRecord(RecordToken Token);
+    [[nodiscard]] std::optional<RecordToken> ConsumeDuplicateRequest();
+    void RequestRenameRecord(RecordToken Token, std::string Name);
+    [[nodiscard]] std::optional<std::pair<RecordToken, std::string>> ConsumeRenameRequest();
+    void BeginRename(RecordToken Token);   // the row's name turns into a text field (F2, the row menu's Rename)
+    [[nodiscard]] RecordToken QueryRenaming() const { return Renaming; }
+
+    // 📝 With the Construct dialog offered, the '+' button asks the host to open it (the host draws it) instead of the add menu.
+    void ConfigureConstructDialog(bool Offered) { ConstructDialogOffered = Offered; }
+    [[nodiscard]] bool ConsumeConstructDialogRequest();
+
     // Native drawing (interface-SDK builds; an empty stub without the SDK, so portable builds keep linking).
     // The host calls Synchronize() each frame first, then services TakeSpawnRequest().
     void ConstructInterface();
@@ -99,6 +125,7 @@ class SceneDirectoryPanel
   private:
     void RebuildVisible();
 
+    std::unordered_set<std::string> VisibleTypes;
     std::vector<SceneDirectoryRow>      Rows;
     std::vector<SceneDirectoryRow>      Visible;
     std::vector<SceneClassificationTab> Tabs;
@@ -106,8 +133,17 @@ class SceneDirectoryPanel
     std::optional<RecordClassification> ClassificationFilter;
     std::string                         TextFilter;            // [text] - Lower-cased on configure
     std::unordered_set<uint64_t>        CollapsedTokens;       // [-] - Panel-side fold state
-    std::optional<RecordClassification> PendingSpawn;
-    RecordToken                         Selected;
+    std::optional<RecordClassification>              PendingSpawn;
+    std::vector<std::pair<std::string, std::string>> ConstructibleTypes;
+    std::vector<std::string>                         PendingConstructTypes;
+    std::vector<RecordToken>                         PendingDeleteTokens;
+    std::vector<RecordToken>                         PendingDuplicateTokens;
+    std::vector<std::pair<RecordToken, std::string>> PendingRenames;
+    RecordToken                                      Renaming;
+    bool                                             RenameFocus              = false;
+    bool                                             ConstructDialogOffered   = false;
+    bool                                             ConstructDialogRequested = false;
+    RecordToken                                      Selected;
     SceneInspectorSummary               Inspector;
 };
 

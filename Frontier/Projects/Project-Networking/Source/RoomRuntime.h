@@ -10,6 +10,8 @@ void BindRoomRuntime(EOS_HPlatform Platform, EOS_ProductUserId User, DiagnosticR
 void TickRoomRuntime();
 void SetRoomDisplayName(const char* Name);
 void DetachRoomRuntime();
+// Finds a lobby member's user handle by product-user string (for the P2P peer table).
+bool FindLobbyMemberUser(const char* ProductUser, void*& OutUser) noexcept;
 void BindHistory(EOS_HPlatform Platform, EOS_ProductUserId User, DiagnosticReception Log,
     const std::filesystem::path& CacheRoot, bool Enabled);
 void TickHistory();

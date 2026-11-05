@@ -73,7 +73,7 @@ uint64_t ComputeMaterialSourceDigest(const std::filesystem::path &Directory, con
     uint32_t Referenced = 0;
     while ((Search = Source.find("Textures/", Search)) != std::string::npos)
     {
-        const auto End = Source.find('"', Search);
+        const auto End = Source.find_first_of("\"' \r\n", Search);
         if (End == std::string::npos) return 0;
         const auto TexturePath = (Directory / RelativePath.parent_path() /
             Source.substr(Search, End - Search)).lexically_normal();
@@ -87,6 +87,79 @@ uint64_t ComputeMaterialSourceDigest(const std::filesystem::path &Directory, con
         if (++Referenced > 64) return 0;
     }
     return Digest ? Digest : 1;
+}
+// Portable timestamp-free content digest so pre-baked library atlases shipped inside ZIP packages
+// authenticate identically across any extraction timestamp, OS, or filesystem.
+uint64_t ComputePortableMaterialDigest(const std::filesystem::path &Directory, const std::filesystem::path &RelativePath)
+{
+    std::error_code Error;
+    std::ifstream Input(Directory / RelativePath, std::ios::binary | std::ios::ate);
+    const auto Bytes = Input.tellg();
+    if (!Input || Bytes <= 0 || Bytes > 1048576) return 0;
+    std::string Source(size_t(Bytes), '\0');
+    Input.seekg(0);
+    if (!Input.read(Source.data(), Bytes)) return 0;
+    uint64_t Digest = 14695981039346656037ull;
+    const auto Accumulate = [&](const void *Data, size_t Count)
+    {
+        const auto *Octets = static_cast<const unsigned char *>(Data);
+        for (size_t Index = 0; Index < Count; ++Index) { Digest ^= Octets[Index]; Digest *= 1099511628211ull; }
+    };
+    Accumulate(Source.data(), Source.size());
+    size_t Search = 0;
+    uint32_t Referenced = 0;
+    while ((Search = Source.find("Textures/", Search)) != std::string::npos)
+    {
+        const auto End = Source.find_first_of("\"' \r\n", Search);
+        if (End == std::string::npos) return 0;
+        const auto TexturePath = (Directory / RelativePath.parent_path() /
+            Source.substr(Search, End - Search)).lexically_normal();
+        const uint64_t Size = uint64_t(std::filesystem::file_size(TexturePath, Error));
+        if (Error) return 0;
+        Accumulate(&Size, sizeof(Size));
+        Search = End + 1;
+        if (++Referenced > 64) return 0;
+    }
+    return Digest ? Digest : 1;
+}
+bool LoadShippedPrebakedAtlas(const std::filesystem::path &Directory, uint32_t ExpectedExtent, uint32_t ExpectedCapacity,
+    std::vector<uint8_t> &OutRgba, std::vector<ThumbnailAtlasSlotCacheEntry> &OutSlots)
+{
+    std::ifstream Manifest(Directory / "PrebakedAtlas.txt");
+    if (!Manifest) return false;
+    std::string Magic;
+    uint32_t Extent = 0, Capacity = 0;
+    if (!(Manifest >> Magic >> Extent >> Capacity) || Magic != "FRONTIER_PREBAKED_ATLAS_V1" ||
+        Extent != ExpectedExtent || Capacity != ExpectedCapacity)
+        return false;
+
+    std::ifstream ImageStream(Directory / "PrebakedAtlas.png", std::ios::binary | std::ios::ate);
+    const auto Bytes = ImageStream.tellg();
+    if (!ImageStream || Bytes <= 0 || Bytes > 67108864) return false;
+    std::vector<uint8_t> Encoded(static_cast<size_t>(Bytes));
+    ImageStream.seekg(0);
+    if (!ImageStream.read(reinterpret_cast<char *>(Encoded.data()), Bytes)) return false;
+    int Width = 0, Height = 0, Channels = 0;
+    uint8_t *Decoded = stbi_load_from_memory(Encoded.data(), int(Encoded.size()), &Width, &Height, &Channels, 4);
+    if (!Decoded) return false;
+    if (uint32_t(Width) != ExpectedExtent || uint32_t(Height) != ExpectedExtent)
+    {
+        stbi_image_free(Decoded);
+        return false;
+    }
+    OutRgba.assign(Decoded, Decoded + size_t(ExpectedExtent) * ExpectedExtent * 4);
+    stbi_image_free(Decoded);
+
+    OutSlots.assign(ExpectedCapacity, {});
+    uint32_t SlotIndex = 0;
+    uint64_t Digest = 0;
+    std::string RelPath;
+    while (Manifest >> SlotIndex >> std::hex >> Digest >> std::dec >> RelPath)
+    {
+        if (SlotIndex < ExpectedCapacity && !RelPath.empty())
+            OutSlots[SlotIndex] = {RelPath, Digest};
+    }
+    return true;
 }
 std::string DescribeMaterialMaps(const CompiledSurfaceMaterial &Material)
 {
@@ -541,6 +614,7 @@ std::array<float, 3> EnvironmentKeyInDefaultView(const EnvironmentArchiveEntry &
 
 struct MaterialLibraryRendering::RenderingAllocation
 {
+    VulkanRasterAccess Access{};
     SurfaceRasterPrograms Programs;
     SurfaceGeometryResidence Geometry;
     SurfaceRasterization Tile, Preview;
@@ -553,6 +627,31 @@ struct MaterialLibraryRendering::RenderingAllocation
         // layer selection clamps to it so a rescan can never address a missing layer.
         uint32_t EnvironmentLayers = 1;
     };
+    struct RetiredGeometryResidence
+    {
+        uint64_t Serial = 0;
+        std::unique_ptr<SurfaceGeometryResidence> Geometry;
+    };
+    struct AuxiliaryViewport
+    {
+        std::unique_ptr<SurfaceGeometryResidence> Geometry;
+        std::unique_ptr<SurfaceRasterization> Target;
+        std::shared_ptr<MaterialGpuResidence> Material;
+        MaterialScattering BaseScattering{};
+        std::shared_ptr<SurfaceScatteringResidence> Parameters;
+        std::shared_ptr<SurfaceScatteringResidence> SpareParameters;
+        uint64_t SpareSerial = 0;
+        WorkspaceViewportOrbitCamera Orbit{};
+        uint32_t Width = 512;
+        uint32_t Height = 512;
+        uint32_t PendingWidth = 0;
+        uint32_t PendingHeight = 0;
+        bool Dirty = false;
+        bool Ready = false;
+        bool Recorded = false;
+    };
+    std::array<AuxiliaryViewport, MaterialLibraryRendering::AuxiliaryViewportCount> Auxiliary{};
+    std::vector<RetiredGeometryResidence> RetiredGeometries;
     struct ThumbnailSlot
     {
         std::filesystem::path Path;
@@ -692,6 +791,49 @@ struct MaterialLibraryRendering::RenderingAllocation
         PreviewDirty = true;
         PreviewReady = false;
     }
+    void ReconfigureAuxiliary(uint32_t Slot)
+    {
+        if (Slot >= Auxiliary.size()) return;
+        auto &Aux = Auxiliary[Slot];
+        if (!Aux.Material) return;
+        auto Scattering = Aux.BaseScattering;
+        const uint32_t CatalogueLayers = uint32_t(std::max<size_t>(Environments.size(), 1));
+        const uint32_t ResidentLayers = std::max(Aux.Material->EnvironmentLayers, 1u);
+        const uint32_t EnvironmentIndex = std::min({Aux.Orbit.Environment, CatalogueLayers - 1, ResidentLayers - 1});
+        const auto &Environment = EnvironmentAt(EnvironmentIndex);
+        Scattering.PreviewConfiguration = {0, 0, EnvironmentIndex, 0};
+        Scattering.Illumination.ViewFromSurface = ConstructWorkspaceOrbitProjection(
+            Aux.Orbit, float(std::max(1u, Aux.Width)) / float(std::max(1u, Aux.Height))).ViewFromSurface;
+        Scattering.Illumination.Configuration[2] = 1;
+        Scattering.Illumination.LightColourExposure = {1, 1, 1, Aux.Orbit.Exposure};
+        Scattering.Illumination.EnvironmentHorizon = {0, 0, 0, Environment.Strength * Aux.Orbit.LightIntensity};
+        Scattering.Illumination.EnvironmentZenith = {0, 0, 0, 0};
+        const auto LightDir = ConstructWorkspaceOrbitLightDirection(Aux.Orbit, Environment.KeyDirection);
+        Scattering.Illumination.LightDirectionIntensity = {
+            LightDir[0], LightDir[1], LightDir[2], Environment.KeyIntensity * Aux.Orbit.LightIntensity};
+        const auto EnvUp = ConstructWorkspaceOrbitEnvironmentUp(Aux.Orbit);
+        Scattering.Illumination.EnvironmentUp = {EnvUp[0], EnvUp[1], EnvUp[2], 0};
+
+        std::shared_ptr<SurfaceScatteringResidence> Replacement;
+        if (Aux.SpareParameters && Aux.SpareSerial <= CompletedSerial)
+        {
+            Replacement = std::move(Aux.SpareParameters);
+            Replacement->Finalize();
+        }
+        else Replacement = std::make_shared<SurfaceScatteringResidence>();
+        Replacement->Initialize(Programs, Scattering);
+        if (Aux.Parameters)
+        {
+            if (!Aux.SpareParameters)
+            {
+                Aux.SpareParameters = std::move(Aux.Parameters);
+                Aux.SpareSerial = SubmittedSerial;
+            }
+            else PreviewRetirements.push_back({SubmittedSerial, std::move(Aux.Parameters)});
+        }
+        Aux.Parameters = std::move(Replacement);
+        Aux.Dirty = true;
+    }
     CompiledSurfaceMaterial DecodeLibraryMaterial(const std::filesystem::path &RelativePath)
     {
         const auto Path = std::filesystem::canonical(Directory / RelativePath);
@@ -712,11 +854,13 @@ struct MaterialLibraryRendering::RenderingAllocation
 
 MaterialLibraryRendering::MaterialLibraryRendering() = default;
 MaterialLibraryRendering::~MaterialLibraryRendering() = default;
-void MaterialLibraryRendering::Initialize(const VulkanRasterAccess &Access, const std::filesystem::path &ShaderDirectory)
+void MaterialLibraryRendering::Initialize(const VulkanRasterAccess &Access, const std::filesystem::path &ShaderDirectory,
+    uint32_t TileExtent, uint32_t AtlasColumns)
 {
     if (Allocation) throw std::runtime_error("Material library rendering already initialized.");
     DiagnosticJournal::Append("MaterialGPU", "Initialize shader directory: " + DiagnosticJournal::EncodePath(ShaderDirectory));
     auto Resident = std::make_unique<RenderingAllocation>();
+    Resident->Access = Access;
     const std::array<const char *, 10> Names{"CadSurfaceVertex", "CadSurfaceFragment", "CadEdgeVertex", "CadEdgeFragment",
         "MatCapSurfaceVertex", "MatCapSurfaceFragment", "PreviewPbrSurfaceVertex", "PreviewPbrSurfaceFragment", "MaterialSurfaceVertex", "MaterialSurfaceFragment"};
     std::array<std::vector<uint32_t>, 10> Words;
@@ -730,14 +874,14 @@ void MaterialLibraryRendering::Initialize(const VulkanRasterAccess &Access, cons
     auto Inspection = ConstructMaterialInspectionGeometryWithRanges();
     Resident->ShapeIndexRanges = Inspection.ShapeIndexRanges;
     Resident->Geometry.Initialize(Access, Inspection.Geometry);
-    Resident->Tile.Initialize(Resident->Programs, Resident->Geometry, 256, 256);
+    Resident->Tile.Initialize(Resident->Programs, Resident->Geometry, TileExtent, TileExtent);
     Resident->Preview.Initialize(Resident->Programs, Resident->Geometry, 512, 512);
     // 📝 Tiles always bake the shader ball; the preview re-selects its shape range per recording.
     Resident->Tile.ConfigureIndexRange(Inspection.ShapeIndexRanges[0][0], Inspection.ShapeIndexRanges[0][1]);
     Resident->Preview.ConfigureIndexRange(Inspection.ShapeIndexRanges[0][0], Inspection.ShapeIndexRanges[0][1]);
     Resident->Tile.ConfigureTransparentBackground(true);
     Resident->Preview.ConfigureTransparentBackground(true);
-    Resident->Atlas.Initialize(Access, 256, 8);
+    Resident->Atlas.Initialize(Access, TileExtent, AtlasColumns);
     Resident->Slots.resize(Resident->Atlas.QueryCapacity());
     Resident->Projection.ClipFromSurface =
         ConstructMaterialPreviewProjection(MaterialPreviewConfiguration{}).ClipFromSurface;
@@ -805,6 +949,8 @@ void MaterialLibraryRendering::ConfigureEnvironments(const std::filesystem::path
     for (auto &Slot : Rendering.Slots) if (!Slot.Path.empty()) { Slot.Dirty = true; Slot.SourceDigest = 0; }
     Rendering.ReconfigurePreview();
     Rendering.PreviewDirty = true;
+    for (uint32_t AuxSlot = 0; AuxSlot < AuxiliaryViewportCount; ++AuxSlot)
+        if (Rendering.Auxiliary[AuxSlot].Material) Rendering.ReconfigureAuxiliary(AuxSlot);
     DiagnosticJournal::Append("EnvironmentArchive", "catalogue=" + std::to_string(Rendering.Environments.size()) +
         " generation=" + std::to_string(Rendering.EnvironmentGeneration));
 }
@@ -843,15 +989,76 @@ void MaterialLibraryRendering::RequestLibrary(const std::filesystem::path &Direc
         Rendering.PendingCacheUpload = false;
         Rendering.CacheDirty = false;
         Rendering.CacheSettled = true;
+        const auto Extent = Rendering.Atlas.QueryExtent();
+        const auto Capacity = Rendering.Atlas.QueryCapacity();
+        bool LoadedUserCache = false;
         if (Rendering.CacheConfigured)
         {
             ThumbnailAtlasSlotCacheRecord Record;
-            const auto Extent = Rendering.Atlas.QueryExtent();
             if (LoadThumbnailAtlasSlotCache(Rendering.CacheFile, Rendering.CacheFormatDigest, Extent, Extent, Record))
             {
                 Rendering.PendingCacheManifest = std::move(Record.Slots);
                 Rendering.PendingCachePixels = std::move(Record.Rgba);
                 Rendering.PendingCacheUpload = true;
+                LoadedUserCache = true;
+                const size_t Count = std::min(Rendering.Slots.size(), Rendering.PendingCacheManifest.size());
+                for (size_t SlotIndex = 0; SlotIndex < Count; ++SlotIndex)
+                {
+                    const auto &Entry = Rendering.PendingCacheManifest[SlotIndex];
+                    if (Entry.RelativePath.empty()) continue;
+                    const auto Digest = ComputeMaterialSourceDigest(Canonical, Entry.RelativePath);
+                    auto &Slot = Rendering.Slots[SlotIndex];
+                    Slot.Path = Entry.RelativePath;
+                    Slot.Generation = ++Rendering.GenerationClock;
+                    Slot.Access = Rendering.Clock;
+                    if (Digest && Digest == Entry.Digest)
+                    {
+                        Slot.Ready = true;
+                        Slot.Dirty = false;
+                        Slot.SourceDigest = Digest;
+                    }
+                    else
+                    {
+                        Slot.Ready = false;
+                        Slot.Dirty = true;
+                        Slot.SourceDigest = 0;
+                    }
+                }
+            }
+        }
+        if (!LoadedUserCache)
+        {
+            std::vector<uint8_t> ShippedRgba;
+            std::vector<ThumbnailAtlasSlotCacheEntry> ShippedSlots;
+            if (LoadShippedPrebakedAtlas(Canonical, Extent, Capacity, ShippedRgba, ShippedSlots))
+            {
+                Rendering.PendingCacheManifest = std::move(ShippedSlots);
+                Rendering.PendingCachePixels = std::move(ShippedRgba);
+                Rendering.PendingCacheUpload = true;
+                const size_t Count = std::min(Rendering.Slots.size(), Rendering.PendingCacheManifest.size());
+                for (size_t SlotIndex = 0; SlotIndex < Count; ++SlotIndex)
+                {
+                    const auto &Entry = Rendering.PendingCacheManifest[SlotIndex];
+                    if (Entry.RelativePath.empty()) continue;
+                    const auto Portable = ComputePortableMaterialDigest(Canonical, Entry.RelativePath);
+                    auto &Slot = Rendering.Slots[SlotIndex];
+                    Slot.Path = Entry.RelativePath;
+                    Slot.Generation = ++Rendering.GenerationClock;
+                    Slot.Access = Rendering.Clock;
+                    if (Portable && Portable == Entry.Digest)
+                    {
+                        Slot.Ready = true;
+                        Slot.Dirty = false;
+                        Slot.SourceDigest = ComputeMaterialSourceDigest(Canonical, Entry.RelativePath);
+                    }
+                    else
+                    {
+                        Slot.Ready = false;
+                        Slot.Dirty = true;
+                        Slot.SourceDigest = 0;
+                    }
+                }
+                DiagnosticJournal::Append("MaterialAtlasPrebaked", "loaded shipped PrebakedAtlas.png slots=" + std::to_string(Count));
             }
         }
     }
@@ -978,6 +1185,7 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
     std::erase_if(Rendering.PreviewRetirements, [&](const auto &Residence) { return Residence.Serial <= CompletedSerial; });
     std::erase_if(Rendering.InFlight, [&](const auto &Residence) { return Residence.Serial <= CompletedSerial; });
     std::erase_if(Rendering.RetiredPreviews, [&](const auto &Retired) { return Retired.Serial <= CompletedSerial; });
+    std::erase_if(Rendering.RetiredGeometries, [&](const auto &Retired) { return Retired.Serial <= CompletedSerial; });
     if (Rendering.PendingPreviewExtent && Rendering.PendingPreviewExtent != Rendering.Preview.QueryExtent().width)
     {
         auto Retired = std::make_unique<SurfaceRasterization>(std::move(Rendering.Preview));
@@ -992,10 +1200,46 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
         Rendering.PreviewDirty = true;
         Rendering.PreviewReady = false;
     }
+    for (uint32_t Slot = 0; Slot < AuxiliaryViewportCount; ++Slot)
+    {
+        auto &Aux = Rendering.Auxiliary[Slot];
+        Aux.Recorded = false;
+        if (Aux.Geometry && Aux.PendingWidth && Aux.PendingHeight &&
+            (!Aux.Target || Aux.PendingWidth != Aux.Width || Aux.PendingHeight != Aux.Height))
+        {
+            if (Aux.Target) Rendering.RetiredPreviews.push_back({SubmissionSerial, std::move(Aux.Target)});
+            Aux.Width = Aux.PendingWidth;
+            Aux.Height = Aux.PendingHeight;
+            Aux.PendingWidth = 0;
+            Aux.PendingHeight = 0;
+            Aux.Target = std::make_unique<SurfaceRasterization>();
+            Aux.Target->Initialize(Rendering.Programs, *Aux.Geometry, Aux.Width, Aux.Height);
+            Aux.Target->ConfigureTransparentBackground(true);
+            Rendering.ReconfigureAuxiliary(Slot);
+            Aux.Dirty = true;
+            Aux.Ready = false;
+        }
+    }
     Rendering.SubmittedSerial = SubmissionSerial;
     Rendering.RecordedSlot = -1;
     Rendering.RecordedPreview = false;
     Rendering.RecordedCacheUpload = false;
+    for (uint32_t Slot = 0; Slot < AuxiliaryViewportCount; ++Slot)
+    {
+        auto &Aux = Rendering.Auxiliary[Slot];
+        if (!Aux.Dirty || !Aux.Geometry || !Aux.Target || !Aux.Material || !Aux.Parameters) continue;
+        SurfaceNormalProjection Projection{};
+        const float Aspect = float(std::max(1u, Aux.Width)) / float(std::max(1u, Aux.Height));
+        const auto Camera = ConstructWorkspaceOrbitProjection(Aux.Orbit, Aspect);
+        Projection.ClipFromSurface = Camera.ClipFromSurface;
+        const auto &View = Camera.ViewFromSurface;
+        Projection.ViewNormalRow0 = {View[0], View[4], View[8], 0};
+        Projection.ViewNormalRow1 = {View[1], View[5], View[9], 0};
+        Projection.ViewNormalRow2 = {View[2], View[6], View[10], 0};
+        Projection.SurfaceTint = {1, 1, 1, 1};
+        Aux.Target->ConstructCommands(Commands, Projection, Aux.Material->Textures, *Aux.Parameters);
+        Aux.Recorded = true;
+    }
     if (Rendering.PendingCacheUpload)
     {
         // 📝 A disk-cached atlas is staged wholesale in one upload (same primitive the Pattern gallery
@@ -1103,6 +1347,17 @@ void MaterialLibraryRendering::ConfirmSubmission() noexcept
         Rendering.PreviewReady = true;
         Rendering.PreviewDirty = false;
     }
+    for (uint32_t Slot = 0; Slot < AuxiliaryViewportCount; ++Slot)
+    {
+        auto &Aux = Rendering.Auxiliary[Slot];
+        if (Aux.Recorded && Aux.Target)
+        {
+            Aux.Target->ConfirmSubmission();
+            Aux.Ready = true;
+            Aux.Dirty = false;
+            Aux.Recorded = false;
+        }
+    }
     if (Rendering.RecordedSlot >= 0)
     {
         Rendering.Tile.ConfirmSubmission();
@@ -1163,5 +1418,78 @@ const std::string &MaterialLibraryRendering::QueryDiagnostic() const noexcept
 {
     static const std::string Empty;
     return Allocation ? Allocation->Diagnostic : Empty;
+}
+
+void MaterialLibraryRendering::ConfigureAuxiliaryGeometry(uint32_t Slot, const SurfaceGeometry &Mesh)
+{
+    if (!Allocation || Slot >= AuxiliaryViewportCount) return;
+    if (Mesh.Corners.empty() || Mesh.TriangleCorners.size() < 3) return;
+    auto &Rendering = *Allocation;
+    auto &Aux = Rendering.Auxiliary[Slot];
+    auto Sanitized = SanitizeMaterialSurfaceGeometry(Mesh);
+    auto ReplacementGeo = std::make_unique<SurfaceGeometryResidence>();
+    ReplacementGeo->Initialize(Rendering.Access, Sanitized);
+    auto ReplacementTarget = std::make_unique<SurfaceRasterization>();
+    ReplacementTarget->Initialize(Rendering.Programs, *ReplacementGeo, std::max(256u, Aux.Width), std::max(256u, Aux.Height));
+    ReplacementTarget->ConfigureTransparentBackground(true);
+    if (Aux.Target) Rendering.RetiredPreviews.push_back({Rendering.SubmittedSerial, std::move(Aux.Target)});
+    if (Aux.Geometry) Rendering.RetiredGeometries.push_back({Rendering.SubmittedSerial, std::move(Aux.Geometry)});
+    Aux.Geometry = std::move(ReplacementGeo);
+    Aux.Target = std::move(ReplacementTarget);
+    if (Aux.Material) Rendering.ReconfigureAuxiliary(Slot);
+    Aux.Dirty = true;
+    Aux.Ready = false;
+}
+
+void MaterialLibraryRendering::ConfigureAuxiliaryMaterial(uint32_t Slot, const CompiledSurfaceMaterial &Material)
+{
+    if (!Allocation || Slot >= AuxiliaryViewportCount) return;
+    auto &Rendering = *Allocation;
+    auto &Aux = Rendering.Auxiliary[Slot];
+    auto Residence = Rendering.CompileResidence(Material);
+    if (Aux.Material) Rendering.InFlight.push_back({Rendering.SubmittedSerial, std::move(Aux.Material)});
+    Aux.Material = std::move(Residence);
+    Aux.BaseScattering = Material.Scattering;
+    Rendering.ReconfigureAuxiliary(Slot);
+}
+
+void MaterialLibraryRendering::ConfigureAuxiliaryCamera(uint32_t Slot, const WorkspaceViewportOrbitCamera &Camera)
+{
+    if (!Allocation || Slot >= AuxiliaryViewportCount) return;
+    auto &Rendering = *Allocation;
+    auto &Aux = Rendering.Auxiliary[Slot];
+    if (Aux.Orbit == Camera) return;
+    Aux.Orbit = Camera;
+    Rendering.ReconfigureAuxiliary(Slot);
+}
+
+void MaterialLibraryRendering::ConfigureAuxiliaryExtent(uint32_t Slot, uint32_t Width, uint32_t Height)
+{
+    if (!Allocation || Slot >= AuxiliaryViewportCount) return;
+    auto &Aux = Allocation->Auxiliary[Slot];
+    const uint32_t ClampedW = std::clamp((Width + 63u) / 64u * 64u, 256u, 2048u);
+    const uint32_t ClampedH = std::clamp((Height + 63u) / 64u * 64u, 256u, 2048u);
+    if (ClampedW != Aux.Width || ClampedH != Aux.Height)
+    {
+        Aux.PendingWidth = ClampedW;
+        Aux.PendingHeight = ClampedH;
+    }
+}
+
+VkImage MaterialLibraryRendering::QueryAuxiliaryViewportImage(uint32_t Slot) const noexcept
+{
+    if (!Allocation || Slot >= AuxiliaryViewportCount || !Allocation->Auxiliary[Slot].Target) return VK_NULL_HANDLE;
+    return Allocation->Auxiliary[Slot].Target->QueryImage();
+}
+
+VkImageView MaterialLibraryRendering::QueryAuxiliaryViewportView(uint32_t Slot) const noexcept
+{
+    if (!Allocation || Slot >= AuxiliaryViewportCount || !Allocation->Auxiliary[Slot].Target) return VK_NULL_HANDLE;
+    return Allocation->Auxiliary[Slot].Target->QueryImageView();
+}
+
+bool MaterialLibraryRendering::QueryAuxiliaryViewportReady(uint32_t Slot) const noexcept
+{
+    return Allocation && Slot < AuxiliaryViewportCount && Allocation->Auxiliary[Slot].Ready;
 }
 } // namespace Frontier

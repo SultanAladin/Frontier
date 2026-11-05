@@ -43,6 +43,8 @@ struct MaterialRecipeControl
 struct MaterialSandBed
 {
     std::string Id = "sand-bed-1";
+    // 📝 Display name from the catalogue sidecar bed table ("Sand bed N" synthesized when absent).
+    std::string Name = "Sand bed 1";
     bool Enabled = true;
     std::string Color = "#c9aa79", SecondaryColor = "#eee2c7";
     double Size = .65, SizeVariation = .5;
@@ -56,6 +58,9 @@ struct MaterialRecipeParameters
     std::map<std::string, double> Scalars;
     std::map<std::string, std::string> Texts;
     std::vector<MaterialSandBed> SandBeds;
+    // 📝 Beds exactly as authored (disabled beds keep their coverage/thickness); SandBeds above is the
+    // bake-ready projection with disabled beds zeroed so the kernel skips them.
+    std::vector<MaterialSandBed> AuthoredSandBeds;
 };
 
 struct MaterialCatalogueEntry
@@ -85,6 +90,7 @@ class MaterialLibrary
     // 📝 Scales the authored Radiance spectrum so its peak component equals Strength (the Alloy
     // emissionStrength convention: emission colour is peak-normalized, strength is the peak).
     bool ConfigureEmissionStrength(float Strength);
+    bool ConfigureEmissionColour(const std::array<float, 3> &Spectrum);
     bool ConfigureStratumColour(uint32_t Index, const std::array<float, 3> &Spectrum, std::string_view Field = "Albedo");
     bool InsertStratum(uint32_t Index);
     bool RemoveStratum(uint32_t Index);
@@ -93,6 +99,17 @@ class MaterialLibrary
     bool MergeProceduralChannel(uint32_t Index, std::string_view Channel, uint32_t SourceStratum, std::string_view SourceChannel);
     bool ConfigureProceduralParam(uint32_t Index, std::string_view Channel, std::string_view Key, double Value);
     bool ConfigureProceduralText(uint32_t Index, std::string_view Channel, std::string_view Key, std::string_view Text);
+    // 📝 Writes the PBR layer-stack authoring document into the source's [Authoring] table (strict
+    // normalize gate first; the rest of the file keeps its authored formatting).
+    bool ConfigureAuthoring(const MaterialAuthoringDocument &Document);
+    // 📝 Sand beds live in the Library.toml sidecar, not the .material: edits stage here (entry beds
+    // update immediately for the baker) and SaveMaterial splices the sidecar; RevertSource drops them.
+    bool ConfigureSandBeds(const std::vector<MaterialSandBed> &Beds, std::string_view Arrangement);
+    [[nodiscard]] bool QuerySandBeds(std::vector<MaterialSandBed> &Beds, std::string &Arrangement) const;
+    bool ConfigureSandParameter(std::string_view Key, double Value);
+    bool ConfigureSandColour(std::string_view Key, std::string_view Hex);
+    [[nodiscard]] std::optional<double> QuerySandParameter(std::string_view Key) const;
+    [[nodiscard]] std::optional<std::string> QuerySandColour(std::string_view Key) const;
     bool RebakeProcedurals(uint32_t Extent = 512);
     [[nodiscard]] size_t QueryProceduralOverrideCount() const noexcept { return ProceduralOverrides.size(); }
     bool RevertSource();
@@ -107,7 +124,7 @@ class MaterialLibrary
     [[nodiscard]] const std::string &QuerySource() const noexcept { return Source; }
     [[nodiscard]] const std::string &QueryDiagnostic() const noexcept { return Diagnostic; }
     [[nodiscard]] const CompiledSurfaceMaterial *QueryApplied() const noexcept { return Applied.get(); }
-    [[nodiscard]] bool QueryModified() const noexcept { return Source != SavedSource; }
+    [[nodiscard]] bool QueryModified() const noexcept { return Source != SavedSource || !StagedSandBeds.empty() || !StagedSandParameters.empty(); }
     [[nodiscard]] bool QueryUnapplied() const noexcept { return Source != AppliedSource; }
     [[nodiscard]] bool QueryParked(const std::filesystem::path &RelativePath) const;
     [[nodiscard]] size_t QueryParkedCount() const noexcept { return ParkedSources.size(); }
@@ -121,6 +138,10 @@ class MaterialLibrary
     std::vector<size_t> Visible;
     std::string Source, SavedSource, AppliedSource, Search, Diagnostic;
     std::map<std::filesystem::path, std::string> ParkedSources;
+    // 📝 Authored (raw) sand beds per material awaiting SaveMaterial's sidecar splice, keyed like parked drafts.
+    std::map<std::filesystem::path, std::pair<std::vector<MaterialSandBed>, std::string>> StagedSandBeds;
+    std::map<std::filesystem::path, std::pair<std::map<std::string, double>, std::map<std::string, std::string>>> StagedSandParameters;
+    std::map<std::filesystem::path, MaterialRecipeParameters> OriginalSandRecipes;
     std::map<std::pair<size_t, std::string>, SurfaceTextureImage> ProceduralOverrides;
     std::unique_ptr<CompiledSurfaceMaterial> Applied;
     uint64_t Revision = 0;
@@ -130,5 +151,6 @@ class MaterialLibrary
     void FilterEntries();
     bool ConfigureStratumLiteral(uint32_t Index, std::string_view Name, const std::string &Numeric);
     bool PersistProceduralOverrides();
+    bool PersistStagedSandBeds();
 };
 } // namespace Frontier

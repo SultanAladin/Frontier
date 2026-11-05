@@ -1,21 +1,17 @@
 /*==========================================================================================================================================
-                                                      RESOLUTION ORDER IS THE CONTRACT
+                                                      PROJECT CONTENT DEFINITION
                                      ------------------------------------------------------------------
-                              Project content shadows staged engine content, which shadows the checkout copy.
+                              Project Content/ (with compile-time staged imports) resolves before EngineContent/.
 ==========================================================================================================================================*/
-
-// 🧩 Resolution order is the contract: project content shadows staged engine content, which shadows the checkout copy.
+// 🧩 Resolution order: configured Project Content/ -> FRONTIER_PROJECT_CONTENT_DIR -> ./Content -> EngineContent/.
 
 #include "ProjectContent.h"
 
+#include <cstdlib>
 #include <system_error>
 
 namespace Frontier
 {
-
-//------------------------------------------------------------------------------------------------------------------------
-//                                                    INTERNAL STATE
-//------------------------------------------------------------------------------------------------------------------------
 
 namespace
 {
@@ -37,10 +33,6 @@ bool IsFile(const std::filesystem::path& Path) noexcept
 
 } // namespace
 
-//------------------------------------------------------------------------------------------------------------------------
-//                                                    PUBLIC FUNCTIONS
-//------------------------------------------------------------------------------------------------------------------------
-
 void ConfigureContentRoots(std::filesystem::path ExecutableDirectory, std::filesystem::path ProjectContentDirectory)
 {
     ExecutableDirectoryValue     = std::move(ExecutableDirectory);
@@ -49,14 +41,12 @@ void ConfigureContentRoots(std::filesystem::path ExecutableDirectory, std::files
 
 std::filesystem::path QueryEngineContentDirectory()
 {
-    // ① Staged beside the executable (what a build copied because it is used).
     const std::filesystem::path Staged = ExecutableDirectoryValue / "EngineContent";
     if (IsDirectory(Staged))
     {
         return Staged;
     }
 
-    // ② Development checkout: walk up from the executable to the shared tree.
     std::filesystem::path Cursor = ExecutableDirectoryValue;
     for (int Depth = 0; Depth < 5 && !Cursor.empty(); ++Depth)
     {
@@ -99,16 +89,39 @@ std::filesystem::path ResolveProjectContentFile(const std::filesystem::path& Rel
         return IsFile(Relative) ? Relative : std::filesystem::path{};
     }
 
-    const std::filesystem::path ProjectCandidate = ProjectContentDirectoryValue / Relative;
-    if (IsFile(ProjectCandidate))
+    if (!ProjectContentDirectoryValue.empty())
     {
-        return ProjectCandidate;
+        const std::filesystem::path ProjectCandidate = ProjectContentDirectoryValue / Relative;
+        if (IsFile(ProjectCandidate))
+        {
+            return ProjectCandidate;
+        }
     }
 
-    const std::filesystem::path EngineCandidate = QueryEngineContentDirectory() / Relative;
-    if (IsFile(EngineCandidate))
+    if (const char* EnvContent = std::getenv("FRONTIER_PROJECT_CONTENT_DIR"); EnvContent && *EnvContent)
     {
-        return EngineCandidate;
+        const std::filesystem::path EnvCandidate = std::filesystem::path(EnvContent) / Relative;
+        if (IsFile(EnvCandidate))
+        {
+            return EnvCandidate;
+        }
+    }
+
+    std::error_code             Error;
+    const std::filesystem::path CwdContent = std::filesystem::current_path(Error) / "Content" / Relative;
+    if (IsFile(CwdContent))
+    {
+        return CwdContent;
+    }
+
+    const std::filesystem::path EngineRoot = QueryEngineContentDirectory();
+    if (!EngineRoot.empty())
+    {
+        const std::filesystem::path EngineCandidate = EngineRoot / Relative;
+        if (IsFile(EngineCandidate))
+        {
+            return EngineCandidate;
+        }
     }
     return {};
 }

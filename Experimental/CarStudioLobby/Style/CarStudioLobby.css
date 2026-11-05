@@ -1,0 +1,775 @@
+/*==========================================================================================================================================
+                                                            CARSTUDIOLOBBY.CSS
+==========================================================================================================================================
+ 🧩 Car Studio Configurator Lobby (Lobby.levelspace) + Multiplayer SessionSpace + Match.levelspace Procedure HUD styling.
+==========================================================================================================================================*/
+
+#car-studio-overlay
+{
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 25;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    font: 400 12.5px/1.35 "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: #e6e8ec;
+}
+
+/* Hide legacy proving-ground HUD while inside Lobby.levelspace so the studio view is clean */
+body.studio-lobby-active #hud,
+body.studio-lobby-active #drill-banner,
+body.studio-lobby-active .viewport-header
+{
+    display: none !important;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------------------------
+                                                             TOP SESSION BAR
+------------------------------------------------------------------------------------------------------------------------------------------*/
+
+.cs-topbar
+{
+    pointer-events: auto;
+    height: 46px;
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: rgba(12, 14, 18, 0.84);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.cs-brand
+{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.cs-badge
+{
+    padding: 3px 8px;
+    border-radius: 5px;
+    background: linear-gradient(135deg, #2d323c, #1c2028);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font: 600 10.5px/1 var(--mono);
+    letter-spacing: 0.08em;
+    color: #f3f5f8;
+}
+
+.cs-level-tag
+{
+    font-weight: 500;
+    font-size: 13px;
+    color: #ffffff;
+}
+
+.cs-epoch-tag
+{
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgba(62, 196, 109, 0.14);
+    border: 1px solid rgba(62, 196, 109, 0.35);
+    color: #6ce094;
+    font: 500 11px/1.2 var(--mono);
+}
+
+.cs-StudioPresets
+{
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    padding: 4px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cs-preset-pill
+{
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #b4bac4;
+    transition: all 0.16s ease;
+}
+
+.cs-preset-pill:hover
+{
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.cs-preset-pill.is-active
+{
+    color: #101216;
+    background: #f0f3f8;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+.cs-top-actions
+{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cs-action-btn
+{
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    font-size: 12px;
+    font-weight: 500;
+    color: #e6e8ec;
+}
+
+.cs-action-btn:hover
+{
+    background: rgba(255, 255, 255, 0.14);
+}
+
+/*------------------------------------------------------------------------------------------------------------------------------------------
+                                                    LEFT & RIGHT STUDIO DOCK PANELS
+------------------------------------------------------------------------------------------------------------------------------------------*/
+
+.cs-dock
+{
+    position: absolute;
+    top: 58px;
+    bottom: 72px;
+    width: 316px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    pointer-events: auto;
+    scrollbar-width: thin;
+}
+
+.cs-dock-left
+{
+    left: 14px;
+}
+
+.cs-dock-right
+{
+    right: 14px;
+    width: 336px;
+}
+
+.cs-card
+{
+    background: rgba(16, 18, 23, 0.82);
+    backdrop-filter: blur(18px);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 14px;
+    padding: 12px 14px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+}
+
+.cs-card-compact
+{
+    padding: 10px 12px;
+}
+
+.cs-card-head
+{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.cs-kicker
+{
+    font: 600 9.5px/1.2 var(--mono);
+    letter-spacing: 0.09em;
+    color: #8b93a1;
+    text-transform: uppercase;
+}
+
+.cs-title
+{
+    font-size: 15px;
+    font-weight: 500;
+    color: #f5f7fa;
+    margin-top: 2px;
+}
+
+.cs-count-pill,
+.cs-spec-badge
+{
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 11px;
+    color: #d6dbe4;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------------------------
+                                                   MULTIPLAYER ROSTER (PLAYERSTORE)
+------------------------------------------------------------------------------------------------------------------------------------------*/
+
+.cs-roster-list
+{
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.cs-player-row
+{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.cs-player-row.is-ready
+{
+    border-color: rgba(62, 196, 109, 0.45);
+    background: rgba(62, 196, 109, 0.07);
+}
+
+.cs-player-main
+{
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+}
+
+.cs-player-swatch
+{
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255, 255, 255, 0.45);
+    flex: none;
+}
+
+.cs-player-name
+{
+    font-weight: 500;
+    font-size: 12.5px;
+    color: #f2f4f8;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.cs-token-tag
+{
+    font: 500 10px/1 var(--mono);
+    color: #8891a0;
+}
+
+.cs-player-spec
+{
+    font-size: 11px;
+    color: #939ba8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cs-player-controls
+{
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: none;
+}
+
+.cs-ready-chip
+{
+    padding: 3px 8px;
+    border-radius: 6px;
+    font: 600 10px/1.2 var(--mono);
+    background: rgba(255, 255, 255, 0.08);
+    color: #a8b0bd;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.cs-ready-chip.is-on
+{
+    background: rgba(62, 196, 109, 0.22);
+    color: #6ce094;
+    border-color: rgba(62, 196, 109, 0.55);
+}
+
+.cs-icon-mini
+{
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: #bcc3cf;
+}
+
+.cs-icon-mini.cs-leave:hover
+{
+    background: rgba(255, 107, 107, 0.22);
+    color: #ff8585;
+}
+
+.cs-roster-actions
+{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-top: 9px;
+}
+
+.cs-btn-secondary
+{
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #dfe4ec;
+}
+
+.cs-btn-secondary:hover
+{
+    background: rgba(255, 255, 255, 0.13);
+}
+
+/*------------------------------------------------------------------------------------------------------------------------------------------
+                                                       PROCEDURE & CAMERA GRIDS
+------------------------------------------------------------------------------------------------------------------------------------------*/
+
+.cs-procedure-grid
+{
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.cs-proc-btn
+{
+    text-align: left;
+    padding: 8px 10px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cs-proc-btn.is-selected
+{
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.36);
+}
+
+.cs-proc-name
+{
+    font: 600 12px/1.2 var(--mono);
+    color: #f3f5f9;
+}
+
+.cs-proc-desc
+{
+    font-size: 11px;
+    color: #969fae;
+    margin-top: 2px;
+}
+
+.cs-cam-grid
+{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+    margin-top: 7px;
+}
+
+.cs-cam-btn
+{
+    padding: 5px 7px;
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 11px;
+    color: #c2c8d4;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cs-cam-btn.is-selected
+{
+    background: #e9edf4;
+    color: #111318;
+    font-weight: 500;
+}
+
+.cs-turntable-row
+{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.cs-check-label
+{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: #cfd5e0;
+    cursor: pointer;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------------------------
+                                                      CAR STUDIO CONFIGURATOR
+------------------------------------------------------------------------------------------------------------------------------------------*/
+
+.cs-section
+{
+    padding-top: 9px;
+    margin-top: 9px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.cs-section-label
+{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #aeb6c4;
+    margin-bottom: 6px;
+}
+
+.cs-hex-picker
+{
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.cs-hex-picker input[type="color"]
+{
+    width: 20px;
+    height: 18px;
+    border: none;
+    background: none;
+    padding: 0;
+    cursor: pointer;
+}
+
+.cs-swatch-grid
+{
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 5px;
+}
+
+.cs-swatch
+{
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 5px 3px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.cs-swatch.is-selected
+{
+    background: rgba(255, 255, 255, 0.14);
+    border-color: #ffffff;
+}
+
+.cs-swatch-fill
+{
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255, 255, 255, 0.35);
+    box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.22);
+}
+
+.cs-swatch-name
+{
+    font-size: 9.5px;
+    color: #c9d0dc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+.cs-seg-row
+{
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+}
+
+.cs-seg-btn
+{
+    flex: 1 1 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 5px 8px;
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    font-size: 11px;
+    color: #c4cad6;
+}
+
+.cs-seg-btn.is-selected
+{
+    background: #eef1f7;
+    color: #101216;
+    font-weight: 500;
+}
+
+.cs-chip-row
+{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.cs-chip
+{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    font-size: 11px;
+    color: #c8ceda;
+}
+
+.cs-chip.is-selected
+{
+    background: rgba(255, 255, 255, 0.18);
+    border-color: #ffffff;
+    color: #ffffff;
+}
+
+.cs-dot
+{
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.45);
+    flex: none;
+}
+
+.cs-dual-sliders
+{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.cs-mono
+{
+    font-family: var(--mono);
+    font-size: 11px;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------------------------
+                                                   BOTTOM READY & TRANSITION BAR
+------------------------------------------------------------------------------------------------------------------------------------------*/
+
+.cs-bottombar
+{
+    pointer-events: auto;
+    margin: 0 14px 12px 14px;
+    padding: 10px 16px;
+    border-radius: 14px;
+    background: rgba(14, 16, 21, 0.86);
+    backdrop-filter: blur(18px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.cs-bottom-status
+{
+    font-size: 12.5px;
+    color: #d6dce6;
+    margin-top: 2px;
+}
+
+.cs-bottom-buttons
+{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: none;
+}
+
+.cs-btn-ready
+{
+    padding: 9px 20px;
+    border-radius: 10px;
+    background: #3ec46d;
+    color: #09180e;
+    font-weight: 600;
+    font-size: 12.5px;
+    letter-spacing: 0.04em;
+    box-shadow: 0 4px 16px rgba(62, 196, 109, 0.35);
+}
+
+.cs-btn-ready.is-ready
+{
+    background: rgba(62, 196, 109, 0.22);
+    color: #72e89b;
+    border: 1px solid rgba(62, 196, 109, 0.65);
+}
+
+.cs-btn-launch
+{
+    padding: 9px 16px;
+    border-radius: 10px;
+    background: #f0f3f8;
+    color: #101216;
+    font-weight: 600;
+    font-size: 12.5px;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------------------------
+                                                  MATCH.LEVELSPACE PROCEDURE HUD
+------------------------------------------------------------------------------------------------------------------------------------------*/
+
+.cs-match-hud
+{
+    pointer-events: none;
+    position: absolute;
+    top: 56px;
+    left: 16px;
+    right: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.cs-match-banner
+{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-radius: 12px;
+    background: rgba(12, 14, 18, 0.80);
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.cs-match-gate
+{
+    font-size: 15px;
+    font-weight: 500;
+    color: #ffffff;
+    margin-top: 2px;
+}
+
+.cs-match-metrics
+{
+    display: flex;
+    gap: 14px;
+}
+
+.cs-metric-box
+{
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.cs-metric-lbl
+{
+    font: 600 9.5px/1 var(--mono);
+    color: #8c95a4;
+}
+
+.cs-metric-val
+{
+    font: 500 18px/1.2 var(--mono);
+    color: #f5f7fb;
+}
+
+.cs-match-standings
+{
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.cs-standing-chip
+{
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    background: rgba(14, 16, 21, 0.78);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    font-size: 12px;
+}
+
+.cs-standing-chip.is-eliminated
+{
+    opacity: 0.45;
+    text-decoration: line-through;
+}
+
+.cs-pos
+{
+    font: 600 11px/1 var(--mono);
+    color: #ffae19;
+}
+
+.cs-input-packet-bar
+{
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: rgba(12, 14, 18, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font: 400 11px/1.2 var(--mono);
+    color: #aeb7c6;
+}

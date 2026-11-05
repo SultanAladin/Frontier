@@ -611,6 +611,7 @@ DockPanelSpecification MakeLogStreamPanelSpecification(LogStreamPanel& Panel)
     Specification.Caption          = "Log Stream";
     Specification.ConstructContent = [&Panel]() { Panel.ConstructInterface(); };
     Specification.Open             = true;
+    Specification.WheelScrollOnly  = true;
     return Specification;
 }
 
@@ -715,7 +716,7 @@ void LogStreamPanel::ConstructInterface()
             const ImU32  Background = Action.Active ? Theme::Mint : Theme::Surface2;
             const ImU32  Border     = Action.Active ? Theme::Mint : (Hovered ? InkWhite(0.16f) : Theme::Line);
             const ImU32  GlyphInk   = Action.Active ? Theme::MintDeep : (Hovered ? Theme::Text : Theme::Muted);
-            PillSurface(Ink, Minimum, Maximum, Background, Border, 11.0f);
+            PillSurface(Ink, Minimum, Maximum, Background, Border, 18.0f);   // Round (owner's request)
             const ImVec2 Centre((Minimum.x + Maximum.x) * 0.5f, (Minimum.y + Maximum.y) * 0.5f);
             switch (Action.Glyph)
             {
@@ -773,8 +774,6 @@ void LogStreamPanel::ConstructInterface()
         Ink->AddRectFilled(ImVec2(CL, CardTop), ImVec2(CR, CardTop + CardH), Theme::Surface, 16.0f);
         Ink->AddRect(ImVec2(CL, CardTop), ImVec2(CR, CardTop + CardH), Theme::LineSoft, 16.0f);
 
-        char RateBadge[32] = {};
-        std::snprintf(RateBadge, sizeof(RateBadge), "+%u/s", QueryRateNow());
         char WarnBadge[32] = {};
         char ErrBadge[32]  = {};
         const uint64_t RecentWarningsCount = QueryWarningsLastMinute();
@@ -794,13 +793,13 @@ void LogStreamPanel::ConstructInterface()
         {
             const char* Label;
             uint64_t    Value;
-            const char* Badge;
+            const char* Badge;                                        // nullptr = no badge
             ImU32       BadgeBg;
             ImU32       BadgeInk;
             ImU32       GlyphFill;                                    // 0 = no warning triangle
         };
         const MetricCell Cells[3] = {
-            {"ENTRIES", TotalCount, RateBadge, Theme::MintDim, Theme::Mint, 0},
+            {"ENTRIES", TotalCount, nullptr, 0, 0, 0},                // No per-second badge (owner's request)
             {"WARNINGS", QuerySeverityCount(LogSeverity::Warning),
              RecentWarningsCount > 0 ? WarnBadge : "\xE2\x80\x94",
              RecentWarningsCount > 0 ? Theme::AmberDim : Theme::Surface3,
@@ -811,9 +810,13 @@ void LogStreamPanel::ConstructInterface()
              RecentErrorsCount > 0 ? Theme::Coral : Theme::Faint, Theme::Coral},
         };
 
-        float MetricX = CL + 18.0f;
-        for (const MetricCell& Cell : Cells)
+        // Three metrics share the card evenly (the entries-per-second sparkline and badge were removed at the owner's
+        // request).
+        const float CellW = (CR - CL) / 3.0f;
+        for (int CellIndex = 0; CellIndex < 3; ++CellIndex)
         {
+            const MetricCell& Cell    = Cells[CellIndex];
+            const float       MetricX = CL + CellW * static_cast<float>(CellIndex) + (CellIndex == 0 ? 18.0f : 26.0f);
             float LabelX = MetricX;
             if (Cell.GlyphFill != 0)
             {
@@ -842,76 +845,20 @@ void LogStreamPanel::ConstructInterface()
                 ValueW += Tracking + TrackedWidth(Faces.Light, 24.0f, Fraction.c_str(), -24.0f * 0.03f);
             }
 
-            const float BadgeW = TextWidth(Faces.Medium, 11.5f, Cell.Badge) + 16.0f;
-            const float BadgeX = MetricX + ValueW + 9.0f;
-            const float BadgeY = ValueY + 38.0f * 0.8f - 16.0f;       // Baseline-aligned with the numeral
-            Ink->AddRectFilled(ImVec2(BadgeX, BadgeY), ImVec2(BadgeX + BadgeW, BadgeY + 20.0f), Cell.BadgeBg, 7.0f);
-            DrawText(Ink, Faces.Medium, 11.5f, ImVec2(BadgeX + 8.0f, BadgeY + 4.25f), Cell.BadgeInk, Cell.Badge);
-
-            const float ContentW = std::max(118.0f, ValueW + 9.0f + BadgeW);
-            const float DividerX = MetricX + ContentW + 26.0f;
-            Ink->AddLine(ImVec2(DividerX, CardTop + 14.0f), ImVec2(DividerX, CardTop + CardH - 14.0f),
-                         Theme::LineSoft);
-            MetricX = DividerX + 26.0f;
-        }
-
-        // Sparkline: exact port of the prototype's canvas routine.
-        const float SparkRight = CR - 18.0f;
-        if (SparkRight - MetricX > 60.0f)
-        {
-            DrawTracked(Ink, Faces.Medium, 11.0f, ImVec2(MetricX, LabelY), Theme::Faint, "ENTRIES PER SECOND",
-                        11.0f * 0.13f);
-            char NowText[16] = {};
-            char PeakText[16] = {};
-            std::snprintf(NowText, sizeof(NowText), "%u", QueryRateNow());
-            std::snprintf(PeakText, sizeof(PeakText), "%u", RatePeak);
-            const float RateW = TextWidth(Faces.Medium, 13.0f, NowText) +
-                                TextWidth(Faces.Regular, 13.0f, " now \xC2\xB7 ") +
-                                TextWidth(Faces.Regular, 13.0f, PeakText) +
-                                TextWidth(Faces.Regular, 13.0f, " peak");
-            float RateX = SparkRight - RateW;
-            const float RateY = LabelY - 2.0f;
-            DrawText(Ink, Faces.Medium, 13.0f, ImVec2(RateX, RateY), Theme::Text, NowText);
-            RateX += TextWidth(Faces.Medium, 13.0f, NowText);
-            DrawText(Ink, Faces.Regular, 13.0f, ImVec2(RateX, RateY), Theme::Muted, " now \xC2\xB7 ");
-            RateX += TextWidth(Faces.Regular, 13.0f, " now \xC2\xB7 ");
-            DrawText(Ink, Faces.Regular, 13.0f, ImVec2(RateX, RateY), Theme::Muted, PeakText);
-            RateX += TextWidth(Faces.Regular, 13.0f, PeakText);
-            DrawText(Ink, Faces.Regular, 13.0f, ImVec2(RateX, RateY), Theme::Muted, " peak");
-
-            const float X0 = MetricX;
-            const float Y0 = CardTop + 14.0f + 15.0f + 4.0f;
-            const float W  = SparkRight - X0;
-            const float H  = CardH - 28.0f - 19.0f;
-            const float GuideY = Y0 + H - (H - 6.0f) * 0.66f;
-            for (float DashX = X0; DashX + 3.0f <= X0 + W; DashX += 7.0f)
+            if (Cell.Badge != nullptr)
             {
-                Ink->AddLine(ImVec2(DashX, GuideY), ImVec2(DashX + 3.0f, GuideY), InkWhite(0.13f));
+                const float BadgeW = TextWidth(Faces.Medium, 11.5f, Cell.Badge) + 16.0f;
+                const float BadgeX = MetricX + ValueW + 9.0f;
+                const float BadgeY = ValueY + 38.0f * 0.8f - 16.0f;   // Baseline-aligned with the numeral
+                Ink->AddRectFilled(ImVec2(BadgeX, BadgeY), ImVec2(BadgeX + BadgeW, BadgeY + 20.0f), Cell.BadgeBg, 7.0f);
+                DrawText(Ink, Faces.Medium, 11.5f, ImVec2(BadgeX + 8.0f, BadgeY + 4.25f), Cell.BadgeInk, Cell.Badge);
             }
-            float Maximum = 6.0f;
-            for (uint32_t Count : RateBuckets)
+
+            if (CellIndex > 0)
             {
-                Maximum = std::max(Maximum, static_cast<float>(Count));
-            }
-            Maximum *= 1.25f;
-            std::vector<ImVec2> Points;
-            Points.reserve(RateBuckets.size());
-            for (size_t Index = 0; Index < RateBuckets.size(); ++Index)
-            {
-                const float Px = X0 + W * static_cast<float>(Index) / static_cast<float>(RateBuckets.size() - 1);
-                const float Py = Y0 + H - 3.0f - (H - 9.0f) * (static_cast<float>(RateBuckets[Index]) / Maximum);
-                Points.push_back(ImVec2(Px, Py));
-            }
-            if (Points.size() > 1)
-            {
-                const ImU32 FillInk = InkRgba(47, 230, 167, 18);        // rgba(47,230,167,.07) under the line
-                for (size_t Index = 1; Index < Points.size(); ++Index)
-                {
-                    Ink->AddQuadFilled(Points[Index - 1], Points[Index],
-                                       ImVec2(Points[Index].x, Y0 + H), ImVec2(Points[Index - 1].x, Y0 + H), FillInk);
-                }
-                Ink->AddPolyline(Points.data(), static_cast<int>(Points.size()), InkWhite(0.85f), 0, 1.4f);
-                Ink->AddCircleFilled(ImVec2(X0 + W - 2.0f, Points.back().y), 2.6f, Theme::Mint);
+                const float DividerX = CL + CellW * static_cast<float>(CellIndex);
+                Ink->AddLine(ImVec2(DividerX, CardTop + 14.0f), ImVec2(DividerX, CardTop + CardH - 14.0f),
+                             Theme::LineSoft);
             }
         }
         CursorY = CardTop + CardH;
@@ -961,15 +908,156 @@ void LogStreamPanel::ConstructInterface()
         DropdownControlSurface::EndMenu();
     }
 
-    // -- Filter row --------------------------------------------------------------------------------------------------
+    // -- Filters section, then severity chips -------------------------------------------------------------------------
+    // Channels, verbosity and the filter text sit in their own row above the chips (owner's request).
     ImVec2 ChannelsTriggerMin(0, 0);
     ImVec2 ChannelsTriggerMax(0, 0);
     ImVec2 VerbosityTriggerMin(0, 0);
     ImVec2 VerbosityTriggerMax(0, 0);
     {
-        const float RowTop = CursorY + 16.0f;
+        // Filters section: channels, verbosity and the filter text.
+        const float FilterTop = CursorY + 16.0f;
+        const float FilterCY  = FilterTop + 18.5f;
+        float       X         = CL;
+
+        // Dropdown triggers (menus below are the reusable DropdownControlSurface).
+        std::vector<const LogCategory*> AllCategories;
+        Categories.QueryAll(AllCategories);
+        size_t EnabledCount = 0;
+        for (const LogCategory* Category : AllCategories)
+        {
+            EnabledCount += QueryCategoryEnabled(Category->Token) ? 1 : 0;
+        }
+        char ChannelsLabel[40] = {};
+        if (EnabledCount == AllCategories.size())
+        {
+            std::snprintf(ChannelsLabel, sizeof(ChannelsLabel), "All channels");
+        }
+        else if (EnabledCount == 0)
+        {
+            std::snprintf(ChannelsLabel, sizeof(ChannelsLabel), "No channels");
+        }
+        else
+        {
+            std::snprintf(ChannelsLabel, sizeof(ChannelsLabel), "%zu channels", EnabledCount);
+        }
+
+        const bool ChannelsOpen  = ImGui::IsPopupOpen("##LogChannelsPopup");
+        const bool VerbosityOpen = ImGui::IsPopupOpen("##LogVerbosityPopup");
+
+        {
+            const float LabelW = TextWidth(Faces.Regular, 13.5f, ChannelsLabel);
+            const float TrigW  = 14.0f + 15.0f + 9.0f + LabelW + 9.0f + 12.0f + 14.0f;
+            const float TrigH  = 34.0f;
+            ChannelsTriggerMin = ImVec2(X, FilterCY - TrigH * 0.5f);
+            ChannelsTriggerMax = ImVec2(X + TrigW, FilterCY + TrigH * 0.5f);
+            bool Hovered = false;
+            if (PillTarget("##LogChannelsTrigger", ChannelsTriggerMin,
+                           ImVec2(TrigW, TrigH), Hovered))
+            {
+                ImGui::OpenPopup("##LogChannelsPopup");
+            }
+            PillSurface(Ink, ChannelsTriggerMin, ChannelsTriggerMax,
+                        ChannelsOpen ? Theme::Surface3 : (Hovered ? Theme::Surface3 : Theme::Surface2),
+                        ChannelsOpen ? InkWhite(0.18f) : Theme::Line, 999.0f);
+            DrawIconFunnel(Ink, ImVec2(ChannelsTriggerMin.x + 21.5f, FilterCY), 15.0f, Theme::Muted);
+            DrawText(Ink, Faces.Regular, 13.5f, ImVec2(ChannelsTriggerMin.x + 38.0f, FilterCY - 6.75f), Theme::Text,
+                     ChannelsLabel);
+            DrawIconChevron(Ink, ImVec2(ChannelsTriggerMax.x - 20.0f, FilterCY), 12.0f, Theme::Muted, ChannelsOpen);
+            X += TrigW + 9.0f;
+        }
+        {
+            const char* Value  = CeilingText(Ceiling);
+            const float DimW   = TextWidth(Faces.Regular, 13.5f, "Verbosity");
+            const float ValueW = TextWidth(Faces.Regular, 13.5f, Value);
+            const float TrigW  = 14.0f + DimW + 9.0f + ValueW + 9.0f + 12.0f + 14.0f;
+            const float TrigH  = 34.0f;
+            VerbosityTriggerMin = ImVec2(X, FilterCY - TrigH * 0.5f);
+            VerbosityTriggerMax = ImVec2(X + TrigW, FilterCY + TrigH * 0.5f);
+            bool Hovered = false;
+            if (PillTarget("##LogVerbosityTrigger", VerbosityTriggerMin,
+                           ImVec2(TrigW, TrigH), Hovered))
+            {
+                ImGui::OpenPopup("##LogVerbosityPopup");
+            }
+            PillSurface(Ink, VerbosityTriggerMin, VerbosityTriggerMax,
+                        VerbosityOpen ? Theme::Surface3 : (Hovered ? Theme::Surface3 : Theme::Surface2),
+                        VerbosityOpen ? InkWhite(0.18f) : Theme::Line, 999.0f);
+            DrawText(Ink, Faces.Regular, 13.5f, ImVec2(VerbosityTriggerMin.x + 14.0f, FilterCY - 6.75f), Theme::Faint,
+                     "Verbosity");
+            DrawText(Ink, Faces.Regular, 13.5f,
+                     ImVec2(VerbosityTriggerMin.x + 14.0f + DimW + 9.0f, FilterCY - 6.75f), Theme::Text, Value);
+            DrawIconChevron(Ink, ImVec2(VerbosityTriggerMax.x - 20.0f, FilterCY), 12.0f, Theme::Muted, VerbosityOpen);
+            X += TrigW + 9.0f;
+        }
+
+
+        // Search pill with match count and clear control, filling the rest of the filters row.
+        {
+            const float SearchW = std::max(140.0f, CR - X);       // Fills the filters row
+            const ImVec2 Minimum(X, FilterTop);
+            const ImVec2 Maximum(X + SearchW, FilterTop + 37.0f);
+            PillSurface(Ink, Minimum, Maximum, Theme::Surface2,
+                        SearchFocused ? InkWithAlpha(Theme::Mint, 0.45f) : Theme::Line, 999.0f);
+            DrawIconSearch(Ink, ImVec2(X + 20.5f, FilterCY), 15.0f, Theme::Faint);
+
+            const bool HasText = !Query.empty();
+            char Shown[40] = {};
+            float TrailingW = 8.0f;
+            if (HasText)
+            {
+                std::snprintf(Shown, sizeof(Shown), "%zu shown", Visible.size());
+                TrailingW = TextWidth(Faces.Regular, 11.5f, Shown) + 8.0f + 24.0f + 8.0f;
+            }
+            if (Query != SearchSynchronised)
+            {
+                std::snprintf(SearchBuffer.data(), SearchBuffer.size(), "%s", Query.c_str());
+                SearchSynchronised = Query;
+            }
+            ImGui::SetCursorScreenPos(ImVec2(X + 36.0f, FilterTop + (37.0f - 13.5f) * 0.5f));
+            ImGui::PushFont(Faces.Regular, 13.5f);
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.933f, 0.953f, 0.941f, 1.0f));
+            ImGui::SetNextItemWidth(std::max(30.0f, SearchW - 36.0f - TrailingW));
+            if (ImGui::InputTextWithHint("##LogSearch", "Filter text\xE2\x80\xA6", SearchBuffer.data(),
+                                         SearchBuffer.size()))
+            {
+                ConfigureQuery(SearchBuffer.data());
+                SearchSynchronised = Query;
+            }
+            SearchFocused = ImGui::IsItemActive();
+            ImGui::PopStyleColor(4);
+            ImGui::PopStyleVar(2);
+            ImGui::PopFont();
+
+            if (HasText)
+            {
+                const float ShownW = TextWidth(Faces.Regular, 11.5f, Shown);
+                DrawText(Ink, Faces.Regular, 11.5f, ImVec2(Maximum.x - 8.0f - 24.0f - 8.0f - ShownW, FilterCY - 5.75f),
+                         Theme::Faint, Shown);
+                const ImVec2 DiscCentre(Maximum.x - 8.0f - 12.0f, FilterCY);
+                bool ClearHover = false;
+                if (PillTarget("##LogSearchClear", ImVec2(DiscCentre.x - 12.0f, DiscCentre.y - 12.0f),
+                               ImVec2(24.0f, 24.0f), ClearHover, "Clear filter"))
+                {
+                    SearchBuffer[0] = '\0';
+                    ConfigureQuery("");
+                    SearchSynchronised = Query;
+                }
+                Ink->AddCircleFilled(DiscCentre, 12.0f, Theme::Surface3);
+                DrawIconCross(Ink, DiscCentre, 11.0f, ClearHover ? Theme::Text : Theme::Muted);
+            }
+        }
+
+
+        // Severity chips, then Follow on the right.
+        const float RowTop = FilterTop + 37.0f + 10.0f;
         const float RowCY  = RowTop + 18.5f;
-        float       X      = CL;
+        X = CL;
 
         struct ChipSpec
         {
@@ -1034,145 +1122,11 @@ void LogStreamPanel::ConstructInterface()
             X += ChipW + 9.0f;
         }
 
-        Ink->AddRectFilled(ImVec2(X + 3.0f, RowCY - 12.0f), ImVec2(X + 4.0f, RowCY + 12.0f), Theme::Line);
-        X += 7.0f + 9.0f;
-
-        // Dropdown triggers (menus below are the reusable DropdownControlSurface).
-        std::vector<const LogCategory*> AllCategories;
-        Categories.QueryAll(AllCategories);
-        size_t EnabledCount = 0;
-        for (const LogCategory* Category : AllCategories)
-        {
-            EnabledCount += QueryCategoryEnabled(Category->Token) ? 1 : 0;
-        }
-        char ChannelsLabel[40] = {};
-        if (EnabledCount == AllCategories.size())
-        {
-            std::snprintf(ChannelsLabel, sizeof(ChannelsLabel), "All channels");
-        }
-        else if (EnabledCount == 0)
-        {
-            std::snprintf(ChannelsLabel, sizeof(ChannelsLabel), "No channels");
-        }
-        else
-        {
-            std::snprintf(ChannelsLabel, sizeof(ChannelsLabel), "%zu channels", EnabledCount);
-        }
-
-        const bool ChannelsOpen  = ImGui::IsPopupOpen("##LogChannelsPopup");
-        const bool VerbosityOpen = ImGui::IsPopupOpen("##LogVerbosityPopup");
-
-        {
-            const float LabelW = TextWidth(Faces.Regular, 13.5f, ChannelsLabel);
-            const float TrigW  = 14.0f + 15.0f + 9.0f + LabelW + 9.0f + 12.0f + 14.0f;
-            const float TrigH  = 34.0f;
-            ChannelsTriggerMin = ImVec2(X, RowCY - TrigH * 0.5f);
-            ChannelsTriggerMax = ImVec2(X + TrigW, RowCY + TrigH * 0.5f);
-            bool Hovered = false;
-            if (PillTarget("##LogChannelsTrigger", ChannelsTriggerMin,
-                           ImVec2(TrigW, TrigH), Hovered))
-            {
-                ImGui::OpenPopup("##LogChannelsPopup");
-            }
-            PillSurface(Ink, ChannelsTriggerMin, ChannelsTriggerMax,
-                        ChannelsOpen ? Theme::Surface3 : (Hovered ? Theme::Surface3 : Theme::Surface2),
-                        ChannelsOpen ? InkWhite(0.18f) : Theme::Line, 999.0f);
-            DrawIconFunnel(Ink, ImVec2(ChannelsTriggerMin.x + 21.5f, RowCY), 15.0f, Theme::Muted);
-            DrawText(Ink, Faces.Regular, 13.5f, ImVec2(ChannelsTriggerMin.x + 38.0f, RowCY - 6.75f), Theme::Text,
-                     ChannelsLabel);
-            DrawIconChevron(Ink, ImVec2(ChannelsTriggerMax.x - 20.0f, RowCY), 12.0f, Theme::Muted, ChannelsOpen);
-            X += TrigW + 9.0f;
-        }
-        {
-            const char* Value  = CeilingText(Ceiling);
-            const float DimW   = TextWidth(Faces.Regular, 13.5f, "Verbosity");
-            const float ValueW = TextWidth(Faces.Regular, 13.5f, Value);
-            const float TrigW  = 14.0f + DimW + 9.0f + ValueW + 9.0f + 12.0f + 14.0f;
-            const float TrigH  = 34.0f;
-            VerbosityTriggerMin = ImVec2(X, RowCY - TrigH * 0.5f);
-            VerbosityTriggerMax = ImVec2(X + TrigW, RowCY + TrigH * 0.5f);
-            bool Hovered = false;
-            if (PillTarget("##LogVerbosityTrigger", VerbosityTriggerMin,
-                           ImVec2(TrigW, TrigH), Hovered))
-            {
-                ImGui::OpenPopup("##LogVerbosityPopup");
-            }
-            PillSurface(Ink, VerbosityTriggerMin, VerbosityTriggerMax,
-                        VerbosityOpen ? Theme::Surface3 : (Hovered ? Theme::Surface3 : Theme::Surface2),
-                        VerbosityOpen ? InkWhite(0.18f) : Theme::Line, 999.0f);
-            DrawText(Ink, Faces.Regular, 13.5f, ImVec2(VerbosityTriggerMin.x + 14.0f, RowCY - 6.75f), Theme::Faint,
-                     "Verbosity");
-            DrawText(Ink, Faces.Regular, 13.5f,
-                     ImVec2(VerbosityTriggerMin.x + 14.0f + DimW + 9.0f, RowCY - 6.75f), Theme::Text, Value);
-            DrawIconChevron(Ink, ImVec2(VerbosityTriggerMax.x - 20.0f, RowCY), 12.0f, Theme::Muted, VerbosityOpen);
-            X += TrigW + 9.0f;
-        }
-
         // Follow pill (right edge), measured before the flexing search field.
         const char* FollowText = FollowFlag ? "Following" : "Follow";
         const float FollowW    = 14.0f + 7.0f + 8.0f + TextWidth(Faces.Regular, 13.0f, FollowText) + 14.0f;
         const float FollowX    = CR - FollowW;
 
-        // Search pill with match count and clear control.
-        {
-            const float SearchW = std::min(330.0f, std::max(140.0f, FollowX - 9.0f - X));
-            const ImVec2 Minimum(X, RowTop);
-            const ImVec2 Maximum(X + SearchW, RowTop + 37.0f);
-            PillSurface(Ink, Minimum, Maximum, Theme::Surface2,
-                        SearchFocused ? InkWithAlpha(Theme::Mint, 0.45f) : Theme::Line, 999.0f);
-            DrawIconSearch(Ink, ImVec2(X + 20.5f, RowCY), 15.0f, Theme::Faint);
-
-            const bool HasText = !Query.empty();
-            char Shown[40] = {};
-            float TrailingW = 8.0f;
-            if (HasText)
-            {
-                std::snprintf(Shown, sizeof(Shown), "%zu shown", Visible.size());
-                TrailingW = TextWidth(Faces.Regular, 11.5f, Shown) + 8.0f + 24.0f + 8.0f;
-            }
-            if (Query != SearchSynchronised)
-            {
-                std::snprintf(SearchBuffer.data(), SearchBuffer.size(), "%s", Query.c_str());
-                SearchSynchronised = Query;
-            }
-            ImGui::SetCursorScreenPos(ImVec2(X + 36.0f, RowTop + (37.0f - 13.5f) * 0.5f));
-            ImGui::PushFont(Faces.Regular, 13.5f);
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
-            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
-            ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0, 0, 0, 0));
-            ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0, 0, 0, 0));
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.933f, 0.953f, 0.941f, 1.0f));
-            ImGui::SetNextItemWidth(std::max(30.0f, SearchW - 36.0f - TrailingW));
-            if (ImGui::InputTextWithHint("##LogSearch", "Filter text\xE2\x80\xA6", SearchBuffer.data(),
-                                         SearchBuffer.size()))
-            {
-                ConfigureQuery(SearchBuffer.data());
-                SearchSynchronised = Query;
-            }
-            SearchFocused = ImGui::IsItemActive();
-            ImGui::PopStyleColor(4);
-            ImGui::PopStyleVar(2);
-            ImGui::PopFont();
-
-            if (HasText)
-            {
-                const float ShownW = TextWidth(Faces.Regular, 11.5f, Shown);
-                DrawText(Ink, Faces.Regular, 11.5f, ImVec2(Maximum.x - 8.0f - 24.0f - 8.0f - ShownW, RowCY - 5.75f),
-                         Theme::Faint, Shown);
-                const ImVec2 DiscCentre(Maximum.x - 8.0f - 12.0f, RowCY);
-                bool ClearHover = false;
-                if (PillTarget("##LogSearchClear", ImVec2(DiscCentre.x - 12.0f, DiscCentre.y - 12.0f),
-                               ImVec2(24.0f, 24.0f), ClearHover, "Clear filter"))
-                {
-                    SearchBuffer[0] = '\0';
-                    ConfigureQuery("");
-                    SearchSynchronised = Query;
-                }
-                Ink->AddCircleFilled(DiscCentre, 12.0f, Theme::Surface3);
-                DrawIconCross(Ink, DiscCentre, 11.0f, ClearHover ? Theme::Text : Theme::Muted);
-            }
-        }
 
         {
             const float  FollowH = 34.0f;
@@ -1392,7 +1346,9 @@ void LogStreamPanel::ConstructInterface()
     ImGui::SetCursorScreenPos(ImVec2(PL, StreamTop + 1.0f));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    if (ImGui::BeginChild("##LogRows", ImVec2(WindowSize.x, StreamH - 1.0f), false))
+    // 📝 No scrollbar (owner's request): the wheel scrolls the stream, eased, with Patch H's overscroll spring.
+    if (ImGui::BeginChild("##LogRows", ImVec2(WindowSize.x, StreamH - 1.0f), ImGuiChildFlags_None,
+                          ImGuiWindowFlags_NoScrollbar))
     {
         ImDrawList* Rows = ImGui::GetWindowDrawList();
         const float ChildW = ImGui::GetWindowWidth();
@@ -1413,7 +1369,7 @@ void LogStreamPanel::ConstructInterface()
         for (const LogStreamVisibleEntry& Row : Visible)
         {
             const LogCategory* Category = Categories.Query(Row.Entry.Category);
-            const bool         Selected = Row.Entry.Sequence == SelectedSequence;
+            const bool         Expanded = QueryExpanded(Row.Entry.Sequence);   // Any number of rows can be open
 
             const float SourceWdt = TextWidth(Faces.Regular, 11.5f, Row.Entry.Source);
             float MetaLeftInset = 12.0f + SourceWdt;                  // [px] - From the row's right edge
@@ -1448,7 +1404,7 @@ void LogStreamPanel::ConstructInterface()
             float DetailH = 0.0f;
             std::vector<TextSpan> DetailLines;
             float DetailTextH = 0.0f;
-            if (Selected)
+            if (Expanded)
             {
                 const float DetailTextW = RowW - 46.0f - 28.0f;       // [px] - 12 row + 34 margin, 14 card pads
                 DetailLines  = WrapTextLines(Faces.Regular, 13.0f, Row.Entry.Message, std::max(20.0f, DetailTextW));
@@ -1457,43 +1413,45 @@ void LogStreamPanel::ConstructInterface()
             }
             const float TotalH = RowH + DetailH;
 
+            // 📝 The row's click target covers its head only: the detail card's actions below keep their own hover, and
+            //    the layout cursor is put back under the whole row (head + card) once it is drawn, so the next row never
+            //    overlaps an open card.
             ImGui::SetCursorPosX(12.0f);
             ImGui::PushID(static_cast<int>(Row.Entry.Sequence & 0x7fffffff));
-            const bool Clicked = ImGui::InvisibleButton("##LogRow", ImVec2(RowW, TotalH));
+            const bool Clicked = ImGui::InvisibleButton("##LogRow", ImVec2(RowW, RowH));
             const bool Hovered = ImGui::IsItemHovered();
             if (Clicked)
             {
-                SelectVisible(RowIndex);
+                ToggleExpansion(RowIndex);
             }
             const ImVec2 Minimum = ImGui::GetItemRectMin();
-            const ImVec2 Maximum = ImGui::GetItemRectMax();
+            const ImVec2 Maximum(Minimum.x + RowW, Minimum.y + TotalH);
 
             if (RowIndex > 0)
             {
                 Rows->AddLine(ImVec2(Minimum.x, Minimum.y), ImVec2(Maximum.x, Minimum.y), Theme::RowSep);
             }
             const bool Alert = Row.Entry.Severity == LogSeverity::Error || Row.Entry.Severity == LogSeverity::Fatal;
+            // Square rows: no rounded corners on the fills or the accent bar (owner's request).
             if (Row.Entry.Severity == LogSeverity::Fatal)
             {
-                Rows->AddRectFilled(Minimum, Maximum, InkWithAlpha(Theme::Red, 0.055f), 11.0f);
+                Rows->AddRectFilled(Minimum, Maximum, InkWithAlpha(Theme::Red, 0.055f));
             }
-            else if (Selected)
+            else if (Expanded)
             {
-                Rows->AddRectFilled(Minimum, Maximum, InkWithAlpha(Theme::Mint, 0.055f), 11.0f);
+                Rows->AddRectFilled(Minimum, Maximum, InkWithAlpha(Theme::Mint, 0.055f));
             }
             else if (Hovered)
             {
-                Rows->AddRectFilled(Minimum, Maximum, Theme::RowHover, 11.0f);
+                Rows->AddRectFilled(Minimum, Maximum, Theme::RowHover);
             }
             if (Alert)
             {
-                Rows->AddRectFilled(ImVec2(Minimum.x, Minimum.y + 8.0f),
-                                    ImVec2(Minimum.x + 3.0f, Maximum.y - 8.0f), Theme::Coral, 1.5f);
+                Rows->AddRectFilled(ImVec2(Minimum.x, Minimum.y), ImVec2(Minimum.x + 3.0f, Maximum.y), Theme::Coral);
             }
-            else if (Selected)
+            else if (Expanded)
             {
-                Rows->AddRectFilled(ImVec2(Minimum.x, Minimum.y + 8.0f),
-                                    ImVec2(Minimum.x + 3.0f, Maximum.y - 8.0f), Theme::Mint, 1.5f);
+                Rows->AddRectFilled(ImVec2(Minimum.x, Minimum.y), ImVec2(Minimum.x + 3.0f, Maximum.y), Theme::Mint);
             }
 
             const float RowCY = Minimum.y + RowH * 0.5f;
@@ -1583,7 +1541,7 @@ void LogStreamPanel::ConstructInterface()
             }
 
             // Expanded detail card.
-            if (Selected)
+            if (Expanded)
             {
                 const ImVec2 CardMin(Minimum.x + 46.0f, Minimum.y + RowH + 4.0f);
                 const ImVec2 CardMax(Maximum.x - 12.0f, CardMin.y + (DetailH - 10.0f));
@@ -1659,6 +1617,9 @@ void LogStreamPanel::ConstructInterface()
                     ActionX += ActionW + 7.0f;
                 }
             }
+            // Under the whole row (head and card), whatever the card's buttons left the cursor at.
+            ImGui::SetCursorScreenPos(ImVec2(Minimum.x, Maximum.y));
+            ImGui::Dummy(ImVec2(RowW, 0.0f));
             ImGui::PopID();
             RowIndex += 1;
         }

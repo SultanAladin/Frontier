@@ -4,6 +4,7 @@
 // 🧩 1:1 native port of the Project browser HTML prototype (Experimental/Project browser/).
 
 #include "ProjectBrowserPanel.h"
+#include "Engine/ContentInterchange/ProjectGenerator.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "Engine/Diagnostics/DiagnosticJournal.h"
 #include <algorithm>
@@ -388,6 +389,7 @@ void ProjectBrowserPanel::DebugShow(const std::string &Token, int View, int Revi
 {
     if (Theme == "light" || Theme == "dark" || Theme == "oled") Prefs.Theme = Theme;
     LaunchOpen = Launch;
+    LaunchOutcome.clear();
     Creating = ShowCreation;
     const BrowserCatalogueEntry *Entry = Token.empty() ? nullptr : FindEntry(Token);
     if (Entry == nullptr)
@@ -403,7 +405,7 @@ void ProjectBrowserPanel::DebugShow(const std::string &Token, int View, int Revi
     Zoom = std::max(50, std::min(200, ZoomPercent));
     ActiveTab = (Tab == "comments" || Tab == "history") ? Tab : "details";
     ResetLiveCamera(*Entry);
-    LiveChannel = Entry->Imported ? 0 : PreviewConfigFor(*Entry, size_t(PreviewIndex), ActiveRevision).Channel;
+    LiveChannel = !LivePreviewCondition(*Entry) ? 0 : PreviewConfigFor(*Entry, size_t(PreviewIndex), ActiveRevision).Channel;
 }
 
 void ProjectBrowserPanel::ConfigureRevision(int Index)
@@ -429,7 +431,7 @@ void ProjectBrowserPanel::ConfigureZoom(int Amount)
 {
     Zoom = std::max(50, std::min(200, Amount));
     const BrowserCatalogueEntry *Entry = FindEntry(ActiveToken);
-    if (Entry != nullptr && !Entry->Imported && !DocumentEnabled && ConfigureLivePreview)
+    if (Entry != nullptr && LivePreviewCondition(*Entry) && !DocumentEnabled && ConfigureLivePreview)
     {
         LiveCamera.Distance = (Entry->Category == BrowserFileCategory::Project ? 17 : 10.5) * 100 / Zoom;
         CaptureDelay = 1;
@@ -462,7 +464,8 @@ const ProjectBrowserPanel::CachedPreviewTriangles &ProjectBrowserPanel::PreviewT
     const auto Cached = PreviewCache.find(Key);
     if (Cached != PreviewCache.end()) return Cached->second;
     CachedPreviewTriangles Built;
-    Built.Triangles = GenerateBrowserPreviewTriangles(ActuatorTriangles, int(Entry.Category), std::max(0, Revision));
+    Built.Triangles = Entry.Geometry ? *Entry.Geometry // 📝 SolidArc documents report their own triangles.
+                                     : GenerateBrowserPreviewTriangles(ActuatorTriangles, int(Entry.Category), std::max(0, Revision));
     Built.Statistics = QueryBrowserPreviewStatistics(Built.Triangles);
     Built.Uv = GenerateBrowserCylindricalUv(Built.Triangles);
     return PreviewCache.emplace(Key, std::move(Built)).first->second;
@@ -471,7 +474,7 @@ const ProjectBrowserPanel::CachedPreviewTriangles &ProjectBrowserPanel::PreviewT
 void ProjectBrowserPanel::CaptureNow()
 {
     const BrowserCatalogueEntry *Entry = FindEntry(ActiveToken);
-    if (Entry == nullptr || Entry->Imported || DocumentEnabled || !CaptureLiveThumbnail) return;
+    if (Entry == nullptr || !LivePreviewCondition(*Entry) || DocumentEnabled || !CaptureLiveThumbnail) return;
     const size_t View = size_t(std::max(0, PreviewIndex));
     CaptureLiveThumbnail(SnapshotKeyFor(*Entry, View, ActiveRevision), PreviewConfigFor(*Entry, View, ActiveRevision),
         LiveCamera, LiveChannel);
@@ -529,6 +532,29 @@ size_t ProjectBrowserPanel::AttachPaths(const std::vector<std::filesystem::path>
             Entry.ImageBytes.assign(std::istreambuf_iterator<char>(Input), std::istreambuf_iterator<char>());
             Entry.Views = {"Image"};
         }
+        if (QueryBrowserSolidArcExtension(Extension))
+        {
+            // 🧩 SolidArc documents: decoded, regenerated and tessellated by the connected native library.
+            Entry.Description = "A SolidArc document. Connect the SolidArc decoder to render its bodies.";
+            Entry.Context = "SolidArc document · local file";
+            if (QueryDocumentGeometry)
+            {
+                BrowserNativeDocument Native = QueryDocumentGeometry(Path);
+                if (Native.Geometry && Native.Refusal.empty())
+                {
+                    Entry.Geometry = std::move(Native.Geometry);
+                    Entry.GeometryKey = Native.GeometryKey;
+                    Entry.NativeSummary = Native.Summary;
+                    Entry.Description = Native.Description;
+                    Entry.Context = "SolidArc · " + Native.Summary;
+                }
+                else
+                {
+                    Entry.NativeRefusal = Native.Refusal.empty() ? "The document holds no solid bodies." : Native.Refusal;
+                    Entry.Description = "This SolidArc document could not be read: " + Entry.NativeRefusal;
+                }
+            }
+        }
         if (IsMarkdown)
         {
             std::ifstream Input(Path, std::ios::binary);
@@ -551,10 +577,11 @@ size_t ProjectBrowserPanel::AttachPaths(const std::vector<std::filesystem::path>
         Zoom = 100;
         ActiveTab = "details";
         FocusBack = true;
+        PrepareNativeReader(Entry);
     }
     Notify(Attached ? std::to_string(Attached) + " local file" + (Attached > 1 ? "s" : "") +
-                              " attached. Native project decoding is only connected for .projectspace files."
-                          : "No supported files found. Choose .project, .assembly, .sketch, geometry, Markdown or image files.");
+                              " attached. Native decoding is connected for .projectspace and .solidarc files."
+                          : "No supported files found. Choose .project, .assembly, .sketch, .solidarc, geometry, Markdown or image files.");
     return Attached;
 }
 
@@ -574,7 +601,30 @@ void ProjectBrowserPanel::OpenInFrontier()
             Diagnostic.clear();
         }
     }
+    // 🧩 SolidArc documents open in their own workspace application; the dialog reports the outcome.
+    LaunchOutcome.clear();
+    LaunchSucceeded = false;
+    if (Entry->Imported && QueryBrowserSolidArcExtension(Entry->Extension))
+    {
+        std::string Refusal;
+        if (!LaunchWorkspaceDocument) Refusal = "The SolidArc workspace is not connected to this browser.";
+        else if (LaunchWorkspaceDocument(std::filesystem::path(std::u8string(Entry->Path.begin(), Entry->Path.end())), Refusal))
+            LaunchSucceeded = true;
+        else if (Refusal.empty())
+            Refusal = "The SolidArc workspace refused the document.";
+        LaunchOutcome = LaunchSucceeded ? "SolidArc workspace started with this document." : Refusal;
+        Notify(LaunchSucceeded ? "Opened " + Entry->Title + Entry->Extension + " in the SolidArc workspace." : Refusal);
+    }
     LaunchOpen = true;
+}
+
+void ProjectBrowserPanel::PrepareNativeReader(const BrowserCatalogueEntry &Entry)
+{
+    if (!Entry.Geometry) return;
+    ResetLiveCamera(Entry);
+    LiveChannel = PreviewConfigFor(Entry, 0, 0).Channel;
+    LiveSignature.clear();
+    CaptureDelay = 2;
 }
 
 void ProjectBrowserPanel::SubmitComment()
@@ -620,9 +670,96 @@ bool ProjectBrowserPanel::CreateProject(const std::filesystem::path &Destination
 {
     const auto Template = ResolveContentDirectory("EngineContent/Defaults") / "BlankProject/Blank.projectspace";
     if (!ProjectSpaceCodec::CreateBlank(Template, Destination, Name, Diagnostic)) return false;
+    if (!ProjectGenerator::GenerateProjectScaffolding(Destination, Name, Diagnostic)) return false;
     const auto Folder = Destination.has_parent_path() ? Destination.parent_path() : std::filesystem::path(".");
     (void)ConfigureDirectory(Folder);
     return SelectProject(Destination);
+}
+
+bool ProjectBrowserPanel::CreateDocument(
+    BrowserCreation Creation, const std::filesystem::path &Destination, const std::string &Name)
+{
+    namespace fs = std::filesystem;
+    const auto Readable = [](const fs::path &Path)
+    {
+        const std::u8string Raw = Path.u8string();
+        return std::string(Raw.begin(), Raw.end());
+    };
+    // 📝 Names come from a text field; surrounding blanks are not part of a title, and an empty name takes the file name.
+    const size_t First = Name.find_first_not_of(" \t\r\n"), Last = Name.find_last_not_of(" \t\r\n");
+    std::string Title = First == std::string::npos ? std::string{} : Name.substr(First, Last - First + 1);
+    if (Title.empty()) Title = Readable(Destination.stem());
+    std::error_code Status;
+    if (Creation == BrowserCreation::GameProject)
+    {
+        if (!CreateProject(Destination, Title)) return false;
+        (void)AttachPaths({SelectedPath}, true);
+        // 📝 The new project opens in the editor straight away: the host consumes the launch path on the next frame.
+        return RequestOpenProject();
+    }
+    if (Destination.empty())
+    {
+        Diagnostic = Creation == BrowserCreation::SolidArcDocument ? "Choose where to save the new SolidArc model."
+                                                                   : "Choose a folder for the texture library.";
+        return false;
+    }
+    if (Creation == BrowserCreation::SolidArcDocument)
+    {
+        fs::path Placed = Destination;
+        if (!QueryBrowserSolidArcExtension(Readable(Placed.extension()))) Placed += ".solidarc";
+        if (!CreateWorkspaceDocument || !LaunchWorkspaceDocument)
+        {
+            Diagnostic = "SolidArc is not connected to this browser.";
+            return false;
+        }
+        if (fs::exists(Placed, Status))
+        {
+            Diagnostic = "A file already exists at " + Readable(Placed) + "; choose another name.";
+            return false;
+        }
+        std::string Refusal;
+        if (!CreateWorkspaceDocument(Placed, Title, Refusal))
+        {
+            Diagnostic = Refusal.empty() ? "The SolidArc model could not be created." : Refusal;
+            return false;
+        }
+        (void)AttachPaths({Placed}, true);
+        // 💡 The model exists from here on: a workspace that does not start is reported, not treated as a failed creation.
+        Refusal.clear();
+        const bool Started = LaunchWorkspaceDocument(Placed, Refusal);
+        Diagnostic.clear();
+        Notify(Started ? "Created " + Readable(Placed.filename()) + " and opened it in SolidArc."
+                       : "Created " + Readable(Placed.filename()) + ", but SolidArc did not start: " +
+                             (Refusal.empty() ? std::string("no reason was given.") : Refusal));
+        return true;
+    }
+    // 📝 Texture library: the folder (created when missing) opens in the Texture Workspace.
+    const fs::path Folder = Destination.has_filename() ? Destination : Destination.parent_path();
+    if (!LaunchTextureWorkspace)
+    {
+        Diagnostic = "The Texture Workspace is not connected to this browser.";
+        return false;
+    }
+    if (fs::exists(Folder, Status) && !fs::is_directory(Folder, Status))
+    {
+        Diagnostic = "A file already exists at " + Readable(Folder) + "; choose a folder.";
+        return false;
+    }
+    fs::create_directories(Folder, Status);
+    if (Status)
+    {
+        Diagnostic = "The library folder could not be created: " + Status.message();
+        return false;
+    }
+    std::string Refusal;
+    if (!LaunchTextureWorkspace(Folder, Refusal))
+    {
+        Diagnostic = Refusal.empty() ? "The Texture Workspace did not start." : Refusal;
+        return false;
+    }
+    Diagnostic.clear();
+    Notify("Opened the texture library " + Readable(Folder.filename()) + " in the Texture Workspace.");
+    return true;
 }
 
 bool ProjectBrowserPanel::RequestOpenProject()
@@ -940,6 +1077,24 @@ void ProjectBrowserPanel::ConstructThumbnailTile(ImVec2 Min, ImVec2 Size, const 
             Draw->AddImage((ImTextureID)Image.Texture, At, ImVec2(At.x + W, At.y + H), ImVec2(U0, V0), ImVec2(U1, V1));
         }
     };
+    if (Entry.Imported && Entry.Geometry)
+    {
+        // 🧩 SolidArc: the reference renderer draws the document's own triangles.
+        if (!QueryConfiguredThumbnail)
+        {
+            Pending("Renderer unavailable");
+            return;
+        }
+        const BrowserPreviewImage Image = QueryConfiguredThumbnail(SnapshotKeyFor(Entry, View, Revision),
+            PreviewConfigFor(Entry, View, Revision));
+        if (!Image.Texture)
+        {
+            Pending("Rendering preview…");
+            return;
+        }
+        Blit(Image);
+        return;
+    }
     if (Entry.Imported)
     {
         if (!Entry.ImageBytes.empty() && QueryImportedImage)
@@ -1022,6 +1177,7 @@ void ProjectBrowserPanel::ActivateToken(const std::string &Token)
     Zoom = 100;
     ActiveTab = "details";
     FocusBack = true;
+    PrepareNativeReader(*Entry);
 }
 
 bool ProjectBrowserPanel::DrawLibraryRail(ImVec2 Origin, float Width, float Height, float HeaderH, float Scale)
@@ -1329,7 +1485,7 @@ void ProjectBrowserPanel::ConstructLibrary(float Width)
                 RowY += CardH + Gap;
             }
         };
-        // ➕ Native creation card (the prototype has no creation flow; the native browser keeps Blank Project).
+        // ➕ Native creation card (the prototype has no creation flow): the New dialog, whose game project is Blank Project.
         PlaceCard(
             [&](ImVec2 Min)
             {
@@ -1348,18 +1504,21 @@ void ProjectBrowserPanel::ConstructLibrary(float Width)
                     S.Faint);
                 const float TX = Top.x + 16 * Scale;
                 float TY = Top.y + PreviewH + 15 * Scale;
-                DrawBrowserText(Frame.Draw, Font, 13 * Scale, ImVec2(TX, TY), S.Text, "Blank Project");
-                DrawBrowserText(Frame.Draw, Font, 9 * Scale,
-                    ImVec2(TX + MeasureBrowserText(Font, 13 * Scale, "Blank Project").x + 8 * Scale, TY + 3 * Scale),
-                    S.Faint, ".projectspace");
+                // 📝 One entry for every application: the New dialog chooses game project, SolidArc model or library.
+                const float TagX = TX + MeasureBrowserText(Font, 13 * Scale, "New").x + 8 * Scale;
+                DrawBrowserText(Frame.Draw, Font, 13 * Scale, ImVec2(TX, TY), S.Text, "New");
+                DrawBrowserText(Frame.Draw, Font, 9 * Scale, ImVec2(TagX, TY + 3 * Scale), S.Faint,
+                    EllipsizeBrowserText(Font, 9 * Scale, ".projectspace · .solidarc · library",
+                        Top.x + CardW - 16 * Scale - TagX));
                 TY += 17 * Scale + 5 * Scale;
                 DrawBrowserText(Frame.Draw, Font, 10 * Scale, ImVec2(TX, TY), S.Muted,
-                    "Start from an empty project container");
+                    EllipsizeBrowserText(Font, 10 * Scale, "Game project, SolidArc model or texture library",
+                        CardW - 32 * Scale));
                 TY += 12 * Scale + 14 * Scale;
                 Frame.Draw->AddLine(ImVec2(TX, TY), ImVec2(Top.x + CardW - 16 * Scale, TY), S.Line,
                     std::max(1.f, Scale));
                 TY += 10 * Scale;
-                DrawBrowserText(Frame.Draw, Font, 9 * Scale, ImVec2(TX, TY), S.Faint, "Preset");
+                DrawBrowserText(Frame.Draw, Font, 9 * Scale, ImVec2(TX, TY), S.Faint, "Create");
                 if (Clicked) Creating = true;
             });
         for (const BrowserCatalogueEntry *Entry : Listed)
@@ -1498,7 +1657,7 @@ void ProjectBrowserPanel::ConstructLibrary(float Width)
                     std::sort(Found.begin(), Found.end());
                 }
                 if (!Found.empty()) AttachPaths(Found);
-                else Notify("No supported files found. Choose .project, .assembly, .sketch, geometry, Markdown or image files.");
+                else Notify("No supported files found. Choose .project, .assembly, .sketch, .solidarc, geometry, Markdown or image files.");
             }
         }
         const std::string Note = "Sample files · attached .projectspace files open in the editor";
@@ -1730,9 +1889,10 @@ void ProjectBrowserPanel::ConstructReader(float Width)
                                          Entry->Imported ? "Local file" : "Version 3 · Current")
                                              .x +
                                          41 * Scale));
+    const char *LaunchLabel = Entry->Imported && QueryBrowserSolidArcExtension(Entry->Extension) ? "Open in SolidArc" : "Open in Frontier";
     const bool IconLaunch = Width <= 1100 || Narrow;
     const float LaunchW = IconLaunch ? 31 * Scale
-                                    : MeasureBrowserText(Font, 10 * Scale, "Open in Frontier").x + 24 * Scale + 15 * Scale + 10 * Scale;
+                                    : MeasureBrowserText(Font, 10 * Scale, LaunchLabel).x + 24 * Scale + 15 * Scale + 10 * Scale;
     const float LaunchH = IconLaunch ? 31 * Scale : 28 * Scale;
     const float StarBox = Narrow ? 25 * Scale : 30 * Scale;
     const std::vector<std::string> Themes = {"OLED", "Light", "Dark"};
@@ -1778,7 +1938,7 @@ void ProjectBrowserPanel::ConstructReader(float Width)
                 ImVec2(X + (LaunchH - 15 * Scale) / 2, Head.y + (HeaderH - 15 * Scale) / 2), 15 * Scale,
                 S.ButtonText);
         }
-        else if (DrawBrowserPrimary("open", ImVec2(X, Head.y + (HeaderH - LaunchH) / 2), "Open in Frontier",
+        else if (DrawBrowserPrimary("open", ImVec2(X, Head.y + (HeaderH - LaunchH) / 2), LaunchLabel,
                      BrowserIcon::Arrow, true, Frame, 10 * Scale, 12 * Scale, LaunchH, 15))
             OpenInFrontier();
         X -= 7 * Scale + StarBox;
@@ -1859,10 +2019,12 @@ void ProjectBrowserPanel::ConstructReader(float Width)
             std::snprintf(Number, sizeof Number, "%02d", PreviewIndex + 1);
             Eyebrow = Rail + " " + Number + " · VERSION " + std::to_string(Version);
         }
-        std::string Mode = Entry->Imported ? (!Entry->ImageBytes.empty() ? "Local image" : !Entry->Markdown.empty() ? "Local Markdown" : "Native preview not connected")
+        std::string Mode = Entry->Geometry ? "SolidArc · Reference Vulkan"
+                         : !Entry->NativeRefusal.empty() ? "SolidArc · document refused"
+                         : Entry->Imported ? (!Entry->ImageBytes.empty() ? "Local image" : !Entry->Markdown.empty() ? "Local Markdown" : "Native preview not connected")
                                            : "Reference Vulkan";
         if (DocumentEnabled) Mode = "Markdown";
-        const bool LiveView = !DocumentEnabled && !Entry->Imported && Title != "UV layout" && Title != "Metadata";
+        const bool LiveView = !DocumentEnabled && LivePreviewCondition(*Entry) && Title != "UV layout" && Title != "Metadata";
         if (!LiveView) WasLiveHovered = false;
         if (LiveView && !ConfigureLivePreview) Mode = "Renderer unavailable";
         DrawBrowserSpaced(Frame.Draw, Font, 8 * Scale, ImVec2(Scroll.x + Side, Y), S.Muted, Eyebrow, 1.8f * Scale);
@@ -1943,7 +2105,7 @@ void ProjectBrowserPanel::ConstructReader(float Width)
             Frame.Draw->AddRectFilled(Box, ImVec2(Box.x + InnerW, Box.y + CanvasH), S.Card, 8 * Scale);
             Frame.Draw->AddRect(Box, ImVec2(Box.x + InnerW, Box.y + CanvasH), S.Line, 8 * Scale, 0,
                 std::max(1.f, Scale));
-            if (Entry->Imported && Entry->Markdown.empty() && Entry->ImageBytes.empty())
+            if (Entry->Imported && !Entry->Geometry && Entry->Markdown.empty() && Entry->ImageBytes.empty())
             {
                 float VY = Box.y + 35 * Scale;
                 DrawBrowserIcon(Frame.Draw, BrowserIcon::File, ImVec2(Box.x + 35 * Scale, VY), 18 * Scale, S.Muted);
@@ -1952,7 +2114,8 @@ void ProjectBrowserPanel::ConstructReader(float Width)
                     EllipsizeBrowserText(Font, 18 * Scale, FullName, InnerW - 70 * Scale));
                 VY += 18 * Scale + 20 * Scale;
                 VY += DrawBrowserParagraph(Frame.Draw, Font, 13 * Scale, ImVec2(Box.x + 35 * Scale, VY), S.Text,
-                    "This file was selected from your device. Native decoding is not connected.",
+                    Entry->NativeRefusal.empty() ? "This file was selected from your device. Native decoding is not connected."
+                                                 : "This SolidArc document could not be read: " + Entry->NativeRefusal,
                     InnerW - 70 * Scale, 13 * Scale * 1.5f);
                 VY += 18 * Scale;
                 DrawBrowserChip(ImVec2(Box.x + 35 * Scale, VY),
@@ -2163,7 +2326,7 @@ void ProjectBrowserPanel::ConstructReader(float Width)
         // Caption + toolbar + bottom bar.
         const std::string Description =
             DocumentEnabled ? "Markdown · read-only preview" : Entry->Description;
-        std::string Resolution = Entry->Imported ? "Local file" : "Drag to orbit · scroll to zoom";
+        std::string Resolution = LivePreviewCondition(*Entry) ? "Drag to orbit · scroll to zoom" : "Local file";
         if (DocumentEnabled) Resolution = "A4 · 210 × 297 mm";
         else if (Title == "UV layout") Resolution = "Generated cylindrical UV · actual vertices";
         Y += 13 * Scale;
@@ -2377,6 +2540,7 @@ void ProjectBrowserPanel::ConstructReaderInspector(
                 {BrowserCountsLabel(Entry->Category), std::to_string(Entry->Views.size())},
                 {"Last opened", Entry->Opened},
                 {"Storage", Entry->Imported ? "Local file selection" : "Sample location"},
+            {"Document", Entry->NativeSummary.empty() ? "—" : Entry->NativeSummary},
             };
             for (const auto &[Key, Value] : Rows)
             {
@@ -2399,7 +2563,7 @@ void ProjectBrowserPanel::ConstructReaderInspector(
                 S.Muted, Entry->Path, InnerW - 20 * Scale, 9 * Scale * 1.8f);
             Y += PathH + 20 * Scale + 18 * Scale;
             DrawBrowserChip(ImVec2(Scroll.x + Side, Y),
-                Entry->Imported ? "Read-only · native decoder pending" : "Sample file · read-only", Frame);
+                Entry->Geometry || !Entry->NativeRefusal.empty() ? "Read-only · SolidArc decoder" : Entry->Imported ? "Read-only · native decoder pending" : "Sample file · read-only", Frame);
         }
         else if (ActiveTab == "comments")
         {
@@ -2570,13 +2734,16 @@ void ProjectBrowserPanel::ConstructLaunchDialog(float Width)
         float Y = Origin.y + Pad;
         const float InnerW = DialogW - Pad * 2;
         const BrowserCatalogueEntry *Entry = FindEntry(ActiveToken);
-        DrawBrowserSpaced(Draw, Font, 9 * Scale, ImVec2(Origin.x + Pad, Y), S.Muted, "NATIVE HAND-OFF PREVIEW",
-            1.8f * Scale);
+        const bool HandOff = !LaunchOutcome.empty();
+        DrawBrowserSpaced(Draw, Font, 9 * Scale, ImVec2(Origin.x + Pad, Y), S.Muted,
+            HandOff ? "NATIVE HAND-OFF" : "NATIVE HAND-OFF PREVIEW", 1.8f * Scale);
         Y += 9 * Scale + 14 * Scale;
-        DrawBrowserText(Draw, Font, 25 * Scale, ImVec2(Origin.x + Pad, Y), S.Text, "Ready for the next step.");
+        DrawBrowserText(Draw, Font, 25 * Scale, ImVec2(Origin.x + Pad, Y), S.Text,
+            !HandOff ? "Ready for the next step." : LaunchSucceeded ? "Opened in SolidArc." : "SolidArc did not start.");
         Y += 25 * Scale + 12 * Scale;
         Y += DrawBrowserParagraph(Draw, Font, 12 * Scale, ImVec2(Origin.x + Pad, Y), S.Muted,
-            Entry != nullptr && Entry->Imported ? "This is the selected local file for a future native hand-off."
+            HandOff ? LaunchOutcome
+            : Entry != nullptr && Entry->Imported ? "This is the selected local file for a future native hand-off."
                                                 : "This is a sample file used to review the launch flow.",
             InnerW, 12 * Scale * 1.8f);
         Y += 20 * Scale;
@@ -2602,7 +2769,8 @@ void ProjectBrowserPanel::ConstructLaunchDialog(float Width)
             InnerW - 36 * Scale, 11 * Scale * 1.5f);
         Y += HandH + 12 * Scale;
         Y += DrawBrowserParagraph(Draw, Font, 10 * Scale, ImVec2(Origin.x + Pad, Y), S.Muted,
-            "This preview does not launch the editor or decode native project content. Your original file is unchanged.",
+            HandOff ? "SolidArc runs as its own application. Your original file is unchanged until you save in SolidArc."
+                    : "This preview does not launch the editor or decode native project content. Your original file is unchanged.",
             InnerW, 10 * Scale * 1.8f);
         Y += 20 * Scale;
         const float ButtonW = MeasureBrowserText(Font, 13 * Scale, "Back to preview").x + 40 * Scale;
@@ -2613,6 +2781,8 @@ void ProjectBrowserPanel::ConstructLaunchDialog(float Width)
             ImGui::CloseCurrentPopup();
         }
         Y += 37 * Scale + Pad;
+        // 📝 The extent item starts at the dialog origin: placed after the last button, it doubled the dialog's height.
+        ImGui::SetCursorScreenPos(Origin);
         ImGui::Dummy(ImVec2(DialogW, Y - Origin.y));
         if (DrawBrowserIconButton("close-dialog", ImVec2(Origin.x + DialogW - 16 * Scale - 30 * Scale,
                                                      Origin.y + 16 * Scale),
@@ -2641,9 +2811,26 @@ void ProjectBrowserPanel::ConstructCreationModal()
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushStyleColor(ImGuiCol_PopupBg, S.Panel);
     ImGui::PushStyleColor(ImGuiCol_Border, S.Line);
-    const float DialogW = std::min(440 * Scale, ImGui::GetMainViewport()->Size.x - 32 * Scale);
+    const float DialogW = std::min(460 * Scale, ImGui::GetMainViewport()->Size.x - 32 * Scale);
     ImGui::SetNextWindowSize(ImVec2(DialogW, 0));
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    // 📝 One dialog, three applications: what is created decides where it opens.
+    struct CreationFace
+    {
+        BrowserCreation Choice;
+        const char *Label, *Title, *Destination, *Hint, *Action, *Note;
+    };
+    static constexpr CreationFace Faces[] = {
+        {BrowserCreation::GameProject, "Game project", "New game project", "Destination .projectspace",
+            "Choose a destination…", "Create project", "Opens in the Frontier editor (Game Engine)."},
+        {BrowserCreation::SolidArcDocument, "SolidArc model", "New SolidArc model", "Destination .solidarc",
+            "Choose where to save the model…", "Create model", "An empty model that opens in SolidArc."},
+        {BrowserCreation::TextureLibrary, "Texture library", "New texture library", "Library folder",
+            "Choose or create a folder…", "Open library",
+            "The folder is created when missing and opens in the Texture Workspace."},
+    };
+    const char *const ChoiceIds[] = {"create-choice-project", "create-choice-model", "create-choice-library"};
+    const CreationFace &Face = Faces[size_t(CreationChoice)];
     bool Open = true;
     if (ImGui::BeginPopupModal("##create", &Open,
             ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize))
@@ -2655,26 +2842,73 @@ void ProjectBrowserPanel::ConstructCreationModal()
         const float Pad = 30 * Scale;
         float Y = Origin.y + Pad;
         const float InnerW = DialogW - Pad * 2;
-        DrawBrowserText(Draw, Font, 20 * Scale, ImVec2(Origin.x + Pad, Y), S.Text, "New project");
+        DrawBrowserText(Draw, Font, 20 * Scale, ImVec2(Origin.x + Pad, Y), S.Text, Face.Title);
         Y += 20 * Scale + 18 * Scale;
-        DrawBrowserText(Draw, Font, 9 * Scale, ImVec2(Origin.x + Pad, Y), S.Muted, "Name");
-        Y += 9 * Scale + 8 * Scale;
+        // 📝 Segmented choice: Game project · SolidArc model · Texture library.
+        const float SegmentH = 32 * Scale, SegmentW = InnerW / 3;
+        Draw->AddRectFilled(ImVec2(Origin.x + Pad, Y), ImVec2(Origin.x + Pad + InnerW, Y + SegmentH), S.Control,
+            SegmentH / 2);
+        Draw->AddRect(ImVec2(Origin.x + Pad, Y), ImVec2(Origin.x + Pad + InnerW, Y + SegmentH), S.Line, SegmentH / 2, 0,
+            std::max(1.f, Scale));
+        for (size_t Index = 0; Index < std::size(Faces); ++Index)
+        {
+            const ImVec2 Min(Origin.x + Pad + SegmentW * float(Index), Y);
+            const bool Clicked = PlaceBrowserHit(Min, ImVec2(SegmentW, SegmentH), ChoiceIds[Index]);
+            const bool Hovered = ImGui::IsItemHovered();
+            const bool Chosen = Faces[Index].Choice == CreationChoice;
+            const float Inset = 3 * Scale;
+            if (Chosen || Hovered)
+                Draw->AddRectFilled(ImVec2(Min.x + Inset, Min.y + Inset),
+                    ImVec2(Min.x + SegmentW - Inset, Min.y + SegmentH - Inset), Chosen ? S.Selected : S.Control,
+                    (SegmentH - Inset * 2) / 2);
+            if (Chosen)
+                Draw->AddRect(ImVec2(Min.x + Inset, Min.y + Inset),
+                    ImVec2(Min.x + SegmentW - Inset, Min.y + SegmentH - Inset), S.Line, (SegmentH - Inset * 2) / 2, 0,
+                    std::max(1.f, Scale));
+            const std::string Label = EllipsizeBrowserText(Font, 11 * Scale, Faces[Index].Label, SegmentW - 12 * Scale);
+            const ImVec2 Extent = MeasureBrowserText(Font, 11 * Scale, Label);
+            DrawBrowserText(Draw, Font, 11 * Scale,
+                ImVec2(Min.x + (SegmentW - Extent.x) / 2, Min.y + (SegmentH - 11 * Scale) / 2),
+                Chosen || Hovered ? S.Text : S.Muted, Label);
+            if (Clicked && !Chosen)
+            {
+                // 📝 A typed destination follows the choice: .projectspace ↔ .solidarc, no extension for a folder.
+                std::filesystem::path Typed = DecodeContentPath(DestinationText.data());
+                if (!Typed.empty() && Typed.has_filename())
+                {
+                    const BrowserCreation Next = Faces[Index].Choice;
+                    Typed.replace_extension(Next == BrowserCreation::GameProject        ? ".projectspace"
+                                            : Next == BrowserCreation::SolidArcDocument ? ".solidarc"
+                                                                                        : "");
+                    std::snprintf(DestinationText.data(), DestinationText.size(), "%s", EncodeContentPath(Typed).c_str());
+                }
+                CreationChoice = Faces[Index].Choice;
+                CreateError.clear();
+            }
+        }
+        Y += SegmentH + 20 * Scale;
         ImGui::PushStyleColor(ImGuiCol_FrameBg, S.Control);
         ImGui::PushStyleColor(ImGuiCol_Text, S.Text);
         ImGui::PushStyleColor(ImGuiCol_TextDisabled, S.Faint);
         ImGui::PushStyleColor(ImGuiCol_Border, S.Line);
         ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, std::max(1.f, Scale));
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 7 * Scale);
-        ImGui::SetCursorPos(ImVec2(Pad + ImGui::GetScrollX(), Y - Origin.y + ImGui::GetScrollY()));
-        ImGui::SetNextItemWidth(InnerW);
-        ImGui::InputTextWithHint("##name", "Untitled project", NameText.data(), NameText.size());
-        Y += 30 * Scale + 16 * Scale;
-        Draw->AddText(Font, 9 * Scale, ImVec2(Origin.x + Pad, Y), S.Muted, "Destination .projectspace");
+        if (CreationChoice != BrowserCreation::TextureLibrary) // 📝 A library is only its folder.
+        {
+            DrawBrowserText(Draw, Font, 9 * Scale, ImVec2(Origin.x + Pad, Y), S.Muted, "Name");
+            Y += 9 * Scale + 8 * Scale;
+            ImGui::SetCursorPos(ImVec2(Pad + ImGui::GetScrollX(), Y - Origin.y + ImGui::GetScrollY()));
+            ImGui::SetNextItemWidth(InnerW);
+            ImGui::InputTextWithHint("##name",
+                CreationChoice == BrowserCreation::GameProject ? "Untitled project" : "Untitled model", NameText.data(),
+                NameText.size());
+            Y += 30 * Scale + 16 * Scale;
+        }
+        Draw->AddText(Font, 9 * Scale, ImVec2(Origin.x + Pad, Y), S.Muted, Face.Destination);
         Y += 9 * Scale + 8 * Scale;
         ImGui::SetCursorPos(ImVec2(Pad + ImGui::GetScrollX(), Y - Origin.y + ImGui::GetScrollY()));
         ImGui::SetNextItemWidth(InnerW - 90 * Scale);
-        ImGui::InputTextWithHint(
-            "##destination", "Choose a destination…", DestinationText.data(), DestinationText.size());
+        ImGui::InputTextWithHint("##destination", Face.Hint, DestinationText.data(), DestinationText.size());
         ImGui::PopStyleVar(2);
         ImGui::PopStyleColor(4);
         const float BrowseW = MeasureBrowserText(Font, 11 * Scale, "Browse").x + 28 * Scale;
@@ -2684,31 +2918,36 @@ void ProjectBrowserPanel::ConstructCreationModal()
             ImGui::IsItemHovered() ? S.Faint : S.Line, 7 * Scale, 0, std::max(1.f, Scale));
         DrawBrowserText(Draw, Font, 11 * Scale, ImVec2(BrowseMin.x + 14 * Scale, BrowseMin.y + 8 * Scale), S.Text,
             "Browse");
-        if (BrowseClicked && PickProjectPath)
+        if (BrowseClicked)
         {
-            const std::filesystem::path Picked = PickProjectPath(true);
+            std::filesystem::path Picked;
+            if (PickCreationPath) Picked = PickCreationPath(CreationChoice);
+            else if (CreationChoice == BrowserCreation::GameProject && PickProjectPath) Picked = PickProjectPath(true);
+            else if (CreationChoice == BrowserCreation::TextureLibrary && PickImportFolder) Picked = PickImportFolder();
             if (!Picked.empty())
                 std::snprintf(DestinationText.data(), DestinationText.size(), "%s", EncodeContentPath(Picked).c_str());
         }
         Y += 30 * Scale + 12 * Scale;
+        Y += DrawBrowserParagraph(Draw, Font, 10 * Scale, ImVec2(Origin.x + Pad, Y), S.Faint, Face.Note, InnerW,
+            15 * Scale);
+        Y += 10 * Scale;
         if (!CreateError.empty())
         {
             Y += DrawBrowserParagraph(Draw, Font, 10 * Scale, ImVec2(Origin.x + Pad, Y), HexColour("#d98a8a"),
                 CreateError, InnerW, 15 * Scale);
             Y += 8 * Scale;
         }
-        const float CreateW = MeasureBrowserText(Font, 12 * Scale, "Create project").x + 40 * Scale;
+        const float CreateW = MeasureBrowserText(Font, 12 * Scale, Face.Action).x + 40 * Scale;
         const float CancelW = MeasureBrowserText(Font, 12 * Scale, "Cancel").x + 28 * Scale;
         float BX = Origin.x + Pad + InnerW - CreateW;
-        if (DrawBrowserPrimary("create-go", ImVec2(BX, Y), "Create project", BrowserIcon::Plus, false, Frame,
+        if (DrawBrowserPrimary("create-go", ImVec2(BX, Y), Face.Action, BrowserIcon::Plus, false, Frame,
                 12 * Scale, 20 * Scale, 36 * Scale))
         {
-            if (CreateProject(DecodeContentPath(DestinationText.data()), NameText.data()))
+            if (CreateDocument(CreationChoice, DecodeContentPath(DestinationText.data()), NameText.data()))
             {
                 CreateError.clear();
                 Creating = false;
                 ImGui::CloseCurrentPopup();
-                AttachPaths({SelectedPath}, true);
             }
             else CreateError = Diagnostic;
         }
@@ -2724,6 +2963,8 @@ void ProjectBrowserPanel::ConstructCreationModal()
             ImGui::CloseCurrentPopup();
         }
         Y += 36 * Scale + Pad;
+        // 📝 The extent item starts at the dialog origin: placed after the last button, it doubled the dialog's height.
+        ImGui::SetCursorScreenPos(Origin);
         ImGui::Dummy(ImVec2(DialogW, Y - Origin.y));
         if (!Open)
         {

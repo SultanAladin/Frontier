@@ -36,13 +36,33 @@ public:
     // 📝 True once the selected program's image has been recorded and its sampling submission retired.
     [[nodiscard]] bool QuerySelectedReady() const noexcept;
     [[nodiscard]] uint64_t QueryDispatchCount() const noexcept;
+    // 📝 Pure pooled-tier decision (no GPU access, no allocation) extracted out of RefitSlot so it can be
+    // exercised directly by a headless CPU-only regression test: given the slot's current pooled tier
+    // index (5 == none fitted yet) and the requested Segments/DisplayExtent, returns which of the 5 pooled
+    // tiers (128/256/512/1024/2048, index 0..4) the slot should sit at, applying the same one-tier-up
+    // hysteresis guard RefitSlot uses against a jittering device-pixel hint near a tier boundary.
+    [[nodiscard]] static size_t SelectPooledTier(size_t ActiveTier, size_t Segments, uint32_t DisplayExtent) noexcept;
+    // 📝 Pure resubmission decision (no GPU access) extracted out of SelectProgram/SelectSurfaceProgram's
+    // "content unchanged" branch so it can be exercised directly by a headless CPU-only regression test:
+    // given whether this frame's RefitSlot call actually re-tiled the slot (a real change requiring a
+    // fresh bake) and whether the slot has ever completed a submission before, decides whether this frame
+    // still needs to ask the device for a new dispatch. Unchanged, already-baked content must NOT keep
+    // asking: a pipelined device only advances its completed-serial a frame or two behind whatever was
+    // just submitted, so resubmitting every single frame for no reason keeps the slot's SampledSerial
+    // perpetually ahead of Completed and QuerySelectedReady() never reports ready — the "Baking..." badge
+    // sticks forever even on a perfectly idle, unmodified canvas.
+    [[nodiscard]] static bool RequiresUnchangedResubmission(bool Retiled, uint64_t SampledSerial) noexcept;
 private:
     struct CoverageSlot
     {
-        // 📝 One retained rasterization per bake extent (128/256/512/1024/2048): reselecting a pattern reuses
-        // its extent instead of destroying pipelines on the UI thread, and keeps the last valid image live.
-        std::array<std::unique_ptr<VectorCoverageRasterization>, 5> Extents;
-        size_t Active = 5;
+        // 📝 One retained rasterization per bake extent (128/256/512/1024/2048/4096): reselecting a pattern
+        // reuses its extent instead of destroying pipelines on the UI thread, and keeps the last valid
+        // image live. 4096 matches the documented ceiling both canvas panels already clamp their
+        // zoomed, device-pixel display size to (and VectorCoverageRasterization::Initialize's own
+        // 4096x4096 image validation already allows) — below this, a sufficiently zoomed-in canvas
+        // outgrows its own baked texture and visibly pixelates, a stretched raster past its resolution.
+        std::array<std::unique_ptr<VectorCoverageRasterization>, 6> Extents;
+        size_t Active = 6;
         std::optional<VectorCoverageProgram> Program;
         std::optional<VectorSurfaceProgram> SurfaceProgram;
         uint64_t SampledSerial = 0;

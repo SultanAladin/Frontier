@@ -34,6 +34,15 @@ std::filesystem::path ResolveContentDirectory(const std::filesystem::path &Reque
     if (Generic != "EngineContent" && Generic != "EngineContent/FontArchives" && Generic != "EngineContent/Icons" && Generic != "EngineContent/Defaults")
         return fs::absolute(Requested);
 
+    // Explicit project Content/ override (compile-time staged EngineContent imports inside <Project>/Content/)
+    if (const char *EnvContent = std::getenv("FRONTIER_PROJECT_CONTENT_DIR"); EnvContent && *EnvContent)
+    {
+        const std::string SubTail = (Generic.size() > 14u) ? Generic.substr(14u) : std::string{};
+        const fs::path    Staged  = SubTail.empty() ? fs::path(EnvContent) : (fs::path(EnvContent) / SubTail);
+        if (fs::is_directory(Staged, Failure))
+            return fs::absolute(Staged);
+    }
+
     fs::path Executable;
 #ifdef _WIN32
     wchar_t     ExecutablePath[32768];
@@ -62,6 +71,27 @@ std::filesystem::path ResolveContentDirectory(const std::filesystem::path &Reque
             Directory = Enclosure;
         }
     }
+
+    // Standalone project fallback when EngineContent/ is absent at runtime:
+    // compile-time staged assets live inside <Project>/Content/<Subpath> (including FontArchives, Icons, Defaults).
+    const std::string SubTail = (Generic.size() > 14u) ? Generic.substr(14u) : std::string{};
+    if (const char *EnvContent = std::getenv("FRONTIER_PROJECT_CONTENT_DIR"); EnvContent && *EnvContent)
+    {
+        const fs::path StagedFromEnv = SubTail.empty() ? fs::path(EnvContent) : (fs::path(EnvContent) / SubTail);
+        if (fs::is_directory(StagedFromEnv, Failure))
+            return fs::absolute(StagedFromEnv);
+    }
+    const fs::path StagedInCwd = SubTail.empty() ? fs::path("Content") : (fs::path("Content") / SubTail);
+    if (fs::is_directory(StagedInCwd, Failure))
+        return fs::absolute(StagedInCwd);
+    if (!Executable.empty())
+    {
+        const fs::path StagedBesideExe = SubTail.empty() ? (Executable.parent_path() / "Content")
+                                                         : (Executable.parent_path() / "Content" / SubTail);
+        if (fs::is_directory(StagedBesideExe, Failure))
+            return StagedBesideExe;
+    }
+
     return fs::absolute(Requested);
 }
 

@@ -21,6 +21,7 @@ struct ApplicationWindowCallbacks
 {
     std::string Title = "Frontier";
     bool MaterialRendering = false;
+    bool SceneRendering = false;   // [-] a Vulkan 1.3 presentation device the scene viewport can borrow
     std::function<void(VulkanPresentation &)> InitializeVulkan;
     std::function<void(GLFWwindow *)> Initialize;
     std::function<void()> ConfigurePlatform;

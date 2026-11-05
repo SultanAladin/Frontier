@@ -188,7 +188,7 @@ int main()
         MaterialLibrary Library;
         Confirm(Library.ConfigureDirectory("EngineContent/MaterialArchives/TextureStudio"), "Catalogue missing.");
         Confirm(Library.Refresh(), "Catalogue refresh failed.");
-        Confirm(Library.QueryEntries().size() == 131, "Catalogue no longer holds the HTML preset count.");
+        Confirm(Library.QueryEntries().size() == 142, "Catalogue no longer holds the shipped preset count.");
         const std::set<std::string> CamouflageIds{"woodland-camouflage-fabric", "woodland-camouflage-fabric-smooth",
             "camouflage-ballistic-polymer", "camouflage-ballistic-polymer-smooth"};
         size_t CamouflageFound = 0;
@@ -222,6 +222,19 @@ int main()
             Confirm(AlbedoCoded, "Camouflage preset has no coded albedo channel.");
         }
         Confirm(CamouflageFound == CamouflageIds.size(), "Camouflage catalogue entries are missing.");
+        Confirm(Library.OpenMaterial("alpine-mica-schist.material"), "Alpine Mica Schist failed to open.");
+        {
+            const auto Active = DecodeSurfaceMaterial(Library.QuerySource());
+            Confirm(Active.Authoring.has_value(), "Alpine Mica Schist authoring document is missing.");
+            const auto Before = Library.QueryApplied()->AuthoringMaps[0].FloatRgba;
+            auto Toggled = *Active.Authoring;
+            bool DisabledFill = false;
+            for (auto &Layer : Toggled.Layers)
+                if (Layer.Model == "detail" && Layer.Enabled) { Layer.Enabled = false; DisabledFill = true; break; }
+            Confirm(DisabledFill && Library.ConfigureAuthoring(Toggled), "Disabling rock Fill layer failed.");
+            const auto &After = Library.QueryApplied()->AuthoringMaps[0].FloatRgba;
+            Confirm(Before != After, "Toggling a Fill layer did not update compiled AuthoringMaps.");
+        }
 
         std::cout << "{\"result\":\"passed\",\"checks\":" << Assertions << "}\n";
         return 0;

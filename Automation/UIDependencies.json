@@ -58,6 +58,25 @@
       "proof": true,
       "origin": "PNG/JPEG material texture decoding; stb_image v2.30",
       "witness": "stb_image.h"
+    },
+    {
+      "name": "volk",
+      "repository": "zeux/volk",
+      "revision": "a8da8ef3368482b0ee9b0ec0c6079a16a89c6924",
+      "url": "https://codeload.github.com/zeux/volk/tar.gz/a8da8ef3368482b0ee9b0ec0c6079a16a89c6924",
+      "sha256": "9ded768eb21498868b6c2e0ebd8006b658f40460202f8b80d827c848b4aa8ece",
+      "proof": true,
+      "origin": "SolidArc pin (Experimental/SolidArc/Native/Tooling/PrepareSolidArcDependencies.py)",
+      "witness": "volk.h"
+    },
+    {
+      "name": "JoltPhysics",
+      "origin": "JoltPhysics v5.6.0 (MIT): rigid bodies for Frontier/Extensions/Physics, built through Jolt/Jolt.cmake",
+      "repository": "jrouwe/JoltPhysics",
+      "revision": "e77f175595e64cb44218cc9d9d56fc365ad0e36a",
+      "sha256": "1f32328fb763135de10a244568d6ccb2ed9b1e6593fafe6dc6db5b2719d330bd",
+      "url": "https://codeload.github.com/jrouwe/JoltPhysics/tar.gz/e77f175595e64cb44218cc9d9d56fc365ad0e36a",
+      "witness": "Jolt/Jolt.cmake"
     }
   ]
 }

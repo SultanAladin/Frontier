@@ -75,7 +75,9 @@ bool ComputeVectorCoverageFootprint(const VectorCoverageInstruction &Instruction
         }
     // 📝 Pad by whichever of fill or stroke reaches further: fill fades out at Antialias/2 past the raw
     // outline, stroke straddles the outline and fades out at half its width plus another Antialias/2.
-    const float StrokeHalfWidth = std::max(Instruction.Transform[1], 0.f) * .5f;
+    // The width itself follows QueryVectorCoverageStrokeWidth (closed+filled cubic contours read their
+    // independent Paint[0] outline width) or tiles would cull exactly the pixels the outline paints.
+    const float StrokeHalfWidth = std::max(QueryVectorCoverageStrokeWidth(Instruction), 0.f) * .5f;
     const float Padding = std::max(Antialias * .5f, StrokeHalfWidth + Antialias * .5f);
     Bounds = {MinX - Padding, MinY - Padding, MaxX + Padding, MaxY + Padding};
     return true;

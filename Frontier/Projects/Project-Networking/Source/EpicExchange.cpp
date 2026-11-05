@@ -24,6 +24,7 @@
 #include <eos_userinfo.h>
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <cstdio>
@@ -875,4 +876,15 @@ bool CopyEpicIdentityToken(char* Out, std::size_t Capacity) noexcept
 
 void* InspectEpicPlatformHandle() noexcept { return Platform; }
 void* InspectEpicAccountHandle() noexcept { return LocalAccount; }
+void* InspectEpicProductUser() noexcept { return LocalProductUser; }
+bool CopyLocalProductUserString(char* Out, std::size_t Capacity) noexcept
+{
+    if (!Out || Capacity == 0)
+        return false;
+    Out[0] = 0;
+    if (!LocalProductUser || EOS_ProductUserId_IsValid(LocalProductUser) != EOS_TRUE || Capacity > INT32_MAX)
+        return false;
+    int32_t Written = static_cast<int32_t>(Capacity);
+    return EOS_ProductUserId_ToString(LocalProductUser, Out, &Written) == EOS_EResult::EOS_Success;
+}
 }

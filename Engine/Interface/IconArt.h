@@ -16,7 +16,7 @@ enum class IconSymbol : uint16_t {
     Count
 };
 
-enum class IconDomain : uint8_t { Editor, Texture, Fluid };
+enum class IconDomain : uint8_t { Editor, Texture, Fluid, SolidArc };
 
 enum class IconResult : uint8_t { Ready, Unsupported, Missing, DecodeFailure, InvalidRequest, RuntimeFailure };
 // Diagnostic rendering is opt-in. Unsupported SVG features must never masquerade as approved artwork.

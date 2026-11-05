@@ -27,6 +27,11 @@ struct DockPanelSpecification
     bool                  Open = true;
     std::function<void()> SuspendContent;
     std::function<bool()> Available;
+    // 📝 Opt-in: no scrollbar on the panel window; the wheel still scrolls it (Patch H eases it and springs back from
+    //    overscroll). Off by default, so every other host keeps its panels as they were.
+    bool                  WheelScrollOnly = false;
+    std::function<void()> ConstructFooter;
+    float FooterHeight = 28;
 };
 
 class PanelDockspace

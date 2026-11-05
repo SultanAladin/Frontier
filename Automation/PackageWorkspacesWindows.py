@@ -86,8 +86,8 @@ def Main():
         for Typeface in Catalogue['faces']:
             if Digest(Installation / 'EngineContent/FontArchives' / Typeface['file']) != Typeface['sha256']:
                 raise RuntimeError('Packaged font differs: ' + Typeface['file'])
-        if len(list((Installation / 'EngineContent/MaterialArchives/TextureStudio').glob('*.material'))) != 131:
-            raise RuntimeError('Expected complete 131-material catalogue')
+        if len(list((Installation / 'EngineContent/MaterialArchives/TextureStudio').glob('*.material'))) != 142:
+            raise RuntimeError('Expected complete 142-material catalogue')
         Notices = Installation / 'Notices'
         Notices.mkdir()
         for Package, Filename in [('imgui', 'LICENSE.txt'), ('glfw', 'LICENSE.md'), ('tomlpp', 'LICENSE'),
@@ -120,10 +120,14 @@ def Main():
         }
         (Installation / 'Package.json').write_text(json.dumps(Metadata, indent=2) + '\n', encoding='utf-8')
         Arguments.output.parent.mkdir(parents=True, exist_ok=True)
+        # 📝 One top-level folder named after the archive itself: every download extracts to a single
+        # self-contained directory instead of scattering loose files into - and silently merging with -
+        # older extractions already sitting in the destination folder under lookalike names.
+        Root = Path(Arguments.output.stem)
         with zipfile.ZipFile(Arguments.output, 'w', zipfile.ZIP_DEFLATED) as Archive:
             for Filename in sorted(Installation.rglob('*')):
                 if Filename.is_file():
-                    Archive.write(Filename, Filename.relative_to(Installation))
+                    Archive.write(Filename, Root / Filename.relative_to(Installation))
         with zipfile.ZipFile(Arguments.output) as Archive:
             if Archive.testzip() is not None:
                 raise RuntimeError('ZIP integrity validation failed')

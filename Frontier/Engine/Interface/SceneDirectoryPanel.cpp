@@ -54,6 +54,14 @@ void SceneDirectoryPanel::Synchronize(const SceneDirectory& Directory)
 {
     std::vector<RecordToken> Order;
     Directory.CopyRegistrationOrder(Order);
+    if (!VisibleTypes.empty()) std::erase_if(Order,[&](RecordToken Token)
+    {
+        return !VisibleTypes.contains(Directory.QueryMetadata(Token).SubtitleCategory);
+    });
+    const std::unordered_set<uint64_t> Included = [&]
+    {
+        std::unordered_set<uint64_t> Tokens; for (auto Token : Order) Tokens.insert(Token.Value); return Tokens;
+    }();
     Total = static_cast<uint32_t>(Order.size());
 
     std::unordered_map<uint64_t, std::vector<RecordToken>> Children;
@@ -61,7 +69,7 @@ void SceneDirectoryPanel::Synchronize(const SceneDirectory& Directory)
     for (const RecordToken Token : Order)
     {
         const RecordToken Parent = Directory.QueryParent(Token);
-        if (Parent.IsValid() && Directory.QueryRegistered(Parent))
+        if (Parent.IsValid() && Included.contains(Parent.Value))
         {
             Children[Parent.Value].push_back(Token);
         }
@@ -168,6 +176,88 @@ std::optional<RecordClassification> SceneDirectoryPanel::TakeSpawnRequest()
     std::optional<RecordClassification> Request = PendingSpawn;
     PendingSpawn.reset();
     return Request;
+}
+
+void SceneDirectoryPanel::ConfigureConstructibleTypes(std::vector<std::pair<std::string, std::string>> TypeEntries)
+{
+    ConstructibleTypes = std::move(TypeEntries);
+}
+
+void SceneDirectoryPanel::RequestConstructRecord(std::string TypeIdentifier)
+{
+    if (!TypeIdentifier.empty())
+    {
+        PendingConstructTypes.push_back(std::move(TypeIdentifier));
+    }
+}
+
+std::optional<std::string> SceneDirectoryPanel::ConsumeConstructRequest()
+{
+    if (PendingConstructTypes.empty())
+    {
+        return std::nullopt;
+    }
+    std::string Request = std::move(PendingConstructTypes.front());
+    PendingConstructTypes.erase(PendingConstructTypes.begin());
+    return Request;
+}
+
+void SceneDirectoryPanel::RequestDeleteRecord(RecordToken Token)
+{
+    if (Token.IsValid())
+    {
+        PendingDeleteTokens.push_back(Token);
+    }
+}
+
+std::optional<RecordToken> SceneDirectoryPanel::ConsumeDeleteRequest()
+{
+    if (PendingDeleteTokens.empty())
+    {
+        return std::nullopt;
+    }
+    const RecordToken Request = PendingDeleteTokens.front();
+    PendingDeleteTokens.erase(PendingDeleteTokens.begin());
+    return Request;
+}
+
+void SceneDirectoryPanel::RequestDuplicateRecord(RecordToken Token)
+{
+    if (Token.IsValid()) PendingDuplicateTokens.push_back(Token);
+}
+
+std::optional<RecordToken> SceneDirectoryPanel::ConsumeDuplicateRequest()
+{
+    if (PendingDuplicateTokens.empty()) return std::nullopt;
+    const RecordToken Request = PendingDuplicateTokens.front();
+    PendingDuplicateTokens.erase(PendingDuplicateTokens.begin());
+    return Request;
+}
+
+void SceneDirectoryPanel::RequestRenameRecord(RecordToken Token, std::string Name)
+{
+    if (Token.IsValid() && !Name.empty()) PendingRenames.emplace_back(Token, std::move(Name));
+}
+
+std::optional<std::pair<RecordToken, std::string>> SceneDirectoryPanel::ConsumeRenameRequest()
+{
+    if (PendingRenames.empty()) return std::nullopt;
+    std::pair<RecordToken, std::string> Request = std::move(PendingRenames.front());
+    PendingRenames.erase(PendingRenames.begin());
+    return Request;
+}
+
+void SceneDirectoryPanel::BeginRename(RecordToken Token)
+{
+    Renaming    = Token;
+    RenameFocus = Token.IsValid();
+}
+
+bool SceneDirectoryPanel::ConsumeConstructDialogRequest()
+{
+    const bool Requested     = ConstructDialogRequested;
+    ConstructDialogRequested = false;
+    return Requested;
 }
 
 void SceneDirectoryPanel::Select(RecordToken Token)

@@ -938,4 +938,26 @@ void DetachRoomRuntime()
     ReadyDesired = AttributesDirty = MatchRecorded = false; AutoArmed = true; Dummies = 3; DummyReady.fill(false);
     LiveSettingsDirty = UnregisterPending = JoinSessionPending = false;
 }
+
+bool FindLobbyMemberUser(const char* ProductUser, void*& OutUser) noexcept
+{
+    OutUser = nullptr;
+    if (!ProductUser || !*ProductUser)
+        return false;
+    for (EOS_ProductUserId Member : RealMembers)
+    {
+        if (!Member || EOS_ProductUserId_IsValid(Member) != EOS_TRUE)
+            continue;
+        char Text[64]{};
+        int32_t Written = static_cast<int32_t>(sizeof(Text));
+        if (EOS_ProductUserId_ToString(Member, Text, &Written) != EOS_EResult::EOS_Success)
+            continue;
+        if (std::strcmp(Text, ProductUser) == 0)
+        {
+            OutUser = Member;
+            return true;
+        }
+    }
+    return false;
+}
 }

@@ -29,14 +29,15 @@ void RequireBrowserSuccess(VkResult Result)
 
 std::vector<uint32_t> DecodeBrowserShader(const std::filesystem::path &Path)
 {
+    // 📝 The path is part of the message: the start-up failure dialog is often the only thing a tester can report.
     std::ifstream Input(Path, std::ios::binary | std::ios::ate);
     const auto Bytes = Input.tellg();
     if (!Input || Bytes < 20 || Bytes > 16777216 || Bytes % 4)
-        throw std::runtime_error("Missing or malformed browser shader archive.");
+        throw std::runtime_error("Missing or malformed browser shader archive: " + DiagnosticJournal::EncodePath(Path));
     std::vector<uint32_t> Words(size_t(Bytes) / 4);
     Input.seekg(0);
     if (!Input.read(reinterpret_cast<char *>(Words.data()), Bytes) || Words[0] != 0x07230203)
-        throw std::runtime_error("Invalid browser shader archive.");
+        throw std::runtime_error("Invalid browser shader archive: " + DiagnosticJournal::EncodePath(Path));
     return Words;
 }
 
@@ -561,13 +562,19 @@ struct BrowserPreviewRendering::RenderingAllocation
         const int Category = int(Configuration.Category);
         if (Category < 0 || Category > 2 || Configuration.Revision > 2 || Configuration.View > 16)
             throw std::runtime_error("Browser preview configuration is outside the reference catalogue.");
-        const std::string Key =
-            std::to_string(Category) + ":" + std::to_string(Configuration.Revision);
+        // 📝 SolidArc: document triangles (already in the browser frame and vertex layout) replace the fixture.
+        const bool DocumentCondition = Configuration.Geometry != nullptr;
+        if (DocumentCondition && (Configuration.Geometry->empty() || Configuration.Geometry->size() % 30 != 0))
+            throw std::runtime_error("Browser document geometry is not a whole number of triangles.");
+        const std::string Key = DocumentCondition
+            ? "document:" + Configuration.GeometryKey
+            : std::to_string(Category) + ":" + std::to_string(Configuration.Revision);
         const auto Cached = Geometries.find(Key);
         if (Cached != Geometries.end()) return Cached->second;
         static const std::vector<float> Actuator = GenerateBrowserActuatorTriangles();
-        const std::vector<float> Triangles =
-            GenerateBrowserPreviewTriangles(Actuator, Category, Configuration.Revision);
+        const std::vector<float> Triangles = DocumentCondition
+            ? *Configuration.Geometry
+            : GenerateBrowserPreviewTriangles(Actuator, Category, Configuration.Revision);
         const std::vector<float> Contours = GenerateBrowserDraftingContours(Triangles);
         auto Geometry = std::make_shared<BrowserGeometry>();
         Geometry->TriangleVertices = uint32_t(Triangles.size() / 10);
@@ -825,7 +832,8 @@ bool SameBrowserCamera(const BrowserPreviewCamera &Left, const BrowserPreviewCam
 bool SameBrowserConfiguration(const BrowserPreviewConfiguration &Left, const BrowserPreviewConfiguration &Right)
 {
     return Left.Category == Right.Category && Left.View == Right.View && Left.Revision == Right.Revision &&
-           Left.Sketch == Right.Sketch && Left.HiddenEdges == Right.HiddenEdges;
+           Left.Sketch == Right.Sketch && Left.HiddenEdges == Right.HiddenEdges &&
+           Left.GeometryKey == Right.GeometryKey;
 }
 } // namespace
 

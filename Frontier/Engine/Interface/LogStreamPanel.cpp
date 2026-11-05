@@ -191,7 +191,7 @@ void LogStreamPanel::ClearView()
     TotalCount       = 0;
     DroppedCount     = 0;
     NewBelow         = 0;
-    SelectedSequence = 0;
+    ExpandedSequences.clear();
     FiltersDirty     = false;
 }
 
@@ -211,14 +211,17 @@ void LogStreamPanel::JumpToLatest() noexcept
     NewBelow   = 0;
 }
 
-void LogStreamPanel::SelectVisible(size_t Index)
+void LogStreamPanel::ToggleExpansion(size_t Index)
 {
     if (Index >= Visible.size())
     {
         return;
     }
     const uint64_t Sequence = Visible[Index].Entry.Sequence;
-    SelectedSequence        = SelectedSequence == Sequence ? 0 : Sequence;
+    if (ExpandedSequences.erase(Sequence) == 0)
+    {
+        ExpandedSequences.insert(Sequence);
+    }
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -233,28 +236,6 @@ bool LogStreamPanel::QuerySeverityEnabled(LogSeverity Severity) const noexcept
 bool LogStreamPanel::QueryCategoryEnabled(uint32_t Token) const noexcept
 {
     return DisabledCategories.count(Token) == 0;
-}
-
-const LogStreamVisibleEntry* LogStreamPanel::QuerySelected() const noexcept
-{
-    const int64_t Index = QuerySelectedIndex();
-    return Index < 0 ? nullptr : &Visible[static_cast<size_t>(Index)];
-}
-
-int64_t LogStreamPanel::QuerySelectedIndex() const noexcept
-{
-    if (SelectedSequence == 0)
-    {
-        return -1;
-    }
-    for (size_t Index = 0; Index < Visible.size(); ++Index)
-    {
-        if (Visible[Index].Entry.Sequence == SelectedSequence)
-        {
-            return static_cast<int64_t>(Index);
-        }
-    }
-    return -1;
 }
 
 uint64_t LogStreamPanel::QuerySeverityCount(LogSeverity Severity) const noexcept
@@ -324,9 +305,10 @@ void LogStreamPanel::AppendVisible(const LogEntry& Entry)
                     Row.Entry.WallMicros  = Entry.WallMicros;
                     Row.Entry.Sequence    = Entry.Sequence;
                     CollapseKeys[Key]     = Entry.Sequence;
-                    if (SelectedSequence == Found->second)
+                    // An open fold stays open: it now answers to its newest sequence.
+                    if (ExpandedSequences.erase(Found->second) > 0)
                     {
-                        SelectedSequence = Entry.Sequence;
+                        ExpandedSequences.insert(Entry.Sequence);
                     }
                     return;   // [rows] - Folded: no new row, and the new-entries pill does not advance
                 }
@@ -371,6 +353,7 @@ void LogStreamPanel::TrimVisible() noexcept
 {
     while (Visible.size() > VisibleLimit)
     {
+        ExpandedSequences.erase(Visible.front().Entry.Sequence);
         Visible.pop_front();
     }
 }

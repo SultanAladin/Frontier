@@ -21,6 +21,7 @@ namespace
 {
 DiagnosticReception Reception = nullptr;
 bool PremiumToggle = false;
+bool NetworkingEnabled = true;
 TransportKind Wanted = TransportKind::None;
 TransportKind Active = TransportKind::None;
 TransportPhase Phase = TransportPhase::Idle;
@@ -140,10 +141,20 @@ bool ResolvePremiumAccess() noexcept
 
 void SetPremiumMultiplayer(bool Enabled) noexcept { PremiumToggle = Enabled; }
 
+void SetNetworkingEnabled(bool Enabled) noexcept { NetworkingEnabled = Enabled; }
+
+bool QueryNetworkingEnabled() noexcept { return NetworkingEnabled; }
+
 bool StartMultiplayerTransport(DiagnosticReception ActiveReception) noexcept
 {
     StopMultiplayerTransport();
     Reception = ActiveReception;
+    if (!NetworkingEnabled)
+    {
+        std::snprintf(Reading, sizeof(Reading), "transport=disabled networking_toggle_off");
+        Emit(Reading);
+        return false;
+    }
     FellBack = false;
     Wanted = SelectTransportKind(ResolvePremiumAccess(), PhotonLinkAvailable());
     Active = TransportKind::None;

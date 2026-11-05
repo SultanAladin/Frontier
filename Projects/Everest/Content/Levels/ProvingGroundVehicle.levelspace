@@ -1,0 +1,2768 @@
+[level]
+format_version = 1
+name = 'Everest — Default Scene'
+
+[[records]]
+identity = 'rec_1'
+name = 'Render settings'
+type = 'RenderPipeline'
+
+    [records.configuration]
+    analytic_illumination = false
+    auto_exposure = true
+    card_radiosity = true
+    card_tile_budget = 0
+    diffuse_colour_sigma = 4.0
+    diffuse_minimum_weight = 0.079999998211860657
+    diffuse_tally_limit = 24
+    diffuse_wavelet_levels = 4
+    direct_shadow = true
+    distance_inspection = 1
+    enabled = true
+    exposure_ev = 0.11999999731779099
+    firefly_filter = true
+    global_illumination = true
+    glossy_colour_sigma = 3.0
+    glossy_minimum_weight = 0.11999999731779099
+    glossy_tally_limit = 12
+    glossy_wavelet_levels = 3
+    hardware_ray_query = true
+    incandescence_scale = 1.0
+    indirect_scale = 1.0
+    initial_candidates = 2
+    inspection_mode = 0
+    live_refresh = true
+    max_bounces = 3
+    mirror_filter = false
+    mirror_trace = false
+    multi_bounce_nee = true
+    penumbra_filter = false
+    quality_tier = 2
+    radiance_refresh = true
+    ray_traced_reflections = true
+    ray_traced_shadows = true
+    reflection_bounces = 2
+    reflection_roughness = 0.80000001192092896
+    reflection_scale = 1.0
+    reflections = true
+    render_scale = 1.0
+    russian_roulette = true
+    sky_scale = 1.0
+    solar_disc = false
+    spatial_count = 5
+    spatial_radius = 20.0
+    spatial_reuse = true
+    stratified_sun = false
+    target_rate = 60
+    temporal_aa = true
+    temporal_reuse = true
+    temporal_tally_limit = 20.0
+    trace_scale = 2
+    variance_filter = true
+    virtualized_geometry = false
+    virtualized_stream_slots = 0
+    visibility_reuse = true
+
+[[records]]
+identity = 'rec_2'
+name = 'Sun'
+type = 'Solar'
+
+    [records.configuration]
+    angular_diameter_deg = 0.52999997138977051
+    aureole_gain = 1.0
+    azimuth_deg = 132.0
+    calendar_date = '2026-10-20'
+    colour_source = 0
+    day_cycle = false
+    day_duration_h = 6.0
+    disc_visible = true
+    elevation_deg = 38.0
+    enabled = true
+    illuminance_klx = 98.0
+    kelvin = 5778.0
+    latitude_deg = -26.180000305175781
+    light_shafts = true
+    local_solar_h = 12.0
+    longitude_deg = 28.319999694824219
+    ray_shadow = true
+    time_linked = false
+    tint_linear = [ 1.0, 1.0, 1.0 ]
+    utc_offset_h = 2.0
+
+[[records]]
+identity = 'rec_3'
+name = 'Lens Flare'
+parent = 'rec_2'
+type = 'OpticalFlare'
+
+    [records.configuration]
+    anamorphic_streak = true
+    aperture_blades = 7
+    chromatic_dispersion = 0.18000000715255737
+    diffraction_starburst = true
+    enabled = true
+    ghost_brightness = 0.30000001192092896
+    ghost_count = 6
+    ghost_shape = 6
+    ghost_spacing = 1.0
+    halo_brightness = 0.20000000298023224
+    halo_radius = 0.41999998688697815
+    halo_width = 0.02500000037252903
+    intensity = 0.62000000476837158
+    luminance_threshold = 1.7999999523162842
+    preset = 0
+    preview_position_x = 0.2800000011920929
+    preview_position_y = 0.43000000715255737
+    ray_count = 6
+    rotation_degrees = 0.0
+    spread = 1.0
+    streak_strength = 0.30000001192092896
+    warm_streak = false
+
+[[records]]
+identity = 'rec_4'
+name = 'Clouds'
+type = 'Clouds'
+
+    [records.configuration]
+    anvil_shaping = 0.5
+    base_altitude_m = 1750.0
+    bounds_shape = 0
+    cast_shadows = true
+    ceiling_metres = 14000.0
+    centre_metres = [ 0.0, 0.0, 400.0 ]
+    coverage = 0.41999998688697815
+    density = 0.85000002384185791
+    drift_mps = 12.0
+    edge_erosion = 0.30000001192092896
+    edge_softness = 0.5
+    enabled = true
+    feature_scale = 1.0
+    follow_wind = true
+    formation = 2
+    half_extents_metres = [ 300.0, 300.0, 150.0 ]
+    light_absorption = 0.15000000596046448
+    light_samples = 2
+    local_feature_metres = 30.0
+    local_formation = 1
+    local_samples = 16
+    local_volume = false
+    phase_anisotropy = 0.34999999403953552
+    powder_response = 0.44999998807907104
+    resolution_percent = 35
+    shadow_samples = 6
+    shadow_softness_metres = 35.0
+    shadow_span_metres = 6000.0
+    shadow_strength = 0.64999997615814209
+    silver_lining = 0.72000002861022949
+    sky_samples = 12
+    temporal_reprojection = true
+    thickness_m = 1350.0
+
+[[records]]
+identity = 'rec_5'
+name = 'Local Cloud'
+type = 'Clouds'
+
+    [records.configuration]
+    anvil_shaping = 0.5
+    base_altitude_m = 1650.0
+    bounds_shape = 0
+    cast_shadows = true
+    ceiling_metres = 14000.0
+    centre_metres = [ 0.0, 0.0, 400.0 ]
+    coverage = 0.43999999761581421
+    density = 0.85000002384185791
+    drift_mps = 12.0
+    edge_erosion = 0.30000001192092896
+    edge_softness = 0.5
+    enabled = false
+    feature_scale = 1.0
+    follow_wind = true
+    formation = 2
+    half_extents_metres = [ 300.0, 300.0, 150.0 ]
+    light_absorption = 0.15000000596046448
+    light_samples = 2
+    local_feature_metres = 30.0
+    local_formation = 1
+    local_samples = 16
+    local_volume = true
+    phase_anisotropy = 0.34999999403953552
+    powder_response = 0.44999998807907104
+    resolution_percent = 35
+    shadow_samples = 6
+    shadow_softness_metres = 35.0
+    shadow_span_metres = 6000.0
+    shadow_strength = 0.64999997615814209
+    silver_lining = 0.72000002861022949
+    sky_samples = 12
+    temporal_reprojection = true
+    thickness_m = 1400.0
+
+[[records]]
+identity = 'rec_6'
+name = 'Local Volumetric Fog'
+type = 'Fog'
+
+    [records.configuration]
+    absorption = 0.079999998211860657
+    aerial_density = 3.9999998989515007e-05
+    aerial_enabled = true
+    aerial_mie_blend = 0.5
+    aerial_only = false
+    aerial_start_metres = 100.0
+    albedo = [ 0.72000002861022949, 0.80000001192092896, 0.89999997615814209 ]
+    anisotropy = 0.55000001192092896
+    base_altitude_m = 0.0
+    base_density = 0.014000000432133675
+    bounds_shape = 0
+    centre_metres = [ 30.0, 0.0, 2.5 ]
+    density_falloff = true
+    edge_softness = 0.44999998807907104
+    enabled = false
+    follow_wind = true
+    froxel_grid = true
+    half_extents_metres = [ 18.0, 18.0, 4.0 ]
+    height_falloff = 0.11999999731779099
+    heterogeneity = 0.75
+    independent_wind_mps = 0.80000001192092896
+    local_density = 0.34999999403953552
+    local_samples = 28
+    local_volume = true
+    noise_scale_metres = 5.0
+    ray_shadows = true
+    self_shadow = true
+    start_distance_m = 8.0
+    sun_scatter = 0.5
+    tint_linear = [ 0.51999998092651367, 0.62000000476837158, 0.68999999761581421 ]
+
+[[records]]
+identity = 'rec_7'
+name = 'Atmosphere'
+type = 'Atmosphere'
+
+    [records.configuration]
+    aerial_perspective = true
+    air_mass = true
+    atmosphere_thickness_km = 80.0
+    enabled = true
+    ground_albedo = [ 0.30000001192092896, 0.30000001192092896, 0.30000001192092896 ]
+    horizon_glow = 1.0
+    line_at_civil_only = true
+    mie_g = 0.80000001192092896
+    mie_height_m = 1200.0
+    mie_turbidity = 2.2999999523162842
+    multiple_scattering = true
+    ozone = 1.0
+    planet_radius_km = 6360.0
+    rayleigh = 1.0
+    rayleigh_height_m = 8000.0
+    sky_scale = 1.0
+    sky_tint = [ 1.0, 1.0, 1.0 ]
+    tier_samples = 40
+    use_baked = false
+    white_line = 1.0
+
+[[records]]
+identity = 'rec_8'
+name = 'Stars'
+type = 'Stars'
+
+    [records.configuration]
+    enabled = true
+    halo_gain = 1.0
+    hipparcos_count = 5000
+    limiting_magnitude = 6.0
+    magnitude_gain = 1.1499999761581421
+    milky_way = 0.55000001192092896
+    point_size = 1.0
+    rotation_degrees = 0.0
+    scintillation_enabled = true
+    scintillation_rate_hz = 1.0
+    sidereal_speed = 1.0
+    twinkle_depth = 0.34999999403953552
+
+[[records]]
+identity = 'rec_9'
+name = 'Moons'
+type = 'Moons'
+
+    [records.configuration]
+    earthshine = 0.2199999988079071
+    enabled = true
+    illuminate_scene = true
+    light_power = 1.0
+    primary_albedo = 0.11999999731779099
+    primary_orbit_degrees = 214.0
+    primary_phase = 0.68000000715255737
+    secondary_enabled = true
+    secondary_orbit_degrees = 64.0
+
+        [[records.configuration.instances]]
+        angular_diameter_degrees = 25.0
+        azimuth_degrees = -8.0
+        body = 0
+        brightness = 1.0
+        elevation_degrees = 38.0
+        follow_sky = false
+        glow = 0.20000000298023224
+        phase_days = 20.080400466918945
+        pitch_degrees = 0.0
+        roll_degrees = 0.0
+        spin_degrees = 0.0
+        visible = true
+
+        [[records.configuration.instances]]
+        angular_diameter_degrees = 1.6000000238418579
+        azimuth_degrees = 30.0
+        body = 1
+        brightness = 1.0
+        elevation_degrees = 25.0
+        follow_sky = false
+        glow = 0.20000000298023224
+        phase_days = 14.765000343322754
+        pitch_degrees = 0.0
+        roll_degrees = 0.0
+        spin_degrees = 0.0
+        visible = true
+
+        [[records.configuration.instances]]
+        angular_diameter_degrees = 25.0
+        azimuth_degrees = -65.0
+        body = 0
+        brightness = 1.0
+        elevation_degrees = 45.0
+        follow_sky = false
+        glow = 0.20000000298023224
+        phase_days = 14.765000343322754
+        pitch_degrees = 0.0
+        roll_degrees = 0.0
+        spin_degrees = 0.0
+        visible = false
+
+        [[records.configuration.instances]]
+        angular_diameter_degrees = 25.0
+        azimuth_degrees = 70.0
+        body = 0
+        brightness = 1.0
+        elevation_degrees = 20.0
+        follow_sky = false
+        glow = 0.20000000298023224
+        phase_days = 14.765000343322754
+        pitch_degrees = 0.0
+        roll_degrees = 0.0
+        spin_degrees = 0.0
+        visible = false
+
+[[records]]
+identity = 'rec_10'
+name = 'Venus'
+type = 'Planet'
+
+    [records.configuration]
+    apparent_diameter_deg = 0.80000001192092896
+    atmosphere_height = 0.064999997615814209
+    atmosphere_shell = true
+    azimuth_degrees = -8.0
+    band_contrast = 1.0
+    body = 0
+    brightness = 1.0
+    cloud_veil = 0.80000001192092896
+    elevation_degrees = 35.0
+    enabled = true
+    follow_sky = true
+    limb_glow = 0.85000002384185791
+    ring_inner_radius = 1.3200000524520874
+    ring_optical_depth = 1.4500000476837158
+    ring_outer_radius = 2.380000114440918
+    ring_system = false
+    roll_degrees = 0.0
+    spin_degrees = 0.0
+    surface_detail = 1.0
+    surface_tint = [ 1.0, 1.0, 1.0 ]
+    tilt_degrees = 20.0
+
+[[records]]
+identity = 'rec_11'
+name = 'Jupiter'
+type = 'Planet'
+
+    [records.configuration]
+    apparent_diameter_deg = 1.2599999904632568
+    atmosphere_height = 0.064999997615814209
+    atmosphere_shell = false
+    azimuth_degrees = -8.0
+    band_contrast = 1.0
+    body = 1
+    brightness = 1.0
+    cloud_veil = 0.80000001192092896
+    elevation_degrees = 35.0
+    enabled = true
+    follow_sky = true
+    limb_glow = 0.85000002384185791
+    ring_inner_radius = 1.3200000524520874
+    ring_optical_depth = 1.4500000476837158
+    ring_outer_radius = 2.380000114440918
+    ring_system = false
+    roll_degrees = 0.0
+    spin_degrees = 0.0
+    surface_detail = 1.0
+    surface_tint = [ 1.0, 1.0, 1.0 ]
+    tilt_degrees = 20.0
+
+[[records]]
+identity = 'rec_12'
+name = 'Mars'
+type = 'Planet'
+
+    [records.configuration]
+    apparent_diameter_deg = 0.68999999761581421
+    atmosphere_height = 0.064999997615814209
+    atmosphere_shell = false
+    azimuth_degrees = -8.0
+    band_contrast = 1.0
+    body = 2
+    brightness = 1.0
+    cloud_veil = 0.80000001192092896
+    elevation_degrees = 35.0
+    enabled = true
+    follow_sky = true
+    limb_glow = 0.85000002384185791
+    ring_inner_radius = 1.3200000524520874
+    ring_optical_depth = 1.4500000476837158
+    ring_outer_radius = 2.380000114440918
+    ring_system = false
+    roll_degrees = 0.0
+    spin_degrees = 0.0
+    surface_detail = 1.0
+    surface_tint = [ 1.0, 1.0, 1.0 ]
+    tilt_degrees = 20.0
+
+[[records]]
+identity = 'rec_13'
+name = 'Saturn'
+type = 'Planet'
+
+    [records.configuration]
+    apparent_diameter_deg = 1.0299999713897705
+    atmosphere_height = 0.064999997615814209
+    atmosphere_shell = false
+    azimuth_degrees = -8.0
+    band_contrast = 1.0
+    body = 3
+    brightness = 1.0
+    cloud_veil = 0.80000001192092896
+    elevation_degrees = 35.0
+    enabled = true
+    follow_sky = true
+    limb_glow = 0.85000002384185791
+    ring_inner_radius = 1.3200000524520874
+    ring_optical_depth = 1.4500000476837158
+    ring_outer_radius = 2.380000114440918
+    ring_system = true
+    roll_degrees = 0.0
+    spin_degrees = 0.0
+    surface_detail = 1.0
+    surface_tint = [ 1.0, 1.0, 1.0 ]
+    tilt_degrees = 20.0
+
+[[records]]
+identity = 'rec_14'
+name = 'Height Fog'
+type = 'Fog'
+
+    [records.configuration]
+    absorption = 0.079999998211860657
+    aerial_density = 3.9999998989515007e-05
+    aerial_enabled = true
+    aerial_mie_blend = 0.5
+    aerial_only = false
+    aerial_start_metres = 100.0
+    albedo = [ 0.72000002861022949, 0.80000001192092896, 0.89999997615814209 ]
+    anisotropy = 0.55000001192092896
+    base_altitude_m = 0.0
+    base_density = 0.012000000104308128
+    bounds_shape = 0
+    centre_metres = [ 30.0, 0.0, 2.5 ]
+    density_falloff = true
+    edge_softness = 0.44999998807907104
+    enabled = true
+    follow_wind = true
+    froxel_grid = true
+    half_extents_metres = [ 18.0, 18.0, 4.0 ]
+    height_falloff = 0.14000000059604645
+    heterogeneity = 0.75
+    independent_wind_mps = 0.80000001192092896
+    local_density = 0.34999999403953552
+    local_samples = 28
+    local_volume = false
+    noise_scale_metres = 5.0
+    ray_shadows = true
+    self_shadow = true
+    start_distance_m = 8.0
+    sun_scatter = 0.5
+    tint_linear = [ 0.51999998092651367, 0.62000000476837158, 0.68999999761581421 ]
+
+[[records]]
+identity = 'rec_15'
+name = 'Force Field'
+type = 'ForceField'
+
+    [records.configuration]
+    arrow_seconds = 0.5
+    arrow_spacing_pixels = 40.0
+    arrows = true
+    automatic_scale = true
+    cascades = 4
+    cell_pixels = 6.0
+    cells_per_side = 128
+    centre_metres = [ -20.0, 0.0, 8.0 ]
+    enabled = true
+    extent_metres = 100000.0
+    finest_cell_metres = 2.0
+    fixed_scale = 30.0
+    grid_resolution = 5
+    half_extents_metres = [ 20.0, 20.0, 8.0 ]
+    heatmap = true
+    heatmap_opacity = 1.0
+    include_turbulence = true
+    labels = true
+    receivers = [ 'particles', 'debris', 'precipitation', 'clouds', 'plumes', 'foliage', 'vehicles' ]
+    scene_overlay = false
+    show_cascades = false
+    slice_height_metres = 10.0
+    smooth_heatmap = true
+    timeline_duration_seconds = 120.0
+    timeline_playing = true
+    timeline_rate = 1.0
+    tracer_count = 360
+    tracers = true
+    vertical_cells = 32
+    view_contribution = 'flow'
+    view_projection = 'map'
+    view_quantity = 'speed'
+    visualize = false
+
+[[records]]
+identity = 'rec_16'
+name = 'Wind'
+parent = 'rec_15'
+type = 'Wind'
+
+    [records.configuration]
+    advect_clouds = true
+    advect_particles = true
+    advect_plumes = true
+    curl_frequency_hz = 0.25
+    direction_deg = 45.0
+    enabled = true
+    ground_height_metres = 0.0
+    gust_amplitude = 3.4000000953674316
+    gust_frequency_hz = 0.085000000894069672
+    gust_strength = 0.25
+    mesoscale_scale_metres = 18000.0
+    mesoscale_strength = 0.2199999988079071
+    seed = 7331
+    shear_per_kilometre = 0.15000000596046448
+    speed_mps = 6.5
+    turbulence = 0.44999998807907104
+    turbulence_scale_metres = 95.0
+    veer_degrees_per_kilometre = 8.0
+
+[[records]]
+identity = 'rec_17'
+name = 'Mesocyclone'
+parent = 'rec_15'
+type = 'ForceSource'
+
+    [records.configuration]
+    activation = 'always'
+    acts_on = []
+    begins_seconds = 0.0
+    category = 'tornado_column'
+    centre_metres = [ -21000.0, -9000.0, 0.0 ]
+    collar_radius_metres = 5200.0
+    contribution = 'flow'
+    enabled = true
+    falloff = 'smooth'
+    height_metres = 9000.0
+    inflow_mps = 8.0
+    inner_radius_metres = 2600.0
+    lasts_seconds = 0.0
+    ramp_in_seconds = 1.25
+    ramp_out_seconds = 2.0
+    reach = 'column'
+    reach_metres = 26000.0
+    repeats_seconds = 0.0
+    spin = 'cyclonic'
+    strength = 24.0
+    track_bearing_deg = 62.0
+    track_speed_mps = 12.0
+    updraft_mps = 12.0
+
+[[records]]
+identity = 'rec_18'
+name = 'Squall line'
+parent = 'rec_15'
+type = 'ForceSource'
+
+    [records.configuration]
+    activation = 'always'
+    acts_on = []
+    bearing_deg = 118.0
+    begins_seconds = 0.0
+    category = 'gust_front'
+    centre_metres = [ -30000.0, 14000.0, 0.0 ]
+    contribution = 'flow'
+    crest_depth_metres = 1800.0
+    enabled = true
+    falloff = 'smooth'
+    front_speed_mps = 16.0
+    half_width_metres = 24000.0
+    height_metres = 1500.0
+    lasts_seconds = 0.0
+    ramp_in_seconds = 1.25
+    ramp_out_seconds = 2.0
+    reach = 'everywhere'
+    reach_metres = 900.0
+    repeats_seconds = 0.0
+    strength = 22.0
+
+[[records]]
+identity = 'rec_19'
+name = 'Tornado'
+parent = 'rec_15'
+type = 'ForceSource'
+
+    [records.configuration]
+    activation = 'always'
+    acts_on = []
+    begins_seconds = 0.0
+    category = 'tornado_column'
+    centre_metres = [ 0.0, -220.0, 0.0 ]
+    collar_radius_metres = 96.0
+    contribution = 'flow'
+    enabled = true
+    falloff = 'smooth'
+    height_metres = 950.0
+    inflow_mps = 26.0
+    inner_radius_metres = 20.0
+    lasts_seconds = 0.0
+    ramp_in_seconds = 1.25
+    ramp_out_seconds = 2.0
+    reach = 'column'
+    reach_metres = 600.0
+    repeats_seconds = 0.0
+    spin = 'cyclonic'
+    strength = 68.0
+    track_bearing_deg = 109.0
+    track_speed_mps = 3.7000000000000002
+    updraft_mps = 42.0
+
+[[records]]
+identity = 'rec_20'
+name = 'Microburst'
+parent = 'rec_15'
+type = 'ForceSource'
+
+    [records.configuration]
+    activation = 'always'
+    acts_on = []
+    begins_seconds = 0.0
+    category = 'microburst'
+    centre_metres = [ 1800.0, 900.0, 260.0 ]
+    contribution = 'flow'
+    downdraft_mps = 24.0
+    enabled = true
+    falloff = 'smooth'
+    height_metres = 364.0
+    inner_radius_metres = 65.0
+    lasts_seconds = 0.0
+    ramp_in_seconds = 1.25
+    ramp_out_seconds = 2.0
+    reach = 'column'
+    reach_metres = 600.0
+    repeats_seconds = 0.0
+    ring_radius_metres = 150.0
+    strength = 31.0
+
+[[records]]
+identity = 'rec_21'
+name = 'Thermal'
+parent = 'rec_15'
+type = 'ForceSource'
+
+    [records.configuration]
+    activation = 'always'
+    acts_on = []
+    begins_seconds = 0.0
+    category = 'thermal_updraft'
+    centre_metres = [ -950.0, -650.0, 0.0 ]
+    contribution = 'flow'
+    enabled = true
+    falloff = 'smooth'
+    height_metres = 620.0
+    inflow_mps = 4.7999999999999998
+    inner_radius_metres = 48.0
+    lasts_seconds = 0.0
+    ramp_in_seconds = 1.25
+    ramp_out_seconds = 2.0
+    reach = 'column'
+    reach_metres = 170.0
+    repeats_seconds = 0.0
+    strength = 14.5
+
+[[records]]
+identity = 'rec_22'
+name = 'Canyon jet'
+parent = 'rec_15'
+type = 'ForceSource'
+
+    [records.configuration]
+    activation = 'always'
+    acts_on = []
+    bearing_deg = 80.0
+    begins_seconds = 0.0
+    category = 'jet_corridor'
+    centre_metres = [ 700.0, -1050.0, 4.0 ]
+    contribution = 'flow'
+    enabled = true
+    falloff = 'smooth'
+    height_metres = 200.0
+    inner_radius_metres = 12.0
+    lasts_seconds = 0.0
+    length_metres = 95.0
+    ramp_in_seconds = 1.25
+    ramp_out_seconds = 2.0
+    reach = 'box'
+    reach_metres = 120.0
+    repeats_seconds = 0.0
+    strength = 24.0
+
+[[records]]
+identity = 'rec_23'
+name = 'Gust puff'
+parent = 'rec_15'
+type = 'ForceSource'
+
+    [records.configuration]
+    activation = 'always'
+    acts_on = []
+    bearing_deg = 112.0
+    begins_seconds = 0.0
+    category = 'gust_puff'
+    centre_metres = [ -420.0, 480.0, 12.0 ]
+    contribution = 'flow'
+    drift = 0.92000000000000004
+    enabled = true
+    falloff = 'smooth'
+    lasts_seconds = 0.0
+    lift_mps = 0.80000000000000004
+    ramp_in_seconds = 1.25
+    ramp_out_seconds = 2.0
+    reach = 'sphere'
+    reach_metres = 28.0
+    repeats_seconds = 0.0
+    strength = 12.0
+    vertical_radius_metres = 14.0
+
+[[records]]
+identity = 'rec_24'
+name = 'Blast wave'
+parent = 'rec_15'
+type = 'ForceSource'
+
+    [records.configuration]
+    activation = 'window'
+    acts_on = []
+    begins_seconds = 6.0
+    category = 'blast_wave'
+    centre_metres = [ 320.0, 320.0, 2.0 ]
+    contribution = 'flow'
+    enabled = true
+    expansion_mps = 110.0
+    falloff = 'none'
+    initial_radius_metres = 3.0
+    lasts_seconds = 14.0
+    ramp_in_seconds = 0.0
+    ramp_out_seconds = 2.0
+    reach = 'sphere'
+    reach_metres = 1500.0
+    repeats_seconds = 30.0
+    strength = 42.0
+    thickness_metres = 14.0
+
+[[records]]
+identity = 'rec_25'
+name = 'Vehicle wake'
+parent = 'rec_15'
+type = 'ForceSource'
+
+    [records.configuration]
+    activation = 'always'
+    acts_on = []
+    bearing_deg = 20.0
+    begins_seconds = 0.0
+    body_speed_mps = 22.0
+    category = 'vehicle_wake'
+    centre_metres = [ -60.0, 40.0, 0.65000000000000002 ]
+    circulation_mps = 7.5
+    contribution = 'flow'
+    enabled = true
+    falloff = 'smooth'
+    half_width_metres = 1.1499999999999999
+    height_metres = 3.3999999999999999
+    lasts_seconds = 0.0
+    length_metres = 36.0
+    ramp_in_seconds = 1.25
+    ramp_out_seconds = 2.0
+    reach = 'box'
+    reach_metres = 80.0
+    repeats_seconds = 0.0
+    strength = 13.5
+
+[[records]]
+identity = 'rec_26'
+name = 'Attractor'
+parent = 'rec_15'
+type = 'ForceSource'
+
+    [records.configuration]
+    activation = 'always'
+    acts_on = []
+    begins_seconds = 0.0
+    category = 'attractor'
+    centre_metres = [ 520.0, -380.0, 10.0 ]
+    contribution = 'accelerate'
+    enabled = true
+    falloff = 'smooth'
+    lasts_seconds = 0.0
+    ramp_in_seconds = 1.25
+    ramp_out_seconds = 2.0
+    reach = 'sphere'
+    reach_metres = 260.0
+    repeats_seconds = 0.0
+    strength = 6.0
+    swallow_radius_metres = 0.0
+    swirl = 2.0
+
+[[records]]
+identity = 'rec_27'
+name = 'Repulsor'
+parent = 'rec_15'
+type = 'ForceSource'
+
+    [records.configuration]
+    activation = 'always'
+    acts_on = []
+    begins_seconds = 0.0
+    category = 'repulsor'
+    centre_metres = [ -560.0, 150.0, 10.0 ]
+    contribution = 'accelerate'
+    enabled = true
+    falloff = 'smooth'
+    lasts_seconds = 0.0
+    ramp_in_seconds = 1.25
+    ramp_out_seconds = 2.0
+    reach = 'sphere'
+    reach_metres = 180.0
+    repeats_seconds = 0.0
+    strength = 8.0
+
+[[records]]
+identity = 'rec_28'
+name = 'Gravity'
+parent = 'rec_15'
+type = 'ForceSource'
+
+    [records.configuration]
+    activation = 'always'
+    acts_on = []
+    begins_seconds = 0.0
+    category = 'gravity'
+    centre_metres = [ 0.0, 0.0, 0.0 ]
+    contribution = 'accelerate'
+    enabled = true
+    falloff = 'none'
+    lasts_seconds = 0.0
+    ramp_in_seconds = 1.25
+    ramp_out_seconds = 2.0
+    reach = 'everywhere'
+    reach_metres = 500.0
+    repeats_seconds = 0.0
+    strength = 9.8100000000000005
+
+[[records]]
+identity = 'rec_29'
+name = 'Drag volume'
+parent = 'rec_15'
+type = 'ForceSource'
+
+    [records.configuration]
+    activation = 'always'
+    acts_on = []
+    bearing_deg = 0.0
+    begins_seconds = 0.0
+    category = 'drag_volume'
+    centre_metres = [ 1100.0, -300.0, 0.0 ]
+    contribution = 'damp'
+    enabled = true
+    falloff = 'smooth'
+    half_extents_metres = [ 150.0, 80.0 ]
+    height_metres = 40.0
+    lasts_seconds = 0.0
+    ramp_in_seconds = 1.25
+    ramp_out_seconds = 2.0
+    reach = 'box'
+    reach_metres = 150.0
+    repeats_seconds = 0.0
+    strength = 0.80000000000000004
+
+[[records]]
+identity = 'rec_30'
+name = 'Storm outflow'
+parent = 'rec_15'
+type = 'ForceSource'
+
+    [records.configuration]
+    activation = 'trigger'
+    acts_on = []
+    begins_seconds = 0.0
+    category = 'microburst'
+    centre_metres = [ 26000.0, -24000.0, 1800.0 ]
+    contribution = 'flow'
+    downdraft_mps = 18.0
+    enabled = true
+    falloff = 'smooth'
+    height_metres = 364.0
+    inner_radius_metres = 2400.0
+    lasts_seconds = 0.0
+    ramp_in_seconds = 1.25
+    ramp_out_seconds = 2.0
+    reach = 'column'
+    reach_metres = 22000.0
+    repeats_seconds = 0.0
+    ring_radius_metres = 7000.0
+    strength = 26.0
+
+[[records]]
+identity = 'rec_31'
+name = 'Proving ground'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 0.0, 0.0, 0.0 ]
+    archive_yaw_deg = 0.0
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'Map'
+    group = 'Course'
+    locked = true
+    occupants = [ 'Proving ground' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+[[records]]
+identity = 'rec_32'
+name = 'Kerbs'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ -50.0, 6.1500000000000004, 0.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'Flag'
+    group = 'Course'
+    locked = false
+    occupants = [ 'Kerb north', 'Kerb south' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ -50.0, 6.1500000000000004, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 4.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 18
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_33'
+name = 'Jump ramp'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 0.0, 0.0, 0.0 ]
+    archive_yaw_deg = 0.0
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'TrendingUp'
+    group = 'Course'
+    locked = false
+    occupants = [ 'Jump ramp' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+[[records]]
+identity = 'rec_34'
+name = 'Boundary north'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ -58.0, 58.5, 0.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'Fence'
+    group = 'Boundary'
+    locked = false
+    occupants = [ 'Boundary North' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ -58.0, 58.5, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 4.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 54
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_35'
+name = 'Boundary south'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ -58.0, -58.5, 0.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'Fence'
+    group = 'Boundary'
+    locked = false
+    occupants = [ 'Boundary South' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ -58.0, -58.5, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 4.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 54
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_36'
+name = 'Boundary west'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ -58.5, -54.0, 0.0 ]
+    archive_yaw_deg = 90.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'Fence'
+    group = 'Boundary'
+    locked = false
+    occupants = [ 'Boundary West' ]
+    orientation_deg = [ 0.0, 0.0, 90.0 ]
+    physics = false
+    position_m = [ -58.5, -54.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 4.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 28
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_37'
+name = 'Boundary east'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 154.5, -54.0, 0.0 ]
+    archive_yaw_deg = 90.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'Fence'
+    group = 'Boundary'
+    locked = false
+    occupants = [ 'Boundary East' ]
+    orientation_deg = [ 0.0, 0.0, 90.0 ]
+    physics = false
+    position_m = [ 154.5, -54.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 4.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 28
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_38'
+name = 'Skidpad ring'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ -30.0, 30.0, 0.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = true
+    fracture = false
+    global_illumination = true
+    glyph = 'TrafficCone'
+    group = 'Cones'
+    locked = false
+    occupant_count = 24
+    occupants = [ 'Cone skidpad' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = true
+    position_m = [ -30.0, 30.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 0.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 24
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = true
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 15.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_39'
+name = 'Skidpad inner ring'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ -30.0, 30.0, 0.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = true
+    fracture = false
+    global_illumination = true
+    glyph = 'TrafficCone'
+    group = 'Cones'
+    locked = false
+    occupant_count = 8
+    occupant_first = 24
+    occupants = [ 'Cone skidpad' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = true
+    position_m = [ -30.0, 30.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 0.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 8
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = true
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 45.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_40'
+name = 'Start line cones'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ -34.149999999999999, 6.7000000000000002, 0.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = true
+    fracture = false
+    global_illumination = true
+    glyph = 'TrafficCone'
+    group = 'Cones'
+    locked = false
+    occupant_count = 2
+    occupants = [ 'Cone straight' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = true
+    position_m = [ -34.149999999999999, 6.7000000000000002, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 0.0, -13.4, 0.0 ]
+        constant_offset = true
+        count = 2
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_41'
+name = 'Ramp cones'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 16.0, 4.5, 0.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = true
+    fracture = false
+    global_illumination = true
+    glyph = 'TrafficCone'
+    group = 'Cones'
+    locked = false
+    occupant_count = 4
+    occupant_first = 2
+    occupants = [ 'Cone straight' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = true
+    position_m = [ 16.0, 4.5, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 0.0, -9.0, 0.0 ]
+        constant_offset = true
+        count = 2
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 4.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 2
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_42'
+name = 'Slalom cones'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 95.0, -35.0, 0.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = true
+    fracture = false
+    global_illumination = true
+    glyph = 'TrafficCone'
+    group = 'Cones'
+    locked = false
+    occupants = [ 'Cone slalom' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = true
+    position_m = [ 95.0, -35.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 0.0, 10.0, 0.0 ]
+        constant_offset = true
+        count = 8
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_43'
+name = 'Moose test cones'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 122.0, -25.0, 0.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = true
+    fracture = false
+    global_illumination = true
+    glyph = 'TrafficCone'
+    group = 'Cones'
+    locked = false
+    occupants = [ 'Cone moose' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = true
+    position_m = [ 122.0, -25.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 4.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 2
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 0.0, 6.0, 0.0 ]
+        constant_offset = true
+        count = 5
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 3.0, 35.0, 0.0 ]
+        constant_offset = true
+        count = 2
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_44'
+name = 'Parking bay cones'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 62.0, 36.0, 0.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = true
+    fracture = false
+    global_illumination = true
+    glyph = 'TrafficCone'
+    group = 'Cones'
+    locked = false
+    occupants = [ 'Cone parking' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = true
+    position_m = [ 62.0, 36.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 0.0, 10.0, 0.0 ]
+        constant_offset = true
+        count = 2
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 7.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 4
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_45'
+name = 'Hangar back wall'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 22.0, 46.200000000000003, 0.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'Warehouse'
+    group = 'Hangar'
+    locked = false
+    occupants = [ 'Hangar back wall' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ 22.0, 46.200000000000003, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 4.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 7
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_46'
+name = 'Hangar side walls'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 19.800000000000001, 32.0, 0.0 ]
+    archive_yaw_deg = 90.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'Warehouse'
+    group = 'Hangar'
+    locked = false
+    occupants = [ 'Hangar west wall', 'Hangar east wall' ]
+    orientation_deg = [ 0.0, 0.0, 90.0 ]
+    physics = false
+    position_m = [ 19.800000000000001, 32.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 4.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 4
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_47'
+name = 'Hangar roof'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 34.0, 31.0, 8.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'Warehouse'
+    group = 'Hangar'
+    locked = false
+    occupants = [ 'Hangar roof', 'Hangar lamp' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ 34.0, 31.0, 8.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 0.0, 3.0, 0.0 ]
+        constant_offset = true
+        count = 6
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_48'
+name = 'Tool cabinets'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 24.0, 45.299999999999997, 0.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'Box'
+    group = 'Hangar'
+    locked = false
+    occupants = [ 'Tool cabinet' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ 24.0, 45.299999999999997, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 3.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 2
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 17.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 2
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_49'
+name = 'Hangar tyre stacks'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 46.600000000000001, 43.799999999999997, 0.0 ]
+    archive_yaw_deg = 0.0
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'CircleDot'
+    group = 'Hangar'
+    locked = false
+    occupants = [ 'Hangar tyres' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ 46.600000000000001, 43.799999999999997, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+[[records]]
+identity = 'rec_50'
+name = 'Tunnel'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ -26.0, -43.75, 0.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'Route'
+    group = 'Tunnel'
+    locked = false
+    occupants = [ 'Tunnel north wall', 'Tunnel south wall', 'Tunnel roof' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ -26.0, -43.75, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 4.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 8
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_51'
+name = 'Tunnel lamps'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ -26.0, -44.060000000000002, 3.6000000000000001 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'Lightbulb'
+    group = 'Tunnel'
+    locked = false
+    occupants = [ 'Tunnel lamp N', 'Tunnel lamp S' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ -26.0, -44.060000000000002, 3.6000000000000001 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 8.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 4
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_52'
+name = 'Control tower'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ -54.0, -11.0, 0.0 ]
+    archive_yaw_deg = 0.0
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'TowerControl'
+    group = 'Control tower'
+    locked = false
+    occupants = [ 'Control tower', 'Control tower cabin', 'Control tower roof' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ -54.0, -11.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+[[records]]
+identity = 'rec_53'
+name = 'Alley barriers'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ -6.0, -19.600000000000001, 0.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'Fence'
+    group = 'Smash alley'
+    locked = false
+    occupants = [ 'Alley barrier N', 'Alley barrier S' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ -6.0, -19.600000000000001, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 3.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 19
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_54'
+name = 'Burnout tyre wall'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ -49.0, -32.600000000000001, 0.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'CircleDot'
+    group = 'Smash alley'
+    locked = false
+    occupants = [ 'Burnout tyre wall' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ -49.0, -32.600000000000001, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 0.69999999999999996, 0.0, 0.0 ]
+        constant_offset = true
+        count = 14
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_55'
+name = 'Run-off tyre wall'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 58.600000000000001, -6.0, 0.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'CircleDot'
+    group = 'Smash alley'
+    locked = false
+    occupants = [ 'Run-off tyre wall' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ 58.600000000000001, -6.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 0.0, 0.69999999999999996, 0.0 ]
+        constant_offset = true
+        count = 18
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_56'
+name = 'Pane posts'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 6.0, -25.100000000000001, 0.0 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'Box'
+    group = 'Smash alley'
+    locked = false
+    occupants = [ 'Pane post' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ 6.0, -25.100000000000001, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 0.0, -3.7999999999999998, 0.0 ]
+        constant_offset = true
+        count = 2
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 16.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 2
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_57'
+name = 'Wooden crates west'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ -2.0, -28.100000000000001, 0.45000000000000001 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = true
+    global_illumination = true
+    glyph = 'Box'
+    group = 'Smash alley'
+    impulse_threshold_ns = 42.0
+    locked = false
+    occupant_count = 3
+    occupants = [ 'Wooden crate' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = true
+    position_m = [ -2.0, -28.100000000000001, 0.45000000000000001 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+    voronoi_cells = 32
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 0.0, 1.1000000000000001, 0.0 ]
+        constant_offset = true
+        count = 3
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 7.5629999999999997
+        type = 'Array'
+
+[[records]]
+identity = 'rec_58'
+name = 'Glass pane'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 6.0, -27.0, 1.0 ]
+    archive_yaw_deg = 90.0
+    cast_shadows = true
+    dynamic = false
+    fracture = true
+    global_illumination = true
+    glyph = 'Gem'
+    group = 'Smash alley'
+    impulse_threshold_ns = 42.0
+    locked = false
+    occupants = [ 'Glass pane' ]
+    orientation_deg = [ 0.0, 0.0, 90.0 ]
+    physics = true
+    position_m = [ 6.0, -27.0, 1.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+    voronoi_cells = 32
+
+[[records]]
+identity = 'rec_59'
+name = 'Concrete pillars'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 14.0, -28.600000000000001, 0.90000000000000002 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = true
+    global_illumination = true
+    glyph = 'Box'
+    group = 'Smash alley'
+    impulse_threshold_ns = 42.0
+    locked = false
+    occupants = [ 'Concrete pillar' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = true
+    position_m = [ 14.0, -28.600000000000001, 0.90000000000000002 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+    voronoi_cells = 32
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 0.0, 3.2000000000000002, 0.0 ]
+        constant_offset = true
+        count = 2
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_60'
+name = 'Tempered pane'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 22.0, -27.0, 1.0 ]
+    archive_yaw_deg = 90.0
+    cast_shadows = true
+    dynamic = false
+    fracture = true
+    global_illumination = true
+    glyph = 'Gem'
+    group = 'Smash alley'
+    impulse_threshold_ns = 42.0
+    locked = false
+    occupants = [ 'Tempered pane' ]
+    orientation_deg = [ 0.0, 0.0, 90.0 ]
+    physics = true
+    position_m = [ 22.0, -27.0, 1.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+    voronoi_cells = 32
+
+[[records]]
+identity = 'rec_61'
+name = 'ABS barriers'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 30.0, -28.0, 0.40000000000000002 ]
+    archive_yaw_deg = 90.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = true
+    global_illumination = true
+    glyph = 'Shield'
+    group = 'Smash alley'
+    impulse_threshold_ns = 42.0
+    locked = false
+    occupants = [ 'ABS barrier' ]
+    orientation_deg = [ 0.0, 0.0, 90.0 ]
+    physics = true
+    position_m = [ 30.0, -28.0, 0.40000000000000002 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+    voronoi_cells = 32
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 2.0, 0.0, 0.0 ]
+        constant_offset = true
+        count = 2
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = 0.0
+        type = 'Array'
+
+[[records]]
+identity = 'rec_62'
+name = 'Stone wall'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 38.0, -27.0, 0.59999999999999998 ]
+    archive_yaw_deg = 90.0
+    cast_shadows = true
+    dynamic = false
+    fracture = true
+    global_illumination = true
+    glyph = 'Box'
+    group = 'Smash alley'
+    impulse_threshold_ns = 42.0
+    locked = false
+    occupants = [ 'Stone wall' ]
+    orientation_deg = [ 0.0, 0.0, 90.0 ]
+    physics = true
+    position_m = [ 38.0, -27.0, 0.59999999999999998 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+    voronoi_cells = 32
+
+[[records]]
+identity = 'rec_63'
+name = 'Wooden crates east'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 46.0, -28.199999999999999, 0.45000000000000001 ]
+    archive_yaw_deg = 0.0
+    base_copies = 1
+    cast_shadows = true
+    dynamic = false
+    fracture = true
+    global_illumination = true
+    glyph = 'Box'
+    group = 'Smash alley'
+    impulse_threshold_ns = 42.0
+    locked = false
+    occupant_count = 2
+    occupant_first = 3
+    occupants = [ 'Wooden crate' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = true
+    position_m = [ 46.0, -28.199999999999999, 0.45000000000000001 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+    voronoi_cells = 32
+
+        [[records.configuration.modifiers]]
+        constant_m = [ 0.0, 2.3999999999999999, 0.0 ]
+        constant_offset = true
+        count = 2
+        enabled = true
+        expanded = true
+        label = 'Array'
+        radial_pivot = false
+        relative_factor = [ 1.0, 0.0, 0.0 ]
+        relative_offset = false
+        rotation_step_deg = -28.6479
+        type = 'Array'
+
+[[records]]
+identity = 'rec_64'
+name = 'Concrete block'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ 46.5, -27.0, 0.40000000000000002 ]
+    archive_yaw_deg = 90.0
+    cast_shadows = true
+    dynamic = false
+    fracture = true
+    global_illumination = true
+    glyph = 'Box'
+    group = 'Smash alley'
+    impulse_threshold_ns = 42.0
+    locked = false
+    occupants = [ 'Concrete block' ]
+    orientation_deg = [ 0.0, 0.0, 90.0 ]
+    physics = true
+    position_m = [ 46.5, -27.0, 0.40000000000000002 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+    voronoi_cells = 32
+
+[[records]]
+identity = 'rec_65'
+name = 'Street lamps'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ -45.0, 10.0, 0.0 ]
+    archive_yaw_deg = 0.0
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'LampFloor'
+    group = 'Lighting'
+    locked = false
+    occupants = [ 'Light pole', 'Light pole head' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ -45.0, 10.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+[[records]]
+identity = 'rec_66'
+name = 'Lamp posts'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ -38.0, 8.1999999999999993, 0.0 ]
+    archive_yaw_deg = 0.0
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'LampFloor'
+    group = 'Lighting'
+    locked = false
+    occupants = [ 'Point lamp post', 'Point lamp lantern' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ -38.0, 8.1999999999999993, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+[[records]]
+identity = 'rec_67'
+name = 'Traffic lights'
+type = 'Geometry'
+
+    [records.configuration]
+    archive_origin_m = [ -36.0, 8.5, 0.0 ]
+    archive_yaw_deg = 0.0
+    cast_shadows = true
+    dynamic = false
+    fracture = false
+    global_illumination = true
+    glyph = 'TrafficLight'
+    group = 'Lighting'
+    locked = false
+    occupants = [ 'Traffic light post', 'Traffic light head' ]
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = false
+    position_m = [ -36.0, 8.5, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    visible = true
+
+[[records]]
+identity = 'rec_68'
+name = 'Control vehicle'
+type = 'Vehicle'
+
+    [records.configuration]
+    chase_camera = true
+    collision_steps = 1
+    group = 'Vehicles'
+    orientation_deg = [ 0.0, 0.0, 0.0 ]
+    physics = true
+    physics_step_hz = 240.0
+    position_m = [ -40.0, 0.0, 0.0 ]
+    possessed = true
+    solver_substeps = 1
+    threaded_physics = true
+    vehicle_name = 'Control vehicle'
+    visible = true
+
+        [records.configuration.abs]
+        enabled = true
+        floor = 0.050000000000000003
+        gain = 8.0
+        minimum_mps = 2.0
+        slip_target = 0.12
+
+        [records.configuration.aero]
+        air_brake_threshold = 0.65000000000000002
+        air_density = 1.2250000000000001
+        enabled = true
+
+            [records.configuration.aero.body]
+            drag = 0.28000000000000003
+            frontal_area_m2 = 2.2999999999999998
+            lift = 0.12
+            side = 0.41999999999999998
+            side_area_m2 = 3.7999999999999998
+
+            [records.configuration.aero.diffuser]
+            angle_deg = 16.0
+            critical_m = 0.012
+            diffuser_m2 = 1.6000000000000001
+            drag = 0.089999999999999997
+            efficiency = 0.81999999999999995
+            enabled = true
+            floor_m2 = 3.2000000000000002
+            optimum_m = 0.035000000000000003
+
+            [records.configuration.aero.fins]
+            area_m2 = 0.12
+            diffuser_gain = 1.3200000000000001
+            drag = 0.059999999999999998
+            enabled = true
+            strength = 0.78000000000000003
+
+            [records.configuration.aero.skirt_left]
+            drag = 0.17999999999999999
+            enabled = true
+            height_m = 0.14000000000000001
+            length_m = 1.8
+            pressure = -0.47999999999999998
+            ride_sensitivity = 3.5
+            sealing = 0.71999999999999997
+
+            [records.configuration.aero.skirt_right]
+            drag = 0.17999999999999999
+            enabled = true
+            height_m = 0.14000000000000001
+            length_m = 1.8
+            pressure = -0.47999999999999998
+            ride_sensitivity = 3.5
+            sealing = 0.71999999999999997
+
+            [records.configuration.aero.splitter]
+            area_m2 = 0.75
+            dam_drag = 0.28000000000000003
+            dam_height_m = 0.080000000000000002
+            enabled = true
+            pressure = 0.90000000000000002
+            ride_sensitivity = 3.2000000000000002
+
+            [records.configuration.aero.wing]
+            adaptive = true
+            adaptive_mps = 35.0
+            air_brake_deg = 10.0
+            angle_deg = 14.0
+            area_m2 = 1.3999999999999999
+            aspect = 3.5
+            drag = 0.52000000000000002
+            enabled = true
+            lift = -3.2000000000000002
+            maximum_deg = 22.0
+            minimum_deg = 4.0
+
+        [records.configuration.bars.front]
+        damping_nspm = 1500.0
+        enabled = true
+        stiffness_npm = 80000.0
+
+        [records.configuration.bars.rear]
+        damping_nspm = 1500.0
+        enabled = true
+        stiffness_npm = 80000.0
+
+        [records.configuration.brakes]
+        ambient_k = 293.14999999999998
+        convection = 85.0
+        disc_area_m2 = 0.095000000000000001
+        disc_heat_jkgk = 460.0
+        disc_inner_m = 0.089999999999999997
+        disc_mass_kg = 6.5
+        disc_outer_m = 0.16
+        fade_end_k = 873.14999999999998
+        fade_start_k = 573.14999999999998
+        fall_pa_per_s = 80000000.0
+        friction_cold = 0.41999999999999998
+        friction_hot = 0.38
+        handbrake_nm = 4200.0
+        handbrake_pa = 9500000.0
+        hydraulic = true
+        piston_m = 0.043999999999999997
+        pistons = 4
+        pressure_pa = 12000000.0
+        rise_pa_per_s = 50000000.0
+        torque_nm = 2600.0
+
+        [records.configuration.carcass]
+        damping_per_s = 24.0
+        fem_cord_modulus_pa = 400000000.0
+        fem_damping_nspm = 1500.0
+        fem_poisson_ratio = 0.45000000000000001
+        fem_prestress_scale = 9.5
+        fem_young_modulus_pa = 3300000.0
+        formulation = 2
+        friction = 1.0
+        pressure_share = 0.75
+        reference_pressure_pa = 110000.0
+        reference_stiffness_npm = 250000.0
+        substeps = 1
+        tread_mass_kg = 9.0
+        xpbd_belt_compliance = 1.9999999999999999e-06
+        xpbd_iterations = 12
+        xpbd_lateral_compliance = 1.9999999999999999e-06
+        xpbd_pressure_share = 0.34999999999999998
+        xpbd_shear_compliance = 3.0000000000000001e-06
+        xpbd_spoke_compliance = 4.0000000000000003e-05
+
+        [records.configuration.charge]
+        ambient_bar = 1.01325
+        ambient_k = 293.14999999999998
+        density_correction = false
+        enabled = true
+        intercooler = 0.75
+        reference_k = 318.14999999999998
+
+        [records.configuration.clutch]
+        breakaway_rpm = 300.0
+        capacity_nm = 1200.0
+        lockup_engagement = 0.97999999999999998
+        lockup_rpm = 50.0
+
+        [records.configuration.contact]
+        damping_nspm = 1500.0
+        fan_half_angle_rad = 0.78539999999999999
+        fan_step_rad = 0.087300000000000003
+        max_deflection_m = 0.080000000000000002
+        pressure_share = 0.75
+        reference_pressure_pa = 110000.0
+        slices = 3
+        stiffness_npm = 250000.0
+
+        [records.configuration.differential]
+        locking = 0.5
+        mode = 2
+        preload_nm = 20.0
+        vectoring = 0.0
+
+        [records.configuration.engine]
+        exhaust_flow_curve = [ [ 800.0, 0.040000000000000001 ], [ 2000.0, 0.10000000000000001 ], [ 4000.0, 0.22 ], [ 6000.0, 0.34999999999999998 ], [ 8500.0, 0.47999999999999998 ] ]
+        exhaust_temperature_curve = [ [ 800.0, 673.0 ], [ 2000.0, 873.0 ], [ 4000.0, 1023.0 ], [ 6000.0, 1123.0 ], [ 8500.0, 1173.0 ] ]
+        fall_rpm_per_s = 2600.0
+        friction_coefficient = 0.080000000000000002
+        idle_rpm = 700.0
+        inertia_kgm2 = 0.38
+        pumping_coefficient = 0.00012
+        redline_rpm = 7200.0
+        rise_rpm_per_s = 1800.0
+        torque_curve = [
+            [ 800.0, 234.0 ],
+            [ 1200.0, 300.0 ],
+            [ 1600.0, 352.0 ],
+            [ 2000.0, 392.0 ],
+            [ 2400.0, 428.0 ],
+            [ 2800.0, 460.0 ],
+            [ 3200.0, 486.0 ],
+            [ 3600.0, 504.0 ],
+            [ 4000.0, 514.0 ],
+            [ 4400.0, 518.0 ],
+            [ 4800.0, 520.0 ],
+            [ 5200.0, 520.0 ],
+            [ 5800.0, 520.0 ],
+            [ 6200.0, 506.0 ],
+            [ 6600.0, 486.0 ],
+            [ 7000.0, 462.0 ],
+            [ 7600.0, 448.0 ],
+            [ 8500.0, 442.0 ]
+        ]
+
+        [records.configuration.fluids]
+        ambient_k = 293.14999999999998
+        block_loss = 18.0
+        cold_friction = 0.59999999999999998
+        coolant_capacity = 42000.0
+        coolant_share = 0.29999999999999999
+        efficiency = 0.32000000000000001
+        enabled = true
+        oil_capacity = 14000.0
+        oil_coolant = 160.0
+        oil_share = 0.059999999999999998
+        oil_target_k = 381.14999999999998
+        radiator = 900.0
+        radiator_airflow = 0.059999999999999998
+        thermostat_full_k = 365.14999999999998
+        thermostat_k = 357.14999999999998
+
+        [records.configuration.fuel]
+        bsfc = 270.0
+        capacity_l = 68.0
+        density = 0.745
+        enabled = true
+        idle_gps = 0.25
+        load_l = 60.0
+
+        [records.configuration.gearbox]
+        downshift_rpm = 2600.0
+        efficiency = 0.92000000000000004
+        final_drive = 3.5499999999999998
+        ratios = [ 4.2000000000000002, 3.1000000000000001, 2.5, 1.8999999999999999, 1.5, 1.2 ]
+        shift_seconds = 0.34999999999999998
+        upshift_rpm = 6800.0
+
+        [records.configuration.geometry]
+        com_height_m = 0.53000000000000003
+        front_weight_share = 0.4914
+        mass_kg = 1300.0
+        pitch_gyration_m = 1.55
+        ride_height_m = 0.059999999999999998
+        rim_radius_m = 0.34460000000000002
+        roll_gyration_m = 0.59999999999999998
+        tyre_radius_m = 0.50854999999999995
+        tyre_width_m = 0.39579999999999999
+        unsprung_mass_kg = 20.0
+        yaw_gyration_m = 1.6000000000000001
+
+        [records.configuration.induction]
+        category = 2
+        race_tune = false
+
+        [records.configuration.pacejka]
+        combined_slip_mf61 = true
+        fz0_kn = 5.0
+        load_sensitivity_above_reference = true
+        ltr = 1.0
+        lx = 1.2
+        ly = 1.3
+        mu_load_floor = 0.59999999999999998
+        mu_load_lat = 0.12
+        mu_load_long = 0.080000000000000002
+        nominal_pressure_pa = 110000.0
+        pbx1 = 18.0
+        pbx2 = 20.0
+        pbx3 = 0.5
+        pby1 = 18.0
+        pby2 = 10.0
+        pby3 = 0.10000000000000001
+        pcamber1 = 0.12
+        pcamber2 = -0.050000000000000003
+        pcx1 = 1.55
+        pcy1 = 1.45
+        pdx1 = 1.6000000000000001
+        pdx2 = -0.029999999999999999
+        pdx3 = 0.014999999999999999
+        pdy1 = 1.8500000000000001
+        pdy2 = -0.059999999999999998
+        pdy3 = 0.10000000000000001
+        pex1 = -0.10000000000000001
+        pex2 = -0.14999999999999999
+        pex3 = 0.0050000000000000001
+        pex4 = 0.029999999999999999
+        pey1 = -1.2
+        pey2 = -0.5
+        pey3 = 0.20000000000000001
+        phx1 = 0.0
+        phx2 = 0.0
+        phy1 = 0.0
+        phy2 = 0.0
+        ppx1 = -0.34889999999999999
+        ppx2 = 0.38200000000000001
+        ppx3 = -0.096339999999999995
+        ppx4 = 0.06447
+        ppy1 = -0.62490000000000001
+        ppy2 = 0.0
+        ppy3 = -0.1668
+        ppy4 = 0.28339999999999999
+        ppz1 = -0.44019999999999998
+        pvx1 = 0.0
+        pvx2 = 0.0
+        pvy1 = 0.0
+        pvy2 = 0.0
+        pvy3 = 0.0
+        pvy4 = 0.0
+        qbz1 = 12.0
+        qbz2 = -1.2
+        qbz3 = 0.80000000000000004
+        qbz5 = 0.5
+        qcz1 = 1.2
+        qdz1 = 0.12
+        qdz2 = -0.0080000000000000002
+        qdz3 = 0.050000000000000003
+        qez1 = -1.5
+        qez2 = 0.80000000000000004
+        qez3 = 0.0
+        qez4 = 0.20000000000000001
+        qez5 = -0.5
+        rbx1 = 12.0
+        rbx2 = 8.0
+        rbx3 = 0.0
+        rby1 = 5.0
+        rby2 = 4.0
+        rby3 = 0.0
+        rby4 = 0.0
+        rcx1 = 1.0
+        rcy1 = 0.75
+        relaxation_lat_exponent = 0.45000000000000001
+        relaxation_lat_m = 0.048000000000000001
+        relaxation_long_exponent = 0.40000000000000002
+        relaxation_long_m = 0.051999999999999998
+        rex1 = 0.0
+        rex2 = 0.0
+        rey1 = 0.0
+        rey2 = 0.0
+        rhx1 = 0.0
+        rhy1 = 0.0
+        rhy2 = 0.0
+        rvy1 = 0.0
+        rvy2 = 0.0
+        rvy3 = 0.0
+        rvy4 = 0.0
+        rvy5 = 1.8999999999999999
+        rvy6 = 0.0
+
+        [records.configuration.slip]
+        damping_fade_mps = 6.0
+        lateral_damping = 1600.0
+        solver = 1
+        spin_damping = 1400.0
+
+        [records.configuration.steering]
+        ackermann = 0.80000000000000004
+        lock_rad = 0.52000000000000002
+        rate_per_s = 6.0
+
+        [records.configuration.supercharger]
+        boost_curve = [
+            [ 2000.0, 0.0 ],
+            [ 5000.0, 0.14999999999999999 ],
+            [ 10000.0, 0.38 ],
+            [ 15000.0, 0.62 ],
+            [ 20000.0, 0.81999999999999995 ],
+            [ 24000.0, 0.94999999999999996 ]
+        ]
+        bypass_bar_per_s = 8.0
+        compressor_efficiency = 0.71999999999999997
+        drag_curve = [
+            [ 2000.0, 5.0 ],
+            [ 5000.0, 10.0 ],
+            [ 10000.0, 24.0 ],
+            [ 15000.0, 45.0 ],
+            [ 20000.0, 68.0 ],
+            [ 24000.0, 82.0 ]
+        ]
+        drive = 1
+        drive_ratio = 3.2000000000000002
+        friction = 0.0030000000000000001
+        friction_quadratic = 8.0000000000000007e-05
+        inertia_kgm2 = 0.014999999999999999
+        multiplier_curve = [ [ 0.0, 1.0 ], [ 0.40000000000000002, 1.25 ], [ 0.80000000000000004, 1.55 ], [ 1.2, 1.75 ] ]
+        parasitic_floor = 0.080000000000000002
+        pump_boost_bar = 0.80000000000000004
+        race_boost_bar = 1.2
+
+        [records.configuration.suspension]
+        enabled = true
+
+            [records.configuration.suspension.front]
+            bump_travel_m = 0.02
+            curve = 2
+            damping_ratio = 0.59999999999999998
+            droop_travel_m = 0.080000000000000002
+            frequency_hz = 2.0
+            hardening = 1.5
+            max_travel_m = 0.34999999999999998
+            progressive = true
+            static_preload_m = 0.050000000000000003
+
+            [records.configuration.suspension.rear]
+            bump_travel_m = 0.02
+            curve = 2
+            damping_ratio = 0.59999999999999998
+            droop_travel_m = 0.080000000000000002
+            frequency_hz = 2.0
+            hardening = 1.5
+            max_travel_m = 0.34999999999999998
+            progressive = true
+            static_preload_m = 0.050000000000000003
+
+        [records.configuration.thermal]
+        ambient_k = 293.14999999999998
+        carcass_air = 3.0
+        carcass_capacity = 14400.0
+        carcass_gas = 3.0
+        cold_floor = 0.75
+        cold_k = 341.14999999999998
+        cold_sensitivity = 0.0050000000000000001
+        cold_window = true
+        enabled = true
+        extinction_k = 473.14999999999998
+        fade_k = 473.14999999999998
+        ignition = false
+        ignition_k = 623.14999999999998
+        ignition_s = 4.0
+        minimum_grip = 0.59999999999999998
+        optimum_k = 353.14999999999998
+        pressure_grip = 0.29999999999999999
+        road = 18.0
+        road_k = 293.14999999999998
+        sliding_share = 0.75
+        surface_air = 12.0
+        surface_capacity = 1800.0
+        surface_carcass = 28.0
+
+        [records.configuration.traction]
+        enabled = true
+        floor = 0.14999999999999999
+        gain = 6.0
+        minimum_mps = 1.0
+        recovery_per_s = 3.0
+        slip_target = 0.25
+
+        [records.configuration.turbo]
+        blowoff_bar_per_s = 10.0
+        boost_curve = [
+            [ 1000.0, 0.0 ],
+            [ 20000.0, 0.20000000000000001 ],
+            [ 50000.0, 0.80000000000000004 ],
+            [ 90000.0, 1.2 ],
+            [ 120000.0, 1.3999999999999999 ],
+            [ 150000.0, 1.3 ]
+        ]
+        compressor_efficiency = 0.69999999999999996
+        friction = 0.002
+        friction_quadratic = 5.0000000000000002e-05
+        inertia_kgm2 = 0.02
+        mechanical_efficiency = 0.97999999999999998
+        multiplier_curve = [ [ 0.0, 1.0 ], [ 0.5, 1.3 ], [ 1.0, 1.7 ], [ 1.2, 1.8500000000000001 ] ]
+        turbine_efficiency = 0.65000000000000002
+        wastegate_bar = 1.2
+
+        [records.configuration.tyre]
+        atmosphere_pa = 101325.0
+        effective_radius_m = 0.0
+        grip = 1.1499999999999999
+        mass_kg = 12.0
+        pressure_pa = 110000.0
+        pressure_sensitive = true
+        rolling_resistance = 0.014999999999999999
+
+        [records.configuration.wear]
+        enabled = true
+        grip_loss_per_mm = 0.080000000000000002
+        hot_multiplier = 2.5
+        load_exponent = 1.3
+        minimum_grip = 0.59999999999999998
+        overheat_k = 393.14999999999998
+        rate_mm_per_mj = 0.0011999999999999999
+        reference_load_n = 3200.0
+        tread_mm = 8.0
+
+[[records]]
+identity = 'rec_69'
+name = 'Control vehicle Tyre FL'
+parent = 'rec_68'
+type = 'Tyre'
+
+    [records.configuration]
+    cold_pressure_pa = 110000.0
+    compound = 'Medium'
+    corner = 0
+    enclosed = true
+    set = 'Set A'
+
+[[records]]
+identity = 'rec_70'
+name = 'Control vehicle Tyre FR'
+parent = 'rec_68'
+type = 'Tyre'
+
+    [records.configuration]
+    cold_pressure_pa = 110000.0
+    compound = 'Medium'
+    corner = 1
+    enclosed = true
+    set = 'Set A'
+
+[[records]]
+identity = 'rec_71'
+name = 'Control vehicle Tyre RL'
+parent = 'rec_68'
+type = 'Tyre'
+
+    [records.configuration]
+    cold_pressure_pa = 110000.0
+    compound = 'Medium'
+    corner = 2
+    enclosed = true
+    set = 'Set A'
+
+[[records]]
+identity = 'rec_72'
+name = 'Control vehicle Tyre RR'
+parent = 'rec_68'
+type = 'Tyre'
+
+    [records.configuration]
+    cold_pressure_pa = 110000.0
+    compound = 'Medium'
+    corner = 3
+    enclosed = true
+    set = 'Set A'

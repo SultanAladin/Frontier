@@ -8,6 +8,7 @@
 
 #include "Engine/Diagnostics/BuildConfiguration.h"
 #include "Engine/Diagnostics/LogStream.h"
+#include "Engine/Interface/InspectorRuntime.h"
 #include "Engine/Interface/SceneDirectoryPanel.h"
 #include "Engine/Scene/RecordEntry.h"
 #include "Engine/Scene/RecordStore.h"
@@ -177,8 +178,29 @@ int main()
               "host-serviced spawn appears by construction as a SceneRecord");
     }
 
-    // Destruction unregisters everywhere; children re-root; stale selection clears.
+    // Destruction unregisters everywhere; children re-root; stale selection clears; active *Editor closes.
+    struct MinimalEditorInspector final : RecordInspector
+    {
+        [[nodiscard]] const char* QueryEyebrowText() const noexcept override { return "TEST"; }
+        [[nodiscard]] const char* QueryEditorButtonLabel() const noexcept override { return "Test Editor"; }
+        void                      ConstructInspector() override {}
+    };
+    InspectorRuntime& Runtime = InspectorRuntime::Instance();
+    Check(Runtime.QuerySlotOpen(Vehicle->Token()) && Runtime.QuerySlotCount() == 3,
+          "constructor opens an InspectorRuntime slot for every live record");
+    Check(Runtime.BindInspector(Vehicle->Token(), std::make_unique<MinimalEditorInspector>()) &&
+              Runtime.AttachInspector(Vehicle->Token(), std::make_unique<MinimalEditorInspector>()) &&
+              Runtime.QueryInspectorCount(Vehicle->Token()) == 2,
+          "InspectorRuntime composes multiple modular inspectors on one record token");
+    Check(Runtime.QueryHasEditor(Vehicle->Token()) &&
+              Runtime.RequestEditorOpen(Vehicle->Token()) &&
+              Runtime.QueryActiveEditorToken() == Vehicle->Token(),
+          "standalone domain editor activation tracks the live record token");
+    const RecordToken DestroyedVehicleToken = Vehicle->Token();
     Vehicle.reset();
+    Check(!Runtime.QuerySlotOpen(DestroyedVehicleToken) &&
+              !Runtime.QueryActiveEditorToken().IsValid(),
+          "destructor unregisters InspectorRuntime slot and closes any open domain editor");
     Check(Directory.QueryParent(Tyre->Token()) == RecordToken{}, "destroyed parent's children re-root");
     Check(Directory.QueryCount() == 2, "destructor unregisters from the directory");
     Tyre.reset();
@@ -212,6 +234,7 @@ int main()
     Check(Store.QueryCount() == 0, "no records leak under churn");
 #if defined(FRONTIER_EDITOR_PROFILE) || defined(FRONTIER_DEVELOPMENT_PROFILE)
     Check(SceneDirectory::Instance().QueryCount() == 0, "no directory entries leak under churn");
+    Check(InspectorRuntime::Instance().QuerySlotCount() == 0, "no InspectorRuntime slots leak under churn");
 #endif
 
     std::printf("\nScene directory validation: %d passed, %d failed\n", Passes, Failures);

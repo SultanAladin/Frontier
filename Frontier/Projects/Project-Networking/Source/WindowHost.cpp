@@ -539,6 +539,16 @@ void PresentLogin()
             Profile.Pending ? Networking::T("Loading your Epic profile...") : Networking::T("Display name unavailable"));
         ImGui::TextColored(SuccessColour, "%s", Networking::T("Epic Auth verified  /  EOS Connect verified"));
         ImGui::TextWrapped(Networking::T("Transport: %s"), Networking::T(Networking::InspectTransportDisplayName()));
+        bool NetworkingOn = Networking::QueryNetworkingEnabled();
+        if (ImGui::Checkbox(Networking::T("Networking"), &NetworkingOn))
+        {
+            Networking::SetNetworkingEnabled(NetworkingOn);
+            if (NetworkingOn)
+                Networking::StartMultiplayerTransport(ReceiveDiagnostic);
+            else
+                Networking::StopMultiplayerTransport();
+        }
+        ImGui::TextColored(Muted, "%s", Networking::T("Networking off stops the multiplayer transport; on restarts it."));
         ImGui::TextWrapped(Networking::T("Country: %s"), Profile.Country[0] ? Profile.Country : Networking::T("Not provided by Epic"));
         ImGui::TextWrapped(Networking::T("Language: %s"), Profile.Language[0] ? Profile.Language : Networking::T("Not provided by Epic"));
         ImGui::BeginDisabled(Profile.Pending);

@@ -145,6 +145,63 @@ int main(int ArgumentCount, char **Arguments)
         Require(!Browser.RequestOpenProject(), "Changed project must be revalidated before launch");
         std::ofstream(Created, std::ios::trunc | std::ios::binary) << OriginalProject;
         Require(Browser.SelectProject(Created), "Restored project must select");
+        // 📝 New dialog: a game project opens at once; a SolidArc model and a texture library go to their applications.
+        {
+            const auto Dialog = Output / "New dialog";
+            const auto NewProject = Dialog / "Rover.projectspace";
+            Require(Browser.CreateDocument(BrowserCreation::GameProject, NewProject, "  Rover  "),
+                "New game project must be created");
+            Require(Browser.ConsumeLaunchPath() == NewProject, "A new game project must open in the editor at once");
+            ProjectSpaceDocument Rover;
+            Require(ProjectSpaceCodec::Decode(NewProject, Rover, Diagnostic) &&
+                        Rover.Sections["project"]["name"].value_or(std::string{}) == "Rover",
+                "A new project name must be trimmed");
+            Require(!Browser.CreateDocument(BrowserCreation::SolidArcDocument, Dialog / "Unconnected", ""),
+                "A SolidArc model without SolidArc must be refused");
+            Require(!std::filesystem::exists(Dialog / "Unconnected.solidarc"), "A refused model must not be written");
+            Require(!Browser.CreateDocument(BrowserCreation::TextureLibrary, Dialog / "Unconnected", ""),
+                "A texture library without the Texture Workspace must be refused");
+            std::vector<std::filesystem::path> SolidArcLaunches, Libraries;
+            Browser.CreateWorkspaceDocument = [&](const std::filesystem::path &Path, const std::string &Title, std::string &)
+            {
+                std::ofstream(Path) << "title = \"" << Title << "\"\n";
+                return true;
+            };
+            Browser.LaunchWorkspaceDocument = [&](const std::filesystem::path &Path, std::string &)
+            {
+                SolidArcLaunches.push_back(Path);
+                return true;
+            };
+            Browser.LaunchTextureWorkspace = [&](const std::filesystem::path &Folder, std::string &)
+            {
+                Libraries.push_back(Folder);
+                return true;
+            };
+            const auto SolidArcFile = Dialog / "Bonnet study.solidarc";
+            Require(Browser.CreateDocument(BrowserCreation::SolidArcDocument, Dialog / "Bonnet study", ""),
+                "New SolidArc model must be created");
+            Require(std::filesystem::is_regular_file(SolidArcFile) && ReadText(SolidArcFile).find("Bonnet study") != std::string::npos,
+                "A new model takes the .solidarc extension and its file name as title");
+            Require(SolidArcLaunches.size() == 1 && SolidArcLaunches[0] == SolidArcFile, "A new model must open in SolidArc exactly once");
+            const BrowserCatalogueEntry *Attached = Browser.QueryEntry(Browser.QueryActiveToken());
+            Require(Attached && Attached->Extension == ".solidarc" && Attached->Category == BrowserFileCategory::Cad,
+                "A new model must appear in the library");
+            const auto SolidArcBytes = ReadText(SolidArcFile);
+            Require(!Browser.CreateDocument(BrowserCreation::SolidArcDocument, SolidArcFile, "Again") && SolidArcLaunches.size() == 1 &&
+                        ReadText(SolidArcFile) == SolidArcBytes,
+                "An existing model must not be replaced");
+            Require(!Browser.CreateDocument(BrowserCreation::SolidArcDocument, {}, "Nameless"), "A model needs a destination");
+            const auto Library = Dialog / "Materials" / "Paint";
+            Require(Browser.CreateDocument(BrowserCreation::TextureLibrary, Library, ""), "New texture library must open");
+            Require(std::filesystem::is_directory(Library) && Libraries.size() == 1 && Libraries[0] == Library,
+                "The library folder must be created and opened in the Texture Workspace");
+            Require(Browser.CreateDocument(BrowserCreation::TextureLibrary, Library, "") && Libraries.size() == 2,
+                "An existing library folder opens again");
+            Require(!Browser.CreateDocument(BrowserCreation::TextureLibrary, SolidArcFile, "") && Libraries.size() == 2,
+                "A file is not a library folder");
+            Require(Browser.ConsumeLaunchPath().empty(), "Only game projects hand off to the editor");
+            Browser.CloseFile();
+        }
         // 🖼️ Headless draw sweep: every reader state at desktop and narrow widths, vertices inside the viewport.
         ImGui::CreateContext();
         auto &IO = ImGui::GetIO();
@@ -212,6 +269,14 @@ int main(int ArgumentCount, char **Arguments)
         Require(std::abs(ChildWidth("##librail") - 204) < 1, "Library rail must span 204px at desktop width");
         Browser.DebugShow("", 0, 0, false, 100, "details", "light", false, true);
         Draw("creation");
+        for (const BrowserCreation Choice :
+            {BrowserCreation::SolidArcDocument, BrowserCreation::TextureLibrary, BrowserCreation::GameProject})
+        {
+            Browser.ChooseCreation(Choice);
+            Browser.DebugShow("", 0, 0, false, 100, "details", "dark", false, true);
+            Draw("creation choice");
+            Require(Browser.QueryCreation() == Choice, "Drawing the New dialog must keep the choice");
+        }
         int ThemeCycle = 0;
         for (const char *Token : {"valley", "mount", "stone", "island", "bracket", "faceted"})
         {
@@ -252,6 +317,13 @@ int main(int ArgumentCount, char **Arguments)
         }
         Browser.DebugShow("stone", 0, 0, false, 100, "details", "dark", true, false);
         Draw("narrow launch");
+        for (const BrowserCreation Choice : {BrowserCreation::SolidArcDocument, BrowserCreation::TextureLibrary})
+        {
+            Browser.ChooseCreation(Choice);
+            Browser.DebugShow("", 0, 0, false, 100, "details", "oled", false, true);
+            Draw("narrow creation choice");
+        }
+        Browser.ChooseCreation(BrowserCreation::GameProject);
         Browser.ResetSelection();
         SetDisplay(1280, 900);
         ImGui::NewFrame();
@@ -269,6 +341,7 @@ int main(int ArgumentCount, char **Arguments)
             << "\"Real creation and fresh identity\", \"Empty content and preserved defaults\", "
             << "\"Unicode directory\", \"Overwrite and unsupported format refusal\", "
             << "\"Missing/corrupt/changed project refusal\", \"Single-consumption hand-off\", "
+            << "\"New dialog: game project, SolidArc model and texture library hand-offs\", "
             << "\"Desktop/narrow draw sweep with viewport containment\", \"Read-only browsing\"],\n"
             << "  \"execution\": \"Host CPU checks only; no Windows, OS dialog or GPU execution\"\n}\n";
         std::cout << "PASS: 1:1 browser catalogue, reader, import, prefs, creation, hand-off, " << DrawnStates

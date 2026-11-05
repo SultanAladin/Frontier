@@ -565,12 +565,12 @@ int RunWorkspaceCapture(const std::string& OutputDirectory)
     }
     if (WorkspaceErrorIndex < Panel.QueryVisible().size())
     {
-        Panel.SelectVisible(WorkspaceErrorIndex);
+        Panel.ToggleExpansion(WorkspaceErrorIndex);
         Frame(1.0 / 60.0, false);
         Frame(1.0 / 60.0, true);
         (void)WritePpm((OutputDirectory + "/workspace-expanded.ppm").c_str());
         std::printf("workspace capture (expanded row) -> workspace-expanded.ppm\n");
-        Panel.SelectVisible(WorkspaceErrorIndex); // Toggle back off
+        Panel.ToggleExpansion(WorkspaceErrorIndex); // Toggle back off
     }
 
     // Log Stream alone in the dockspace (Viewport and Outliner closed through the panels API).
@@ -818,7 +818,7 @@ int main(int ArgumentCount, char** Arguments)
     }
     if (ErrorIndex < Panel.QueryVisible().size())
     {
-        Panel.SelectVisible(ErrorIndex);
+        Panel.ToggleExpansion(ErrorIndex);
     }
     RunFrame(1.0 / 60.0, false);
     RunFrame(1.0 / 60.0, true);
@@ -872,7 +872,7 @@ int main(int ArgumentCount, char** Arguments)
     ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, false);
     if (ErrorIndex < Panel.QueryVisible().size())
     {
-        Panel.SelectVisible(ErrorIndex);                               // Toggle the detail closed again
+        Panel.ToggleExpansion(ErrorIndex);                               // Toggle the detail closed again
     }
 
     // Capture D - live search: match spans highlight, "N shown" + clear disc appear.

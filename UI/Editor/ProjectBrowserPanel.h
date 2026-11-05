@@ -12,6 +12,7 @@
 #include "Engine/Render/BrowserPreviewGeometry.h"
 #include <array>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <imgui.h>
 #include <map>
@@ -37,6 +38,14 @@ enum class BrowserThumbFit
     Contain // 🖼️ object-fit:contain letterboxes the capture on black.
 };
 
+// 📝 What the New dialog creates; each result opens in its own application.
+enum class BrowserCreation : uint8_t
+{
+    GameProject, // .projectspace → the Frontier editor (Game Engine)
+    SolidArcDocument, // .solidarc → SolidArcWorkspace (modelling)
+    TextureLibrary // a material library folder → TextureWorkspace (texturing and baking)
+};
+
 class ProjectBrowserPanel
 {
   public:
@@ -45,6 +54,11 @@ class ProjectBrowserPanel
     bool ConfigureDirectory(const std::filesystem::path &Directory);
     bool SelectProject(const std::filesystem::path &Path);
     bool CreateProject(const std::filesystem::path &Destination, const std::string &Name);
+    // 📝 New dialog: creates Destination and opens it in its application (the editor hand-off, SolidArcWorkspace or
+    // TextureWorkspace). False + QueryDiagnostic() when nothing was created (or the texture library did not open).
+    bool CreateDocument(BrowserCreation Creation, const std::filesystem::path &Destination, const std::string &Name);
+    void ChooseCreation(BrowserCreation Creation) noexcept { CreationChoice = Creation; }
+    [[nodiscard]] BrowserCreation QueryCreation() const noexcept { return CreationChoice; }
     bool RequestOpenProject();
     void ResetSelection() noexcept;
     void ConstructInterface();
@@ -81,6 +95,20 @@ class ProjectBrowserPanel
     std::function<BrowserPreviewImage(const std::string &Token, const std::vector<uint8_t> &ImageBytes)> QueryImportedImage;
     std::function<std::vector<std::filesystem::path>()> PickImportFiles;
     std::function<std::filesystem::path()> PickImportFolder;
+    // 📝 SolidArc hand-off: native decoding of attached workspace documents, their rendered thumbnails (the
+    // configuration carries the document triangles) and the launch of the owning workspace application.
+    std::function<BrowserNativeDocument(const std::filesystem::path &Path)> QueryDocumentGeometry;
+    std::function<BrowserPreviewImage(const std::string &Key, const BrowserPreviewConfiguration &)> QueryConfiguredThumbnail;
+    std::function<bool(const std::filesystem::path &Path, std::string &Refusal)> LaunchWorkspaceDocument;
+    // 📝 New dialog plumbing: Browse per choice (empty: PickProjectPath(true) / PickImportFolder), an empty SolidArc model
+    // written by SolidArc's codec, and TextureWorkspace started on one library folder.
+    std::function<std::filesystem::path(BrowserCreation)> PickCreationPath;
+    std::function<bool(const std::filesystem::path &Path, const std::string &Title, std::string &Refusal)>
+        CreateWorkspaceDocument;
+    std::function<bool(const std::filesystem::path &Folder, std::string &Refusal)> LaunchTextureWorkspace;
+    [[nodiscard]] std::string QueryLaunchOutcome() const { return LaunchOutcome; }
+    [[nodiscard]] const BrowserCatalogueEntry *QueryEntry(const std::string &Token) const noexcept { return FindEntry(Token); }
+    void OpenActiveFile() { OpenInFrontier(); } // 🧪 Validation: the reader's "Open in …" action.
 
   private:
     struct CachedPreviewTriangles
@@ -112,6 +140,7 @@ class ProjectBrowserPanel
     void ToggleStar(const std::string &Token);
     void Notify(const std::string &Message);
     void OpenInFrontier();
+    void PrepareNativeReader(const BrowserCatalogueEntry &Entry);
     void SubmitComment();
     void CaptureNow();
     void ConstructLibrary(float Width);
@@ -141,7 +170,14 @@ class ProjectBrowserPanel
     std::array<char, 257> SearchText{};
     std::array<char, 2001> CommentText{};
     bool LeftCollapsed = false, RightCollapsed = false, ResponsiveConfigured = false;
+    std::string LaunchOutcome; // 📝 SolidArc hand-off result shown by the launch dialog (empty: preview flow).
+    bool LaunchSucceeded = false;
+    [[nodiscard]] static bool LivePreviewCondition(const BrowserCatalogueEntry &Entry)
+    {
+        return !Entry.Imported || Entry.Geometry != nullptr;
+    }
     bool DocumentEnabled = false, LaunchOpen = false, Creating = false, LiveDragging = false;
+    BrowserCreation CreationChoice = BrowserCreation::GameProject;
     bool WasLiveHovered = false;
     bool FocusSearch = false, FocusBack = false, FocusBrowse = false;
     void ConstructCatalogue() = delete;

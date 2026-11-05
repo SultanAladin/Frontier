@@ -49,6 +49,13 @@ ImGui's MIT notice is retained and installed. Vulkan-Headers v1.4.321 is archive
 under `Notices/Vulkan-Headers/`. No Vulkan loader or driver binary is bundled. The runtime uses GLFW's system loader.
 
 
+## Rigid-body physics
+
+`Frontier/Extensions/Physics` uses JoltPhysics from `jrouwe/JoltPhysics`, tag v5.6.0 (commit
+`e77f175595e64cb44218cc9d9d56fc365ad0e36a`), pinned with its SHA-256 in `Automation/UIDependencies.json`. It is used
+unmodified and linked statically. Its MIT licence is `ExternalPackages/JoltPhysics/LICENSE` and is installed as
+`Notices/JoltPhysics-LICENSE.txt`.
+
 ## Material PNG/JPEG ingestion
 
 `Engine/Render/SurfaceMaterial.cpp` uses `stb_image` from `nothings/stb`, pinned at
