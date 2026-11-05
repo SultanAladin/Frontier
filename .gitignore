@@ -13,6 +13,9 @@ EngineContent/*
 !EngineContent/MaterialArchives/
 !EngineContent/PatternArchives/
 !EngineContent/EnvironmentArchives/
+!EngineContent/Photometry/
+!EngineContent/GasScenes/
+!EngineContent/ParticleArchives/
 
 # Agent scratch space.
 _ClaudeScratch/

@@ -19,3 +19,5 @@ See `Documentation/Rules/Evidence.md` at repository root.
 
 - `ControlCentre/`: typography/theme interactions, downloaded font inventory, Windows package inspection.
 - `UIFoundation/`: historical first-batch foundation, lifecycle, glyph, and CPU raster evidence.
+- `VehicleHmi/`: configurator scan/paint comparisons, prototype GPU previews, and native scaffold checks.
+- `VolumetricFlow/`: retained fluid authoring, planner, shader and software-GPU parity tests; native runtime remains open.

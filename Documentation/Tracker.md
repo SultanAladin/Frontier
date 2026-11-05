@@ -25,6 +25,18 @@ Single progress and violation tracker. Detailed evidence belongs in Exhibits, no
 
 ## Verification
 
+### Vehicle HMI and retained volumetric flow (2026-11-05)
+
+- Vehicle scan/paint behavior and native timing are checked against the supplied configurator reference;
+  the prototype's WGSL probes and native particle raster probe execute on software Vulkan. The standalone
+  session and approximate CPU presentation build, but native scan submission and tablet UI remain unintegrated.
+  See `Exhibits/VehicleHmi/README.md` for commands, captures, capability warnings and parity gaps.
+- The retained fluid authoring catalogue, complete solver-step planner, irradiance cache planner and orbit
+  view staging are checked against the original JavaScript. All 12 simulation compute entries, two irradiance
+  compute entries and both raymarch shader entries compile as standalone Slang and have software-GPU fixture parity;
+  full-step, cache-chain and small raymarch comparisons pass. A native Fluid Editor and resource-owning
+  simulation/render runtime are still missing. See `Exhibits/VolumetricFlow/README.md` for exact scope and results.
+
 `Exhibits/ControlCentre/README.md` contains current commands, results, evidence, and limitations.
 All six local tests passed in Debug and with address/undefined-behaviour sanitizers.
 All 151 SVG symbols remain ready. Native Control Centre images are CPU raster output, not Windows GPU captures.

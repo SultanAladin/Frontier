@@ -46,6 +46,11 @@ target_include_directories(FrontierImGui PUBLIC "${IMGUI_ROOT}")
 target_compile_definitions(FrontierImGui PUBLIC "ImDrawIdx=unsigned int")
 add_library(FrontierTextFiles STATIC Engine/Interface/TextFileReplacement.cpp)
 target_include_directories(FrontierTextFiles PUBLIC "${CMAKE_SOURCE_DIR}")
+# The flow authoring model is independent of the not-yet-ported editor UI and simulation runtime.
+add_library(FrontierVolumetricFlowAuthoring STATIC
+    Engine/Render/VolumetricFlowAuthoring.cpp Engine/Render/VolumetricFlowCatalogue.cpp
+    Engine/Render/VolumetricFlowSolver.cpp)
+target_include_directories(FrontierVolumetricFlowAuthoring PUBLIC "${CMAKE_SOURCE_DIR}")
 # 📝 Dependency-free disk cache for baked gallery thumbnail atlases (Pattern + Material). Kept as its
 # own unit (rather than folded into FrontierInterface) because the Material side lives in
 # FrontierSurfaceRasterization, which does not otherwise depend on FrontierInterface; both link this
@@ -205,6 +210,35 @@ include(CTest)
 include(Automation/SurfaceRasterization.cmake)
 include(Automation/VectorCoverage.cmake)
 if(BUILD_TESTING)
+    add_executable(VolumetricFlowValidation Exhibits/VolumetricFlow/Code/VolumetricFlowValidation.cpp)
+    target_link_libraries(VolumetricFlowValidation PRIVATE FrontierVolumetricFlowAuthoring)
+    add_test(NAME VolumetricFlowValidation COMMAND VolumetricFlowValidation)
+    add_executable(FlowSolverValidation Exhibits/VolumetricFlow/Code/FlowSolverValidation.cpp)
+    target_link_libraries(FlowSolverValidation PRIVATE FrontierVolumetricFlowAuthoring)
+    add_test(NAME VolumetricFlowSolverValidation COMMAND FlowSolverValidation)
+    add_executable(FlowIrradianceValidation Exhibits/VolumetricFlow/Code/FlowIrradianceValidation.cpp)
+    target_link_libraries(FlowIrradianceValidation PRIVATE FrontierVolumetricFlowAuthoring)
+    add_executable(FlowViewValidation Exhibits/VolumetricFlow/Code/FlowViewValidation.cpp)
+    target_link_libraries(FlowViewValidation PRIVATE FrontierVolumetricFlowAuthoring)
+    find_program(FRONTIER_FLOW_NODE NAMES node)
+    if(FRONTIER_FLOW_NODE)
+        add_test(NAME VolumetricFlowCatalogueParity COMMAND "${FRONTIER_FLOW_NODE}"
+            "${CMAKE_SOURCE_DIR}/Exhibits/VolumetricFlow/Code/GenerateFlowCatalogue.mjs" --check)
+        add_test(NAME VolumetricFlowAuthoringParity COMMAND "${FRONTIER_FLOW_NODE}"
+            "${CMAKE_SOURCE_DIR}/Exhibits/VolumetricFlow/Code/CompareFlowAuthoring.mjs"
+            "$<TARGET_FILE:VolumetricFlowValidation>")
+        add_test(NAME VolumetricFlowSolverParity COMMAND "${FRONTIER_FLOW_NODE}"
+            "${CMAKE_SOURCE_DIR}/Exhibits/VolumetricFlow/Code/CompareFlowSolver.mjs"
+            "$<TARGET_FILE:FlowSolverValidation>")
+        add_test(NAME VolumetricFlowIrradianceParity COMMAND "${FRONTIER_FLOW_NODE}"
+            "${CMAKE_SOURCE_DIR}/Exhibits/VolumetricFlow/Code/CompareFlowIrradiancePlan.mjs"
+            "$<TARGET_FILE:FlowIrradianceValidation>")
+        add_test(NAME VolumetricFlowViewParity COMMAND "${FRONTIER_FLOW_NODE}"
+            "${CMAKE_SOURCE_DIR}/Exhibits/VolumetricFlow/Code/CompareFlowView.mjs"
+            "$<TARGET_FILE:FlowViewValidation>")
+        set_tests_properties(VolumetricFlowCatalogueParity VolumetricFlowAuthoringParity VolumetricFlowSolverParity
+            VolumetricFlowIrradianceParity VolumetricFlowViewParity PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    endif()
     find_program(FRONTIER_PATTERN_IMPORT_NODE NAMES node)
     if(FRONTIER_PATTERN_IMPORT_NODE)
         set(FRONTIER_PATTERN_IMPORT_TOML "${CMAKE_BINARY_DIR}/WebPatternImport/Pattern.vector.toml")
