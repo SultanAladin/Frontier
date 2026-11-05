@@ -8,6 +8,7 @@
 //    this class, nothing else.
 
 #include "Frontier/Engine/Effects/VehicleInspection.h"
+#include "Frontier/Engine/Effects/PlumeSolver.h"
 #include "Frontier/Engine/Scene/FacetArchive.h"
 
 #include <array>
@@ -26,6 +27,9 @@ struct PresentationVehicle
     float YawDegrees = 0.0f;
     std::array<float, 3> Paint = { 0.20f, 0.21f, 0.23f };   // linear-ish albedo tint
     VehicleInspection Inspection{};   // visual effect for this presentation of the vehicle
+    // 📝 Particle Editor proof points (world space, from ParticleSpace::QueryParticle): glowing cube
+    //    centres over the vehicle. Presentation only.
+    std::vector<std::array<float, 3>> ParticlePoints;
 };
 
 // 📝 Renders one frame of the studio: white cyclorama floor disc, the softbox overhead, and the vehicles.
@@ -34,5 +38,9 @@ struct PresentationVehicle
 bool RenderLobbyPpm(const std::string& Path, const std::vector<PresentationVehicle>& Vehicles,
                     float CameraYawDegrees, float CameraPitchDegrees, float CameraDistanceMetres,
                     int Width = 640, int Height = 400);
+
+// 📝 Fluid proof: side (X–Z) maximum-density/heat projection of the CPU plume lattice, so the buoyant
+//    rise shows (grey smoke, orange where hot). Presentation only — solver: Engine/Effects/PlumeSolver.
+bool RenderPlumePreviewPpm(const std::string& Path, const PlumeSolver& Solver, int Width = 320, int Height = 320);
 
 } // namespace Frontier

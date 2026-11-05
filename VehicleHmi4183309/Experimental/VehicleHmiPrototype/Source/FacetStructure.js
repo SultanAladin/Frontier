@@ -140,6 +140,7 @@ export class SceneStructure
             const StaticStrutLength = ControlVehicleSockets.SuspensionMount[0][2] - ControlVehicleSockets.AxleMount[0][2];
             LobbyVehiclePlacements.forEach((Placement, Car) =>
             {
+                if (SingleVehicle) return; // hero + its plates only (constructed above)
                 const Orientation = [0.0, 0.0, Math.sin(0.5 * Placement.Yaw), Math.cos(0.5 * Placement.Yaw)];
                 const BodyTransform = ConstructRigidTransform([Placement.Position[0], Placement.Position[1], VehicleGeometry.CoMHeight], Orientation);
                 this.DisplayOccupants.push(this.ConstructOccupant(Placement.Name, GuestBodySets[Car], BodyTransform, StaticRoles));

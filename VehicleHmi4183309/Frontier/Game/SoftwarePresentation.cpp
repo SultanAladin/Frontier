@@ -297,11 +297,57 @@ bool RenderLobbyPpm(const std::string& Path, const std::vector<PresentationVehic
     if (!Stream)
         return false;
     Stream << "P6\n" << Width << " " << Height << "\n255\n";
+    // Particle Editor proof points: glowing cube centres over the vehicle (drawn last, they are the effect).
+    for (const PresentationVehicle& Vehicle : Vehicles)
+        for (const auto& Point : Vehicle.ParticlePoints)
+        {
+            float Sx, Sy, Sz;
+            if (!Camera.Project(Vec3{ Point[0], Point[1], Point[2] }, Sx, Sy, Sz))
+                continue;
+            const int Cx = static_cast<int>((Sx * 0.5f + 0.5f) * Width), Cy = static_cast<int>((0.5f - Sy * 0.5f) * Height);
+            for (int Dy = -1; Dy <= 1; ++Dy)
+                for (int Dx = -1; Dx <= 1; ++Dx)
+                {
+                    const int X = Cx + Dx, Y = Cy + Dy;
+                    if (X < 0 || Y < 0 || X >= Width || Y >= Height) continue;
+                    Target.Colour[Y * Width + X] = { 0.35f, 0.95f, 1.0f };
+                }
+        }
+
     for (const auto& Pixel : Target.Colour)
         for (int Channel = 0; Channel < 3; ++Channel)
         {
             const float Srgb = std::pow(std::clamp(Pixel[Channel], 0.0f, 1.0f), 1.0f / 2.2f);
             Stream.put(static_cast<char>(std::lround(Srgb * 255.0f)));
+        }
+    return static_cast<bool>(Stream);
+}
+
+bool RenderPlumePreviewPpm(const std::string& Path, const PlumeSolver& Solver, int Width, int Height)
+{
+    std::ofstream Stream(Path, std::ios::binary);
+    if (!Stream)
+        return false;
+    Stream << "P6\n" << Width << " " << Height << "\n255\n";
+    const int TX = Solver.ThermoExtent[0], TY = Solver.ThermoExtent[1], TZ = Solver.ThermoExtent[2];
+    float Peak = std::max(Solver.QueryMaximumDensity(), 1e-6f);
+    for (int Y = 0; Y < Height; ++Y)
+        for (int X = 0; X < Width; ++X)
+        {
+            // Side projection (X across, Z up, max over Y): the buoyant rise is the visible structure.
+            const int CellX = X * TX / std::max(Width, 1), CellZ = (Height - 1 - Y) * TZ / std::max(Height, 1);
+            float Density = 0.0f, Heat = 0.0f;
+            for (int CellY = 0; CellY < TY; ++CellY)
+            {
+                Density = std::max(Density, Solver.QueryDensity(CellX, CellY, CellZ));
+                Heat = std::max(Heat, Solver.QueryHeat(CellX, CellY, CellZ));
+            }
+            const float D = std::clamp(Density / Peak, 0.0f, 1.0f), H = std::clamp(Heat * 0.05f, 0.0f, 1.0f);
+            std::array<float, 3> Pixel = { 0.04f + 0.75f * D * (1.0f - H) + 1.0f * D * H,
+                                           0.05f + 0.75f * D * (1.0f - H) + 0.45f * D * H,
+                                           0.07f + 0.80f * D * (1.0f - H) + 0.12f * D * H };
+            for (int Channel = 0; Channel < 3; ++Channel)
+                Stream.put(static_cast<char>(std::lround(std::pow(std::clamp(Pixel[Channel], 0.0f, 1.0f), 1.0f / 2.2f) * 255.0f)));
         }
     return static_cast<bool>(Stream);
 }

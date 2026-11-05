@@ -47,6 +47,21 @@ rebuild runs; the vehicle is **not** frozen/slept to force skips (the earlier br
 Tests: `Tools/TlasSkip.test.mjs` (skip invisibility, 6 mm mover, BLAS-root change).
 JS suite: 99 pass / 3 fail — the same 3 environment failures as pristine 4183309 (96 pass).
 
+## C++ visual proofs (CPU presentation, `LobbySession`)
+```sh
+/tmp/LobbySession --render out.ppm --view ghost       # Ghost 45%        → VisualProof/GhostPreview.png
+/tmp/LobbySession --render out.ppm --view wireframe   # Wireframe        → VisualProof/WireframePreview.png
+/tmp/LobbySession --render out.ppm --view scan        # X-ray scan band  → VisualProof/XRayScanPreview.png
+/tmp/LobbySession --render out.ppm --paint 8a1a1d     # Command Red      → VisualProof/PaintPreview.png
+/tmp/LobbySession --render out.ppm --derez            # Particle Editor derez points → VisualProof/DerezPreview.png
+/tmp/LobbySession --plume out.ppm                     # fluid solver, side X–Z density/heat projection
+                                                      # (buoyant column)   → VisualProof/PlumePreview.png
+```
+All are presentation-only: `--view/--paint/--derez/--plume` never touch session, physics or packets.
+JS suite now 102 pass / same 3 pre-existing environment failures as pristine 4183309
+(`Tools/HmiDemo.test.mjs` guards the paint-only + single-vehicle contract — it caught a lost edit
+during development, which is exactly what it is for).
+
 ## Build & test
 ```sh
 g++ -std=c++17 -O2 -I. Validation/SessionValidation.cpp Frontier/Engine/Input/*.cpp \
