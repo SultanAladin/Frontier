@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<!--
+==============================================================================================================================================
+                                                                  HMIDEMO.HTML
+==============================================================================================================================================
+ 🧩 The HMI demo (owner brief, from 4183309): the viewport is the renderer's own ReSTIR studio render of the
+    ONE hero vehicle (Lobby scene, ?hmi=1 — the display fleet is never constructed), orbited by drag / zoomed
+    by scroll, exactly like the reference configurator's stage. The only vehicle controls are paint: the eight
+    named finishes. Clicking a swatch — or dragging it onto the car — recolours the live vehicle through the
+    shared material records (VehicleAppearance), so the driven car takes the finish too.
+    Open:  python3 Tools/Serve.py  →  http://localhost:8000/HmiDemo.html
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Frontier · Vehicle HMI — Paint</title>
+<link rel="stylesheet" href="Style/Lobby.css">
+<link rel="stylesheet" href="Style/HmiDemo.css">
+<script>
+    // The renderer keys Lobby mode (and ?hmi=1 single-vehicle) off the query string; normalise before modules load.
+    if (!new URLSearchParams(location.search).has("lobby")) location.replace(location.pathname + "?lobby=1&hmi=1");
+</script>
+</head>
+<body>
+    <canvas id="viewport"></canvas>
+    <canvas id="capture" class="capture"></canvas>
+    <div id="cinematic-fade"></div>
+    <aside id="paint-panel" aria-label="Vehicle paint">
+        <h1>Paint</h1>
+        <p class="hint">Click a finish, or drag it onto the car. Drag the car to orbit.</p>
+        <div id="swatches"></div>
+        <p id="paint-status" role="status">Starting renderer…</p>
+    </aside>
+    <div id="drag-ghost" class="hidden"></div>
+    <script type="module" src="Source/IlluminationHost.js"></script>
+    <script type="module" src="Source/HmiDemo.js"></script>
+</body>
+</html>
