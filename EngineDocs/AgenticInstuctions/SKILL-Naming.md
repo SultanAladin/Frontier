@@ -22,7 +22,7 @@ then gate. Never hand a naming problem back to the user; run these steps first.
 
    | Register | Words |
    |---|---|
-   | Contiguous memory | Footprint · Slot · Vacancy · Region · Store · Table · Reclamation · Atlas |
+   | Contiguous memory | Slot · Vacancy · Region · Store · Table · Reclamation · Atlas |
    | Topology / geometry | Complex · Loop · Patch · Contour · Cycle · Boundary · Field · Sequence |
    | Math / analysis | Linearizer · Projection · Predicate · Evaluation · Interpolant · Solver |
    | Connectivity | Adjacency · Enclosure · Lateral · Tier · Nesting · Traversal |
@@ -72,6 +72,36 @@ Semantic voids that hide what code does. NOT exhaustive — apply the §0 gates 
   now barred outright) → a GPU render unit that composites onto an existing target takes `…Rasterization`
   (it still rasterizes ribbon / glyph / decal geometry into the target). New code never uses
   `Inscription`; existing `…Inscription` files are deferred renames (see §2).
+- **2026-10-31:** `Model`, `Cache` (`Cache`, `Caches`, `Cached`, `Caching`), `Widget`, `Kit`, `Footprint`, `Shared`,
+  `DedicatedStudio`, `SpecialtyEditor`, `Specialty`, `Actor`, `Beacon` — all barred outright in new code,
+  file names, folders, and comments; avoid `Buffer` (`Gbuffer`, `*Buffer`) across engine types, filenames, and
+  variables unless strictly mandated by an external Vulkan/Slang keyword (`VkBuffer`, `VkCommandBuffer`,
+  `StructuredBuffer`):
+  - Never use `Model` (`AtmosphereModel`, `CelestialModel`, `LensFlareModel`): name the physical mechanism or optical
+    projection (`AtmosphereScattering`, `AstronomicalEphemeris`, `SkyProjection`, `PlanetaryProjection`,
+    `OpticalLensFlare`, `VolumetricClouds`, `CloudSpace`, `FogSpace`).
+  - Avoid `Buffer` / `Gbuffer` in engine types, files, and identifiers: use `VisibilityProjection` / `VisibilityAtlas`
+    instead of `Gbuffer`, and `DeviceMemorySpan` / `UploadMemorySpan` / `DownloadMemorySpan` (under `DeviceExchange/`)
+    instead of `*Buffer`.
+  - Use real Unicode Greek/math symbols (`μ`, `θ`, `γ`, `σRayleigh`, `σMie`, `σExtinction`, `τ`, `Δτ`, `Δs`, `𝑔`, `ρ`,
+    `λ`, `Φ` per `SKILL-formatting.md` §4) in both C++20 and `.slang` for mathematical scalars, paired with full
+    geometric PascalCase vector nouns (`SolarTangential`, `AzimuthForward`, `AzimuthLateral` — never cryptic 2-letter
+    ASCII temps like `Ls`, `BasisF`, `BasisR`, `SunHoriz`).
+  - Use `Atlas`, `Store`, `Table`, `History`, `Retained`, `Resident`, or `Lut` instead of `Cache`/`Cached`
+    (legacy pre-existing `ThumbnailAtlasCache` is deferred).
+  - Use `Controls` / generic mechanism nouns (`Slider`, `Button`, `Switch`, `ArcPlot`, `PolarDial`,
+    `StrataPlot`, `CurvePlot`, `SpectrumBar`, `DiscRow`, `TimeSeriesPlot`) instead of `Widget`/`Kit` or
+    domain-locked plot names like `ConstructLunarPhaseStrip` (legacy `ControlKit` is deferred).
+  - Use `Configuration` / `Parameters` / `Structure` / `Slot` instead of `Footprint`.
+  - Name the owning domain instead of `Shared`.
+  - Name standalone authoring editors `<Domain>Editor` (`FractureEditor`, `FluidPlumeEditor`,
+    `ParticleEditor`, `PolygonClusterEditor`) directly — never `DedicatedStudio` or `SpecialtyEditor`.
+  - Never borrow Unreal's monolithic `Actor`: scene entries are `RecordEntry` instances configured with
+    modular, opt-in property structures (`SpatialConfiguration`, `PhysicsConfiguration` /
+    `MassConfiguration`, `ThermalConfiguration`, `ChemicalConfiguration`, `SurfaceOpticsConfiguration`)
+    and matching modular `*Inspector` classes.
+  - Container files use Frontier `*space` extensions (`.projectspace`, `.levelspace`, `.worldspace`) —
+    never compound `.toml` suffixes such as `.level.toml` even when serialized as TOML internally.
 
 > \*`Traversal` exempt only at `Topology/Selection/SelectionTraversal.{h,cpp}` (user direction).
 > †bare `Record` banned; composite `RecordEntry`/`RecordStore`/`RecordToken` (§4) is approved.
@@ -97,9 +127,10 @@ Semantic voids that hide what code does. NOT exhaustive — apply the §0 gates 
 | `Common`/`Util`/`Helper` | cross-subsystem → `MicroUtils/`; local shared code → a named file. |
 | `stage`/`Pass`, `Emission`/`Emit` | render-unit mechanism suffix — see table below. |
 | `Hierarchy` | `SceneDirectory` (owning tree), `Nesting`, `DepthTier`. |
+| `Cache` / `Cached` | `Atlas` / `Store` / `Table` / `History` / `Retained` / `Resident` / `Lut`. |
 | `Entity`/`Element` | `RecordEntry`; store `RecordStore`; tag `RecordClassification`. |
 | `Designation` | `…Token` (`RecordToken`), via `TokenIssuer` + `TokenAuthentication`. |
-| `Subsystem` | `Extensions/<Name>/`, a `…Division` coordinator, or name it for what it does. |
+| `Subsystem` | a bridge → `Frontier/Extensions/<Name>/` (`<Name>Extension`); a domain world → `<Domain>Space`; a `…Division` coordinator; or name it for what it does. |
 
 **Render-unit suffixes (choose by mechanism — NOT interchangeable):**
 
@@ -178,7 +209,7 @@ Classes = **real technical entities**, structural nouns, never abstract software
 - **Architecture nouns:** `Registry Specification Configuration Structure Interface Implementation`
   + `…Division` (lifecycle owner) *(never `Subsystem`/`system`)* — e.g. `TopologyDivision`, `CameraConfiguration`.
 - **Data-structure suffixes:** `Descriptor Specification Configuration Index Archive Structure Field
-  Profile Footprint Token Entry` — e.g. `SurfaceDescriptor`, `TopologyIndex`.
+  Profile Token Entry` — e.g. `SurfaceDescriptor`, `TopologyIndex`.
 - ❌ **Never produce:** `SceneGraphTraversal TopologyRepresentation Manager Handler Processor Graph
   Record Node Frame ItemManager MeshDescriptor HierarchyElement`.
 
@@ -214,8 +245,8 @@ Lifecycle vocabulary is **initialize → loop → finalize**.
 - **Geometry/spatial:** `VertexIndex EdgeIndex SurfaceIndex FaceIndex LoopIndex VertexCount VertexPosition
   VertexNormal SurfaceParameter CurveParameter EdgeDirection SurfaceNormal MinimumBoundary/MaximumBoundary
   IndentDepth ProjectionConfiguration`.
-- **Instance suffixes** (a slot in contiguous memory): `Instance Entry Footprint Slot` — e.g.
-  `SurfacePatch SurfacePatchInstance`, `SceneDirectoryEntry DirectoryMemoryFootprint`.
+- **Instance suffixes** (a slot in contiguous memory): `Instance Entry Slot` — e.g.
+  `SurfacePatch SurfacePatchInstance`, `SceneDirectoryEntry DirectoryMemorySlot`.
 - **Temporaries:** name the exact computation — `IntersectionParameter`, `SurfaceEvaluationResult`,
   `ProjectedCoordinate`, `AccumulatorBuffer`.
 - **Banned variable words:** `flag state value`.

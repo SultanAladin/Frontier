@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Frontier — Car Studio Configurator Lobby &amp; Session Transition</title>
+    <link rel="stylesheet" href="Style/FrontierEditor.css" />
+    <link rel="stylesheet" href="Style/CarStudioLobby.css" />
+</head>
+<body class="panels-hidden studio-lobby-active">
+    <div id="shell">
+        <aside id="outliner-column" class="column editor-column"></aside>
+
+        <main class="viewport">
+            <header class="viewport-header">
+                <div class="viewport-title">
+                    <span class="viewport-badge">WEBGPU</span>
+                    <span>Frontier — Car Studio Configurator Lobby &amp; Proving Grounds</span>
+                </div>
+                <div id="viewport-toolbar" class="viewport-toolbar"></div>
+            </header>
+
+            <div class="viewport-stage">
+                <canvas id="viewport"></canvas>
+
+                <div id="hud" class="hud">
+                    <div id="hud-title" class="hud-title">Frontier — Car Studio Configurator Lobby</div>
+                    <pre id="hud-metrics"></pre>
+                </div>
+
+                <div id="drill-banner" class="drill-banner hidden"></div>
+
+                <div id="bring-up" class="bring-up">
+                    <div class="bring-up-card">
+                        <div class="bring-up-title">Bringing up Car Studio Configurator &amp; Illumination Pipeline</div>
+                        <div class="bring-up-caption">Initialising WebGPU…</div>
+                        <div class="bring-up-bar"><div></div></div>
+                    </div>
+                </div>
+
+                <div id="failure" class="failure hidden">
+                    <div class="failure-title">WebGPU is unavailable in this browser</div>
+                </div>
+            </div>
+        </main>
+
+        <aside id="inspector-column" class="column editor-column"></aside>
+
+        <footer id="status-bar" class="status-bar"></footer>
+    </div>
+
+    <script type="module" src="Source/IlluminationHost.js"></script>
+</body>
+</html>
