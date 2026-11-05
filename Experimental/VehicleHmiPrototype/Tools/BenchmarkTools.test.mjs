@@ -85,7 +85,12 @@ test("plumbing: harness + BenchHooks + RunBenchmark produce a result file on the
     const Result = JSON.parse(fs.readFileSync(Out, "utf8"));
     assert.equal(Result.Runs.length, 2); assert.deepEqual(Result.Runs.map((Entry) => Entry.Which), ["baseline", "variant"]);
     for (const Entry of Result.Runs) { assert.ok(Entry.MedianMs >= 0 && Entry.DurationsMs.length === 6, "every executed frame was timed"); }
-    assert.ok(["faster", "slower", "no measurable difference", "no data"].includes(Result.Comparison.Verdict));
+    // 📝 Every verdict Compare can reach, including the two marginal ones: on Dawn's null backend
+    //    nothing executes, so the two configurations' timings are noise and either may land just
+    //    outside the band. What this test must prove is that the plumbing produced a comparison at
+    //    all, not which way it fell.
+    assert.ok(["faster", "faster (marginal)", "slower", "slower (marginal)", "no measurable difference", "no data"]
+              .includes(Result.Comparison.Verdict), `verdict was ${Result.Comparison.Verdict}`);
     assert.match(Result.Machine.SwiftShader, /sparticuz/);
 });
 
