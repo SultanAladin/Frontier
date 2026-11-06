@@ -1,0 +1,62 @@
+{
+  "Dimensions": [
+    1024,
+    128,
+    1024
+  ],
+  "TruncationBandMetres": 2.8125,
+  "Covered": 134217728,
+  "Total": 134217728,
+  "Bricks": 43175,
+  "Uniform": 32601,
+  "Evaluations": 22192213,
+  "Bytes": 90069135,
+  "CompressedBytes": 3469297,
+  "CheckedSamples": 227328,
+  "MaximumError": 1.1919371445401339e-7,
+  "ElapsedSeconds": 15.703118662000001,
+  "Platform": "linux",
+  "Architecture": "x64",
+  "Node": "v22.22.3",
+  "Fixture": {
+    "Name": "1024 coast validation",
+    "Color": "#b4a17d",
+    "Visible": true,
+    "Depth": 120,
+    "Caves": true,
+    "Resolution": 1024,
+    "Vertical": 128,
+    "Strokes": [
+      {
+        "Points": [
+          [
+            -150,
+            0
+          ],
+          [
+            0,
+            -100
+          ],
+          [
+            150,
+            0
+          ],
+          [
+            100,
+            150
+          ]
+        ],
+        "Radius": 100,
+        "Erase": false
+      }
+    ],
+    "Regions": [
+      {
+        "X0": -300,
+        "Z0": -250,
+        "X1": 300,
+        "Z1": 300
+      }
+    ]
+  }
+}

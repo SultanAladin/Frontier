@@ -1,0 +1,47 @@
+{
+  "URL": "http://localhost:5174",
+  "Results": [
+    {
+      "Check": "Each boundary owns an independent landform stack",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Edge width is independently saved, undoable, and sharp at zero",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Enable, parameter edits, reorder and delete mutate the real stack",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Multi-selected layers receive independent copies; unticked layer stays untouched",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Landform stack and edge settings round-trip through project import",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Batch stack limits fail atomically without changing other boundaries",
+      "Result": "Passed"
+    },
+    {
+      "Measurement": "CPU/GPU distance agreement",
+      "Samples": 405,
+      "MaximumAbsoluteError": 0.0006521077377912299
+    },
+    {
+      "Check": "CPU/GPU signed-distance agreement across every landform and soft boundaries",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Soft edges change actual GPU geometry without spilling outside the paint",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Background volume bake includes landform stack, expanded bounds, and edge settings",
+      "Result": "Passed"
+    }
+  ],
+  "Errors": []
+}

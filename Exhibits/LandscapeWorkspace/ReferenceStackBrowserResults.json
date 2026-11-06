@@ -1,0 +1,92 @@
+{
+  "URL": "http://localhost:5174",
+  "SourceRevision": "09b7064f282f4df5c5352f2bc97c82fb1c06a098",
+  "Results": [
+    {
+      "Check": "Reference outliner is the primary active-mask stack, not tiny nested custom cards",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Source add menu adds directly to the active mask and closes on selection/Escape/outside click",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Source search filters names and operation summaries without altering stack data",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Click selection exposes only that row’s Up/Down/Duplicate/Delete strip and inspector",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Eye controls mute operations; status, muted count, volume data and undo stay synchronized",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Layer names are editable, escaped and round-trip without changing geometry parameters",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Duplicate creates an independent editable operation on this mask; delete and undo work",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Source arrow buttons and real drag/drop reorder persisted operations within the active mask",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Switching active masks restores each independent stack without mixing operation selections",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Foundation and Environment have locked positions and real contextual inspector identities",
+      "Result": "Passed"
+    },
+    {
+      "Measurement": "Original source row vs applied row computed styling",
+      "Observed": {
+        "Row": {
+          "height": "52px",
+          "minHeight": "52px",
+          "paddingTop": "7px",
+          "paddingLeft": "7px",
+          "backgroundColor": "rgb(27, 31, 36)",
+          "borderTopColor": "rgba(90, 200, 250, 0.38)",
+          "borderRadius": "0px",
+          "gap": "9px"
+        },
+        "Icon": {
+          "width": "30px",
+          "height": "32px",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "borderTopWidth": "0px",
+          "color": "rgb(255, 138, 92)"
+        },
+        "Name": {
+          "fontSize": "12px",
+          "fontWeight": "500",
+          "color": "rgb(237, 237, 235)"
+        },
+        "Step": {
+          "borderRadius": "999px",
+          "fontSize": "9.5px"
+        },
+        "Eye": {
+          "width": "26px",
+          "height": "26px",
+          "borderRadius": "8px"
+        },
+        "EyeGlyph": {
+          "width": "14px",
+          "height": "14px"
+        },
+        "Selection": "rgb(90, 200, 250)"
+      }
+    },
+    {
+      "Check": "Source extracted CSS reproduces the original row template’s geometry, glyph styling and selection",
+      "Result": "Passed"
+    }
+  ],
+  "Errors": []
+}

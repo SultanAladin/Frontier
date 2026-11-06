@@ -434,3 +434,107 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
     unattended full-library pass (risk of silently regressing 100+ shipped pattern designs without
     per-pattern visual verification).
 
+
+## Mask-first landscape prototype — 2026-11-06
+
+- Added `Experimental/LandscapeWorkspace/`: world-space stroke masks, region selection, independent layers,
+  closed volumetric SDF evaluation, WebGL2 ocean, project persistence, and sparse signed-distance preview export.
+- Local verification: 8 field tests, 10 browser checks, and Vite build passed. Actual browser captures and GPU sign
+  probes retained in [landscape evidence](../Exhibits/LandscapeWorkspace/README.md).
+- Continuation: full-resolution adaptive TSDF baking implemented with background compression, progress, cancellation,
+  captured layer/region snapshots, binary decoder, and 256 MiB raw budget. Real 1024 × 128 × 1024 sampling and browser
+  download verified. The separately labelled 64 × 32 × 64 preview remains available.
+- Current local verification: 13 field/sparse-volume tests and 12 browser checks pass. The 1024 fixture covers
+  134,217,728 cells with 43,175 sampled bricks and 32,601 constant leaves; see the retained bake results.
+- Biome relief, physical GPU performance, baked-volume rendering, and native integration remain open.
+  No heightmap implementation was introduced. 4096 cancellation is tested; full 4096 completion is not claimed.
+
+
+## Region landforms and boundary interpolation — 2026-11-06
+
+- Pinned the user-requested `c7egoist/Frontier` branch at `09b7064f282f4df5c5352f2bc97c82fb1c06a098` in `CLAUDE.md`.
+  Three exact source snapshots retain verified Git blob identities under the landscape prototype.
+- Added independent per-boundary stacks, nine basic signed-3D landform adapters, deterministic parameters, CSG modes,
+  enable/reorder/delete, inward boundary interpolation, and explicit batch-selected layer/boundary scopes.
+- CPU/GPU geometry and sparse export share compiled primitives. Bounds include relief and conservative smoothing
+  expansion; sharp legacy documents remain compatible. No heightmap or physical erosion simulation was introduced.
+- Verification: 29 local field/stack/export tests; 12 existing browser checks; 9 focused region-stack browser checks.
+  The focused suite probes 405 CPU/GPU distances with maximum observed error 0.000653 field units. Vite build passed.
+- Actual captures, source provenance, commands, and limitations:
+  [landform evidence](../Exhibits/LandscapeWorkspace/Landforms.md).
+- These are basic volumetric shape adapters, not complete reference-generator parity or simulation-grade physical
+  validation. Physical simulation, baked-volume rendering, native integration, and hardware performance remain open.
+
+
+## Mask-owned stacks and rendered preset library — 2026-11-06
+
+- Supersedes the earlier boundary-owned primary-stack UI above: `Layer.Landforms` now belongs to each mask, shared
+  across that mask’s regions. The active mask expands its newest-first hierarchy over a painted-mask foundation.
+- Add/edit/reorder/bypass/delete targets the active mask. Explicit selected-mask batches clone operations independently
+  and fail atomically. Boundary selection affects only its edge controls; imported regional modifiers remain intact.
+- Six selectable presets have actual SDF-rendered thumbnails and an enlarged recipe preview. Replace/append preserves
+  masks, bounds, edges and colour. The confirmed six-mask example world is undoable; history stays visible in both views.
+- Verification: 37 local tests, 15 focused mask-stack checks, 12 general browser checks, and production build pass.
+  216 mask-owned CPU/GPU probes across nine families have maximum observed error 0.000522 field units.
+- Current captures: `MaskLayerStacks.png`, `PresetLibrary.png`; results and reproduction are in the
+  [landform evidence](../Exhibits/LandscapeWorkspace/Landforms.md). Previous boundary-stack captures are historical.
+- Still a WebGL2 volumetric prototype, not a heightmap. Physical erosion, native integration, baked-volume display,
+  complete reference-generator parity, and hardware performance remain unimplemented/unmeasured.
+
+
+## Applied terrain generators, navigation and source UI correction — 2026-11-06
+
+- Clarified landforms as actual terrain generators, not arch shapes or gallery-only presets. Added matched seeded
+  3D lattice fBm, multifractal, ridged multifractal, badlands, ridge noise, fractal ridges and sand dunes. Eight masks
+  demonstrate already-applied generators including crater excavation; replacement confirms and is undoable.
+- Fresh documents open with three applied procedural terrains. Existing saved documents remain untouched. Optional
+  SDF structures are grouped separately and saved-stack cards are collapsed, secondary controls.
+- Added explicit Pan, MMB/right/Shift/Space-drag panning and opt-in WASD/QE movement, speed and Shift acceleration.
+  Diagonal normalization, typing/modal suppression and key-release/blur/visibility clearing are verified.
+- Reviewed pinned source index/style and aligned charcoal dock tokens, square outliner rows, cyan selection,
+  active/muted counts and active generator controls. This is not pixel-identical or full source feature parity.
+- Noise ray marching uses up to 640 steps and conservative envelope skipping. GPU completion evidence includes
+  camera target and upload revision to avoid stale captures. No physical GPU performance claim.
+- Verification: 44 local tests; 9 terrain/navigation + 15 mask-stack + 12 general production-browser checks pass.
+  New noise CPU/GPU agreement: 280 points, maximum error 0.000144. Existing geometric agreement: 216 points,
+  maximum error 0.000522. Build passes; no native Windows build or GitHub Actions used.
+- [Current actual terrain captures, mechanism, controls and
+  reproduction](../Exhibits/LandscapeWorkspace/TerrainGenerators.md).
+
+
+## Actual reference layer-stack UI redo — 2026-11-06
+
+- Replaced the theme-only approximation and tiny nested cards with the actual pinned reference stack row/menu/inspector
+  structure, extracted stylesheet cascade and Lucide glyphs. Final source overrides preserve square entries, rounded
+  surrounding controls and coloured glyphs without tiles. Active-mask selection switches independent primary stacks.
+- Added source-style step pills, eye/mask controls, selected-only Up/Down/Duplicate/Delete, search, add menu, actual
+  drag ordering, escaped editable operation names, locked foundation and Environment. Original terrain/bake/navigation
+  functions remain intact; there is no heightmap or unsupported simulation-button port.
+- Six unchanged snapshots independently match the upstream Git tree. The actual original row template/full source
+  stylesheet fixture matches all 24 checked computed style values in the working editor.
+- Verification: 46 local tests; 11 reference UI + 15 mask ownership + 9 terrain/navigation + 12 general browser checks
+  pass against production output; Vite build passes. No native Windows/hardware GPU or whole-editor pixel-parity claim.
+- [Actual reference-stack UI captures, comparison scope and reproduction](../Exhibits/LandscapeWorkspace/ReferenceLayerStack.md).
+
+## Separate mask / landscape stacks and radial terrain — 2026-11-06
+
+- Mask editor now has a dedicated mask-document stack and brush inspector. Landscape retains the pinned source-style
+  active-mask operation outliner; tab switches preserve independent stacks and selections.
+- Replaced scattered-solid terrain generators with continuous 3D implicit profiles radially weighted on a flat
+  foundation. Added persisted strength, radius, falloff and centre offsets, gradient preview, validation and cache keys.
+- Bounded vertical distortion prevents disconnected terrain-only slabs. Conservative field normalization and radial
+  envelope acceleration agree on CPU/GPU. Explicit caves, arches and other SDF structures retain separate CSG.
+- Verification: 54 local tests; 8 focused radial/workspace, 11 source UI, 15 mask ownership and 12 general browser checks
+  passed. Radial field comparison: 540 points, maximum absolute error 0.000054973. Full-resolution bake still passes.
+  Production build passes; no native Windows build or GitHub Actions used.
+- [Current radial dune / separate mask-stack captures, mechanism and reproduction](../Exhibits/LandscapeWorkspace/RadialTerrain.md).
+
+## Foundation flush with ocean — 2026-11-06
+
+- Removed the Depth × 0.2 elevation responsible for the above-water sole. Foundation spans −Depth to sea level zero;
+  changing depth only extends it underwater. Terrain profiles and optional structures are anchored at Y = 0.
+- Matched CPU/GPU extrusion, clipping and sparse bounds. Retained empty export padding, not raised geometry.
+  Reduced marching tolerance to 0.02; noise iteration capacity is 1024. Inspector now says Underwater depth.
+- Verification: 56 local tests; 9 focused browser checks; 540 CPU/GPU samples, max error 0.000057776. Build passes.
+  No native build, hardware GPU claim or GitHub Actions. Earlier broad-suite reports are retained as historical evidence.
+- [Updated mechanism and actual sea-level captures](../Exhibits/LandscapeWorkspace/RadialTerrain.md).

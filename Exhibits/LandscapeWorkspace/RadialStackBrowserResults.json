@@ -1,0 +1,47 @@
+{
+  "URL": "http://localhost:5174",
+  "Results": [
+    {
+      "Check": "Landscape has only the active mask’s landform outliner and radial inspector",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Mask editor has a separate mask-document stack, not terrain operations",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Selecting a painted mask changes only the active mask’s independent Landscape stack",
+      "Result": "Passed"
+    },
+    {
+      "Check": "The mask-stack plus button creates a mask, not a landform operation",
+      "Result": "Passed"
+    },
+    {
+      "Check": "All five radial controls persist, undo independently and affect only the active mask",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Export and reopen retain radial position, radius, falloff and independent stacks",
+      "Result": "Passed"
+    },
+    {
+      "Measurement": "Radial volume CPU/GPU agreement",
+      "Samples": 540,
+      "MaximumAbsoluteError": 0.00005777580336374655
+    },
+    {
+      "Check": "All twelve terrain profiles, four combine modes and mixed structures agree between CPU and GPU",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Zero strength bypasses relief; explicit cave/arch generators do not acquire terrain influence controls",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Foundation is exactly at ocean Y=0; increasing underwater depth does not raise terrain",
+      "Result": "Passed"
+    }
+  ],
+  "Errors": []
+}

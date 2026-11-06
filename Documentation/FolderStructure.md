@@ -85,3 +85,33 @@ ExternalPackages/
 
 ContentDirectory resolves bundled content from the executable independently of the launch working directory.
 The font catalogue has a native TOML form; JSON remains only an automation/report interchange.
+
+## Landscape browser prototype
+
+`Experimental/LandscapeWorkspace/` owns the requested vector-mask canvas, bounded volumetric SDF preview,
+procedural WebGL2 ocean, tests, and launcher configuration. `Exhibits/LandscapeWorkspace/` retains its browser
+interaction script, results, and actual application captures. This prototype does not replace native editor code.
+
+
+`Experimental/LandscapeWorkspace/ReferenceSnapshot/` retains the pinned, read-only landform reference files and source
+fingerprints. Mask-owned geometry lives in `LandformStack.js`, its GLSL counterpart in `LandformShader.js`, and
+stack/edge
+editing in `LayerStackPanel.js`. `LandformPresets.js` owns recipe data; `PresetPreviews/` holds actual SDF captures
+reproduced through `PresetExamples.html`. `Exhibits/LandscapeWorkspace/Landforms.md` owns the focused validation report.
+
+`Experimental/LandscapeWorkspace/TerrainNoise.js` contains matching CPU/GLSL volumetric lattice/octave fields;
+`TerrainExamples.js` creates eight already-applied terrain masks. `CameraNavigation.js` owns optional keyboard movement
+and camera-tool selection. Current source-aligned UI/navigation evidence is in
+`Exhibits/LandscapeWorkspace/TerrainGenerators.md` and `TerrainBrowserValidation.mjs`.
+
+`Experimental/LandscapeWorkspace/ReferenceStack.css` mechanically preserves the upstream stack/inspector CSS cascade;
+`StackDock.css` integrates those components with mask-owned stacks; `StackGlyphs.js` supplies the same Lucide glyphs.
+`Exhibits/LandscapeWorkspace/ExtractReferenceStackStyle.mjs` reproduces extraction.
+`ReferenceStackBrowserValidation.mjs` compares the original row template/full stylesheet with the working component
+and exercises source-style interactions. Current captures/report: `ReferenceLayerStack.md` in the same exhibit.
+
+`Experimental/LandscapeWorkspace/TerrainInfluence.js` owns compact radial terrain profiles and matching GLSL;
+`TerrainInfluence.test.js` verifies flat support, non-folding terrain, gradient bounds and serialization.
+`Workspace.js` switches distinct mask-document and landform-operation panes. Current evidence:
+`Exhibits/LandscapeWorkspace/RadialTerrain.md`, `RadialStackBrowserValidation.mjs`, `RadialDuneInfluence.png` and
+`SeparateMaskStack.png`. Legacy structures remain in the signed-volume primitive catalogue.

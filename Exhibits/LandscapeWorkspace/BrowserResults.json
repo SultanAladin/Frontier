@@ -1,0 +1,54 @@
+{
+  "URL": "http://localhost:5174",
+  "Results": [
+    {
+      "Check": "Three example vector layers",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Paint stroke and undo / redo",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Box select and attach region",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Zoom and pan canvas",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Build WebGL2 volumetric landscape",
+      "Result": "Passed"
+    },
+    {
+      "Check": "GPU field signs: interior, below solid, outside region",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Orbit, cave toggle, ocean toggle and waves",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Vector project export and import",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Sparse signed-distance voxel export",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Empty world has no authored volume; undo restores",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Background 4096 bake cancellation keeps UI responsive",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Full 1024 × 128 × 1024 browser bake downloads complete gzip volume",
+      "Result": "Passed"
+    }
+  ],
+  "Errors": []
+}

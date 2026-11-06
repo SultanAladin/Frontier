@@ -1,0 +1,350 @@
+
+> test
+> node --test FieldValidation.test.js SparseVolume.test.js LandformStack.test.js MaskLayerStack.test.js TerrainNoise.test.js TerrainInfluence.test.js
+
+TAP version 13
+# Subtest: capsule endpoints and signed surface
+ok 1 - capsule endpoints and signed surface
+  ---
+  duration_ms: 0.895223
+  type: 'test'
+  ...
+# Subtest: empty world and unselected paint allocate no solid
+ok 2 - empty world and unselected paint allocate no solid
+  ---
+  duration_ms: 1.086247
+  type: 'test'
+  ...
+# Subtest: closed volume has top, bottom and clipped sides
+ok 3 - closed volume has top, bottom and clipped sides
+  ---
+  duration_ms: 0.350951
+  type: 'test'
+  ...
+# Subtest: eraser subtracts and later paint restores
+ok 4 - eraser subtracts and later paint restores
+  ---
+  duration_ms: 0.192536
+  type: 'test'
+  ...
+# Subtest: cavity is true 3D subtraction, not a height displacement
+ok 5 - cavity is true 3D subtraction, not a height displacement
+  ---
+  duration_ms: 0.248266
+  type: 'test'
+  ...
+# Subtest: world translation preserves signed distance
+ok 6 - world translation preserves signed distance
+  ---
+  duration_ms: 0.283958
+  type: 'test'
+  ...
+# Subtest: sparse brick export contains signed volumetric samples
+ok 7 - sparse brick export contains signed volumetric samples
+  ---
+  duration_ms: 24.100747
+  type: 'test'
+  ...
+# Subtest: document round trip and invalid bounds rejection
+ok 8 - document round trip and invalid bounds rejection
+  ---
+  duration_ms: 1.121888
+  type: 'test'
+  ...
+# Subtest: reference snapshots exactly match pinned Git blob fingerprints
+ok 9 - reference snapshots exactly match pinned Git blob fingerprints
+  ---
+  duration_ms: 2.50186
+  type: 'test'
+  ...
+# Subtest: first five landform defaults preserve the source procedural family defaults
+ok 10 - first five landform defaults preserve the source procedural family defaults
+  ---
+  duration_ms: 1.567249
+  type: 'test'
+  ...
+# Subtest: every landform family changes a bounded 3D field
+ok 11 - every landform family changes a bounded 3D field
+  ---
+  duration_ms: 84.009075
+  type: 'test'
+  ...
+# Subtest: editing one boundary leaves a distant boundary unchanged
+ok 12 - editing one boundary leaves a distant boundary unchanged
+  ---
+  duration_ms: 0.368294
+  type: 'test'
+  ...
+# Subtest: stack cannot create solid outside paint, region bounds, or erased holes
+ok 13 - stack cannot create solid outside paint, region bounds, or erased holes
+  ---
+  duration_ms: 0.27021
+  type: 'test'
+  ...
+# Subtest: edge zero preserves sharp geometry; feathering is inward and continuous
+ok 14 - edge zero preserves sharp geometry; feathering is inward and continuous
+  ---
+  duration_ms: 0.577425
+  type: 'test'
+  ...
+# Subtest: CSG stack order is meaningful and disabled operations are inert
+ok 15 - CSG stack order is meaningful and disabled operations are inert
+  ---
+  duration_ms: 0.439799
+  type: 'test'
+  ...
+# Subtest: arch primitive has solid roof over empty space along the same XZ coordinate
+ok 16 - arch primitive has solid roof over empty space along the same XZ coordinate
+  ---
+  duration_ms: 0.220363
+  type: 'test'
+  ...
+# Subtest: deterministic seed changes signed geometry reproducibly
+ok 17 - deterministic seed changes signed geometry reproducibly
+  ---
+  duration_ms: 1.2366
+  type: 'test'
+  ...
+# Subtest: multi-layer scope enumerates only explicit selected boundaries
+ok 18 - multi-layer scope enumerates only explicit selected boundaries
+  ---
+  duration_ms: 0.47595
+  type: 'test'
+  ...
+# Subtest: stack field respects conservative unit Lipschitz bound for sparse classification
+ok 19 - stack field respects conservative unit Lipschitz bound for sparse classification
+  ---
+  duration_ms: 32.383779
+  type: 'test'
+  ...
+# Subtest: landform bake bounds include arch roof and sampled field reconstructs correctly
+ok 20 - landform bake bounds include arch roof and sampled field reconstructs correctly
+  ---
+  duration_ms: 51.683627
+  type: 'test'
+  ...
+# Subtest: old documents remain valid; malformed and oversize region stacks are rejected
+ok 21 - old documents remain valid; malformed and oversize region stacks are rejected
+  ---
+  duration_ms: 0.963606
+  type: 'test'
+  ...
+# Subtest: cached compilation follows direct operation and boundary edits without stale geometry
+ok 22 - cached compilation follows direct operation and boundary edits without stale geometry
+  ---
+  duration_ms: 0.223436
+  type: 'test'
+  ...
+# Subtest: bake support bounds include strongly blended tall thin features
+ok 23 - bake support bounds include strongly blended tall thin features
+  ---
+  duration_ms: 1.178437
+  type: 'test'
+  ...
+# Subtest: a selected-boundary bake excludes overlapping neighbouring boundary landforms
+ok 24 - a selected-boundary bake excludes overlapping neighbouring boundary landforms
+  ---
+  duration_ms: 6.45448
+  type: 'test'
+  ...
+# Subtest: one mask stack compiles for every boundary and leaves other masks untouched
+ok 25 - one mask stack compiles for every boundary and leaves other masks untouched
+  ---
+  duration_ms: 2.036997
+  type: 'test'
+  ...
+# Subtest: mask stack can be authored before any region exists without creating terrain
+ok 26 - mask stack can be authored before any region exists without creating terrain
+  ---
+  duration_ms: 0.866968
+  type: 'test'
+  ...
+# Subtest: all six presets validate and return independent operation arrays
+ok 27 - all six presets validate and return independent operation arrays
+  ---
+  duration_ms: 2.695249
+  type: 'test'
+  ...
+# Subtest: six example preview PNGs are distinct actual captured images
+ok 28 - six example preview PNGs are distinct actual captured images
+  ---
+  duration_ms: 2.260168
+  type: 'test'
+  ...
+# Subtest: legacy regional modifiers remain after the mask stack and survive round trip
+ok 29 - legacy regional modifiers remain after the mask stack and survive round trip
+  ---
+  duration_ms: 1.106957
+  type: 'test'
+  ...
+# Subtest: mask stack and combined legacy limits fail explicitly
+ok 30 - mask stack and combined legacy limits fail explicitly
+  ---
+  duration_ms: 0.753708
+  type: 'test'
+  ...
+# Subtest: mask-owned arch retains a true empty space beneath a solid roof
+ok 31 - mask-owned arch retains a true empty space beneath a solid roof
+  ---
+  duration_ms: 0.308764
+  type: 'test'
+  ...
+# Subtest: selected-boundary voxel export includes its parent mask stack without neighbouring legacy features
+ok 32 - selected-boundary voxel export includes its parent mask stack without neighbouring legacy features
+  ---
+  duration_ms: 31.57157
+  type: 'test'
+  ...
+# Subtest: custom operation names round-trip while retaining identical signed geometry
+ok 33 - custom operation names round-trip while retaining identical signed geometry
+  ---
+  duration_ms: 1.07693
+  type: 'test'
+  ...
+# Subtest: invalid layer names fail document validation explicitly
+ok 34 - invalid layer names fail document validation explicitly
+  ---
+  duration_ms: 0.562865
+  type: 'test'
+  ...
+# Subtest: adaptive leaves cover every cell exactly once and equal analytic truncated field
+ok 35 - adaptive leaves cover every cell exactly once and equal analytic truncated field
+  ---
+  duration_ms: 44.713848
+  type: 'test'
+  ...
+# Subtest: 3D cave and eraser survive sampled export
+ok 36 - 3D cave and eraser survive sampled export
+  ---
+  duration_ms: 21.582926
+  type: 'test'
+  ...
+# Subtest: empty mask collapses to constant positive leaves
+ok 37 - empty mask collapses to constant positive leaves
+  ---
+  duration_ms: 0.374011
+  type: 'test'
+  ...
+# Subtest: noncubic grid and partial octree coverage remain exact
+ok 38 - noncubic grid and partial octree coverage remain exact
+  ---
+  duration_ms: 12.1233
+  type: 'test'
+  ...
+# Subtest: invalid dimensions, truncated files and output budget fail explicitly
+ok 39 - invalid dimensions, truncated files and output budget fail explicitly
+  ---
+  duration_ms: 11.731294
+  type: 'test'
+  ...
+# Subtest: all terrain generators compile to continuous radial profiles, not scattered boxes/cones/ellipsoids
+ok 40 - all terrain generators compile to continuous radial profiles, not scattered boxes/cones/ellipsoids
+  ---
+  duration_ms: 2.6169
+  type: 'test'
+  ...
+# Subtest: every terrain profile leaves the exact flat foundation outside its radial support
+ok 41 - every terrain profile leaves the exact flat foundation outside its radial support
+  ---
+  duration_ms: 35.501458
+  type: 'test'
+  ...
+# Subtest: compact radial weight is C1 at the centre, inner falloff contour and outer support
+ok 42 - compact radial weight is C1 at the centre, inner falloff contour and outer support
+  ---
+  duration_ms: 0.368959
+  type: 'test'
+  ...
+# Subtest: overlapping dunes stay attached to the foundation, with one solid-to-empty transition per column
+ok 43 - overlapping dunes stay attached to the foundation, with one solid-to-empty transition per column
+  ---
+  duration_ms: 81.418953
+  type: 'test'
+  ...
+# Subtest: vertical noise remains three-dimensional but cannot fold the terrain field, even at maximum amplitude/frequency
+ok 44 - vertical noise remains three-dimensional but cannot fold the terrain field, even at maximum amplitude/frequency
+  ---
+  duration_ms: 1.878565
+  type: 'test'
+  ...
+# Subtest: radial stack fields remain conservative under every blend mode, narrow falloffs and mixed explicit SDFs
+ok 45 - radial stack fields remain conservative under every blend mode, narrow falloffs and mixed explicit SDFs
+  ---
+  duration_ms: 44.830147
+  type: 'test'
+  ...
+# Subtest: radial controls invalidate compilation, move support, bypass at zero strength and round-trip with the document
+ok 46 - radial controls invalidate compilation, move support, bypass at zero strength and round-trip with the document
+  ---
+  duration_ms: 2.452677
+  type: 'test'
+  ...
+# Subtest: legacy operations acquire radial defaults without mutating JSON; malformed optional radial fields are rejected
+ok 47 - legacy operations acquire radial defaults without mutating JSON; malformed optional radial fields are rejected
+  ---
+  duration_ms: 1.53068
+  type: 'test'
+  ...
+# Subtest: foundation starts exactly at mean sea level and all thickness extends below it
+ok 48 - foundation starts exactly at mean sea level and all thickness extends below it
+  ---
+  duration_ms: 0.589659
+  type: 'test'
+  ...
+# Subtest: underwater depth changes never lift terrain or create an above-water pedestal
+ok 49 - underwater depth changes never lift terrain or create an above-water pedestal
+  ---
+  duration_ms: 3.364531
+  type: 'test'
+  ...
+# Subtest: lattice noise is deterministic and continuous at negative and positive cell boundaries
+ok 50 - lattice noise is deterministic and continuous at negative and positive cell boundaries
+  ---
+  duration_ms: 1.010697
+  type: 'test'
+  ...
+# Subtest: seven terrain spectra are distinct, seed-dependent and bounded
+ok 51 - seven terrain spectra are distinct, seed-dependent and bounded
+  ---
+  duration_ms: 4.696275
+  type: 'test'
+  ...
+# Subtest: eight generator examples already contain independent mask-owned terrain operations
+ok 52 - eight generator examples already contain independent mask-owned terrain operations
+  ---
+  duration_ms: 2.774688
+  type: 'test'
+  ...
+# Subtest: noise displacement depends on all three coordinates, not a stored or sampled heightmap
+ok 53 - noise displacement depends on all three coordinates, not a stored or sampled heightmap
+  ---
+  duration_ms: 1.637041
+  type: 'test'
+  ...
+# Subtest: procedural signed fields obey conservative unit gradient bounds across all seven spectra
+ok 54 - procedural signed fields obey conservative unit gradient bounds across all seven spectra
+  ---
+  duration_ms: 8.724132
+  type: 'test'
+  ...
+# Subtest: sparse noise-volume export reconstructs sampled distances and stores the generator stack
+ok 55 - sparse noise-volume export reconstructs sampled distances and stores the generator stack
+  ---
+  duration_ms: 27.56806
+  type: 'test'
+  ...
+# Subtest: camera-relative WASD translates using yaw, normalizes diagonals and leaves orbit unchanged
+ok 56 - camera-relative WASD translates using yaw, normalizes diagonals and leaves orbit unchanged
+  ---
+  duration_ms: 0.372915
+  type: 'test'
+  ...
+1..56
+# tests 56
+# suites 0
+# pass 56
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 941.509094

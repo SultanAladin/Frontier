@@ -1,0 +1,59 @@
+/*==========================================================================================================================================
+                                                               STACKDOCK.CSS
+==========================================================================================================================================*/
+/* 🧩 Layout integration for the source-extracted stack UI; upstream row geometry remains in ReferenceStack.css. */
+
+.layout{grid-template-columns:300px minmax(300px,1fr) 340px}
+.reference-stack{padding:0;display:flex;flex-direction:column;overflow:hidden;font-family:var(--tp-font)}
+.reference-stack .tp-pane-scroll{flex:1;overflow:auto;min-height:0}
+.reference-stack .tp-layer-list{padding:0;margin:0}
+.reference-stack .tp-layer-search{margin-top:0}
+.reference-stack .tp-layer-name{user-select:none}
+.reference-stack .tp-layer-row.dragging{opacity:.45}
+.mask-document-scope{padding:13px 14px 10px;border-bottom:1px solid var(--tp-seam);background:#0b0b0d}
+.mask-document-scope>label{font-size:8px;letter-spacing:.12em;color:var(--tp-dim);margin:0 0 7px}
+.mask-document-select{display:flex;align-items:center;gap:4px}
+.mask-document-select select{flex:1;min-width:0;width:100%;margin:0;padding:7px 8px;background:#151518;border:1px solid var(--tp-border-strong);color:#dbdbe2;border-radius:8px;font-size:11px}
+.mask-document-select button{padding:5px 8px;color:var(--tp-muted)}
+.mask-document-scope #Layers{padding-top:10px}
+.mask-document-scope .layer{padding:6px 4px;margin:0;border:none}
+.mask-document-scope .swatch{display:none}
+.mask-document-scope .layer strong{font-size:10px}
+.mask-document-scope .layer small{font-size:8px}
+.reference-stack .scope-summary{font-size:9px;padding:10px 0;margin-top:10px}
+.reference-inspector{padding:0;font-family:var(--tp-font)}
+.inspector-mask-heading{display:flex;justify-content:space-between;align-items:center;padding:13px 15px;border-bottom:1px solid var(--tp-border);gap:10px}
+.inspector-mask-heading span{font-size:8px;letter-spacing:.1em;color:var(--tp-dim)}
+.inspector-mask-heading strong{font-size:10px;font-weight:450;color:var(--tp-muted);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+.reference-inspector #LandformPanel{padding:18px 14px;display:flex;flex-direction:column;gap:12px}
+.reference-inspector #OperationInspector{padding:0;border:none}
+.reference-inspector .tp-field-row{margin:0}
+.reference-inspector .tp-field-row select{width:auto;margin:0;display:inline-block}
+.reference-inspector .tp-identity-title-input{font-family:inherit}
+.reference-inspector .tp-identity-sub{font-size:9px;color:var(--tp-dim);line-height:1.5;letter-spacing:0}
+.reference-inspector .tp-io-line{display:flex;gap:5px;flex-wrap:wrap}
+.reference-inspector .tp-property-card .check{margin:0;font-size:10px}
+.reference-inspector .tp-property-card h2{padding:0;font-size:12.5px;line-height:1.4}
+.reference-inspector .tp-amount input[type=range]{height:22px;margin:0;accent-color:initial}
+.reference-inspector .tp-amount output{float:none;margin:0}
+.reference-inspector .tp-seed-input{display:inline-block;margin:0}
+.reference-inspector .stack-secondary-controls{border-top:1px solid var(--tp-border);padding-top:14px;margin-top:4px}
+.reference-inspector .stack-secondary-controls>summary{font-size:10px;color:var(--tp-muted);cursor:pointer}
+.reference-inspector>section:not(#LandformPanel){padding:20px 15px}
+.reference-inspector .tp-tab-strip{position:sticky;top:0;z-index:4}
+@media(max-width:1280px){.layout{grid-template-columns:272px minmax(280px,1fr) 314px}.viewport-heading{flex-wrap:wrap;height:auto;min-height:49px;padding:7px 10px;gap:5px}.viewport-actions{flex-wrap:wrap}.canvas-label{max-width:210px}}
+@media(max-width:1000px){.layout{grid-template-columns:250px minmax(250px,1fr) 280px}.reference-inspector{display:block;position:static;width:auto}.camera-tool-row{flex-wrap:wrap}#CameraNavigation{max-width:240px}.canvas-label{display:none}}
+
+.reference-stack .tp-icon-btn{padding:0}
+
+/* Separate authoring sequences: mask documents in 2D; landform operations in 3D. */
+#MaskLayerPane .tp-pane-heading{margin-bottom:16px}
+#MaskRowsContainer #Layers{display:flex;flex-direction:column;gap:3px;width:100%}
+.reference-stack .layer.tp-layer-row{min-height:52px;padding:7px 8px 7px 7px;gap:8px;margin:0;border:1px solid rgba(255,255,255,.06);border-radius:0;background:#121214;box-shadow:none}
+.reference-stack .layer.tp-layer-row.selected{background:#1b1f24;border-color:rgba(90,200,250,.38)}
+.reference-stack .layer.tp-layer-row .tp-icon-btn{padding:0;flex-shrink:0}
+.reference-stack .layer.tp-layer-row .tp-layer-icon{flex-shrink:0}
+.reference-stack .layer-scope{flex-shrink:0;accent-color:var(--tp-select)}
+#MaskLayerPane #EmptyMaskWorld{margin-top:20px;width:100%;font-size:10px;border:1px solid var(--tp-border)}
+.radial-influence-card{margin-top:14px}
+.radial-influence-preview{height:110px;margin:4px 0 8px;border:1px solid var(--tp-border);border-radius:8px;background-color:#101015;background-image:radial-gradient(circle at var(--influence-x) var(--influence-z),rgba(90,200,250,var(--influence-opacity)) var(--influence-inner),transparent var(--influence-radius));background-size:100% 100%}

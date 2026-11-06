@@ -1,0 +1,37 @@
+{
+  "Repository": "https://github.com/c7egoist/Frontier",
+  "Branch": "arena/68c84c0d-frontier",
+  "Commit": "09b7064f282f4df5c5352f2bc97c82fb1c06a098",
+  "Files": [
+    {
+      "Path": "src/erosion/terrain-stack-presets.js",
+      "GitBlob": "22023c2846e2a091575423bad8f6c010102149aa",
+      "Bytes": 54003
+    },
+    {
+      "Path": "src/erosion/pipeline-shaders.js",
+      "GitBlob": "01662c43295dedaa0e71135b7aaa8bed1984fdc2",
+      "Bytes": 34869
+    },
+    {
+      "Path": "src/geology/polyhedron.js",
+      "GitBlob": "2ea872094ade0bac05e98cf565609df1ccad7686",
+      "Bytes": 17790
+    },
+    {
+      "Path": "src/erosion/layer-stack-ui.js",
+      "GitBlob": "7a27fe2e952914aa30e8ef5a29c104b8f1dca0be",
+      "Bytes": 171205
+    },
+    {
+      "Path": "src/app/style.css",
+      "GitBlob": "8d57aeb6131611e8cf6ce29bc7b74849bccddf61",
+      "Bytes": 89823
+    },
+    {
+      "Path": "index.html",
+      "GitBlob": "cc92c79706ab5cb8694a575b4410727f053ee38a",
+      "Bytes": 27885
+    }
+  ]
+}

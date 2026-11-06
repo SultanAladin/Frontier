@@ -1,0 +1,71 @@
+{
+  "URL": "http://localhost:5174",
+  "Results": [
+    {
+      "Check": "Six preset examples load actual rendered thumbnails in the production gallery",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Add landforms to the active mask stack, not a boundary or another mask",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Switching masks restores each mask’s own stack and selected operation",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Layer toggles, parameters, reorder, deletion, undo and redo change the persisted mask stack",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Applying a preset targets the active mask only, even with several masks selected",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Explicit multi-mask presets create independent stacks and append does not replace existing layers",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Boundary edge settings do not change mask-stack ownership",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Mask stacks round-trip and autosave without flattening into per-boundary copies",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Mask stacks can be authored before regions exist",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Legacy boundary modifiers remain intact and are explicitly removable without losing the mask stack",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Over-limit batch additions fail atomically on all mask stacks",
+      "Result": "Passed"
+    },
+    {
+      "Measurement": "Mask-stack CPU/GPU agreement",
+      "Samples": 216,
+      "MaximumAbsoluteError": 0.00018121700729523127
+    },
+    {
+      "Check": "Mask-owned landforms agree between GPU preview and CPU field evaluation",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Background export contains the parent mask-layer stack and untouched boundary geometry",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Six-mask example world loads independent visible presets and can be undone",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Focus active mask renders the selected extent and preserves a usable canvas zoom",
+      "Result": "Passed"
+    }
+  ],
+  "Errors": []
+}

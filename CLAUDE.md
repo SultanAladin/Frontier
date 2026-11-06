@@ -152,3 +152,62 @@ to the native Pattern panel, persists vector TOML, and submits GPU coverage/sele
 the recorded evidence explicitly does not represent a Windows desktop session. Pattern Float32 outputs remain
 unconnected to the PBR material renderer; native 3D application, physical height calibration, user-document export and
 Pattern 1:1 parity remain open. GIF previews are 8-bit evidence, not precision checks. Scope remains approximately 68%.
+
+## Pinned landscape / landform reference — 2026-11-06
+
+- Requested source: `https://github.com/c7egoist/Frontier/tree/arena%2F68c84c0d-frontier`.
+- Immutable revision: `09b7064f282f4df5c5352f2bc97c82fb1c06a098`.
+- Source roles: `src/erosion/terrain-stack-presets.js` defines operation defaults and bottom-to-top stack conventions;
+  `src/erosion/pipeline-shaders.js` includes height-texture operations; `src/geology/polyhedron.js` supplies volumetric
+  half-space / ellipsoid geometry. Do not mislabel the entire reference pipeline as volumetric-only.
+- Verified source snapshots and Git blob identities: `Experimental/LandscapeWorkspace/ReferenceSnapshot/SourcePin.json`.
+  These are read-only reference files, not native engine dependencies. Preserve upstream names and notices there.
+- Landscape prototype remains volumetric SDF/CSG. Adapt landforms to signed 3D geometry; do not replace it with a
+  heightmap or claim that geological presets alone constitute a physical erosion simulation.
+- Each mask layer owns its independent `Layer.Landforms` stack, applied within all of that mask’s boundaries.
+  Boundaries own edge profiles, not the primary stack. Keep imported `Region.Landforms` as legacy refinements; never
+  silently discard them. Active-mask edits and explicit selected-mask batches must not alter unselected mask stacks.
+- User clarified landforms mean terrain generators (fractal, multifractal, ridged multifractal, badlands, ridge noise,
+  dunes, craters), not arches or a gallery-only preset showcase. Examples must be already applied to editable terrain.
+  Keep arches/cuts in a separate optional SDF category. Preserve mask-owned operation stacks and true volumetric fields.
+- Source UI alignment uses pinned `index.html` and `src/app/style.css`: neutral charcoal, squared outliner entries,
+  cyan selection, generator properties. Do not claim pixel/feature-complete parity. Pan and opt-in WASD are available.
+- Current evidence: 44 local tests; 9 terrain/navigation, 15 mask-stack, and 12 general browser checks pass. See
+  `Exhibits/LandscapeWorkspace/TerrainGenerators.md`; older preset-first captures are not the current primary examples.
+
+
+## Layer-stack reference correction — 2026-11-06
+
+- The user explicitly rejected a theme-only approximation: use the same layer-stack UI as the pinned c7egoist source.
+- The main outliner now uses the actual source row structure, mechanically extracted stylesheet cascade, source Lucide
+  glyphs, numbered steps, eye/mask controls, selection-only actions, add menu, search and drag ordering. The active mask
+  selector switches independent stacks; do not revert to the former tiny nested custom operation cards.
+- Preserve the final source overrides: square layer entries, coloured glyphs without tiles, rounded surrounding controls.
+  `ReferenceSnapshot/` now retains six upstream files; `ReferenceStack.css` is the extracted runtime stack styling.
+- Current verification: 46 local tests; 11 reference-stack + 15 mask-stack + 9 terrain/navigation + 12 general browser
+  checks pass. All 24 checked computed-style values match an original-template/full-source-stylesheet fixture.
+- Actual current UI captures and reproduction: `Exhibits/LandscapeWorkspace/ReferenceLayerStack.md`. Earlier colour-only
+  UI captures are superseded. This changes the UI, not the volumetric geometry into a heightmap or fake simulation.
+
+## Separate workspace stacks and radial influence — 2026-11-06
+
+- Mask editor's primary stack is mask documents; Landscape's primary stack is the active mask's landform operations.
+  Never show the same operation outliner in both tabs. Preserve source-style operation rows and independent ownership.
+- Terrain generators must start from the flat foundation and introduce relief through bounded radial influence.
+  Strength, radius, falloff and centre offsets are serialized per operation, validated and included in compilation keys.
+- Continuous terrain profiles use an analytic 3D signed field with bounded vertical noise distortion; no height textures.
+  Normalize conservatively after world-unit terrain blending. Preserve explicit cave/arch/structure CSG separately.
+- Current focused evidence: 54 local tests; 8 new workspace/radial browser checks; 540 CPU/GPU points, maximum error
+  0.000054973. Reference UI (11), mask ownership (15) and general browser/bake (12) suites also pass.
+- Current mechanism, actual two-stack/dune captures and reproduction:
+  `Exhibits/LandscapeWorkspace/RadialTerrain.md`. Older scattered-generator captures are superseded.
+
+## Sea-level foundation correction — 2026-11-06
+
+- The user rejected the raised slab / thick sole. Foundation top is exactly ocean mean level Y = 0, not Depth × 0.2.
+  Its floor is −Depth; underwater depth must never lift terrain. Anchor generator profiles and explicit structures at zero.
+- CPU field, GPU extrusion, clipping, compile bounds and export all use the corrected vertical convention. Existing saved
+  documents receive the correction through evaluation, without destructive operation migration.
+- Current verification: 56 local tests, 9 focused browser checks, 540 CPU/GPU points (max error 0.000057776).
+  Current actual captures: `SeaLevelDuneInfluence.png`, `SeaLevelFlatFoundation.png` and `SeaLevelMaskStack.png` in
+  `Exhibits/LandscapeWorkspace/`. Earlier broad-suite results are historical, not reruns of this vertical correction.

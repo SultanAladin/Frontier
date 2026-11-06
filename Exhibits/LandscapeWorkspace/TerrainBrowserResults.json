@@ -1,0 +1,47 @@
+{
+  "URL": "http://localhost:5174",
+  "Results": [
+    {
+      "Check": "Fresh landscape already contains applied fractal terrain, not just preset cards",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Source-aligned charcoal outliner, neutral docks and cyan selected rows",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Explicit Pan tool translates the camera without orbiting",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Middle-mouse and Shift-drag always pan, even in Orbit mode",
+      "Result": "Passed"
+    },
+    {
+      "Check": "WASD is opt-in and moves only the camera when enabled",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Typing, blur and disabling keyboard movement prevent stuck camera motion",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Eight generator examples are already applied on independent mask terrains and replacement is undoable",
+      "Result": "Passed"
+    },
+    {
+      "Measurement": "New noise generator CPU/GPU agreement",
+      "Samples": 280,
+      "MaximumAbsoluteError": 0.0005677465932802939
+    },
+    {
+      "Check": "All seven new volumetric noise generators agree between CPU and GPU, including negative coordinates",
+      "Result": "Passed"
+    },
+    {
+      "Check": "Applied terrain controls edit frequency, roughness, amplitude and seed on the active mask",
+      "Result": "Passed"
+    }
+  ],
+  "Errors": []
+}
