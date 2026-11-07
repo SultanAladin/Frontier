@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#c9a87f" />
+<title>SPILLWAY — Aqueduct Run</title>
+<link rel="stylesheet" href="styles/screen.css" />
+</head>
+<body>
+
+<canvas id="stage"></canvas>
+
+<!-- ─────────────────────────────────────────────  RUN HUD  ───────────────────────────────────────────── -->
+<div id="hud" class="hud" aria-live="polite">
+    <div class="hud__vignette"></div>
+
+    <div class="hud__top">
+        <div class="readout readout--score">
+            <span class="readout__label">Score</span>
+            <span class="readout__value" id="scoreValue">0</span>
+            <span class="readout__sub" id="multiplierValue">×1.0</span>
+        </div>
+
+        <div class="readout readout--speed">
+            <span class="readout__value"><span id="speedValue">0</span><span class="readout__unit">km/h</span></span>
+            <span class="readout__label">Velocity</span>
+        </div>
+
+        <div class="readout readout--distance">
+            <span class="readout__value" id="distanceValue">0<span class="readout__unit">m</span></span>
+            <span class="readout__label">Sluice</span>
+        </div>
+    </div>
+
+    <div class="drift-gauge" id="driftGauge">
+        <span class="drift-gauge__label">Carve charge</span>
+        <div class="drift-gauge__track"><div class="drift-gauge__fill" id="driftFill"></div></div>
+        <span class="drift-gauge__hint">SPACE</span>
+    </div>
+
+    <div class="callout" id="callout">
+        <span class="callout__glyph" id="calloutGlyph">▶</span>
+        <span class="callout__text">Drift</span>
+    </div>
+
+    <div class="popups" id="popups"></div>
+
+    <div class="hint-strip" id="hintStrip">
+        <span><b>A</b> <b>D</b> carve</span>
+        <span><b>SPACE</b> drift</span>
+        <span><b>ESC</b> pause</span>
+        <span><b>M</b> sound</span>
+    </div>
+
+    <div class="hud__flash" id="flash"></div>
+</div>
+
+<!-- ─────────────────────────────────────────────  TOUCH CONTROL  ───────────────────────────────────────────── -->
+<div id="touchPad" class="touch-pad">
+    <button class="touch-pad__steer" data-steer="-1" aria-label="Carve left">◀</button>
+    <button class="touch-pad__steer" data-steer="1" aria-label="Carve right">▶</button>
+    <button class="touch-pad__drift" id="touchDrift" aria-label="Drift">Drift</button>
+</div>
+
+<!-- ─────────────────────────────────────────────  TITLE CARD  ───────────────────────────────────────────── -->
+<div id="titleScreen" class="sheet sheet--title">
+    <div class="sheet__grain"></div>
+    <div class="title-card">
+        <p class="eyebrow">Frontier experimental prototype · Aqueduct Run 09</p>
+        <h1 class="title">Spillway</h1>
+        <p class="subtitle">Ride the concrete tide at golden hour.</p>
+
+        <div class="rule"></div>
+
+        <div class="brief">
+            <p>Ninety-degree elbows pour into a banked channel. Pump the rollers, launch the kickers,
+                thread the sluice tunnels and skim the settling basins.</p>
+            <p><em>Drifting is the only brake you get.</em></p>
+        </div>
+
+        <div class="controls">
+            <div class="control-row"><span class="keys"><kbd>A</kbd><kbd>D</kbd> <kbd>←</kbd><kbd>→</kbd></span><span class="control-text">Carve across the deck</span></div>
+            <div class="control-row"><span class="keys"><kbd>SPACE</kbd></span><span class="control-text">Hold to drift · release to slingshot</span></div>
+            <div class="control-row"><span class="keys"><kbd>ESC</kbd></span><span class="control-text">Pause</span></div>
+        </div>
+
+        <button id="startButton" class="drop-in">
+            <span class="drop-in__label">Drop in</span>
+            <span class="drop-in__arrow">→</span>
+        </button>
+
+        <p class="record"><span>Personal best</span> <b id="bestValue">0</b></p>
+    </div>
+
+    <p class="colophon">Concrete, ochre, salt water · Built with three.js · Play with sound</p>
+</div>
+
+<!-- ─────────────────────────────────────────────  PAUSE  ───────────────────────────────────────────── -->
+<div id="pauseSheet" class="sheet sheet--pause" hidden>
+    <div class="sheet__grain"></div>
+    <div class="pause-card">
+        <p class="eyebrow">Run suspended</p>
+        <h2 class="pause-title">Hold the line</h2>
+        <div class="pause-stats">
+            <div><span>Score</span><b id="pauseScore">0</b></div>
+            <div><span>Sluice</span><b id="pauseDistance">0 m</b></div>
+            <div><span>Top speed</span><b id="pauseSpeed">0 km/h</b></div>
+            <div><span>Best carve</span><b id="pauseDrift">0.0 s</b></div>
+        </div>
+        <div class="pause-actions">
+            <button id="resumeButton" class="drop-in drop-in--small"><span class="drop-in__label">Resume</span><span class="drop-in__arrow">→</span></button>
+            <button id="restartButton" class="ghost-button">Restart run</button>
+        </div>
+    </div>
+</div>
+
+<!-- ─────────────────────────────────────────────  LOADING  ───────────────────────────────────────────── -->
+<div id="loadingSheet" class="sheet sheet--loading">
+    <div class="loading">
+        <span class="loading__pulse"></span>
+        <span>Pouring concrete</span>
+    </div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
