@@ -1,0 +1,147 @@
+{
+  "Status": "passed",
+  "Date": "2026-11-07T17:56:04.843Z",
+  "Platform": "linux",
+  "Runtime": "v22.22.3",
+  "Revision": "e1ce5629e8927ea1fc1b11646df21e7332687e68",
+  "Fixture": {
+    "Format": "FrontierLandscape/1",
+    "Layers": [
+      {
+        "Name": "Volumetric verification",
+        "Color": "#a9b5af",
+        "Visible": true,
+        "Depth": 120,
+        "Caves": false,
+        "Resolution": 1024,
+        "Vertical": 128,
+        "DistanceMode": "metric",
+        "Strokes": [
+          {
+            "Points": [
+              [
+                0,
+                0
+              ]
+            ],
+            "Radius": 150,
+            "Erase": false
+          }
+        ],
+        "Regions": [
+          {
+            "X0": -180,
+            "Z0": -180,
+            "X1": 180,
+            "Z1": 180,
+            "Edge": 0
+          }
+        ],
+        "Landforms": [
+          {
+            "Type": "arch",
+            "Enabled": true,
+            "Amount": 140,
+            "Scale": 1.5,
+            "Sharpness": 0.5,
+            "Azimuth": 0,
+            "Mode": "union",
+            "Blend": 0,
+            "Seed": 4029
+          }
+        ]
+      }
+    ]
+  },
+  "Note": "Local uncommitted LandscapeWorkspace correction; analytic preview is separate from the sampled export.",
+  "SourceSHA256": {
+    "VolumeSculpt.js": "ca98f309cfa86515d1cae52a67717e4bcb232f19f592800ae1937d8cfbe4005f",
+    "VolumeSculptInteraction.js": "409fa5f0aace1e4fc6aece84cbd4926a612d2683c74d8abeca73746e08bf09ec",
+    "VolumeRefinement.js": "28a76b3b5d1f0c35eb807aa5794ba14e869d5a8ceb5da9e8f4e62bfbd9a5feb9",
+    "PreviewSampling.js": "b2ad4b3ac260e72790e32ca9b553779cf5301952b634611f71edc5d27d41a262",
+    "VolumePresentation.js": "d750d07abb2ba4392ff7fe7bc1e02bab0b232181768d6e6ecd8872614e59fa25",
+    "VolumeSubmission.js": "330f5a06511905d1ccb83e787d3b105e35110a425bca88d3586ea402cf3e257d",
+    "VolumeRayField.js": "0d50bbf37adb5354cfe438a786366f1a5202100a9309d0fa3bc83351f9512f8a",
+    "VolumeSurface.js": "9e20ab3b35a3ffaf57b599e4621a4df61ee3075ef53cc515174fb501ffdf02a6",
+    "VolumeLattice.js": "e5bf325e18111f345432a5b67e594d2a33a3df771c165db35c48d12d42aa58be",
+    "VolumeDetail.js": "fe85264484b42306d45f87766d651a89c35ac220598ca332388e863116a71916",
+    "CoastalWorld.js": "5ff1a667e02322b6e22ef3e36824acbe5d14a851a4e53a4f3962f1470048895d",
+    "VolumeRasterization.js": "10ba72b987b00699bae0cf9cfa4ef96205b0d16898690ad1f22ae9a09b174aa6",
+    "PreviewTiling.js": "f0a6538a19e3e036bca099ec56df623b4c34c86fa0833cbe460dab1214bf0ff6",
+    "Workspace.js": "8073f6ee33ef053797c455147c25d72e1b6d4787686f26b624d44422be2e93ca",
+    "LayerStackPanel.js": "5e6f109a945369e2b76a3e63ebec27f877004c2de8786ddcaa18ecf3fdb62573",
+    "DistanceField.js": "2a46a80893b3465f36c70bb830831ba434a06d9fe263cb529143078efa6c1531",
+    "LandformStack.js": "d875289a32e6ca7fa6b047ef1a6a839253d3719c175e57b9ac2caed77f8ffde0",
+    "SparseVolume.js": "d2157d97e2a627c958c5366768f5f29c12fb18a075f8fd14eb9f50495e1a562d",
+    "VolumeBaking.js": "f023aaf649b4357efd356ac20e76415c07a5586958aabd7f2689300354bf5a44",
+    "DistanceReinitialization.js": "01af682ad985de8d1620f6fce7bdd7aa91dfc26a4037beda7ecd97db9854c80b"
+  },
+  "BakeDownloadSeconds": 206.31977553900003,
+  "Redistance": {
+    "Method": "AnisotropicFastSweeping/1",
+    "Converged": true,
+    "Cycles": 2,
+    "MaximumCycles": 6,
+    "Tolerance": 0.000035156250000000004,
+    "MaximumChange": 0.000002384185791015625,
+    "SeedCells": 2751080,
+    "SignChanges": 0,
+    "CollapsedBricks": 15548,
+    "SampledCells": 24602624,
+    "EstimatedWorkspaceBytes": 262137728,
+    "Interface": "AnalyticBracketRefinement/1: twenty bisections per crossing and finite-difference interface normals; source signs preserved."
+  },
+  "WorldColumn": [
+    {
+      "World": [
+        0,
+        -50,
+        0
+      ],
+      "Cell": [
+        512,
+        37,
+        512
+      ],
+      "Distance": -4.3878092765808105
+    },
+    {
+      "World": [
+        0,
+        40,
+        0
+      ],
+      "Cell": [
+        512,
+        78,
+        512
+      ],
+      "Distance": 4.3878092765808105
+    },
+    {
+      "World": [
+        0,
+        116,
+        0
+      ],
+      "Cell": [
+        512,
+        113,
+        512
+      ],
+      "Distance": -4.3878092765808105
+    }
+  ],
+  "Dimensions": [
+    1024,
+    128,
+    1024
+  ],
+  "CoveredCells": 134217728,
+  "Leaves": 88936,
+  "CompressedBytes": 7457646,
+  "UncompressedBytes": 68574181,
+  "BandMetres": 4.387809463097801,
+  "Browser": "153.0.8010.0",
+  "Renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+}

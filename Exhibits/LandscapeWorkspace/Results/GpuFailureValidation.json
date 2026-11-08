@@ -1,0 +1,257 @@
+{
+  "Status": "passed",
+  "Date": "2026-11-07T17:49:44.694Z",
+  "Runtime": "v22.22.3",
+  "Platform": "linux",
+  "Revision": "e1ce5629e8927ea1fc1b11646df21e7332687e68",
+  "Branch": "arena/ceeabe45-frontier",
+  "Origin": "http://127.0.0.1:5173",
+  "SourceSHA256": {
+    "CameraNavigation.js": "dd06fe04cc97a685468d5493d7fc94f679ba6286f2a3bada304c5d19e44255a3",
+    "CoastalWorld.js": "5ff1a667e02322b6e22ef3e36824acbe5d14a851a4e53a4f3962f1470048895d",
+    "DistanceField.js": "2a46a80893b3465f36c70bb830831ba434a06d9fe263cb529143078efa6c1531",
+    "DistanceReinitialization.js": "01af682ad985de8d1620f6fce7bdd7aa91dfc26a4037beda7ecd97db9854c80b",
+    "LandformPresets.js": "75adde9aaf1fe175f9009561506871ea0b9af1ce9e190af819107c0466a116da",
+    "LandformShader.js": "f6e939f671386cf006f8f510beb8aab7c9dcde9835fc99aa24891101c3a9aa4c",
+    "LandformStack.js": "d875289a32e6ca7fa6b047ef1a6a839253d3719c175e57b9ac2caed77f8ffde0",
+    "LayerStackPanel.js": "5e6f109a945369e2b76a3e63ebec27f877004c2de8786ddcaa18ecf3fdb62573",
+    "OceanSurface.js": "a525acb53c312109e3038ff042f10a7ad6678ed16f9862dd385461ae9e9eafcf",
+    "PresetExamples.html": "f95c77b78e3be25ffbbc34873321f6762fa57cb4ec1a43574d22a967c6a9f76a",
+    "PreviewSampling.js": "b2ad4b3ac260e72790e32ca9b553779cf5301952b634611f71edc5d27d41a262",
+    "PreviewTiling.js": "f0a6538a19e3e036bca099ec56df623b4c34c86fa0833cbe460dab1214bf0ff6",
+    "SparseVolume.js": "d2157d97e2a627c958c5366768f5f29c12fb18a075f8fd14eb9f50495e1a562d",
+    "StackGlyphs.js": "def07e3ca9400f9f261210ace779cb32305a1555037b1ed131fddc0ebe850d26",
+    "TerrainExamples.js": "6b76138d3db91668abb70a3b4b3dd7dbaf2567166771847f075c97e8daa20530",
+    "TerrainInfluence.js": "aa2d90dfe5f4da424a0581fdad31ca2ac9d9ae3a494a8e4d9b16abed0feba098",
+    "TerrainNoise.js": "69d5d872173234863a6c541a9860d28640d483e715afb55010900b8c58b75b20",
+    "VolumeBaking.js": "f023aaf649b4357efd356ac20e76415c07a5586958aabd7f2689300354bf5a44",
+    "VolumeDetail.js": "fe85264484b42306d45f87766d651a89c35ac220598ca332388e863116a71916",
+    "VolumeLattice.js": "e5bf325e18111f345432a5b67e594d2a33a3df771c165db35c48d12d42aa58be",
+    "VolumePresentation.js": "d750d07abb2ba4392ff7fe7bc1e02bab0b232181768d6e6ecd8872614e59fa25",
+    "VolumeRasterization.js": "10ba72b987b00699bae0cf9cfa4ef96205b0d16898690ad1f22ae9a09b174aa6",
+    "VolumeRayField.js": "0d50bbf37adb5354cfe438a786366f1a5202100a9309d0fa3bc83351f9512f8a",
+    "VolumeRefinement.js": "28a76b3b5d1f0c35eb807aa5794ba14e869d5a8ceb5da9e8f4e62bfbd9a5feb9",
+    "VolumeScalarRasterization.js": "1ba9ccd3608f9311070445a8f973c0bbf3ac8fcee334261bb858af692cf256fe",
+    "VolumeSculpt.js": "ca98f309cfa86515d1cae52a67717e4bcb232f19f592800ae1937d8cfbe4005f",
+    "VolumeSculptInteraction.js": "409fa5f0aace1e4fc6aece84cbd4926a612d2683c74d8abeca73746e08bf09ec",
+    "VolumeSubmission.js": "330f5a06511905d1ccb83e787d3b105e35110a425bca88d3586ea402cf3e257d",
+    "VolumeSurface.js": "9e20ab3b35a3ffaf57b599e4621a4df61ee3075ef53cc515174fb501ffdf02a6",
+    "Workspace.css": "0e15998808547dbbdf69b8faa41a588fc97823d6b877a7364f692331354878bb",
+    "Workspace.js": "8073f6ee33ef053797c455147c25d72e1b6d4787686f26b624d44422be2e93ca",
+    "index.html": "0efc9dafd1f54f6224879752203497e9b46a9fa68f7e7820cdc6492df8131092",
+    "package.json": "c02d696147e9f6ea960df59a675a5e9f73758384f3b80271b60061dc6de43f6d",
+    "vite.config.js": "ba057c7bf31f0dec801ed3c9aebff49ee26fa6ce3e6eedd6acbce3eb818c8faf"
+  },
+  "Checks": [
+    {
+      "Name": "native missing WebGL stops promptly, never renders CPU pixels, and preserves Mask and exact save",
+      "Status": "passed",
+      "Observed": {
+        "Mode": "normal",
+        "NativeNoGraphics": true,
+        "ElapsedMilliseconds": 230.93057399999998,
+        "Observation": {
+          "Dataset": {
+            "previewWidth": "1440",
+            "sculptEnabled": "false",
+            "displayedSamplingMode": "preparing",
+            "displayedSamplingMatchesTarget": "false",
+            "sculptPending": "false",
+            "viewSchedule": "animation",
+            "cameraTarget": "[-47.5,23.64,-72.5]",
+            "cameraYaw": "-0.35",
+            "renderStatus": "failed",
+            "renderMessage": "WebGL2 could not initialize. GPU preview stopped; Mask and save remain available. No software fallback is started.",
+            "graphicsImageTimeoutMilliseconds": "10000",
+            "renderTechnique": "xyz-surface",
+            "renderExecution": "thread",
+            "volumeRevision": "1",
+            "automaticWorking": "false",
+            "previewStopped": "true",
+            "renderMode": "unavailable"
+          },
+          "Threads": [
+            {
+              "Address": "http://127.0.0.1:5173/VolumeSubmission.js?worker_file&type=module",
+              "Graphics": true,
+              "Requests": {
+                "initialize": 1,
+                "resume": 1,
+                "upload": 1,
+                "view": 1
+              },
+              "PendingViews": 1,
+              "MaximumPendingViews": 1,
+              "Terminated": true
+            }
+          ],
+          "CpuPixelCopies": 0,
+          "MainThreadGraphicsContexts": 0,
+          "SoftwareControls": 0,
+          "Heading": "GPU preview stopped"
+        },
+        "ExactDocumentSaved": true,
+        "Errors": [],
+        "Injection": "Native browser graphics disabled by command-line flags; no fake context getters."
+      }
+    },
+    {
+      "Name": "missing OffscreenCanvas does not create a UI-thread GPU or CPU renderer",
+      "Status": "passed",
+      "Observed": {
+        "Mode": "missing-offscreen",
+        "NativeNoGraphics": false,
+        "ElapsedMilliseconds": 136.51450299999988,
+        "Observation": {
+          "Dataset": {
+            "previewWidth": "1440",
+            "sculptEnabled": "false",
+            "displayedSamplingMode": "preparing",
+            "displayedSamplingMatchesTarget": "false",
+            "sculptPending": "false",
+            "viewSchedule": "animation",
+            "cameraTarget": "[-47.5,23.64,-72.5]",
+            "cameraYaw": "-0.35",
+            "renderStatus": "failed",
+            "renderMessage": "OffscreenCanvas is unavailable. Preview stopped; no UI-thread GPU or CPU renderer.",
+            "graphicsImageTimeoutMilliseconds": "10000",
+            "renderTechnique": "xyz-surface",
+            "previewStopped": "true",
+            "renderMode": "unavailable",
+            "automaticWorking": "false"
+          },
+          "Threads": [],
+          "CpuPixelCopies": 0,
+          "MainThreadGraphicsContexts": 0,
+          "SoftwareControls": 0,
+          "Heading": "GPU preview stopped"
+        },
+        "ExactDocumentSaved": true,
+        "Errors": [],
+        "Injection": "Explicit browser API absence."
+      }
+    },
+    {
+      "Name": "missing Worker stops before transferring or rendering the canvas",
+      "Status": "passed",
+      "Observed": {
+        "Mode": "missing-worker",
+        "NativeNoGraphics": false,
+        "ElapsedMilliseconds": 132.7098100000003,
+        "Observation": {
+          "Dataset": {
+            "previewWidth": "1440",
+            "sculptEnabled": "false",
+            "displayedSamplingMode": "preparing",
+            "displayedSamplingMatchesTarget": "false",
+            "sculptPending": "false",
+            "viewSchedule": "animation",
+            "cameraTarget": "[-47.5,23.64,-72.5]",
+            "cameraYaw": "-0.35",
+            "renderStatus": "failed",
+            "renderMessage": "Dedicated GPU threads are unavailable. Preview stopped; no CPU rendering.",
+            "graphicsImageTimeoutMilliseconds": "10000",
+            "renderTechnique": "xyz-surface",
+            "previewStopped": "true",
+            "renderMode": "unavailable",
+            "automaticWorking": "false"
+          },
+          "Threads": [],
+          "CpuPixelCopies": 0,
+          "MainThreadGraphicsContexts": 0,
+          "SoftwareControls": 0,
+          "Heading": "GPU preview stopped"
+        },
+        "ExactDocumentSaved": true,
+        "Errors": [],
+        "Injection": "Explicit browser API absence."
+      }
+    },
+    {
+      "Name": "a silent graphics protocol hits the unchanged production deadline and terminates without starting another renderer",
+      "Status": "passed",
+      "Observed": {
+        "Mode": "silent",
+        "NativeNoGraphics": false,
+        "ElapsedMilliseconds": 4125.760743999999,
+        "Observation": {
+          "Dataset": {
+            "previewWidth": "1440",
+            "sculptEnabled": "false",
+            "displayedSamplingMode": "preparing",
+            "displayedSamplingMatchesTarget": "false",
+            "sculptPending": "false",
+            "viewSchedule": "animation",
+            "cameraTarget": "[-47.5,23.64,-72.5]",
+            "cameraYaw": "-0.35",
+            "renderStatus": "failed",
+            "renderMessage": "The GPU thread stopped responding. Further submissions are stopped; no software fallback.",
+            "graphicsImageTimeoutMilliseconds": "10000",
+            "renderTechnique": "xyz-surface",
+            "renderExecution": "thread",
+            "volumeRevision": "1",
+            "automaticWorking": "false",
+            "previewStopped": "true",
+            "renderMode": "unavailable"
+          },
+          "Threads": [
+            {
+              "Address": "http://127.0.0.1:5173/VolumeSubmission.js?worker_file&type=module",
+              "Graphics": true,
+              "Requests": {
+                "initialize": 1,
+                "resume": 1,
+                "upload": 1,
+                "view": 1
+              },
+              "PendingViews": 1,
+              "MaximumPendingViews": 1,
+              "Terminated": true
+            }
+          ],
+          "CpuPixelCopies": 0,
+          "MainThreadGraphicsContexts": 0,
+          "SoftwareControls": 0,
+          "Heading": "GPU preview stopped"
+        },
+        "ExactDocumentSaved": true,
+        "Errors": [],
+        "Injection": "A deliberately silent replacement thread; no actual GPU hang was induced."
+      }
+    },
+    {
+      "Name": "with every window animation callback suppressed, direct submission and the timer still produce GPU images and camera updates",
+      "Status": "passed",
+      "Observed": {
+        "First": {
+          "Width": 996,
+          "Height": 823,
+          "Hash": 3952849097,
+          "LandPixels": 80291
+        },
+        "Second": {
+          "Width": 996,
+          "Height": 823,
+          "Hash": 1117384725
+        },
+        "Scheduling": "timer",
+        "Observation": {
+          "Threads": 1,
+          "CpuPixelCopies": 0,
+          "MainThreadGraphicsContexts": 0
+        }
+      }
+    }
+  ],
+  "Images": [
+    "GpuFailureValidation-normal.png"
+  ],
+  "Conditions": {
+    "WorkingTree": "Uncommitted GPU-only Landscape repair.",
+    "ApplicationSourceInterception": false,
+    "DeadlineOverride": false,
+    "Graphics": "Chromium / ANGLE SwiftShader, a software graphics driver used only by the lab browser. Not physical-GPU or Windows verification.",
+    "Startup": "First graphics context in each page. No assertion that operating-system or driver caches are cold.",
+    "Scope": "GPU API surface rasterization, not CPU pixel rendering. Geometry is sampled off-thread from the genuine XYZ authoring field."
+  }
+}

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><title>Signed-volume preset capture</title><style>html,body{margin:0;background:#171b1d}canvas{display:block;width:480px;height:320px}</style></head><body><canvas id="Example"></canvas><script type="module">
+import { CreateVolumeRasterization } from './VolumeRasterization.js';
+import { CreatePresetExample } from './LandformPresets.js';
+import { LayerVerticalBounds } from './LandformStack.js';
+const Canvas=document.querySelector('#Example');
+Canvas.dataset.previewWidth='360';
+const Rasterization=CreateVolumeRasterization(Canvas);
+let Seconds=10;
+window.RenderPreset=(Token)=>
+{
+    Rasterization.GL.finish();
+    const Layer=CreatePresetExample(Token);
+    Rasterization.Upload([Layer]);
+    const Height=LayerVerticalBounds(Layer,Layer.Regions[0])[1];
+    Rasterization.Draw({Yaw:.35,Pitch:.64,Orbit:650,Target:[0,Height*.23,0]},Seconds,1.5,true);
+    Seconds+=10;
+    Rasterization.GL.finish();
+};
+</script></body></html>

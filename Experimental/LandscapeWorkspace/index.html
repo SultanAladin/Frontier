@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#151515">
+    <title>Frontier · Landscape</title>
+    <link rel="stylesheet" href="./Workspace.css">
+</head>
+<body>
+    <header class="application-heading">
+        <a class="brand" href="./" aria-label="Frontier landscape editor"><span data-glyph="layers"></span>frontier<span class="brand-dot">.</span></a>
+        <div class="project-breadcrumb">Coastal study <span>/</span> <span>Landscape authoring</span></div>
+        <nav class="workspace-tabs" aria-label="Workspace">
+            <button id="MaskTab"><span data-glyph="mask"></span>Mask editor <kbd>1</kbd></button>
+            <button id="LandscapeTab" class="active"><span data-glyph="mountain"></span>Landscape <kbd>2</kbd></button>
+        </nav>
+        <div class="document-controls">
+            <span id="SaveStatus" class="save-status">Saved locally</span>
+            <button id="HistoryUndo" class="icon-button" title="Undo · Ctrl Z" aria-label="Undo"><span data-glyph="undo"></span></button>
+            <button id="HistoryRedo" class="icon-button" title="Redo · Ctrl Shift Z" aria-label="Redo"><span data-glyph="redo"></span></button>
+            <span class="vertical-divider"></span>
+            <button id="Import" class="quiet-button">Open</button>
+            <button id="Export" class="border-button"><span data-glyph="download"></span>Save project</button>
+            <input id="File" type="file" accept=".json" hidden>
+        </div>
+    </header>
+
+    <div class="workspace-layout">
+        <aside class="outliner" aria-label="Layer stacks">
+            <div class="outliner-project"><span class="eyebrow">WORLD WORKSPACE</span><div>Coastal study <span class="small-pill">SDF</span></div><p>Infinite canvas. Authored regions only.</p></div>
+            <section class="mask-directory">
+                <div class="section-heading"><h2>Mask layers <span id="MaskLayerCount" class="count-pill">3</span></h2><button id="AddLayer" class="icon-button" title="Add mask layer" aria-label="Add mask layer"><span data-glyph="plus"></span></button></div>
+                <div id="Layers" class="mask-list" role="listbox" aria-label="Mask layers" aria-multiselectable="true"></div>
+                <p class="selection-note">Drag to reorder · Ctrl-click to select masks</p>
+            </section>
+            <section id="TerrainStackPanel" class="terrain-stack-panel">
+                <div class="section-heading"><h2>Landform stack <span id="OperationCount" class="count-pill">0</span></h2><span data-glyph="layers" class="muted-glyph"></span></div>
+                <div class="stack-owner"><span id="StackOwnerColour"></span><strong id="StackOwner"></strong></div>
+                <label class="scope-selector"><span>Scope</span><select id="StackScope" aria-label="Generator stack scope"></select></label>
+                <label class="search-field"><span data-glyph="search"></span><input id="LayerSearch" type="search" placeholder="Find a layer…" aria-label="Find a landform layer"></label>
+                <div id="LandformRows" class="landform-list" role="listbox" aria-label="Landform layers"></div>
+                <button id="AddGenerator" class="add-generator" aria-expanded="false" aria-controls="GeneratorMenu"><span data-glyph="plus"></span>Add generator <kbd>⇧ A</kbd></button>
+                <button id="BatchLandform" class="batch-button" aria-expanded="false" aria-controls="GeneratorMenu" hidden>Add generator to selected masks</button>
+                <div class="stack-order"><span data-glyph="arrow-up"></span>Bottom to top evaluation</div>
+            </section>
+            <div id="MaskInstructions" class="mask-instructions" hidden><span data-glyph="brush"></span><strong>Paint your world</strong><p>Draw a mask, box-select its bounds, then open Landscape to shape its volume.</p><button id="Build" class="border-button">Open landscape <span data-glyph="arrow-right"></span></button></div>
+            <div class="outliner-bottom"><button id="Environment" class="environment-button"><span class="world-icon" data-glyph="waves"></span><span><strong>Ocean & atmosphere</strong><small>World-space procedural waves</small></span><span data-glyph="chevron-right"></span></button><div class="project-actions"><button id="LoadTerrainExamples">Applied examples</button><span>·</span><button id="Empty">New world</button></div></div>
+        </aside>
+
+        <main class="viewport-panel">
+            <div class="viewport-heading"><div class="viewport-title"><span data-glyph="mountain" id="ViewportGlyph"></span><strong id="ViewTitle">Landscape</strong><span id="ViewSubtitle">Perspective</span></div><div class="viewport-actions"><strong id="GeometryQuality" title="Always-high field-resampled geometry; bounded GPU workload">High detail</strong><select hidden id="RenderQuality" aria-label="Image pixel width" title="Image width only; this does not increase geometry resolution"><option value="0">Auto · image pixels</option><option value="256">256 px · safe</option><option value="480">480 px · draft</option><option value="900">900 px max</option><option value="1440">1440 px max</option></select><button id="FocusMask" class="icon-button" title="Focus active mask · F" aria-label="Focus active mask"><span data-glyph="focus"></span></button><button id="Fit" class="quiet-button" title="Fit all visible regions">Fit world</button></div></div>
+            <div id="Viewport" tabindex="0" aria-label="Landscape viewport">
+                <canvas id="Paint" hidden aria-label="Infinite vector mask canvas"></canvas>
+                <canvas id="Volume" aria-label="Volumetric SDF landscape"></canvas>
+                <section id="PreviewNotice" class="preview-notice" role="status" aria-live="polite" hidden><strong id="PreviewHeading">Preparing landscape</strong><p id="PreviewMessage"></p><div><button id="PreviewMask" class="quiet-button">Return to mask editor</button><button id="PreviewRetry" class="border-button" hidden>Restart GPU preview</button></div></section>
+                <div class="viewport-caption"><span id="ModeLabel">PERSPECTIVE</span><span class="viewport-badge" id="FieldBadge" title="GPU rasterization of a bounded surface sampled from the authored XYZ signed field">SDF · GPU SURFACE</span></div>
+                <div class="viewport-tools" id="PaintTools" hidden>
+                    <button data-tool="paint" class="active" title="Paint · B" aria-label="Paint mask"><span data-glyph="brush"></span><kbd>B</kbd></button>
+                    <button data-tool="erase" title="Erase · E" aria-label="Erase mask"><span data-glyph="eraser"></span><kbd>E</kbd></button>
+                    <button data-tool="select" title="Region bounds · R" aria-label="Select region bounds"><span data-glyph="select"></span><kbd>R</kbd></button>
+                    <span class="tool-divider"></span>
+                    <button data-tool="pan" title="Pan · H" aria-label="Pan canvas"><span data-glyph="hand"></span><kbd>H</kbd></button>
+                </div>
+                <div class="viewport-tools" id="LandscapeTools">
+                    <button id="OrbitCamera" class="active" title="Orbit camera" aria-label="Orbit camera"><span data-glyph="orbit"></span></button>
+                    <button id="SculptTool" title="3D clay / carve · B" aria-label="Sculpt selected region" aria-pressed="false"><span data-glyph="brush"></span></button>
+                    <button id="PanCamera" title="Pan camera · H" aria-label="Pan camera"><span data-glyph="hand"></span></button>
+                    <span class="tool-divider"></span>
+                    <button id="WorkHere" class="working-action" title="View a local patch at the selected region’s authored XYZ spacing" aria-label="Work on selected region"><span data-glyph="select"></span>View detail</button>
+                    <button id="ViewportOcean" class="active" title="Toggle ocean" aria-label="Toggle ocean"><span data-glyph="waves"></span></button>
+                </div>
+                <div id="SculptCursor" class="sculpt-cursor" hidden><span></span></div>
+                <div id="WorkingReadout" class="working-readout" hidden><strong id="WorkingTitle"></strong><span id="WorkingPitch"></span><span id="WorkingCoverage"></span><button id="WorkingOverview" class="quiet-button">Return to overview</button></div>
+                <div id="CameraNavigation" class="camera-navigation"><label><input id="KeyboardCamera" type="checkbox">WASD</label><span class="vertical-divider"></span><label class="camera-speed"><input id="CameraSpeed" type="number" min="1" max="2000" value="150" aria-label="Camera speed"> <span>m/s</span></label></div>
+                <div id="SelectionPrompt" class="selection-prompt" hidden><span data-glyph="select"></span><span>Region selected</span><button id="KeepRegion" class="primary-button">Add to mask <span data-glyph="plus"></span></button><button id="CancelSelection" class="icon-button" aria-label="Cancel selection"><span data-glyph="close"></span></button></div>
+                <div class="viewport-lower"><div><span id="Coordinates">X 0 &nbsp; Z 0</span><span id="CameraPosition"></span></div><div class="scale-reference"><span></span><small id="ScaleRead">100 m</small></div><svg class="axis-reference" viewBox="0 0 70 65" aria-label="World axes"><path d="M35 36V8M35 36 11 49M35 36 59 49"/><circle cx="35" cy="36" r="3"/><text x="31" y="8">Y</text><text x="2" y="57">X</text><text x="60" y="57">Z</text></svg></div>
+            </div>
+            <div class="viewport-footnote"><span id="CanvasHint">Drag to orbit <span>·</span> MMB / Shift-drag to pan <span>·</span> Scroll to zoom</span><span id="RenderReadout">WebGL2</span></div>
+        </main>
+
+        <aside class="inspector" aria-label="Inspector">
+            <div class="inspector-top"><span>Inspector</span><span id="InspectorScope">Active landform</span></div>
+            <div class="inspector-scroll">
+                <div class="inspector-mask-context"><span id="ActiveMaskColour"></span><span id="LayerTitle">Desert coast</span><button id="EditMask" class="quiet-button" title="Edit active mask in 2D">Edit mask <span data-glyph="arrow-up-right"></span></button></div>
+                <div class="inspector-identity"><span id="StackIdentityGlyph" class="identity-glyph"></span><div><span id="InspectorEyebrow" class="eyebrow">TERRAIN GENERATOR</span><input id="OperationName" class="identity-title" aria-label="Selected layer name" maxlength="96"><p id="OperationSubtitle"></p></div></div>
+                <div class="inspector-tabs" role="tablist" aria-label="Inspector sections"><button data-inspector="shape" class="active" role="tab">Shape</button><button data-inspector="region" role="tab">Bounds & volume</button><button data-inspector="ocean" role="tab">Ocean</button></div>
+                <div id="ShapeInspector">
+                    <section id="SculptPanel" class="property-card sculpt-panel" hidden>
+                        <h3><span data-glyph="brush"></span>3D sculpt <span class="small-pill">XYZ</span></h3>
+                        <p id="SculptScope" class="card-note"></p>
+                        <label class="field-row">Brush<select id="SculptMode" aria-label="3D sculpt brush"><option value="add">Clay · add</option><option value="remove">Carve · remove</option></select></label>
+                        <label class="field-caption">World radius<output id="SculptRadiusRead">8.0 m</output></label>
+                        <input id="SculptRadius" type="range" min="0.5" max="80" step="0.5" value="8" aria-label="Sculpt world radius">
+                        <label class="field-caption">Strength<output id="SculptStrengthRead">50%</output></label>
+                        <input id="SculptStrength" type="range" min="0.05" max="1" step="0.05" value="0.5" aria-label="Sculpt strength">
+                        <button id="SculptEnable" class="border-button full-width">Start 3D sculpting</button>
+                        <p class="card-note">Left-drag; release to apply one undoable 3D stroke. Alt-drag orbits; Shift/MMB pans. Only the active region changes. Save project keeps the sculpted field.</p>
+                    </section>
+                    <section id="LandformPanel"><div id="OperationInspector"></div></section>
+                    <section id="BrushPanel" class="property-card" hidden><h3><span data-glyph="brush"></span>Paint brush</h3><div class="metric"><output id="RadiusRead">65</output><small>m</small></div><p class="muted">Radius in world space</p><input id="Radius" type="range" min="4" max="250" value="65" aria-label="Brush radius"><div class="range-labels"><span>4 m</span><span>250 m</span></div><p class="card-note">Strokes, not pixels. Zoom and rebuild at any resolution without losing the coastline.</p></section>
+                </div>
+                <div id="RegionInspector" hidden>
+                    <section class="property-card"><h3>Mask properties</h3><label class="field-row">Name<input id="MaskName" type="text" maxlength="96" aria-label="Mask name"></label><label class="field-row">Surface colour<input id="MaskColour" type="color" aria-label="Mask colour"></label><div class="mask-edit-actions"><button id="DuplicateMask" class="border-button">Duplicate mask</button><button id="DeleteMask" class="quiet-button">Delete mask</button></div></section>
+                    <section class="property-card"><h3>Region bounds <span id="RegionCount" class="small-pill"></span></h3><div id="RegionList"></div><p class="card-note">The rectangle allocates space. The painted mask defines the coastline.</p><label class="field-caption">Coast feather <output id="EdgeRead">60 m</output></label><input id="EdgeWidth" type="range" min="0" max="300" value="60" aria-label="Coast feather width"><div id="CoastProfile" class="coast-profile"></div><p class="card-note">Relief fades to sea level at the mask edge. Zero preserves a sharp cut.</p></section>
+                    <section class="property-card"><h3><span data-glyph="box"></span>Signed volume <span class="small-pill">3D</span></h3><label class="field-row">X cells<select id="Resolution" aria-label="X cells"><option>256</option><option>512</option><option selected>1024</option><option>2048</option><option>4096</option></select></label><label class="field-row">Z cells<select id="ResolutionZ" aria-label="Z cells"><option>256</option><option>512</option><option selected>1024</option><option>2048</option><option>4096</option></select></label><label class="check-row"><input id="LinkHorizontal" type="checkbox" checked>Link X and Z counts</label><label class="field-row">Y cells · vertical<select id="Vertical" aria-label="Y cells"><option>64</option><option>96</option><option selected>128</option><option>256</option><option>512</option></select></label><label class="field-caption">Underwater depth <output id="DepthRead">120 m</output></label><input id="Depth" type="range" min="30" max="500" value="120" aria-label="Underwater depth"><p id="VolumeNote" class="card-note"></p><p id="LatticePitch" class="card-note"></p>
+                        <section class="sampling-readout" aria-label="Target and displayed geometry">
+                            <strong id="SamplingHeading">Coarse overview · GPU surface</strong>
+                            <p id="SamplingActual"></p><p id="SamplingGuidance"></p><p id="SamplingNotice" hidden></p>
+                            <button id="WorkAtResolution" class="border-button full-width">View authored detail</button>
+                        </section>
+                        <details id="PreviewDiagnostics" class="preview-diagnostics"><summary>Preview diagnostics</summary><dl>
+                            <dt>Selected target</dt><dd id="SamplingTarget"></dd>
+                            <dt>Displayed image</dt><dd id="SamplingImage"></dd>
+                            <dt>Execution</dt><dd id="SamplingExecution"></dd>
+                            <dt>Application fallback</dt><dd>No software pixel renderer; GPU failure stops the preview.</dd>
+                            <dt title="Reported by this browser; not inferred from polygon count or image quality">Browser-reported driver</dt><dd id="SamplingRenderer"></dd>
+                            <dt>Revisions</dt><dd id="SamplingRevisions"></dd>
+                            <dt>Preview revision</dt><dd id="SamplingRevision"></dd>
+                        </dl></details><p class="card-note">High geometry stays enabled. Start 3D sculpting for clay/carve at this region’s working spacing, or double-click a surface to inspect it. Target counts are not a dense whole-world allocation.</p><label class="check-row"><input id="Caves" type="checkbox">Test volumetric cavity</label><details class="volume-export"><summary>Sample & export volume</summary><label class="field-row">Distance field<select id="DistanceMode" aria-label="Export distance field"><option value="metric">Metric TSDF · fast sweeping</option><option value="bound">Conservative bound · legacy</option></select></label><p id="DistanceModeNote" class="card-note"></p><label class="field-row">Region<select id="BakeRegion" aria-label="Bake region"></select></label><button id="Bake" class="border-button full-width"><span data-glyph="download"></span>Bake requested resolution</button><button id="PreviewBake" class="quiet-button full-width">Export 64³ preview samples</button><div id="BakeProgress" hidden><progress id="BakeMeter" max="1" value="0"></progress><output id="BakeRead"></output><button id="CancelBake" class="quiet-button">Cancel bake</button></div></details></section>
+                    <section id="BakeResult" class="property-card" hidden><h3>Last volume export <span class="small-pill">3D</span></h3><strong id="BakeDistanceRead" class="bake-distance-title"></strong><p id="BakeSnapshotRead" class="card-note"></p><p id="BakeDimensionsRead" class="card-note"></p><div id="BakeMetricDetails"><div class="linked-metrics"><div><span>Sweep cycles</span><strong id="SweepCyclesRead"></strong></div><div><span>Cell sign changes</span><strong id="SignChangesRead"></strong></div></div><p id="ConvergenceRead" class="card-note"></p></div></section>
+                </div>
+                <div id="OceanPanel" hidden>
+                    <section class="property-card ocean-card"><h3><span data-glyph="waves"></span>Open water<label class="switch" title="Enable ocean"><input id="Ocean" type="checkbox" checked aria-label="Enable ocean"><span></span></label></h3><div class="metric"><output id="WaveRead">1.0</output><small>×</small></div><p class="muted">Wave amplitude</p><div id="OceanProfile" class="ocean-profile"></div><input id="Wave" type="range" min="0" max="3" step="0.05" value="1" aria-label="Wave amplitude"><div class="range-labels"><span>Calm</span><span>Open sea</span></div><label class="check-row"><input id="AnimateOcean" type="checkbox" checked>Animate waves</label><div class="linked-metrics"><div><span>Spectrum</span><strong>24<small>components</small></strong></div><div><span>Surface</span><strong>0<small>texture tiles</small></strong></div></div><p class="card-note">World-space, directionally spread wave packets. No repeating ocean textures; short waves are filtered to the vertex-grid footprint.</p></section>
+                    <section class="property-card"><h3>Sea-level foundation</h3><div class="metric">0<small>m</small></div><p class="card-note">The foundation starts at Y = 0. Volume thickness extends underwater. Generators add local relief, not a raised platform.</p></section>
+                </div>
+            </div>
+            <div class="inspector-footer"><span class="status-dot"></span>Edits affect only the selected stack</div>
+        </aside>
+    </div>
+    <footer class="application-status"><span id="Status" role="status">Ready</span><div><span id="StrokeCount"></span><span>METRES</span><span id="RenderAPI">WEBGL 2</span></div></footer>
+
+    <div id="GeneratorMenu" class="generator-menu" role="dialog" aria-label="Add terrain generator" hidden>
+        <div class="generator-menu-heading"><div><span class="eyebrow" id="GeneratorMenuCaption">ADD TO ACTIVE STACK</span><strong id="GeneratorTarget"></strong></div><button id="CloseGeneratorMenu" class="icon-button" aria-label="Close generator menu"><span data-glyph="close"></span></button></div>
+        <label class="search-field"><span data-glyph="search"></span><input id="GeneratorSearch" type="search" placeholder="Find a generator…" aria-label="Find a generator"></label>
+        <div class="generator-categories"><button data-generator-category="landform" class="active">Landforms</button><button data-generator-category="volume">Volume operations</button></div>
+        <div id="GeneratorChoices" class="generator-choices"></div>
+        <div class="generator-menu-footer">Choose a generator to apply it immediately.</div>
+    </div>
+    <dialog id="DocumentReplacement" class="document-replacement" aria-labelledby="ReplacementHeading" aria-describedby="ReplacementMessage">
+        <form method="dialog">
+            <h2 id="ReplacementHeading"></h2>
+            <p id="ReplacementMessage"></p>
+            <div><button id="CancelReplacement" class="border-button" value="cancel" autofocus>Cancel</button><button id="ConfirmReplacement" class="primary-button" value="replace"></button></div>
+        </form>
+    </dialog>
+    <script type="module" src="./Workspace.js"></script>
+</body>
+</html>

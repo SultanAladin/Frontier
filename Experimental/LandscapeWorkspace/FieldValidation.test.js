@@ -1,0 +1,26 @@
+import { test } from 'node:test';
+import Assert from 'node:assert/strict';
+import { CapsuleDistance, MaskDistance, VolumeDistance, SampleSparseBricks, ValidateDocument } from './DistanceField.js';
+const Create = () => ({Name:'Test coast',Color:'#b4a17d',Visible:true,Resolution:1024,Vertical:128,Depth:100,Caves:false,Strokes:[{Points:[[0,0],[100,0]],Radius:40,Erase:false}],Regions:[{X0:-60,Z0:-60,X1:160,Z1:60}]});
+test('capsule endpoints and signed surface',()=>{Assert.equal(CapsuleDistance(0,0,[0,0],[100,0],40),-40);Assert.equal(CapsuleDistance(50,40,[0,0],[100,0],40),0);Assert.equal(CapsuleDistance(50,60,[0,0],[100,0],40),20);});
+test('empty world and unselected paint allocate no solid',()=>{const Layer=Create();Layer.Regions=[];Assert.ok(VolumeDistance(Layer,0,0,0)>1e6);Layer.Regions=[{X0:-60,Z0:-60,X1:160,Z1:60}];Layer.Strokes=[];Assert.ok(VolumeDistance(Layer,0,0,0)>1e6);});
+test('closed volume has top, bottom and clipped sides',()=>{const Layer=Create();Assert.ok(VolumeDistance(Layer,50,-1,0)<0);Assert.equal(VolumeDistance(Layer,50,0,0),0);Assert.equal(VolumeDistance(Layer,50,-100,0),0);Assert.ok(VolumeDistance(Layer,50,-101,0)>0);Assert.ok(VolumeDistance(Layer,500,0,0)>0);});
+test('eraser subtracts and later paint restores',()=>{const Layer=Create();Layer.Strokes.push({Points:[[50,0]],Radius:15,Erase:true});Assert.ok(MaskDistance(Layer,50,0)>0);Layer.Strokes.push({Points:[[50,0]],Radius:8,Erase:false});Assert.ok(MaskDistance(Layer,50,0)<0);});
+test('cavity is true 3D subtraction, not a height displacement',()=>{const Layer=Create();Layer.Caves=true;Assert.ok(VolumeDistance(Layer,50,0,0)>0);Assert.ok(VolumeDistance(Layer,50,-70,0)<0);});
+test('world translation preserves signed distance',()=>{const Layer=Create(), Before=VolumeDistance(Layer,50,0,0);for(const Stroke of Layer.Strokes)Stroke.Points=Stroke.Points.map(([X,Z])=>[X+1e6,Z-1e6]);for(const Region of Layer.Regions){Region.X0+=1e6;Region.X1+=1e6;Region.Z0-=1e6;Region.Z1-=1e6;}Assert.equal(VolumeDistance(Layer,1e6+50,0,-1e6),Before);});
+test('sparse brick export contains signed volumetric samples',()=>{const Layer=Create(), Result=SampleSparseBricks(Layer,Layer.Regions[0],16,16);Assert.deepEqual(Result.Dimensions,[16,16,16]);Assert.ok(Result.Bricks.length>0);Assert.ok(Result.Bricks.some(Brick=>Brick.Samples.some(Distance=>Distance<0)));Assert.ok(Result.Bricks.some(Brick=>Brick.Samples.some(Distance=>Distance>0)));});
+test('document round trip and invalid bounds rejection',()=>{const Document={Format:'FrontierLandscape/1',Layers:[Create()]};Assert.deepEqual(ValidateDocument(JSON.parse(JSON.stringify(Document))),Document);Document.Layers[0].Regions[0].X1=-100;Assert.throws(()=>ValidateDocument(Document));});
+
+
+test('distance mode is optional for legacy documents, preserved for new documents and rejects invalid categories', () =>
+{
+    const Document = { Format: 'FrontierLandscape/1', Layers: [Create()] };
+    Assert.equal(ValidateDocument(Document).Layers[0].DistanceMode, undefined);
+    for (const DistanceMode of ['bound', 'metric'])
+    {
+        Document.Layers[0].DistanceMode = DistanceMode;
+        Assert.equal(ValidateDocument(Document).Layers[0].DistanceMode, DistanceMode);
+    }
+    Document.Layers[0].DistanceMode = 'heightmap';
+    Assert.throws(() => ValidateDocument(Document), /distance mode/);
+});

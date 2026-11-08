@@ -1,0 +1,330 @@
+{
+  "Status": "passed",
+  "Date": "2026-11-07T09:56:30.063Z",
+  "Runtime": "v22.22.3",
+  "Platform": "linux",
+  "Revision": "e1ce5629e8927ea1fc1b11646df21e7332687e68",
+  "Branch": "arena/ceeabe45-frontier",
+  "Origin": "http://127.0.0.1:5173",
+  "Arguments": [
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--disable-software-rasterizer",
+    "--no-zygote"
+  ],
+  "Checks": [
+    {
+      "Name": "native main-thread and worker WebGL 1/2 are unavailable; Canvas2D remains available",
+      "Status": "passed",
+      "Observed": {
+        "Main": {
+          "webgl": false,
+          "webgl2": false,
+          "2d": true
+        },
+        "Thread": {
+          "WebGL": false,
+          "WebGL2": false,
+          "Canvas2D": true
+        }
+      }
+    },
+    {
+      "Name": "Landscape automatically presents actual terrain without any WebGL context",
+      "Status": "passed",
+      "Observed": {
+        "Milliseconds": 292.601803,
+        "Width": 48,
+        "Height": 39,
+        "LandPixels": 172,
+        "Renderer": "CPU software · volumetric SDF ray intersections"
+      }
+    },
+    {
+      "Name": "the low-cost first image refines automatically and the editor labels software rendering honestly",
+      "Status": "passed",
+      "Observed": {
+        "Milliseconds": 1991.474856,
+        "Width": 160,
+        "PreviewNoticeHidden": true
+      }
+    },
+    {
+      "Name": "procedural ocean animation changes visible pixels while reusing terrain intersections",
+      "Status": "passed",
+      "Observed": {
+        "BeforeHash": 2480579270,
+        "AfterHash": 2498237816,
+        "TerrainRenders": "2",
+        "InspectorInputMilliseconds": 46.42186000000038
+      }
+    },
+    {
+      "Name": "software quality has bounded 64/96/160 choices and never overwrites the GPU preference",
+      "Status": "passed",
+      "Observed": {
+        "Before": {
+          "GPU": "480",
+          "Software": null
+        },
+        "EnabledWidths": [
+          "0",
+          "64",
+          "96",
+          "160"
+        ],
+        "SoftwareWidth": "160",
+        "GPUWidth": "480"
+      }
+    },
+    {
+      "Name": "the actual Canvas2D viewport contains the worker pixels and leaves camera input on the original canvas",
+      "Status": "passed",
+      "Observed": {
+        "Hash": 2774040629,
+        "Width": 160,
+        "Height": 132,
+        "PointerEvents": "none"
+      }
+    },
+    {
+      "Name": "zoom, middle-button pan and orbit all complete newly rendered software camera views",
+      "Status": "passed",
+      "Observed": {
+        "BeforeOrbit": "1134.675",
+        "BeforeTarget": "[-47.5,23.64,-72.5]",
+        "BeforeYaw": "-0.35",
+        "After": {
+          "renderExecution": "thread",
+          "renderMode": "software",
+          "renderer": "CPU software · volumetric SDF ray intersections",
+          "graphicsContexts": "0",
+          "initializationEpoch": "1",
+          "softwareReason": "WebGL2 is unavailable. Your vector masks remain editable.",
+          "renderStatus": "ready",
+          "renderMessage": "",
+          "previewSuspended": "false",
+          "volumeRevision": "1",
+          "softwareUploads": "1",
+          "previewWidth": "160",
+          "submittedComposition": "[\"[160,132,1,{\\\"Yaw\\\":-0.6019999999999999,\\\"Pitch\\\":0.78,\\\"Orbit\\\":1037.0148676476308,\\\"Target\\\":[-79.35393629110727,23.64,-106.20647436630753]}]\",1,true,22.19984200000006]",
+          "softwareRays": "104752",
+          "softwareMaximumSliceMilliseconds": "11.699999999254942",
+          "previewProgress": "1",
+          "terrainRenders": "11",
+          "completedOrbit": "1037.0148676476308",
+          "completedTarget": "[-79.35393629110727,23.64,-106.20647436630753]",
+          "completedRevision": "1",
+          "completedComposition": "[\"[160,132,1,{\\\"Yaw\\\":-0.6019999999999999,\\\"Pitch\\\":0.78,\\\"Orbit\\\":1037.0148676476308,\\\"Target\\\":[-79.35393629110727,23.64,-106.20647436630753]}]\",1,true,22.19984200000006]",
+          "bufferWidth": "160",
+          "bufferHeight": "132",
+          "softwareImages": "13",
+          "Suspended": false,
+          "ContextLost": false
+        }
+      }
+    },
+    {
+      "Name": "an inspector relief edit visibly changes SDF terrain and undo restores the exact authored document",
+      "Status": "passed",
+      "Observed": {
+        "BeforeHash": 3948121337,
+        "EditedHash": 1827624696,
+        "BeforeRevision": "1",
+        "EditedRevision": "2",
+        "DocumentRestored": true
+      }
+    },
+    {
+      "Name": "Mask hides the overlay and suspends all software work while vector painting remains usable",
+      "Status": "passed",
+      "Observed": {
+        "Rays": "150736",
+        "Images": "17",
+        "Uploads": "3",
+        "Painted": true
+      }
+    },
+    {
+      "Name": "returning to Landscape includes new paint; save/undo round-trip masks and stacks without replacing the worker",
+      "Status": "passed",
+      "Observed": {
+        "GraphicsThreads": 1,
+        "PaintedExportPreserved": true,
+        "OriginalExportRestored": true
+      }
+    },
+    {
+      "Name": "the editor remains responsive during CPU rendering, navigation and authoring",
+      "Status": "passed",
+      "Observed": {
+        "MaximumHeartbeatMilliseconds": 86.10000000149012,
+        "Stalls": []
+      }
+    },
+    {
+      "Name": "the same software renderer displays a genuine 3D arch with solid-air-solid occupancy and a ray-visible opening",
+      "Status": "passed",
+      "Observed": {
+        "XZ": [
+          0,
+          0
+        ],
+        "Y": [
+          -50,
+          40,
+          116
+        ],
+        "Distances": [
+          -50,
+          40,
+          -20.819805638259275
+        ],
+        "OpeningRayMissedSolid": true,
+        "ExportPreserved": true,
+        "Image": {
+          "Width": 160,
+          "Height": 132,
+          "Complete": true,
+          "Error": 0,
+          "PixelOrder": "top-down RGBA8",
+          "renderExecution": "thread",
+          "renderMode": "software",
+          "renderer": "CPU software · volumetric SDF ray intersections",
+          "graphicsContexts": "0",
+          "initializationEpoch": "1",
+          "softwareReason": "WebGL2 is unavailable. Your vector masks remain editable.",
+          "renderStatus": "ready",
+          "renderMessage": "",
+          "previewSuspended": "false",
+          "volumeRevision": "6",
+          "softwareUploads": "6",
+          "previewWidth": "160",
+          "softwareRays": "248320",
+          "softwareMaximumSliceMilliseconds": "15.100000001490116",
+          "previewProgress": "1",
+          "terrainRenders": "26",
+          "completedOrbit": "398.52000000000004",
+          "completedTarget": "[0,17.858376676591114,0]",
+          "bufferWidth": "160",
+          "bufferHeight": "132",
+          "softwareImages": "28",
+          "submittedComposition": "[\"[160,132,6,{\\\"Yaw\\\":-0.35,\\\"Pitch\\\":0.30000000000000016,\\\"Orbit\\\":398.52000000000004,\\\"Target\\\":[0,17.858376676591114,0]}]\",1,true,22.19984200000006]",
+          "completedRevision": "6",
+          "completedComposition": "[\"[160,132,6,{\\\"Yaw\\\":-0.35,\\\"Pitch\\\":0.30000000000000016,\\\"Orbit\\\":398.52000000000004,\\\"Target\\\":[0,17.858376676591114,0]}]\",1,true,22.19984200000006]",
+          "Hash": 30838398,
+          "LandPixels": 1854
+        }
+      }
+    },
+    {
+      "Name": "the actual software-mode UI exports a converged 256×64×256 metric volume with solid-air-solid samples",
+      "Status": "passed",
+      "Observed": {
+        "Dimensions": [
+          256,
+          64,
+          256
+        ],
+        "Format": "FrontierSparseTSDF/2",
+        "Redistance": {
+          "Method": "AnisotropicFastSweeping/1",
+          "Converged": true,
+          "Cycles": 2,
+          "MaximumCycles": 6,
+          "Tolerance": 0.00014062500000000002,
+          "MaximumChange": 0,
+          "SeedCells": 189420,
+          "SignChanges": 0,
+          "CollapsedBricks": 1248,
+          "SampledCells": 1746944,
+          "EstimatedWorkspaceBytes": 18553984,
+          "Interface": "AnalyticBracketRefinement/1: twenty bisections per crossing and finite-difference interface normals; source signs preserved."
+        },
+        "Samples": [
+          {
+            "Cell": [
+              128,
+              18,
+              128
+            ],
+            "Distance": -8.775618553161621
+          },
+          {
+            "Cell": [
+              128,
+              39,
+              128
+            ],
+            "Distance": 8.775618553161621
+          },
+          {
+            "Cell": [
+              128,
+              56,
+              128
+            ],
+            "Distance": -8.775618553161621
+          }
+        ],
+        "CompressedBytes": 546965
+      }
+    },
+    {
+      "Name": "actual terrain remains usable when the OffscreenCanvas API is additionally unavailable",
+      "Status": "passed",
+      "Observed": {
+        "ExplicitAPIAbsence": "OffscreenCanvas",
+        "RenderExecution": "thread",
+        "LandPixels": 2610,
+        "PageErrors": []
+      }
+    },
+    {
+      "Name": "actual terrain remains usable when the Worker API is additionally unavailable",
+      "Status": "passed",
+      "Observed": {
+        "ExplicitAPIAbsence": "Worker",
+        "RenderExecution": "main-sliced",
+        "LandPixels": 2610,
+        "PageErrors": []
+      }
+    }
+  ],
+  "SourceSHA256": {
+    "Workspace.js": "82109694f350cbd6087edaa2a941a645a0ef1d7d821381955cc8cd2a935be13c",
+    "VolumePresentation.js": "49276540a78abf29be9b45854287a6dd4df14338cba1f37088f84ff98b0e66c2",
+    "VolumeSubmission.js": "69860ebf0f0ce4b692d53912a84f41d607e4e4ec6c611524afb8dc3760797caf",
+    "VolumeRasterization.js": "a4a0329dab8d393cd4104c866ce99e3ba1ef4724e86b98533b35b12f7b73b59c",
+    "VolumeRayField.js": "4f123a86a17e3d11161724889fa38abdff1e8d016ea55259c85c29d8085600a3",
+    "VolumeScalarRasterization.js": "1ba9ccd3608f9311070445a8f973c0bbf3ac8fcee334261bb858af692cf256fe",
+    "DistanceField.js": "0b40300b22f5197b1e8a97ea7c3ab66b4b4af370715f9af75410d76faa9d7e8c",
+    "LandformStack.js": "e39ad15fadd98c1a5d290ed8ddeb66ae413b07f9bf4d8861e000359419e0d836",
+    "OceanSurface.js": "3636f423607afbd9d8e730a19dd62c9bbf5e387bce27c85142c79ed374041d6d",
+    "TerrainNoise.js": "69d5d872173234863a6c541a9860d28640d483e715afb55010900b8c58b75b20",
+    "Workspace.css": "0d3bacc27e065c3b00d3064e297b6fec9eecbe5ec209c0cdf6a6ce2196c784c1",
+    "index.html": "7d33fcb7e9ff26147aa9d457cba56dc7b3e20d45b51c637844f87d2bcd1725a7"
+  },
+  "Note": "Actual native Chromium with both hardware GPU and software WebGL disabled. No context-getter injection for the primary case. Extra API-absence cases explicitly shadow only the named API. CPU ray intersections of the authored XYZ SDF, not a heightmap. Linux browser evidence is not a Windows/physical-device certification. Uncommitted application repair.",
+  "Browser": "153.0.8010.0",
+  "Native": {
+    "Main": {
+      "webgl": false,
+      "webgl2": false,
+      "2d": true
+    },
+    "Thread": {
+      "WebGL": false,
+      "WebGL2": false,
+      "Canvas2D": true
+    }
+  },
+  "FirstVisibleMilliseconds": 292.601803,
+  "RefinedVisibleMilliseconds": 1991.474856,
+  "InspectorInputMilliseconds": 46.42186000000038,
+  "Responsiveness": {
+    "MaximumHeartbeatMilliseconds": 86.10000000149012,
+    "Stalls": []
+  }
+}

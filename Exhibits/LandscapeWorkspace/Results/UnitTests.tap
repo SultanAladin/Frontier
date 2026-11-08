@@ -1,0 +1,1108 @@
+TAP version 13
+# Subtest: feathered terrain reaches sea level at the painted shoreline, not an elevated sole
+ok 1 - feathered terrain reaches sea level at the painted shoreline, not an elevated sole
+  ---
+  duration_ms: 26.947743
+  type: 'test'
+  ...
+# Subtest: widening the coast feather changes the actual terrain, not just the rectangle corners
+ok 2 - widening the coast feather changes the actual terrain, not just the rectangle corners
+  ---
+  duration_ms: 1.569021
+  type: 'test'
+  ...
+# Subtest: sharp coast remains available explicitly at zero feather
+ok 3 - sharp coast remains available explicitly at zero feather
+  ---
+  duration_ms: 1.371125
+  type: 'test'
+  ...
+# Subtest: a feathered flat foundation has no above-water thickness, including near the edge
+ok 4 - a feathered flat foundation has no above-water thickness, including near the edge
+  ---
+  duration_ms: 0.609924
+  type: 'test'
+  ...
+# Subtest: underwater thickness cannot move a feathered generator surface
+ok 5 - underwater thickness cannot move a feathered generator surface
+  ---
+  duration_ms: 11.090915
+  type: 'test'
+  ...
+# Subtest: coast-weighted volumes retain conservative gradients in all three dimensions
+ok 6 - coast-weighted volumes retain conservative gradients in all three dimensions
+  ---
+  duration_ms: 76.276177
+  type: 'test'
+  ...
+# Subtest: zero generator strength preserves the entire flat volume, including smooth-union settings
+ok 7 - zero generator strength preserves the entire flat volume, including smooth-union settings
+  ---
+  duration_ms: 1.580823
+  type: 'test'
+  ...
+# Subtest: boundary stacks cannot modify a neighbouring boundary or a different mask
+ok 8 - boundary stacks cannot modify a neighbouring boundary or a different mask
+  ---
+  duration_ms: 1.726511
+  type: 'test'
+  ...
+# Subtest: anisotropic Godunov stencil activates the correct one, two or three directions
+ok 9 - anisotropic Godunov stencil activates the correct one, two or three directions
+  ---
+  duration_ms: 3.986716
+  type: 'test'
+  ...
+# Subtest: a severely scaled flat field regains metric distance, not just its signs
+ok 10 - a severely scaled flat field regains metric distance, not just its signs
+  ---
+  duration_ms: 77.778506
+  type: 'test'
+  ...
+# Subtest: oblique planar distance remains metric across brick boundaries and nonuniform voxel pitch
+ok 11 - oblique planar distance remains metric across brick boundaries and nonuniform voxel pitch
+  ---
+  duration_ms: 86.792878
+  type: 'test'
+  ...
+# Subtest: nonmetric quadratic sphere is reconstructed to a world-unit narrow-band distance
+ok 12 - nonmetric quadratic sphere is reconstructed to a world-unit narrow-band distance
+  ---
+  duration_ms: 98.359935
+  type: 'test'
+  ...
+# Subtest: anisotropic sphere uses world pitch, not voxel-index distance
+ok 13 - anisotropic sphere uses world pitch, not voxel-index distance
+  ---
+  duration_ms: 46.999613
+  type: 'test'
+  ...
+# Subtest: a torus retains solid–air–solid re-entry at one X/Z coordinate
+ok 14 - a torus retains solid–air–solid re-entry at one X/Z coordinate
+  ---
+  duration_ms: 264.679067
+  type: 'test'
+  ...
+# Subtest: distant world coordinates do not change reconstructed metric units
+ok 15 - distant world coordinates do not change reconstructed metric units
+  ---
+  duration_ms: 37.939682
+  type: 'test'
+  ...
+# Subtest: a full allocated box has correct exterior-halo seeding and no false volume-edge surface
+ok 16 - a full allocated box has correct exterior-halo seeding and no false volume-edge surface
+  ---
+  duration_ms: 104.871957
+  type: 'test'
+  ...
+# Subtest: positive and negative uniform volumes remain sparse and saturated without invented interfaces
+ok 17 - positive and negative uniform volumes remain sparse and saturated without invented interfaces
+  ---
+  duration_ms: 0.932982
+  type: 'test'
+  ...
+# Subtest: metric archives retain full coverage, signs and explicit method/convergence metadata
+ok 18 - metric archives retain full coverage, signs and explicit method/convergence metadata
+  ---
+  duration_ms: 49.427059
+  type: 'test'
+  ...
+# Subtest: budgets, convergence exhaustion, nonfinite fields and coverage corruption fail explicitly
+ok 19 - budgets, convergence exhaustion, nonfinite fields and coverage corruption fail explicitly
+  ---
+  duration_ms: 27.524961
+  type: 'test'
+  ...
+# Subtest: analytic interface refinement corrects the zero shift caused by sign-dependent conservative scaling
+ok 20 - analytic interface refinement corrects the zero shift caused by sign-dependent conservative scaling
+  ---
+  duration_ms: 63.212767
+  type: 'test'
+  ...
+# Subtest: an analytic evaluator with a different zero set is rejected rather than moving source topology
+ok 21 - an analytic evaluator with a different zero set is rejected rather than moving source topology
+  ---
+  duration_ms: 2.374908
+  type: 'test'
+  ...
+# Subtest: metric codec rejects fabricated convergence metadata and invalid structured samples before encoding
+ok 22 - metric codec rejects fabricated convergence metadata and invalid structured samples before encoding
+  ---
+  duration_ms: 23.536825
+  type: 'test'
+  ...
+# Subtest: unnormalized terrain residuals and conservative marching bounds retain matching voxel signs for interface refinement
+ok 23 - unnormalized terrain residuals and conservative marching bounds retain matching voxel signs for interface refinement
+  ---
+  duration_ms: 1.374996
+  type: 'test'
+  ...
+# Subtest: sampled sign-uniform volumes with no interface encode a valid saturated zero-cycle metric result
+ok 24 - sampled sign-uniform volumes with no interface encode a valid saturated zero-cycle metric result
+  ---
+  duration_ms: 2.919384
+  type: 'test'
+  ...
+# Subtest: conservative resampling cannot reuse a metric label or bypass the archive safety budget
+ok 25 - conservative resampling cannot reuse a metric label or bypass the archive safety budget
+  ---
+  duration_ms: 24.41842
+  type: 'test'
+  ...
+# Subtest: capsule endpoints and signed surface
+ok 26 - capsule endpoints and signed surface
+  ---
+  duration_ms: 0.923163
+  type: 'test'
+  ...
+# Subtest: empty world and unselected paint allocate no solid
+ok 27 - empty world and unselected paint allocate no solid
+  ---
+  duration_ms: 1.031749
+  type: 'test'
+  ...
+# Subtest: closed volume has top, bottom and clipped sides
+ok 28 - closed volume has top, bottom and clipped sides
+  ---
+  duration_ms: 0.388781
+  type: 'test'
+  ...
+# Subtest: eraser subtracts and later paint restores
+ok 29 - eraser subtracts and later paint restores
+  ---
+  duration_ms: 0.155302
+  type: 'test'
+  ...
+# Subtest: cavity is true 3D subtraction, not a height displacement
+ok 30 - cavity is true 3D subtraction, not a height displacement
+  ---
+  duration_ms: 0.217578
+  type: 'test'
+  ...
+# Subtest: world translation preserves signed distance
+ok 31 - world translation preserves signed distance
+  ---
+  duration_ms: 0.283881
+  type: 'test'
+  ...
+# Subtest: sparse brick export contains signed volumetric samples
+ok 32 - sparse brick export contains signed volumetric samples
+  ---
+  duration_ms: 17.074211
+  type: 'test'
+  ...
+# Subtest: document round trip and invalid bounds rejection
+ok 33 - document round trip and invalid bounds rejection
+  ---
+  duration_ms: 1.173183
+  type: 'test'
+  ...
+# Subtest: distance mode is optional for legacy documents, preserved for new documents and rejects invalid categories
+ok 34 - distance mode is optional for legacy documents, preserved for new documents and rejects invalid categories
+  ---
+  duration_ms: 0.757687
+  type: 'test'
+  ...
+# Subtest: reference snapshots exactly match pinned Git blob fingerprints
+ok 35 - reference snapshots exactly match pinned Git blob fingerprints
+  ---
+  duration_ms: 3.40746
+  type: 'test'
+  ...
+# Subtest: first five landform defaults preserve the source procedural family defaults
+ok 36 - first five landform defaults preserve the source procedural family defaults
+  ---
+  duration_ms: 0.708715
+  type: 'test'
+  ...
+# Subtest: every landform family changes a bounded 3D field
+ok 37 - every landform family changes a bounded 3D field
+  ---
+  duration_ms: 120.192882
+  type: 'test'
+  ...
+# Subtest: editing one boundary leaves a distant boundary unchanged
+ok 38 - editing one boundary leaves a distant boundary unchanged
+  ---
+  duration_ms: 0.368668
+  type: 'test'
+  ...
+# Subtest: stack cannot create solid outside paint, region bounds, or erased holes
+ok 39 - stack cannot create solid outside paint, region bounds, or erased holes
+  ---
+  duration_ms: 0.284036
+  type: 'test'
+  ...
+# Subtest: coast feather preserves a flat sea-level foundation and a continuous distance bound
+ok 40 - coast feather preserves a flat sea-level foundation and a continuous distance bound
+  ---
+  duration_ms: 0.646877
+  type: 'test'
+  ...
+# Subtest: CSG stack order is meaningful and disabled operations are inert
+ok 41 - CSG stack order is meaningful and disabled operations are inert
+  ---
+  duration_ms: 0.745634
+  type: 'test'
+  ...
+# Subtest: arch primitive has solid roof over empty space along the same XZ coordinate
+ok 42 - arch primitive has solid roof over empty space along the same XZ coordinate
+  ---
+  duration_ms: 0.199685
+  type: 'test'
+  ...
+# Subtest: deterministic seed changes signed geometry reproducibly
+ok 43 - deterministic seed changes signed geometry reproducibly
+  ---
+  duration_ms: 1.220039
+  type: 'test'
+  ...
+# Subtest: multi-layer scope enumerates only explicit selected boundaries
+ok 44 - multi-layer scope enumerates only explicit selected boundaries
+  ---
+  duration_ms: 0.470815
+  type: 'test'
+  ...
+# Subtest: stack field respects conservative unit Lipschitz bound for sparse classification
+ok 45 - stack field respects conservative unit Lipschitz bound for sparse classification
+  ---
+  duration_ms: 47.220437
+  type: 'test'
+  ...
+# Subtest: landform bake bounds include arch roof and sampled field reconstructs correctly
+ok 46 - landform bake bounds include arch roof and sampled field reconstructs correctly
+  ---
+  duration_ms: 64.330464
+  type: 'test'
+  ...
+# Subtest: old documents remain valid; malformed and oversize region stacks are rejected
+ok 47 - old documents remain valid; malformed and oversize region stacks are rejected
+  ---
+  duration_ms: 0.987805
+  type: 'test'
+  ...
+# Subtest: cached compilation follows direct operation and boundary edits without stale geometry
+ok 48 - cached compilation follows direct operation and boundary edits without stale geometry
+  ---
+  duration_ms: 0.22105
+  type: 'test'
+  ...
+# Subtest: bake support bounds include strongly blended tall thin features
+ok 49 - bake support bounds include strongly blended tall thin features
+  ---
+  duration_ms: 1.365919
+  type: 'test'
+  ...
+# Subtest: a selected-boundary bake excludes overlapping neighbouring boundary landforms
+ok 50 - a selected-boundary bake excludes overlapping neighbouring boundary landforms
+  ---
+  duration_ms: 9.885407
+  type: 'test'
+  ...
+# Subtest: one mask stack compiles for every boundary and leaves other masks untouched
+ok 51 - one mask stack compiles for every boundary and leaves other masks untouched
+  ---
+  duration_ms: 2.863006
+  type: 'test'
+  ...
+# Subtest: mask stack can be authored before any region exists without creating terrain
+ok 52 - mask stack can be authored before any region exists without creating terrain
+  ---
+  duration_ms: 0.879754
+  type: 'test'
+  ...
+# Subtest: all six presets validate and return independent operation arrays
+ok 53 - all six presets validate and return independent operation arrays
+  ---
+  duration_ms: 2.937445
+  type: 'test'
+  ...
+# Subtest: six example preview PNGs are distinct actual captured images
+ok 54 - six example preview PNGs are distinct actual captured images
+  ---
+  duration_ms: 2.019461
+  type: 'test'
+  ...
+# Subtest: legacy regional modifiers remain after the mask stack and survive round trip
+ok 55 - legacy regional modifiers remain after the mask stack and survive round trip
+  ---
+  duration_ms: 1.14023
+  type: 'test'
+  ...
+# Subtest: mask stack and combined legacy limits fail explicitly
+ok 56 - mask stack and combined legacy limits fail explicitly
+  ---
+  duration_ms: 0.626162
+  type: 'test'
+  ...
+# Subtest: mask-owned arch retains a true empty space beneath a solid roof
+ok 57 - mask-owned arch retains a true empty space beneath a solid roof
+  ---
+  duration_ms: 0.292642
+  type: 'test'
+  ...
+# Subtest: selected-boundary voxel export includes its parent mask stack without neighbouring legacy features
+ok 58 - selected-boundary voxel export includes its parent mask stack without neighbouring legacy features
+  ---
+  duration_ms: 45.551351
+  type: 'test'
+  ...
+# Subtest: custom operation names round-trip while retaining identical signed geometry
+ok 59 - custom operation names round-trip while retaining identical signed geometry
+  ---
+  duration_ms: 0.883577
+  type: 'test'
+  ...
+# Subtest: invalid layer names fail document validation explicitly
+ok 60 - invalid layer names fail document validation explicitly
+  ---
+  duration_ms: 0.54446
+  type: 'test'
+  ...
+# Subtest: ocean contains 24 distinct gravity-wave components with dispersed directions
+ok 61 - ocean contains 24 distinct gravity-wave components with dispersed directions
+  ---
+  duration_ms: 0.985128
+  type: 'test'
+  ...
+# Subtest: analytic ocean slopes agree with the actual warped surface derivatives
+ok 62 - analytic ocean slopes agree with the actual warped surface derivatives
+  ---
+  duration_ms: 8.11639
+  type: 'test'
+  ...
+# Subtest: world-space ocean does not repeat at the previous visually plausible texture-tile offsets
+ok 63 - world-space ocean does not repeat at the previous visually plausible texture-tile offsets
+  ---
+  duration_ms: 3.973964
+  type: 'test'
+  ...
+# Subtest: pixel footprints suppress unresolved short-wave slopes, not just their reflected highlights
+ok 64 - pixel footprints suppress unresolved short-wave slopes, not just their reflected highlights
+  ---
+  duration_ms: 1.678361
+  type: 'test'
+  ...
+# Subtest: zero amplitude is flat, amplitude is linear, and animation does not reset the world coordinates
+ok 65 - zero amplitude is flat, amplitude is linear, and animation does not reset the world coordinates
+  ---
+  duration_ms: 0.936575
+  type: 'test'
+  ...
+# Subtest: compact GPU spectrum has 24 finite filtered packets and immutable frequency/phase pairs
+ok 66 - compact GPU spectrum has 24 finite filtered packets and immutable frequency/phase pairs
+  ---
+  duration_ms: 0.352639
+  type: 'test'
+  ...
+# Subtest: live wave displacement and world-grid scale never depend on camera orbit or pixel footprint
+ok 67 - live wave displacement and world-grid scale never depend on camera orbit or pixel footprint
+  ---
+  duration_ms: 0.615899
+  type: 'test'
+  ...
+# Subtest: a 2048 target and wide image never label the still-coarse overview as authored detail
+ok 68 - a 2048 target and wide image never label the still-coarse overview as authored detail
+  ---
+  duration_ms: 14.945172
+  type: 'test'
+  ...
+# Subtest: prepared metadata cannot masquerade as the image whose GPU fence actually completed
+ok 69 - prepared metadata cannot masquerade as the image whose GPU fence actually completed
+  ---
+  duration_ms: 0.311219
+  type: 'test'
+  ...
+# Subtest: completed authored detail reports only local resident coverage, not a full landscape lattice
+ok 70 - completed authored detail reports only local resident coverage, not a full landscape lattice
+  ---
+  duration_ms: 0.444991
+  type: 'test'
+  ...
+# Subtest: revision or preparation mismatch identifies retained imagery instead of calling the requested target complete
+ok 71 - revision or preparation mismatch identifies retained imagery instead of calling the requested target complete
+  ---
+  duration_ms: 0.31067
+  type: 'test'
+  ...
+# Subtest: missing completed evidence and malformed inspection text do not invent native detail
+ok 72 - missing completed evidence and malformed inspection text do not invent native detail
+  ---
+  duration_ms: 0.401353
+  type: 'test'
+  ...
+# Subtest: budget and stopped GPU messages are explicit without pretending the driver identifies an application fallback
+ok 73 - budget and stopped GPU messages are explicit without pretending the driver identifies an application fallback
+  ---
+  duration_ms: 0.18926
+  type: 'test'
+  ...
+# Subtest: working focus can fill the view with a fine 2048-grid patch rather than stopping at 25 metres
+ok 74 - working focus can fill the view with a fine 2048-grid patch rather than stopping at 25 metres
+  ---
+  duration_ms: 0.576769
+  type: 'test'
+  ...
+# Subtest: adaptive high geometry is described honestly rather than relabelled as a dense native lattice
+ok 75 - adaptive high geometry is described honestly rather than relabelled as a dense native lattice
+  ---
+  duration_ms: 0.195608
+  type: 'test'
+  ...
+# Subtest: preview extents bound high-DPI and portrait storage independently of advertised GPU vendor
+ok 76 - preview extents bound high-DPI and portrait storage independently of advertised GPU vendor
+  ---
+  duration_ms: 2.134968
+  type: 'test'
+  ...
+# Subtest: retained diagnostic tiles obey their arithmetic caps (not used by the live surface renderer)
+ok 77 - retained diagnostic tiles obey their arithmetic caps (not used by the live surface renderer)
+  ---
+  duration_ms: 0.318767
+  type: 'test'
+  ...
+# Subtest: incremental preview rectangles cover every pixel exactly once, including partial right and bottom edges
+ok 78 - incremental preview rectangles cover every pixel exactly once, including partial right and bottom edges
+  ---
+  duration_ms: 26.592303
+  type: 'test'
+  ...
+# Subtest: reducing the budget inside a tall row narrows the tile rather than submitting an oversized GPU job
+ok 79 - reducing the budget inside a tall row narrows the tile rather than submitting an oversized GPU job
+  ---
+  duration_ms: 0.184276
+  type: 'test'
+  ...
+# Subtest: invalid raster cursors and budgets fail rather than looping or issuing negative scissor extents
+ok 80 - invalid raster cursors and budgets fail rather than looping or issuing negative scissor extents
+  ---
+  duration_ms: 0.717912
+  type: 'test'
+  ...
+# Subtest: adaptive preview sizing responds to measured cost, not a software-versus-hardware renderer string
+ok 81 - adaptive preview sizing responds to measured cost, not a software-versus-hardware renderer string
+  ---
+  duration_ms: 0.180151
+  type: 'test'
+  ...
+# Subtest: completed GPU images refine the initial pixel cap while slow images set a stable ceiling
+ok 82 - completed GPU images refine the initial pixel cap while slow images set a stable ceiling
+  ---
+  duration_ms: 0.313558
+  type: 'test'
+  ...
+# Subtest: explicit initial budgets stay bounded while completed images can reach native viewport resolution
+ok 83 - explicit initial budgets stay bounded while completed images can reach native viewport resolution
+  ---
+  duration_ms: 0.786007
+  type: 'test'
+  ...
+# Subtest: ProjectZero UI source snapshots match the inspected immutable Git blobs
+ok 84 - ProjectZero UI source snapshots match the inspected immutable Git blobs
+  ---
+  duration_ms: 1.688974
+  type: 'test'
+  ...
+# Subtest: editor uses ProjectZero graphite tokens rather than the erosion-reference CSS cascade
+ok 85 - editor uses ProjectZero graphite tokens rather than the erosion-reference CSS cascade
+  ---
+  duration_ms: 0.768203
+  type: 'test'
+  ...
+# Subtest: the user-requested SDF branch and immutable terrain/UI pins remain in CLAUDE.md
+ok 86 - the user-requested SDF branch and immutable terrain/UI pins remain in CLAUDE.md
+  ---
+  duration_ms: 0.356943
+  type: 'test'
+  ...
+# Subtest: adaptive leaves cover every cell exactly once and equal analytic truncated field
+ok 87 - adaptive leaves cover every cell exactly once and equal analytic truncated field
+  ---
+  duration_ms: 50.258389
+  type: 'test'
+  ...
+# Subtest: 3D cave and eraser survive sampled export
+ok 88 - 3D cave and eraser survive sampled export
+  ---
+  duration_ms: 31.860717
+  type: 'test'
+  ...
+# Subtest: empty mask collapses to constant positive leaves
+ok 89 - empty mask collapses to constant positive leaves
+  ---
+  duration_ms: 0.453482
+  type: 'test'
+  ...
+# Subtest: noncubic grid and partial octree coverage remain exact
+ok 90 - noncubic grid and partial octree coverage remain exact
+  ---
+  duration_ms: 10.160731
+  type: 'test'
+  ...
+# Subtest: invalid dimensions, truncated files and output budget fail explicitly
+ok 91 - invalid dimensions, truncated files and output budget fail explicitly
+  ---
+  duration_ms: 17.996672
+  type: 'test'
+  ...
+# Subtest: all terrain generators compile to continuous radial profiles, not scattered boxes/cones/ellipsoids
+ok 92 - all terrain generators compile to continuous radial profiles, not scattered boxes/cones/ellipsoids
+  ---
+  duration_ms: 2.688318
+  type: 'test'
+  ...
+# Subtest: every terrain profile leaves the exact flat foundation outside its radial support
+ok 93 - every terrain profile leaves the exact flat foundation outside its radial support
+  ---
+  duration_ms: 48.909988
+  type: 'test'
+  ...
+# Subtest: compact radial weight is C1 at the centre, inner falloff contour and outer support
+ok 94 - compact radial weight is C1 at the centre, inner falloff contour and outer support
+  ---
+  duration_ms: 0.295905
+  type: 'test'
+  ...
+# Subtest: overlapping dunes stay attached to the foundation, with one solid-to-empty transition per column
+ok 95 - overlapping dunes stay attached to the foundation, with one solid-to-empty transition per column
+  ---
+  duration_ms: 109.292454
+  type: 'test'
+  ...
+# Subtest: vertical noise remains three-dimensional but cannot fold the terrain field, even at maximum amplitude/frequency
+ok 96 - vertical noise remains three-dimensional but cannot fold the terrain field, even at maximum amplitude/frequency
+  ---
+  duration_ms: 1.644292
+  type: 'test'
+  ...
+# Subtest: radial stack fields remain conservative under every blend mode, narrow falloffs and mixed explicit SDFs
+ok 97 - radial stack fields remain conservative under every blend mode, narrow falloffs and mixed explicit SDFs
+  ---
+  duration_ms: 61.646316
+  type: 'test'
+  ...
+# Subtest: radial controls invalidate compilation, move support, bypass at zero strength and round-trip with the document
+ok 98 - radial controls invalidate compilation, move support, bypass at zero strength and round-trip with the document
+  ---
+  duration_ms: 3.037942
+  type: 'test'
+  ...
+# Subtest: legacy operations acquire radial defaults without mutating JSON; malformed optional radial fields are rejected
+ok 99 - legacy operations acquire radial defaults without mutating JSON; malformed optional radial fields are rejected
+  ---
+  duration_ms: 0.918944
+  type: 'test'
+  ...
+# Subtest: foundation starts exactly at mean sea level and all thickness extends below it
+ok 100 - foundation starts exactly at mean sea level and all thickness extends below it
+  ---
+  duration_ms: 0.583093
+  type: 'test'
+  ...
+# Subtest: underwater depth changes never lift terrain or create an above-water pedestal
+ok 101 - underwater depth changes never lift terrain or create an above-water pedestal
+  ---
+  duration_ms: 4.454873
+  type: 'test'
+  ...
+# Subtest: lattice noise is deterministic and continuous at negative and positive cell boundaries
+ok 102 - lattice noise is deterministic and continuous at negative and positive cell boundaries
+  ---
+  duration_ms: 1.052756
+  type: 'test'
+  ...
+# Subtest: seven terrain spectra are distinct, seed-dependent and bounded
+ok 103 - seven terrain spectra are distinct, seed-dependent and bounded
+  ---
+  duration_ms: 4.614373
+  type: 'test'
+  ...
+# Subtest: eight generator examples already contain independent mask-owned terrain operations
+ok 104 - eight generator examples already contain independent mask-owned terrain operations
+  ---
+  duration_ms: 2.761247
+  type: 'test'
+  ...
+# Subtest: noise displacement depends on all three coordinates, not a stored or sampled heightmap
+ok 105 - noise displacement depends on all three coordinates, not a stored or sampled heightmap
+  ---
+  duration_ms: 1.809991
+  type: 'test'
+  ...
+# Subtest: procedural signed fields obey conservative unit gradient bounds across all seven spectra
+ok 106 - procedural signed fields obey conservative unit gradient bounds across all seven spectra
+  ---
+  duration_ms: 8.355515
+  type: 'test'
+  ...
+# Subtest: sparse noise-volume export reconstructs sampled distances and stores the generator stack
+ok 107 - sparse noise-volume export reconstructs sampled distances and stores the generator stack
+  ---
+  duration_ms: 29.513902
+  type: 'test'
+  ...
+# Subtest: camera-relative WASD translates using yaw, normalizes diagonals and leaves orbit unchanged
+ok 108 - camera-relative WASD translates using yaw, normalizes diagonals and leaves orbit unchanged
+  ---
+  duration_ms: 0.333523
+  type: 'test'
+  ...
+# Subtest: working planning uses the selected region XYZ pitch, not a global 64-cell terrain claim
+ok 109 - working planning uses the selected region XYZ pitch, not a global 64-cell terrain claim
+  ---
+  duration_ms: 4.116252
+  type: 'test'
+  ...
+# Subtest: coarse field interpolation follows the actual six tetrahedra rather than trilinear cube interpolation
+ok 110 - coarse field interpolation follows the actual six tetrahedra rather than trilinear cube interpolation
+  ---
+  duration_ms: 0.314702
+  type: 'test'
+  ...
+# Subtest: nested anisotropic refinement reproduces coarse tetrahedral contours on all six arbitrarily offset working faces
+ok 111 - nested anisotropic refinement reproduces coarse tetrahedral contours on all six arbitrarily offset working faces
+  ---
+  duration_ms: 10.609204
+  type: 'test'
+  ...
+# Subtest: anisotropic finite differences retain the correct world-space plane normal throughout working and context batches
+ok 112 - anisotropic finite differences retain the correct world-space plane normal throughout working and context batches
+  ---
+  duration_ms: 1390.666496
+  type: 'test'
+  ...
+# Subtest: authored-pitch working arch retains four vertical surfaces, an empty horizontal opening and matching extracted face cuts
+ok 113 - authored-pitch working arch retains four vertical surfaces, an empty horizontal opening and matching extracted face cuts
+  ---
+  duration_ms: 2759.996024
+  type: 'test'
+  ...
+# Subtest: billion-metre region translations keep working vertices local and authored spacing unchanged
+ok 114 - billion-metre region translations keep working vertices local and authored spacing unchanged
+  ---
+  duration_ms: 1342.790365
+  type: 'test'
+  ...
+# Subtest: working sampling cancels cooperatively before any superseded geometry is returned
+ok 115 - working sampling cancels cooperatively before any superseded geometry is returned
+  ---
+  duration_ms: 6.898984
+  type: 'test'
+  ...
+# Subtest: a deliberately unresolved 3D checker field shrinks coverage or retains context without raising triangle or sample ceilings
+ok 116 - a deliberately unresolved 3D checker field shrinks coverage or retains context without raising triangle or sample ceilings
+  ---
+  duration_ms: 2322.087954
+  type: 'test'
+  ...
+# Subtest: moving a working brick reuses only the bounded immutable context, never geometry from a different document snapshot
+ok 117 - moving a working brick reuses only the bounded immutable context, never geometry from a different document snapshot
+  ---
+  duration_ms: 3173.794733
+  type: 'test'
+  ...
+# Subtest: multiple independent arch regions coarsen context before consuming the working triangle reserve
+ok 118 - multiple independent arch regions coarsen context before consuming the working triangle reserve
+  ---
+  duration_ms: 1902.631955
+  type: 'test'
+  ...
+# Subtest: legacy layer defaults resolve to XYZ without mutating or migrating the authoring field
+ok 119 - legacy layer defaults resolve to XYZ without mutating or migrating the authoring field
+  ---
+  duration_ms: 1.985957
+  type: 'test'
+  ...
+# Subtest: each region and mask retain independent X, Y and Z counts including 96 vertical cells
+ok 120 - each region and mask retain independent X, Y and Z counts including 96 vertical cells
+  ---
+  duration_ms: 3.288788
+  type: 'test'
+  ...
+# Subtest: malformed per-region counts fail import explicitly instead of silently reverting to layer defaults
+ok 121 - malformed per-region counts fail import explicitly instead of silently reverting to layer defaults
+  ---
+  duration_ms: 0.847265
+  type: 'test'
+  ...
+# Subtest: explicit diagnostic export dimensions override a region target and remain honestly labelled 64 cubed
+ok 122 - explicit diagnostic export dimensions override a region target and remain honestly labelled 64 cubed
+  ---
+  duration_ms: 0.25591
+  type: 'test'
+  ...
+# Subtest: actual independently dimensioned sparse archives cover every XYZ cell and preserve metre-scale pitch
+ok 123 - actual independently dimensioned sparse archives cover every XYZ cell and preserve metre-scale pitch
+  ---
+  duration_ms: 119.861743
+  type: 'test'
+  ...
+# Subtest: selected-region picking preserves the original layer-scoped cavity origin instead of reordering regions
+ok 124 - selected-region picking preserves the original layer-scoped cavity origin instead of reordering regions
+  ---
+  duration_ms: 1.530994
+  type: 'test'
+  ...
+# Subtest: canvas transfers once, only one view waits for acknowledgement, and no UI graphics are requested
+ok 125 - canvas transfers once, only one view waits for acknowledgement, and no UI graphics are requested
+  ---
+  duration_ms: 3.636628
+  type: 'test'
+  ...
+# Subtest: Mask suspension and resume reuse exactly one thread and transferred canvas
+ok 126 - Mask suspension and resume reuse exactly one thread and transferred canvas
+  ---
+  duration_ms: 0.662247
+  type: 'test'
+  ...
+# Subtest: upload messages preserve independent snapshots and carry monotonically increasing document revisions
+ok 127 - upload messages preserve independent snapshots and carry monotonically increasing document revisions
+  ---
+  duration_ms: 0.676574
+  type: 'test'
+  ...
+# Subtest: small GPU program readiness resolves initialization without pretending a scene image is complete
+ok 128 - small GPU program readiness resolves initialization without pretending a scene image is complete
+  ---
+  duration_ms: 0.737685
+  type: 'test'
+  ...
+# Subtest: current image telemetry and pixel inspections use the existing graphics thread
+ok 129 - current image telemetry and pixel inspections use the existing graphics thread
+  ---
+  duration_ms: 0.712566
+  type: 'test'
+  ...
+# Subtest: a re-imported module shares transfer-once presentation ownership through its global symbol
+ok 130 - a re-imported module shares transfer-once presentation ownership through its global symbol
+  ---
+  duration_ms: 1.115972
+  type: 'test'
+  ...
+# Subtest: native context loss is fatal until explicit restart and never starts another renderer
+ok 131 - native context loss is fatal until explicit restart and never starts another renderer
+  ---
+  duration_ms: 1.033798
+  type: 'test'
+  ...
+# Subtest: worker crash rejects pending inspection, stops submissions and preserves actual failure instead of CPU recovery
+ok 132 - worker crash rejects pending inspection, stops submissions and preserves actual failure instead of CPU recovery
+  ---
+  duration_ms: 0.578493
+  type: 'test'
+  ...
+# Subtest: missing OffscreenCanvas fails without creating a worker, replacement canvas, or main-thread context
+ok 133 - missing OffscreenCanvas fails without creating a worker, replacement canvas, or main-thread context
+  ---
+  duration_ms: 0.461644
+  type: 'test'
+  ...
+# Subtest: missing Worker fails before transferring the canvas; software rendering is not an alternative
+ok 134 - missing Worker fails before transferring the canvas; software rendering is not an alternative
+  ---
+  duration_ms: 0.469418
+  type: 'test'
+  ...
+# Subtest: a silent first-image deadline stops the sole GPU thread, with no retry or local rendering
+ok 135 - a silent first-image deadline stops the sole GPU thread, with no retry or local rendering
+  ---
+  duration_ms: 160.688973
+  type: 'test'
+  ...
+# Subtest: a silent worker after a completed image also stops without a replacement renderer
+ok 136 - a silent worker after a completed image also stops without a replacement renderer
+  ---
+  duration_ms: 160.738482
+  type: 'test'
+  ...
+# Subtest: Mask and hidden-page time do not consume the visible first-image budget
+ok 137 - Mask and hidden-page time do not consume the visible first-image budget
+  ---
+  duration_ms: 480.676533
+  type: 'test'
+  ...
+# Subtest: old image completion cannot satisfy a newer edit or overwrite its revision
+ok 138 - old image completion cannot satisfy a newer edit or overwrite its revision
+  ---
+  duration_ms: 160.892647
+  type: 'test'
+  ...
+# Subtest: a genuine current image cancels its first-image deadline
+ok 139 - a genuine current image cancels its first-image deadline
+  ---
+  duration_ms: 161.092727
+  type: 'test'
+  ...
+# Subtest: termination ignores late telemetry and disposal rejects inspections and removes ownership
+ok 140 - termination ignores late telemetry and disposal rejects inspections and removes ownership
+  ---
+  duration_ms: 0.72649
+  type: 'test'
+  ...
+# Subtest: live presentation and submission contain no scalar renderer, software activation, pixel copies or replacement canvas
+ok 141 - live presentation and submission contain no scalar renderer, software activation, pixel copies or replacement canvas
+  ---
+  duration_ms: 0.758876
+  type: 'test'
+  ...
+# Subtest: late worker telemetry cannot revert a newer UI resolution or navigation preference
+ok 142 - late worker telemetry cannot revert a newer UI resolution or navigation preference
+  ---
+  duration_ms: 0.38745
+  type: 'test'
+  ...
+# Subtest: document replacement uses asynchronous editor decisions rather than blocking browser-native dialogs
+ok 143 - document replacement uses asynchronous editor decisions rather than blocking browser-native dialogs
+  ---
+  duration_ms: 1.005392
+  type: 'test'
+  ...
+# Subtest: the compiled software field matches canonical normalized CPU/export distances for every landform family
+ok 144 - the compiled software field matches canonical normalized CPU/export distances for every landform family
+  ---
+  duration_ms: 65.518249
+  type: 'test'
+  ...
+# Subtest: scoped stacks, erasers, cavities and overlapping masks retain canonical union distances
+ok 145 - scoped stacks, erasers, cavities and overlapping masks retain canonical union distances
+  ---
+  duration_ms: 35.617912
+  type: 'test'
+  ...
+# Subtest: spatial acceleration never changes canonical occupancy in the applied generator world
+ok 146 - spatial acceleration never changes canonical occupancy in the applied generator world
+  ---
+  duration_ms: 51.994525
+  type: 'test'
+  ...
+# Subtest: compiled rendering uses an immutable document snapshot instead of mixing edited masks with old generators
+ok 147 - compiled rendering uses an immutable document snapshot instead of mixing edited masks with old generators
+  ---
+  duration_ms: 0.363148
+  type: 'test'
+  ...
+# Subtest: empty, unpainted, unselected and hidden regions do not allocate any ray-intersectable solid
+ok 148 - empty, unpainted, unselected and hidden regions do not allocate any ray-intersectable solid
+  ---
+  duration_ms: 0.622331
+  type: 'test'
+  ...
+# Subtest: software rays intersect the flat sea-level top, underwater bottom and horizontal sides
+ok 149 - software rays intersect the flat sea-level top, underwater bottom and horizontal sides
+  ---
+  duration_ms: 0.63779
+  type: 'test'
+  ...
+# Subtest: an arch preserves solid-air-solid occupancy in Y and an actual ray-visible empty horizontal opening
+ok 150 - an arch preserves solid-air-solid occupancy in Y and an actual ray-visible empty horizontal opening
+  ---
+  duration_ms: 0.489355
+  type: 'test'
+  ...
+# Subtest: parallel, outside and backward rays have explicit finite interval rejection
+ok 151 - parallel, outside and backward rays have explicit finite interval rejection
+  ---
+  duration_ms: 0.719387
+  type: 'test'
+  ...
+# Subtest: perspective rays use the same XYZ orbit camera and top-down RGBA pixel convention
+ok 152 - perspective rays use the same XYZ orbit camera and top-down RGBA pixel convention
+  ---
+  duration_ms: 0.542826
+  type: 'test'
+  ...
+# Subtest: high detail adds genuine projected XYZ samples, not screen pixels or coplanar triangle splits
+ok 153 - high detail adds genuine projected XYZ samples, not screen pixels or coplanar triangle splits
+  ---
+  duration_ms: 720.738258
+  type: 'test'
+  ...
+# Subtest: high-detail preparation yields and cancels without returning a partial surface
+ok 154 - high-detail preparation yields and cancels without returning a partial surface
+  ---
+  duration_ms: 12.770718
+  type: 'test'
+  ...
+# Subtest: software preview extents enforce their width, height and pixel budgets in landscape and portrait views
+ok 155 - software preview extents enforce their width, height and pixel budgets in landscape and portrait views
+  ---
+  duration_ms: 1.141942
+  type: 'test'
+  ...
+# Subtest: a single submitted camera presents real terrain quickly and refines automatically after motion settles
+ok 156 - a single submitted camera presents real terrain quickly and refines automatically after motion settles
+  ---
+  duration_ms: 267.676774
+  type: 'test'
+  ...
+# Subtest: animated ocean recomposes changing pixels without recasting the cached 3D terrain rays
+ok 157 - animated ocean recomposes changing pixels without recasting the cached 3D terrain rays
+  ---
+  duration_ms: 567.255886
+  type: 'test'
+  ...
+# Subtest: suspension cancels CPU work, resume keeps the document, and disposal stops future images
+ok 158 - suspension cancels CPU work, resume keeps the document, and disposal stops future images
+  ---
+  duration_ms: 303.697125
+  type: 'test'
+  ...
+# Subtest: document replacement invalidates old completion, keeps uploaded snapshots immutable and excludes hidden terrain
+ok 159 - document replacement invalidates old completion, keeps uploaded snapshots immutable and excludes hidden terrain
+  ---
+  duration_ms: 239.426233
+  type: 'test'
+  ...
+# Subtest: resizing changes the ray grid without exceeding bounded CPU image storage
+ok 160 - resizing changes the ray grid without exceeding bounded CPU image storage
+  ---
+  duration_ms: 280.176594
+  type: 'test'
+  ...
+# Subtest: clay displaces genuine XYZ geometry and expands vertical bounds, without allocating a dense lattice
+ok 161 - clay displaces genuine XYZ geometry and expands vertical bounds, without allocating a dense lattice
+  ---
+  duration_ms: 3.005254
+  type: 'test'
+  ...
+# Subtest: carving an internal sphere retains solid–air–solid at the same X/Z rather than editing a heightmap
+ok 162 - carving an internal sphere retains solid–air–solid at the same X/Z rather than editing a heightmap
+  ---
+  duration_ms: 0.654976
+  type: 'test'
+  ...
+# Subtest: swept clay/carve strokes interpolate continuous 3D capsules, not detached pointer-event spheres
+ok 163 - swept clay/carve strokes interpolate continuous 3D capsules, not detached pointer-event spheres
+  ---
+  duration_ms: 0.856908
+  type: 'test'
+  ...
+# Subtest: shared raw sculpt field agrees in surface preparation, normal export sampling and compiled ray residuals
+ok 164 - shared raw sculpt field agrees in surface preparation, normal export sampling and compiled ray residuals
+  ---
+  duration_ms: 3.222169
+  type: 'test'
+  ...
+# Subtest: one region owns its sculpt; neighbouring regions, other layers and protected outside allocation stay unchanged
+ok 165 - one region owns its sculpt; neighbouring regions, other layers and protected outside allocation stay unchanged
+  ---
+  duration_ms: 0.382057
+  type: 'test'
+  ...
+# Subtest: picking intersects the actual sculpted surface and project serialization retains exact XYZ strokes
+ok 166 - picking intersects the actual sculpted surface and project serialization retains exact XYZ strokes
+  ---
+  duration_ms: 1.421855
+  type: 'test'
+  ...
+# Subtest: invalid or oversized sculpt documents reject before being applied
+ok 167 - invalid or oversized sculpt documents reject before being applied
+  ---
+  duration_ms: 0.938661
+  type: 'test'
+  ...
+# Subtest: prepared field residuals exactly match canonical raw XYZ stacks across every landform category
+ok 168 - prepared field residuals exactly match canonical raw XYZ stacks across every landform category
+  ---
+  duration_ms: 43.071551
+  type: 'test'
+  ...
+# Subtest: raw union evaluation preserves scoped operations, erasers, layer cavities and independently coloured masks
+ok 169 - raw union evaluation preserves scoped operations, erasers, layer cavities and independently coloured masks
+  ---
+  duration_ms: 33.089347
+  type: 'test'
+  ...
+# Subtest: all sixteen tetrahedral sign cases interpolate only bracketed three-dimensional edges
+ok 170 - all sixteen tetrahedral sign cases interpolate only bracketed three-dimensional edges
+  ---
+  duration_ms: 0.995073
+  type: 'test'
+  ...
+# Subtest: flat foundations have exact sea-level tops, finite underwater bottoms and no infinite solid
+ok 171 - flat foundations have exact sea-level tops, finite underwater bottoms and no infinite solid
+  ---
+  duration_ms: 234.498567
+  type: 'test'
+  ...
+# Subtest: arch triangles preserve four vertical interfaces and an empty horizontal opening that a heightmap would fill
+ok 172 - arch triangles preserve four vertical interfaces and an empty horizontal opening that a heightmap would fill
+  ---
+  duration_ms: 747.51
+  type: 'test'
+  ...
+# Subtest: disconnected authored regions do not allocate the empty space between them, even at billion-metre coordinates
+ok 173 - disconnected authored regions do not allocate the empty space between them, even at billion-metre coordinates
+  ---
+  duration_ms: 177.851758
+  type: 'test'
+  ...
+# Subtest: empty, hidden, unpainted and unallocated documents never invent preview geometry
+ok 174 - empty, hidden, unpainted and unallocated documents never invent preview geometry
+  ---
+  duration_ms: 28.914976
+  type: 'test'
+  ...
+# Subtest: the actual coastal startup produces capped, triangle-aligned GPU buffers without mutating the authored document
+ok 175 - the actual coastal startup produces capped, triangle-aligned GPU buffers without mutating the authored document
+  ---
+  duration_ms: 723.198308
+  type: 'test'
+  ...
+# Subtest: surface planning reduces sampling density before allocating an oversized volume
+ok 176 - surface planning reduces sampling density before allocating an oversized volume
+  ---
+  duration_ms: 0.729185
+  type: 'test'
+  ...
+# Subtest: cancellation rejects a superseded surface at a cooperative yield rather than publishing stale triangles
+ok 177 - cancellation rejects a superseded surface at a cooperative yield rather than publishing stale triangles
+  ---
+  duration_ms: 7.03912
+  type: 'test'
+  ...
+# Subtest: pathological alternating-sign topology stops at its triangle budget instead of allocating an unbounded output
+ok 178 - pathological alternating-sign topology stops at its triangle budget instead of allocating an unbounded output
+  ---
+  duration_ms: 479.444038
+  type: 'test'
+  ...
+# Subtest: shore metadata is a bounded signed XZ mask-distance texture, not a terrain elevation substitute
+ok 179 - shore metadata is a bounded signed XZ mask-distance texture, not a terrain elevation substitute
+  ---
+  duration_ms: 20.921589
+  type: 'test'
+  ...
+# Subtest: terrain GPU shaders have no procedural field, ray march or generator loop; ocean spectrum executes only per vertex
+ok 180 - terrain GPU shaders have no procedural field, ray march or generator loop; ocean spectrum executes only per vertex
+  ---
+  duration_ms: 0.541833
+  type: 'test'
+  ...
+# Subtest: floating reverse depth separates the sea-level foundation from water without disabling early depth rejection
+ok 181 - floating reverse depth separates the sea-level foundation from water without disabling early depth rejection
+  ---
+  duration_ms: 0.671442
+  type: 'test'
+  ...
+# Subtest: GPU fence deadlines exclude Mask/background time even if an image was still in flight when suspended
+ok 182 - GPU fence deadlines exclude Mask/background time even if an image was still in flight when suspended
+  ---
+  duration_ms: 0.165936
+  type: 'test'
+  ...
+# Subtest: the refined coastal XYZ surface resolves more detail without increasing the triangle or sampling ceilings
+ok 183 - the refined coastal XYZ surface resolves more detail without increasing the triangle or sampling ceilings
+  ---
+  duration_ms: 1813.339466
+  type: 'test'
+  ...
+1..183
+# tests 183
+# suites 0
+# pass 183
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 24192.475243

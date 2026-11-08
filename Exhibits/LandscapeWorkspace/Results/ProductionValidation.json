@@ -1,0 +1,94 @@
+{
+  "Status": "passed",
+  "Date": "2026-11-07T17:54:47.151Z",
+  "Runtime": "v22.22.3",
+  "Origin": "http://127.0.0.1:4173",
+  "Note": "Production build of the local uncommitted LandscapeWorkspace correction.",
+  "Checks": [
+    {
+      "Name": "Built UI, packaged local fonts, actual rendering, generator insertion and undo",
+      "Status": "passed",
+      "RenderMode": "webgl2",
+      "PresentationScripts": [
+        "http://127.0.0.1:4173/assets/VolumeSubmission-Cezu_m9h.js"
+      ],
+      "DefaultImageDeadlineMilliseconds": 10000
+    },
+    {
+      "Name": "Bundled sampling script produces a converged metric 256 × 64 × 256 gzip volume",
+      "Status": "passed",
+      "Dimensions": [
+        256,
+        64,
+        256
+      ],
+      "Redistance": {
+        "Method": "AnisotropicFastSweeping/1",
+        "Converged": true,
+        "Cycles": 2,
+        "MaximumCycles": 6,
+        "Tolerance": 0.0000546875,
+        "MaximumChange": 0,
+        "SeedCells": 238800,
+        "SignChanges": 0,
+        "CollapsedBricks": 1648,
+        "SampledCells": 2457600,
+        "EstimatedWorkspaceBytes": 25963648,
+        "Interface": "AnalyticBracketRefinement/1: twenty bisections per crossing and finite-difference interface normals; source signs preserved."
+      },
+      "SamplingScripts": [
+        "http://127.0.0.1:4173/assets/VolumeBaking-DIWxdHgv.js"
+      ]
+    },
+    {
+      "Name": "Built application finishes with no console/page/WebGL errors or failed resources",
+      "Status": "passed",
+      "BrowserErrors": [],
+      "FailedResponses": []
+    }
+  ],
+  "Assets": [
+    {
+      "Path": "index.html",
+      "Bytes": 21620,
+      "SHA256": "33a0e5702180213eae52b61d355248838d2e79f619f27d41dc29df8a52dc3a3f"
+    },
+    {
+      "Path": "assets/VolumeBaking-DIWxdHgv.js",
+      "Bytes": 32408,
+      "SHA256": "b9a98ac41e463455ed6b8334e5cf3b1645e806d3df6aeba2cce152f8376b4985"
+    },
+    {
+      "Path": "assets/VolumeSubmission-Cezu_m9h.js",
+      "Bytes": 62779,
+      "SHA256": "96774932ff0ef648f53afea90500fd9dfe7d3477cbaae9bcab818ca67a306d3f"
+    },
+    {
+      "Path": "assets/dm-sans-latin-300-normal-C46oWILc.woff2",
+      "Bytes": 13708,
+      "SHA256": "80f13c410ec41f210a5553e7f420f8a51f459180019274df0b3faea314916f90"
+    },
+    {
+      "Path": "assets/dm-sans-latin-400-normal-CW0RaeGs.woff2",
+      "Bytes": 14200,
+      "SHA256": "4ab51eb2cd7305d177187908d6397474d4520663f6c6e572feb0a64f4fa80006"
+    },
+    {
+      "Path": "assets/dm-sans-latin-500-normal-B9HHJjqV.woff2",
+      "Bytes": 14304,
+      "SHA256": "19bf1984956517c35c2bd35b6cdedac12a21d6fcd3596c614ecdfb88b648909d"
+    },
+    {
+      "Path": "assets/index-BpE8H3Be.js",
+      "Bytes": 92396,
+      "SHA256": "47b55ac74c41561783bca13b565bfebc35285968a55f52712800037a9c528d87"
+    },
+    {
+      "Path": "assets/index-Bpdr43Nb.css",
+      "Bytes": 30296,
+      "SHA256": "3ebf3a61ffd3b8e8a8e12817618cff78bc8571ae75fc072eddd709ce2ddd3e18"
+    }
+  ],
+  "Browser": "153.0.8010.0",
+  "Renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+}

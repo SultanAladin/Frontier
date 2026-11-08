@@ -1,0 +1,615 @@
+{
+  "Status": "passed",
+  "Date": "2026-11-07T17:48:30.969Z",
+  "Runtime": "v22.22.3",
+  "Platform": "linux",
+  "Revision": "e1ce5629e8927ea1fc1b11646df21e7332687e68",
+  "Branch": "arena/ceeabe45-frontier",
+  "Origin": "http://127.0.0.1:4173",
+  "SourceSHA256": {
+    "CameraNavigation.js": "dd06fe04cc97a685468d5493d7fc94f679ba6286f2a3bada304c5d19e44255a3",
+    "CoastalWorld.js": "5ff1a667e02322b6e22ef3e36824acbe5d14a851a4e53a4f3962f1470048895d",
+    "DistanceField.js": "2a46a80893b3465f36c70bb830831ba434a06d9fe263cb529143078efa6c1531",
+    "DistanceReinitialization.js": "01af682ad985de8d1620f6fce7bdd7aa91dfc26a4037beda7ecd97db9854c80b",
+    "LandformPresets.js": "75adde9aaf1fe175f9009561506871ea0b9af1ce9e190af819107c0466a116da",
+    "LandformShader.js": "f6e939f671386cf006f8f510beb8aab7c9dcde9835fc99aa24891101c3a9aa4c",
+    "LandformStack.js": "d875289a32e6ca7fa6b047ef1a6a839253d3719c175e57b9ac2caed77f8ffde0",
+    "LayerStackPanel.js": "5e6f109a945369e2b76a3e63ebec27f877004c2de8786ddcaa18ecf3fdb62573",
+    "OceanSurface.js": "a525acb53c312109e3038ff042f10a7ad6678ed16f9862dd385461ae9e9eafcf",
+    "PresetExamples.html": "f95c77b78e3be25ffbbc34873321f6762fa57cb4ec1a43574d22a967c6a9f76a",
+    "PreviewSampling.js": "b2ad4b3ac260e72790e32ca9b553779cf5301952b634611f71edc5d27d41a262",
+    "PreviewTiling.js": "f0a6538a19e3e036bca099ec56df623b4c34c86fa0833cbe460dab1214bf0ff6",
+    "SparseVolume.js": "d2157d97e2a627c958c5366768f5f29c12fb18a075f8fd14eb9f50495e1a562d",
+    "StackGlyphs.js": "def07e3ca9400f9f261210ace779cb32305a1555037b1ed131fddc0ebe850d26",
+    "TerrainExamples.js": "6b76138d3db91668abb70a3b4b3dd7dbaf2567166771847f075c97e8daa20530",
+    "TerrainInfluence.js": "aa2d90dfe5f4da424a0581fdad31ca2ac9d9ae3a494a8e4d9b16abed0feba098",
+    "TerrainNoise.js": "69d5d872173234863a6c541a9860d28640d483e715afb55010900b8c58b75b20",
+    "VolumeBaking.js": "f023aaf649b4357efd356ac20e76415c07a5586958aabd7f2689300354bf5a44",
+    "VolumeDetail.js": "fe85264484b42306d45f87766d651a89c35ac220598ca332388e863116a71916",
+    "VolumeLattice.js": "e5bf325e18111f345432a5b67e594d2a33a3df771c165db35c48d12d42aa58be",
+    "VolumePresentation.js": "d750d07abb2ba4392ff7fe7bc1e02bab0b232181768d6e6ecd8872614e59fa25",
+    "VolumeRasterization.js": "10ba72b987b00699bae0cf9cfa4ef96205b0d16898690ad1f22ae9a09b174aa6",
+    "VolumeRayField.js": "0d50bbf37adb5354cfe438a786366f1a5202100a9309d0fa3bc83351f9512f8a",
+    "VolumeRefinement.js": "28a76b3b5d1f0c35eb807aa5794ba14e869d5a8ceb5da9e8f4e62bfbd9a5feb9",
+    "VolumeScalarRasterization.js": "1ba9ccd3608f9311070445a8f973c0bbf3ac8fcee334261bb858af692cf256fe",
+    "VolumeSculpt.js": "ca98f309cfa86515d1cae52a67717e4bcb232f19f592800ae1937d8cfbe4005f",
+    "VolumeSculptInteraction.js": "409fa5f0aace1e4fc6aece84cbd4926a612d2683c74d8abeca73746e08bf09ec",
+    "VolumeSubmission.js": "330f5a06511905d1ccb83e787d3b105e35110a425bca88d3586ea402cf3e257d",
+    "VolumeSurface.js": "9e20ab3b35a3ffaf57b599e4621a4df61ee3075ef53cc515174fb501ffdf02a6",
+    "Workspace.css": "0e15998808547dbbdf69b8faa41a588fc97823d6b877a7364f692331354878bb",
+    "Workspace.js": "8073f6ee33ef053797c455147c25d72e1b6d4787686f26b624d44422be2e93ca",
+    "index.html": "0efc9dafd1f54f6224879752203497e9b46a9fa68f7e7820cdc6492df8131092",
+    "package.json": "c02d696147e9f6ea960df59a675a5e9f73758384f3b80271b60061dc6de43f6d",
+    "vite.config.js": "ba057c7bf31f0dec801ed3c9aebff49ee26fa6ce3e6eedd6acbce3eb818c8faf"
+  },
+  "Checks": [
+    {
+      "Name": "UI X/Z linking creates a per-region 512 × 96 × 512 target without changing other landscapes or legacy defaults",
+      "Status": "passed",
+      "Observed": {
+        "Dimensions": [
+          512,
+          96,
+          512
+        ],
+        "PitchMetres": [
+          1.357421875,
+          3.4270833333333335,
+          1.142578125
+        ],
+        "DenseFloat32MiBNotAllocated": 96
+      }
+    },
+    {
+      "Name": "double-clicking a real XYZ surface focuses a bounded authored-pitch GPU brick; before/after images use the same camera",
+      "Status": "passed",
+      "Observed": {
+        "Milliseconds": 4290.8294430000005,
+        "Pick": {
+          "Found": true,
+          "Distance": 963.3063985745507,
+          "Position": [
+            -419.99912437656803,
+            93.04026751642004,
+            50.00743106518087
+          ],
+          "Normal": [
+            -0.527977644972906,
+            0.27253834197506466,
+            0.8043397656229281
+          ],
+          "LayerIndex": 0,
+          "Steps": 39,
+          "RegionIndex": 0,
+          "Revision": 3,
+          "Lattice": {
+            "Dimensions": [
+              512,
+              96,
+              512
+            ],
+            "Minimum": [
+              -560,
+              -132,
+              -250
+            ],
+            "Maximum": [
+              135,
+              197,
+              335
+            ],
+            "Pitch": [
+              1.357421875,
+              3.4270833333333335,
+              1.142578125
+            ],
+            "Cells": 25165824
+          }
+        },
+        "Working": {
+          "LayerIndex": 0,
+          "RegionIndex": 0,
+          "Dimensions": [
+            512,
+            96,
+            512
+          ],
+          "TargetPitch": [
+            1.357421875,
+            3.4270833333333335,
+            1.142578125
+          ],
+          "Pitch": [
+            1.357421875,
+            3.4270833333333335,
+            1.142578125
+          ],
+          "Factors": [
+            1,
+            1,
+            1
+          ],
+          "Minimum": [
+            -463.623046875,
+            -15.479166666666657,
+            12.79296875
+          ],
+          "Maximum": [
+            -376.748046875,
+            203.85416666666669,
+            85.91796875
+          ],
+          "Point": [
+            -420.3106093822903,
+            93.479538785329,
+            49.64724900145284
+          ],
+          "Cells": [
+            64,
+            64,
+            64
+          ],
+          "DenseCells": 25165824,
+          "Resident": true,
+          "Limited": false
+        },
+        "Linked": {
+          "Working": {
+            "LayerIndex": 0,
+            "RegionIndex": 0,
+            "Dimensions": [
+              512,
+              96,
+              512
+            ],
+            "TargetPitch": [
+              1.357421875,
+              3.4270833333333335,
+              1.142578125
+            ],
+            "Pitch": [
+              1.357421875,
+              3.4270833333333335,
+              1.142578125
+            ],
+            "Factors": [
+              1,
+              1,
+              1
+            ],
+            "Minimum": [
+              -463.623046875,
+              -15.479166666666657,
+              12.79296875
+            ],
+            "Maximum": [
+              -376.748046875,
+              203.85416666666669,
+              85.91796875
+            ],
+            "Point": [
+              -420.3106093822903,
+              93.479538785329,
+              49.64724900145284
+            ],
+            "Cells": [
+              64,
+              64,
+              64
+            ],
+            "DenseCells": 25165824,
+            "Resident": true,
+            "Limited": false
+          },
+          "ContextTriangles": 72712,
+          "DetailTriangles": 45506,
+          "ContextBatches": 54,
+          "DetailBatches": 34,
+          "Error": 0
+        },
+        "CoarseHash": 365210495,
+        "WorkingHash": 671448786,
+        "Triangles": "118218",
+        "Samples": "456583",
+        "PreparationMilliseconds": "2950.89999999851",
+        "MaximumSliceMilliseconds": "22.700000002980232"
+      }
+    },
+    {
+      "Name": "orbit and dolly reuse the working geometry; actual GPU water spectrum, phase, time and world grid stay distance-stable",
+      "Status": "passed",
+      "Observed": {
+        "DetailKey": "[0,0,[512,96,512],[-463.623046875,-15.479166666666657,12.79296875],[64,64,64],[1,1,1]]",
+        "PreparationMilliseconds": "2950.89999999851",
+        "Ocean": {
+          "Extent": 8000,
+          "Centre": [
+            -448,
+            64
+          ],
+          "Time": 18,
+          "Spectrum": [
+            0.8869948983192444,
+            0.4617791771888733,
+            0.03357511758804321,
+            0.35315343737602234,
+            0.3216696083545685,
+            0.9468519687652588,
+            0.03879372403025627,
+            0.3033801019191742,
+            0.7986947894096375,
+            -0.601736307144165,
+            0.037312496453523636,
+            0.3516972064971924,
+            0.19281235337257385,
+            0.9812356233596802,
+            0.047381166368722916,
+            0.2594221234321594,
+            0.9601733088493347,
+            0.27940502762794495,
+            0.058396391570568085,
+            0.20001021027565002,
+            0.9920092225074768,
+            -0.12616556882858276,
+            0.07561713457107544,
+            0.1409875601530075,
+            -0.00046170674613676965,
+            0.9999998807907104,
+            0.0799899473786354,
+            0.1409466415643692,
+            0.8664161562919617,
+            -0.4993225634098053,
+            0.0848633199930191,
+            0.1385783851146698,
+            0.6466333866119385,
+            0.762800931930542,
+            0.1203666552901268,
+            0.08456116914749146,
+            0.6128305196762085,
+            0.7902143597602844,
+            0.11270628869533539,
+            0.10236096382141113,
+            0.8559144139289856,
+            -0.517117440700531,
+            0.14619046449661255,
+            0.07305894047021866,
+            0.01259053684771061,
+            0.9999207258224487,
+            0.16874057054519653,
+            0.06270784139633179,
+            0.9962533712387085,
+            -0.08648240566253662,
+            0.19844958186149597,
+            0.05222232639789581,
+            0.9719604849815369,
+            0.23514431715011597,
+            0.2428921014070511,
+            0.040753163397312164,
+            0.1656191349029541,
+            0.9861897826194763,
+            0.2432740479707718,
+            0.04369821399450302,
+            0.8017192482948303,
+            -0.5977007746696472,
+            0.30234089493751526,
+            0.03345206752419472,
+            0.3546794652938843,
+            0.9349879622459412,
+            0.4696430563926697,
+            0.01735174097120762,
+            0.8644760847091675,
+            0.5026739239692688,
+            0.484859436750412,
+            0.018243614584207535,
+            0.9501501321792603,
+            -0.3117928206920624,
+            0.6122389435768127,
+            0.013410991989076138,
+            -0.03798837587237358,
+            0.99927818775177,
+            0.6761578321456909,
+            0.012471354566514492,
+            0.925820529460907,
+            -0.37796345353126526,
+            0.6399156451225281,
+            0.014721419662237167,
+            0.8076254725456238,
+            0.5896957516670227,
+            0.8214990496635437,
+            0.010708460584282875,
+            0.4308345317840576,
+            0.9024309515953064,
+            1.2176340818405151,
+            0.005997595377266407,
+            0.8124542832374573,
+            -0.5830248594284058,
+            1.4098472595214844,
+            0.005139587912708521
+          ],
+          "Phases": [
+            0.573909342288971,
+            5.162230491638184,
+            0.6169006824493408,
+            6.3795366287231445,
+            0.6050087213516235,
+            23.258005142211914,
+            0.6817691922187805,
+            16.221445083618164,
+            0.7568808197975159,
+            12.134730339050293,
+            0.8612805008888245,
+            4.4661865234375,
+            0.885833740234375,
+            12.662210464477539,
+            0.9124193787574768,
+            21.49122428894043,
+            1.0866447687149048,
+            5.721902370452881,
+            1.051498293876648,
+            24.97142791748047,
+            1.1975510120391846,
+            15.959552764892578,
+            1.2866021394729614,
+            17.440860748291016,
+            1.39527428150177,
+            17.29640769958496,
+            1.5436228513717651,
+            13.739109992980957,
+            1.5448360443115234,
+            28.180442810058594,
+            1.7221975326538086,
+            22.750213623046875,
+            2.1464385986328125,
+            0.085296630859375,
+            2.1809334754943848,
+            9.718070983886719,
+            2.4507272243499756,
+            4.1190080642700195,
+            2.575482130050659,
+            8.803553581237793,
+            2.5055084228515625,
+            27.78598403930664,
+            2.8388211727142334,
+            19.42725372314453,
+            3.4561526775360107,
+            0.821263313293457,
+            3.71895170211792,
+            1.817299723625183
+          ],
+          "Error": 0
+        }
+      }
+    },
+    {
+      "Name": "panning moves the resident brick at unchanged authored spacing and reuses bounded context without changing the document",
+      "Status": "passed",
+      "Observed": {
+        "Milliseconds": 2204.0510539999996,
+        "Working": {
+          "LayerIndex": 0,
+          "RegionIndex": 0,
+          "Dimensions": [
+            512,
+            96,
+            512
+          ],
+          "TargetPitch": [
+            1.357421875,
+            3.4270833333333335,
+            1.142578125
+          ],
+          "Pitch": [
+            1.357421875,
+            3.4270833333333335,
+            1.142578125
+          ],
+          "Factors": [
+            1,
+            1,
+            1
+          ],
+          "Minimum": [
+            -460.908203125,
+            -25.760416666666657,
+            2.509765625
+          ],
+          "Maximum": [
+            -374.033203125,
+            193.57291666666669,
+            75.634765625
+          ],
+          "Point": [
+            -416.897739457436,
+            84.76726564062461,
+            39.42887313289924
+          ],
+          "Cells": [
+            64,
+            64,
+            64
+          ],
+          "DenseCells": 25165824,
+          "Resident": true,
+          "Limited": false
+        },
+        "ContextReused": "true",
+        "Samples": "456583",
+        "Evaluations": "300763"
+      }
+    },
+    {
+      "Name": "real procedural edits during working mode cancel stale preparation and complete the latest revision at the region target",
+      "Status": "passed",
+      "Observed": {
+        "Revision": "6",
+        "GeometryRevision": "6",
+        "Working": {
+          "LayerIndex": 0,
+          "RegionIndex": 0,
+          "Dimensions": [
+            512,
+            96,
+            512
+          ],
+          "TargetPitch": [
+            1.357421875,
+            3.5833333333333335,
+            1.142578125
+          ],
+          "Pitch": [
+            1.357421875,
+            3.5833333333333335,
+            1.142578125
+          ],
+          "Factors": [
+            1,
+            1,
+            1
+          ],
+          "Minimum": [
+            -466.337890625,
+            -20.916666666666657,
+            11.650390625
+          ],
+          "Maximum": [
+            -379.462890625,
+            208.41666666666669,
+            84.775390625
+          ],
+          "Point": [
+            -423.36118284938897,
+            94.88357873182248,
+            47.67150633462916
+          ],
+          "Cells": [
+            64,
+            64,
+            64
+          ],
+          "DenseCells": 25165824,
+          "Resident": true,
+          "Limited": false
+        }
+      }
+    },
+    {
+      "Name": "Mask suspension and resume preserve working camera and authoring; explicit overview returns to the high-detail whole-scene surface",
+      "Status": "passed",
+      "Observed": {
+        "Camera": {
+          "Yaw": -0.6649999999999999,
+          "Pitch": 0.7679999999999998,
+          "Orbit": 40.21875000000001,
+          "Target": [
+            -422.4641054249829,
+            93.4795104137437,
+            46.52749072026832
+          ]
+        },
+        "OverviewQuality": 96
+      }
+    },
+    {
+      "Name": "leaving working mode during preparation cancels the pending brick and cannot upload it over the completed overview",
+      "Status": "passed",
+      "Observed": {
+        "CancelledEpoch": 17,
+        "CompletedEpoch": "18"
+      }
+    },
+    {
+      "Name": "two regions in one mask keep independent anisotropic targets; Work here also supports the genuine volumetric arch fixture",
+      "Status": "passed",
+      "Observed": {
+        "LayerIndex": 0,
+        "RegionIndex": 0,
+        "Dimensions": [
+          512,
+          96,
+          256
+        ],
+        "TargetPitch": [
+          0.703125,
+          2.9252063087318674,
+          1.40625
+        ],
+        "Pitch": [
+          0.703125,
+          2.9252063087318674,
+          1.40625
+        ],
+        "Factors": [
+          1,
+          1,
+          1
+        ],
+        "Minimum": [
+          -22.5,
+          -17.916953959457175,
+          -45
+        ],
+        "Maximum": [
+          22.5,
+          169.29624979938234,
+          45
+        ],
+        "Point": [
+          -0.003948079419178185,
+          136.82597719565413,
+          0.0050348658648555755
+        ],
+        "Cells": [
+          64,
+          64,
+          64
+        ],
+        "DenseCells": 12582912,
+        "Resident": true,
+        "Limited": false
+      }
+    },
+    {
+      "Name": "actual UI bake/download/decode uses the selected region’s independent XYZ dimensions including 96 vertical cells",
+      "Status": "passed",
+      "Observed": {
+        "Dimensions": [
+          32,
+          96,
+          24
+        ],
+        "Pitch": [
+          11.25,
+          2.9252063087318674,
+          15
+        ],
+        "Leaves": 144,
+        "CompressedBytes": 18478
+      }
+    },
+    {
+      "Name": "working detail, procedural editing, selection, navigation and export keep one GPU context owner and no CPU pixel fallback",
+      "Status": "passed",
+      "Observed": {
+        "Ownership": {
+          "Threads": 1,
+          "CpuPixelCopies": 0,
+          "MainThreadGraphicsContexts": 0
+        },
+        "Errors": []
+      }
+    }
+  ],
+  "Images": [
+    "ProductionGpuRegionResolutionCoarseAtWorkCamera.png",
+    "ProductionGpuRegionResolutionWorking.png",
+    "ProductionGpuRegionResolutionArch.png"
+  ],
+  "Conditions": {
+    "WorkingTree": "Uncommitted GPU-only Landscape repair.",
+    "ApplicationSourceInterception": false,
+    "DeadlineOverride": false,
+    "Graphics": "Chromium / ANGLE SwiftShader, a software graphics driver used only by the lab browser. Not physical-GPU or Windows verification.",
+    "Startup": "First graphics context in each page. No assertion that operating-system or driver caches are cold.",
+    "Scope": "GPU API surface rasterization, not CPU pixel rendering. Geometry is sampled off-thread from the genuine XYZ authoring field."
+  }
+}

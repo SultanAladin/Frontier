@@ -1,0 +1,99 @@
+{
+  "Scope": "Evidence integrity only. Does not rerun browser or unit tests and does not certify GPU stability.",
+  "Date": "2026-11-08T17:28:33.229Z",
+  "Branch": "arena/ceeabe45-frontier",
+  "Revision": "e1ce5629e8927ea1fc1b11646df21e7332687e68",
+  "EvidenceIntegrity": "passed",
+  "AcceptanceStatus": "blocked",
+  "Checks": [
+    {
+      "Name": "Current report fingerprints and retained image paths",
+      "SourceComparisons": 560,
+      "Reports": 20
+    },
+    {
+      "Name": "Exact production assets",
+      "Count": 8
+    },
+    {
+      "Name": "Retained unit/build results",
+      "Units": 183,
+      "BuildModules": 2044
+    },
+    {
+      "Name": "Live graphics import closure excludes the historical CPU pixel renderer",
+      "Files": [
+        "DistanceField.js",
+        "LandformStack.js",
+        "OceanSurface.js",
+        "PreviewTiling.js",
+        "TerrainInfluence.js",
+        "TerrainNoise.js",
+        "VolumeDetail.js",
+        "VolumeLattice.js",
+        "VolumeRasterization.js",
+        "VolumeRayField.js",
+        "VolumeRefinement.js",
+        "VolumeSculpt.js",
+        "VolumeSubmission.js",
+        "VolumeSurface.js"
+      ]
+    }
+  ],
+  "ArtifactSHA256": {
+    "GpuSculpt.json": "4ed12c1574da9c70e7584e793606e8111bb1d6322ba6fa0cf71ab9a5165caf71",
+    "ProductionGpuSculpt.json": "20a7fa82a52313712e109527275b479ab6eb3fc1c50ab4aae13fdcdea97ed335",
+    "GpuSurfaceValidation.json": "d53df34bbcdf0031b6c0914081939bd095be3ac3789e8705741ce0eee86aac1b",
+    "ProductionGpuSurface.json": "c27e5838fba2e061df1fa40ae5c52ccc2d41a85597c40b6e60ee9da388d6803c",
+    "GpuRegionResolution.json": "78bde0e710b67e4a56630033be6f400926dcbdeb5e64bab43e825d20f3b655e6",
+    "ProductionGpuRegionResolution.json": "35b7903ed200c30f6f9a6505d46f9e0ccab601ad7c6d7e5faaf4ebf89eedfd62",
+    "GpuPreviewSampling.json": "88124d04ed8572476cdfdc268626e028acde42ab202dad22a36aba34e4865c3f",
+    "ProductionGpuPreviewSampling.json": "d2c561c80e7291c2fc8dd9433da7939b524f861d22f77df9b8190f7e0c087cde",
+    "GpuQualityValidation.json": "ce2e36dfd74442d6044aa5478c3f5b0872d36b57843d0e7627a22b2cab27215d",
+    "ProductionGpuQuality.json": "d3711e4d6257db542dee7d92032f0973770994a7eb8c719dfca8a9d27ab80479",
+    "GpuFailureValidation.json": "32ec375c6f1838585b67255f1141f86ce02bf655bbee7fa0508960ff44f2f013",
+    "ProductionGpuFailure.json": "f1f23059ecf244ae8c22e5ecd51e084255e7a9ad8de76188373146161dc85a28",
+    "MetricBrowserValidation.json": "bc2da53d318dc93c019600705c00f29e128e682977b3879a7a46883028e82bf6",
+    "ProductionValidation.json": "153df9d638e38e89572eb52eba536202624eee5cc0d532af80969347c12175ab",
+    "MetricDistanceValidation.json": "454ea1a62d427130effe3431fc2e995884895e1d29ca8eab72ca75de3d1f1471",
+    "HighResolutionValidation.json": "21a92d45fcaeebae4f746b8b70630641a6d52083457b98da6e757aaed1f59527",
+    "GpuDialogEditorOnly.json": "795521907f300ddf3682cb8555674a042acc9b22996d982fc1f929793d57ca42",
+    "BrowserValidation.json": "3514f92d9a9dc991333667377dad3cb0aa4383d80546a08e5d7d85c07b1f0510",
+    "GpuEditorSculptBatchFailure.json": "9c58210964907059abca5c8fabc128a49d23afdc4fe31195335f634607b7dc77",
+    "GpuEditorImportWaitFailure.json": "e736aa89979b479228b66c00192f83ee60d118d8ccb35af1146276286ec15477",
+    "UnitTests.tap": "3412d04f49a39054e36c69bf180e2822a3b96c9fa150a29fc6d348a4b35af162",
+    "ProductionBuild.txt": "a56f9523c2ad669c1fffec9d04f32379d71ff144b30546eef08e4381e649d155"
+  },
+  "UnitSourceSHA256": {
+    "CoastlineValidation.test.js": "f0cf3cd8824a3c6b3c106428b762366f2e68e1ab9d88bd2763078e48f77df378",
+    "DistanceReinitialization.test.js": "1115dd96055f5104a81172d6e0a92456c11a5e71f9b67e4f72dcbf7bad153e5d",
+    "FieldValidation.test.js": "9868cb5b17418f6b38511457640519ff7f24cd693e05b5e8229228c01594b7f0",
+    "LandformStack.test.js": "3281f144cf89a941b7995c696ac299cbcfe6ca614d06b5e43af7804e62090b7f",
+    "MaskLayerStack.test.js": "4251c884152ca536486f5b5c3b8cf81b8da14b24326fc0ba08cfde69b1faaf9e",
+    "OceanSurface.test.js": "a8df4a635f6a349e2a92a5de8ac9e5b3a1c4c73edc32a3e7a4df4d807ce7a04f",
+    "PreviewSampling.test.js": "0e115c17282bbc74ed4ee64710903bdeabce2b6bfdf6d798f4610c1797e2c404",
+    "PreviewTiling.test.js": "e53188fa1debf4bac8972f4c61c6ff72d93d5955c0c6093079fc2e63eb1baf72",
+    "ReferenceValidation.test.js": "ef61a7cf58f458e582811f4e926852353fa32f5772336fa7c08494c5945385df",
+    "SparseVolume.test.js": "4709e85e43603ec4cf2590cb3a3278d0f6c69031722dc5cd2ef4a40ef58167d3",
+    "TerrainInfluence.test.js": "313a3c91e2919a27efbc83a6af06a5dadb5aa874dcbd2e640460f880255d1d6e",
+    "TerrainNoise.test.js": "3f548c04cab9f231066438b50d252935968c701fe920687677aa841cf2b281d9",
+    "VolumeDetail.test.js": "bbdadf0f62ca60382f90453c4816c8e0aabf77fe34ec38d8d1d1d8747849e431",
+    "VolumeLattice.test.js": "0be8bac321eff9a90223a31202491232d2da6a943092b0f2ebd2c559cc8603de",
+    "VolumePresentation.test.js": "6eec91f837497ad8652922860e7e3cb8327ecf918963057e31f06a569c720cc0",
+    "VolumeRayField.test.js": "caa4fed86035b70d7eafb489585637c139e61cebf96e59456a7263ae939b7402",
+    "VolumeRefinement.test.js": "f446ad89dde8584a73d595b5420e0516a1f43fc6fab74eb568d7c91bcbe5f9b7",
+    "VolumeScalarRasterization.test.js": "d44ce08650c8597b30563de8f37238022842660a2716a8bd5274e76e006ec152",
+    "VolumeSculpt.test.js": "1440d110aaa31528b4d9abae70fe3a413269efeea844f8f325cc8efd1e7e3672",
+    "VolumeSurface.test.js": "7c0ef73acf2feb368679326c6b3fd0730c4748d2ea4ea287c6d77d41b7679138"
+  },
+  "Blocker": {
+    "Name": "Broad editor GPU fence stop remains unresolved",
+    "PassedBeforeFailure": 11,
+    "Report": "BrowserValidation.json",
+    "OriginalBatch": "GpuEditorSculptBatchFailure.json",
+    "LatestMessage": "The GPU did not finish a bounded image within four seconds. Further submissions are stopped; no software fallback.",
+    "PhysicalWindowsGpuVerification": "not run",
+    "NoDeadlineOverride": true,
+    "NoSoftwareFallback": true
+  }
+}

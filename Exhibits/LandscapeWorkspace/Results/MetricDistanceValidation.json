@@ -1,0 +1,756 @@
+{
+  "Status": "passed",
+  "Date": "2026-11-07T17:56:02.677Z",
+  "Runtime": "v22.22.3",
+  "Platform": "linux",
+  "Revision": "e1ce5629e8927ea1fc1b11646df21e7332687e68",
+  "Note": "Local uncommitted metric-export continuation. Small dense arrays below are independent measurement-only readbacks, never terrain allocation.",
+  "Fixtures": [
+    {
+      "Name": "Scaled plane",
+      "Dimensions": [
+        48,
+        48,
+        48
+      ],
+      "PitchMetres": [
+        0.25,
+        0.25,
+        0.25
+      ],
+      "BandMetres": 0.5,
+      "MaximumAcceptedErrorMetres": 0.000002,
+      "ExcludedBoundaryCells": 2,
+      "Count": 85184,
+      "SignChanges": 0,
+      "SourceMeanAbsoluteErrorMetres": 0.463511818206987,
+      "MetricMeanAbsoluteErrorMetres": 1.99404629676956e-9,
+      "MaximumErrorMetres": 2.1934509264465163e-8,
+      "MaximumErrorCell": [
+        2,
+        23,
+        2
+      ],
+      "BrickSeamMaximumErrorMetres": 2.1934509264465163e-8,
+      "GradientCount": 3872,
+      "SourceMeanGradientMagnitude": 0.005000000033760443,
+      "MetricMeanGradientMagnitude": 1,
+      "SourceMeanGradientResidual": 0.9949999999662396,
+      "MetricMeanGradientResidual": 0,
+      "CommonBandCount": 13552,
+      "CommonBandMeanErrorMetres": 1.2534005293980094e-8,
+      "Redistance": {
+        "Method": "AnisotropicFastSweeping/1",
+        "Converged": true,
+        "Cycles": 2,
+        "MaximumCycles": 6,
+        "Tolerance": 0.000025,
+        "MaximumChange": 0,
+        "SeedCells": 4608,
+        "SignChanges": 0,
+        "CollapsedBricks": 144,
+        "SampledCells": 110592,
+        "EstimatedWorkspaceBytes": 1157760,
+        "Interface": "AnalyticBracketRefinement/1: twenty bisections per crossing and finite-difference interface normals; source signs preserved."
+      },
+      "EncodedBytes": 153106,
+      "ElapsedSeconds": 0.27746534900000003
+    },
+    {
+      "Name": "Oblique plane, sign-dependent scaling",
+      "Dimensions": [
+        48,
+        48,
+        48
+      ],
+      "PitchMetres": [
+        0.25,
+        0.25,
+        0.25
+      ],
+      "BandMetres": 0.5,
+      "MaximumAcceptedErrorMetres": 0.002,
+      "ExcludedBoundaryCells": 2,
+      "Count": 85184,
+      "SignChanges": 0,
+      "SourceMeanAbsoluteErrorMetres": 0.2632915028105928,
+      "MetricMeanAbsoluteErrorMetres": 6.487601562592473e-7,
+      "MaximumErrorMetres": 0.001270155021525332,
+      "MaximumErrorCell": [
+        3,
+        45,
+        45
+      ],
+      "BrickSeamMaximumErrorMetres": 0.0011961729111021335,
+      "GradientCount": 4598,
+      "SourceMeanGradientMagnitude": 0.11301592906396044,
+      "MetricMeanGradientMagnitude": 1.0000099720757696,
+      "SourceMeanGradientResidual": 0.8869840709360598,
+      "MetricMeanGradientResidual": 0.000015121103778022559,
+      "CommonBandCount": 14757,
+      "CommonBandMeanErrorMetres": 0.000003744933601056293,
+      "Redistance": {
+        "Method": "AnisotropicFastSweeping/1",
+        "Converged": true,
+        "Cycles": 2,
+        "MaximumCycles": 6,
+        "Tolerance": 0.000025,
+        "MaximumChange": 0,
+        "SeedCells": 4608,
+        "SignChanges": 0,
+        "CollapsedBricks": 135,
+        "SampledCells": 110592,
+        "EstimatedWorkspaceBytes": 1157760,
+        "Interface": "AnalyticBracketRefinement/1: twenty bisections per crossing and finite-difference interface normals; source signs preserved."
+      },
+      "EncodedBytes": 171502,
+      "ElapsedSeconds": 0.24832262599999996
+    },
+    {
+      "Name": "Quadratic sphere",
+      "Dimensions": [
+        48,
+        48,
+        48
+      ],
+      "PitchMetres": [
+        0.25,
+        0.25,
+        0.25
+      ],
+      "BandMetres": 0.5,
+      "MaximumAcceptedErrorMetres": 0.125,
+      "ExcludedBoundaryCells": 2,
+      "Count": 85184,
+      "SignChanges": 0,
+      "SourceMeanAbsoluteErrorMetres": 0.08729877593627133,
+      "MetricMeanAbsoluteErrorMetres": 0.0002801668216947502,
+      "MaximumErrorMetres": 0.019570344549271645,
+      "MaximumErrorCell": [
+        19,
+        16,
+        16
+      ],
+      "BrickSeamMaximumErrorMetres": 0.019570344549271645,
+      "GradientCount": 2288,
+      "SourceMeanGradientMagnitude": 0.12005594288584709,
+      "MetricMeanGradientMagnitude": 0.9974818307251994,
+      "SourceMeanGradientResidual": 0.8799440571141491,
+      "MetricMeanGradientResidual": 0.01971901378575667,
+      "CommonBandCount": 7656,
+      "CommonBandMeanErrorMetres": 0.003117258429891014,
+      "Redistance": {
+        "Method": "AnisotropicFastSweeping/1",
+        "Converged": true,
+        "Cycles": 2,
+        "MaximumCycles": 6,
+        "Tolerance": 0.000025,
+        "MaximumChange": 0,
+        "SeedCells": 1928,
+        "SignChanges": 0,
+        "CollapsedBricks": 184,
+        "SampledCells": 110592,
+        "EstimatedWorkspaceBytes": 1157760,
+        "Interface": "AnalyticBracketRefinement/1: twenty bisections per crossing and finite-difference interface normals; source signs preserved."
+      },
+      "EncodedBytes": 71346,
+      "ElapsedSeconds": 0.07963897399999996
+    },
+    {
+      "Name": "Anisotropic sphere",
+      "Dimensions": [
+        48,
+        24,
+        32
+      ],
+      "PitchMetres": [
+        0.25,
+        0.6,
+        0.35
+      ],
+      "BandMetres": 1.2,
+      "MaximumAcceptedErrorMetres": 0.3,
+      "ExcludedBoundaryCells": 2,
+      "Count": 24640,
+      "SignChanges": 0,
+      "SourceMeanAbsoluteErrorMetres": 0.5187207923347846,
+      "MetricMeanAbsoluteErrorMetres": 0.0029202791654758856,
+      "MaximumErrorMetres": 0.0864824268596105,
+      "MaximumErrorCell": [
+        21,
+        10,
+        14
+      ],
+      "BrickSeamMaximumErrorMetres": 0.06818424810749368,
+      "GradientCount": 1696,
+      "SourceMeanGradientMagnitude": 0.12496512028024219,
+      "MetricMeanGradientMagnitude": 1.0003778404681565,
+      "SourceMeanGradientResidual": 0.8750348797197548,
+      "MetricMeanGradientResidual": 0.03769422659140926,
+      "CommonBandCount": 2304,
+      "CommonBandMeanErrorMetres": 0.012828049469330903,
+      "Redistance": {
+        "Method": "AnisotropicFastSweeping/1",
+        "Converged": true,
+        "Cycles": 2,
+        "MaximumCycles": 6,
+        "Tolerance": 0.000025,
+        "MaximumChange": 0,
+        "SeedCells": 960,
+        "SignChanges": 0,
+        "CollapsedBricks": 44,
+        "SampledCells": 36864,
+        "EstimatedWorkspaceBytes": 385920,
+        "Interface": "AnalyticBracketRefinement/1: twenty bisections per crossing and finite-difference interface normals; source signs preserved."
+      },
+      "EncodedBytes": 59727,
+      "ElapsedSeconds": 0.03812724700000001
+    },
+    {
+      "Name": "Torus",
+      "Dimensions": [
+        48,
+        48,
+        48
+      ],
+      "PitchMetres": [
+        0.25,
+        0.25,
+        0.25
+      ],
+      "BandMetres": 0.5,
+      "MaximumAcceptedErrorMetres": 0.15,
+      "ExcludedBoundaryCells": 2,
+      "Count": 85184,
+      "SignChanges": 0,
+      "SourceMeanAbsoluteErrorMetres": 0.36510956314929494,
+      "MetricMeanAbsoluteErrorMetres": 0.0004345126529467099,
+      "MaximumErrorMetres": 0.042288563521865774,
+      "MaximumErrorCell": [
+        23,
+        23,
+        14
+      ],
+      "BrickSeamMaximumErrorMetres": 0.042288563521865774,
+      "GradientCount": 2120,
+      "SourceMeanGradientMagnitude": 0.03951731605233649,
+      "MetricMeanGradientMagnitude": 0.9813010329805151,
+      "SourceMeanGradientResidual": 0.9604826839476571,
+      "MetricMeanGradientResidual": 0.03895183087758665,
+      "CommonBandCount": 6744,
+      "CommonBandMeanErrorMetres": 0.005488363853590234,
+      "Redistance": {
+        "Method": "AnisotropicFastSweeping/1",
+        "Converged": true,
+        "Cycles": 2,
+        "MaximumCycles": 6,
+        "Tolerance": 0.000025,
+        "MaximumChange": 0,
+        "SeedCells": 1784,
+        "SignChanges": 0,
+        "CollapsedBricks": 184,
+        "SampledCells": 110592,
+        "EstimatedWorkspaceBytes": 1157760,
+        "Interface": "AnalyticBracketRefinement/1: twenty bisections per crossing and finite-difference interface normals; source signs preserved."
+      },
+      "EncodedBytes": 71346,
+      "ElapsedSeconds": 0.10765554999999995
+    },
+    {
+      "Name": "Allocated box with analytic exterior",
+      "Dimensions": [
+        32,
+        24,
+        32
+      ],
+      "PitchMetres": [
+        0.25,
+        0.45,
+        0.25
+      ],
+      "BandMetres": 0.9,
+      "MaximumAcceptedErrorMetres": 0.225,
+      "ExcludedBoundaryCells": 1,
+      "Count": 19800,
+      "SignChanges": 0,
+      "SourceMeanAbsoluteErrorMetres": 0.7420289898612432,
+      "MetricMeanAbsoluteErrorMetres": 0.0030836476268181518,
+      "MaximumErrorMetres": 0.12739187479019165,
+      "MaximumErrorCell": [
+        2,
+        1,
+        2
+      ],
+      "BrickSeamMaximumErrorMetres": 0.08403205871582031,
+      "GradientCount": 2552,
+      "SourceMeanGradientMagnitude": 0.029735153013193266,
+      "MetricMeanGradientMagnitude": 0.9637403748476339,
+      "SourceMeanGradientResidual": 0.9702648469868107,
+      "MetricMeanGradientResidual": 0.03625962515236456,
+      "CommonBandCount": 6280,
+      "CommonBandMeanErrorMetres": 0.007384987788595353,
+      "Redistance": {
+        "Method": "AnisotropicFastSweeping/1",
+        "Converged": true,
+        "Cycles": 2,
+        "MaximumCycles": 6,
+        "Tolerance": 0.000025,
+        "MaximumChange": 0,
+        "SeedCells": 4776,
+        "SignChanges": 0,
+        "CollapsedBricks": 4,
+        "SampledCells": 24576,
+        "EstimatedWorkspaceBytes": 257280,
+        "Interface": "AnalyticBracketRefinement/1: twenty bisections per crossing and finite-difference interface normals; source signs preserved."
+      },
+      "EncodedBytes": 91840,
+      "ElapsedSeconds": 0.09235492699999998
+    }
+  ],
+  "Refinement": [
+    {
+      "Name": "Sphere refinement 24³",
+      "Dimensions": [
+        24,
+        24,
+        24
+      ],
+      "PitchMetres": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "BandMetres": 1,
+      "MaximumAcceptedErrorMetres": 0.375,
+      "ExcludedBoundaryCells": 2,
+      "Count": 8000,
+      "SignChanges": 0,
+      "SourceMeanAbsoluteErrorMetres": 0.4488137916880283,
+      "MetricMeanAbsoluteErrorMetres": 0.0032922908820621063,
+      "MaximumErrorMetres": 0.06988115915215887,
+      "MaximumErrorCell": [
+        11,
+        10,
+        9
+      ],
+      "BrickSeamMaximumErrorMetres": 0.05610477848496398,
+      "GradientCount": 632,
+      "SourceMeanGradientMagnitude": 0.1232203949670724,
+      "MetricMeanGradientMagnitude": 0.986678169412658,
+      "SourceMeanGradientResidual": 0.8767796050329274,
+      "MetricMeanGradientResidual": 0.048019318329769134,
+      "CommonBandCount": 952,
+      "CommonBandMeanErrorMetres": 0.016967976098578415,
+      "Redistance": {
+        "Method": "AnisotropicFastSweeping/1",
+        "Converged": true,
+        "Cycles": 2,
+        "MaximumCycles": 6,
+        "Tolerance": 0.00005,
+        "MaximumChange": 0,
+        "SeedCells": 464,
+        "SignChanges": 0,
+        "CollapsedBricks": 8,
+        "SampledCells": 13824,
+        "EstimatedWorkspaceBytes": 144720,
+        "Interface": "AnalyticBracketRefinement/1: twenty bisections per crossing and finite-difference interface normals; source signs preserved."
+      },
+      "EncodedBytes": 40227,
+      "ElapsedSeconds": 0.013462435000000028
+    },
+    {
+      "Name": "Sphere refinement 48³",
+      "Dimensions": [
+        48,
+        48,
+        48
+      ],
+      "PitchMetres": [
+        0.25,
+        0.25,
+        0.25
+      ],
+      "BandMetres": 1,
+      "MaximumAcceptedErrorMetres": 0.1875,
+      "ExcludedBoundaryCells": 2,
+      "Count": 85184,
+      "SignChanges": 0,
+      "SourceMeanAbsoluteErrorMetres": 0.3660751408994073,
+      "MetricMeanAbsoluteErrorMetres": 0.0015266479554926808,
+      "MaximumErrorMetres": 0.05122295923018472,
+      "MaximumErrorCell": [
+        21,
+        21,
+        19
+      ],
+      "BrickSeamMaximumErrorMetres": 0.04122672385954873,
+      "GradientCount": 7224,
+      "SourceMeanGradientMagnitude": 0.1278087362817332,
+      "MetricMeanGradientMagnitude": 1.0042638755782411,
+      "SourceMeanGradientResidual": 0.8721912637182537,
+      "MetricMeanGradientResidual": 0.03151849038370201,
+      "CommonBandCount": 7656,
+      "CommonBandMeanErrorMetres": 0.010023002629974723,
+      "Redistance": {
+        "Method": "AnisotropicFastSweeping/1",
+        "Converged": true,
+        "Cycles": 2,
+        "MaximumCycles": 6,
+        "Tolerance": 0.000025,
+        "MaximumChange": 0,
+        "SeedCells": 1928,
+        "SignChanges": 0,
+        "CollapsedBricks": 160,
+        "SampledCells": 110592,
+        "EstimatedWorkspaceBytes": 1157760,
+        "Interface": "AnalyticBracketRefinement/1: twenty bisections per crossing and finite-difference interface normals; source signs preserved."
+      },
+      "EncodedBytes": 120400,
+      "ElapsedSeconds": 0.09728213399999992
+    },
+    {
+      "Name": "Sphere refinement 96³",
+      "Dimensions": [
+        96,
+        96,
+        96
+      ],
+      "PitchMetres": [
+        0.125,
+        0.125,
+        0.125
+      ],
+      "BandMetres": 1,
+      "MaximumAcceptedErrorMetres": 0.09375,
+      "ExcludedBoundaryCells": 2,
+      "Count": 778688,
+      "SignChanges": 0,
+      "SourceMeanAbsoluteErrorMetres": 0.3280066140935189,
+      "MetricMeanAbsoluteErrorMetres": 0.0008073685250253107,
+      "MaximumErrorMetres": 0.03347191817966344,
+      "MaximumErrorCell": [
+        41,
+        41,
+        41
+      ],
+      "BrickSeamMaximumErrorMetres": 0.032264953558036824,
+      "GradientCount": 67456,
+      "SourceMeanGradientMagnitude": 0.13012228561377176,
+      "MetricMeanGradientMagnitude": 1.0029528982617637,
+      "SourceMeanGradientResidual": 0.8698777143862358,
+      "MetricMeanGradientResidual": 0.017388354417063163,
+      "CommonBandCount": 61576,
+      "CommonBandMeanErrorMetres": 0.0062913097536302,
+      "Redistance": {
+        "Method": "AnisotropicFastSweeping/1",
+        "Converged": true,
+        "Cycles": 2,
+        "MaximumCycles": 6,
+        "Tolerance": 0.0000125,
+        "MaximumChange": 0,
+        "SeedCells": 7656,
+        "SignChanges": 0,
+        "CollapsedBricks": 1416,
+        "SampledCells": 868352,
+        "EstimatedWorkspaceBytes": 9094144,
+        "Interface": "AnalyticBracketRefinement/1: twenty bisections per crossing and finite-difference interface normals; source signs preserved."
+      },
+      "EncodedBytes": 614549,
+      "ElapsedSeconds": 0.7410677529999999
+    }
+  ],
+  "SourceSHA256": {
+    "SparseVolume.js": "d2157d97e2a627c958c5366768f5f29c12fb18a075f8fd14eb9f50495e1a562d",
+    "DistanceReinitialization.js": "01af682ad985de8d1620f6fce7bdd7aa91dfc26a4037beda7ecd97db9854c80b"
+  },
+  "ChartObservations": [
+    {
+      "X": -5.875,
+      "Source": 0.7196718454360962,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": -5.625,
+      "Source": 0.6477968692779541,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": -5.375,
+      "Source": 0.5790468454360962,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": -5.125,
+      "Source": 0.513421893119812,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": -4.875,
+      "Source": 0.4509218633174896,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": -4.625,
+      "Source": 0.3915468752384186,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": -4.375,
+      "Source": 0.3352968692779541,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": -4.125,
+      "Source": 0.2821718752384186,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": -3.875,
+      "Source": 0.23217187821865082,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": -3.625,
+      "Source": 0.18529687821865082,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": -3.375,
+      "Source": 0.14154687523841858,
+      "Metric": 0.9808904528617859,
+      "Expected": 0.9796264586489438
+    },
+    {
+      "X": -3.125,
+      "Source": 0.1009218767285347,
+      "Metric": 0.7308904528617859,
+      "Expected": 0.7299960063872284
+    },
+    {
+      "X": -2.875,
+      "Source": 0.06342187523841858,
+      "Metric": 0.4808904528617859,
+      "Expected": 0.4804296554507279
+    },
+    {
+      "X": -2.625,
+      "Source": 0.02904687449336052,
+      "Metric": 0.2308904528617859,
+      "Expected": 0.23094564748114843
+    },
+    {
+      "X": -2.375,
+      "Source": -0.0022031250409781933,
+      "Metric": -0.01843045838177204,
+      "Expected": -0.018430139592793715
+    },
+    {
+      "X": -2.125,
+      "Source": -0.03032812476158142,
+      "Metric": -0.2655719816684723,
+      "Expected": -0.2676597363460025
+    },
+    {
+      "X": -1.875,
+      "Source": -0.0553281232714653,
+      "Metric": -0.5110945105552673,
+      "Expected": -0.5166851033350792
+    },
+    {
+      "X": -1.625,
+      "Source": -0.07720312476158142,
+      "Metric": -0.7541018724441528,
+      "Expected": -0.7654128961722471
+    },
+    {
+      "X": -1.375,
+      "Source": -0.09595312178134918,
+      "Metric": -0.9931703209877014,
+      "Expected": -1
+    },
+    {
+      "X": -1.125,
+      "Source": -0.11157812178134918,
+      "Metric": -1,
+      "Expected": -1
+    },
+    {
+      "X": -0.875,
+      "Source": -0.12407812476158142,
+      "Metric": -1,
+      "Expected": -1
+    },
+    {
+      "X": -0.625,
+      "Source": -0.1334531307220459,
+      "Metric": -1,
+      "Expected": -1
+    },
+    {
+      "X": -0.375,
+      "Source": -0.13970312476158142,
+      "Metric": -1,
+      "Expected": -1
+    },
+    {
+      "X": -0.125,
+      "Source": -0.14282812178134918,
+      "Metric": -1,
+      "Expected": -1
+    },
+    {
+      "X": 0.125,
+      "Source": -0.14282812178134918,
+      "Metric": -1,
+      "Expected": -1
+    },
+    {
+      "X": 0.375,
+      "Source": -0.13970312476158142,
+      "Metric": -1,
+      "Expected": -1
+    },
+    {
+      "X": 0.625,
+      "Source": -0.1334531307220459,
+      "Metric": -1,
+      "Expected": -1
+    },
+    {
+      "X": 0.875,
+      "Source": -0.12407812476158142,
+      "Metric": -1,
+      "Expected": -1
+    },
+    {
+      "X": 1.125,
+      "Source": -0.11157812178134918,
+      "Metric": -1,
+      "Expected": -1
+    },
+    {
+      "X": 1.375,
+      "Source": -0.09595312178134918,
+      "Metric": -0.9931703209877014,
+      "Expected": -1
+    },
+    {
+      "X": 1.625,
+      "Source": -0.07720312476158142,
+      "Metric": -0.7541018724441528,
+      "Expected": -0.7654128961722471
+    },
+    {
+      "X": 1.875,
+      "Source": -0.0553281232714653,
+      "Metric": -0.5110945105552673,
+      "Expected": -0.5166851033350792
+    },
+    {
+      "X": 2.125,
+      "Source": -0.03032812476158142,
+      "Metric": -0.2655719816684723,
+      "Expected": -0.2676597363460025
+    },
+    {
+      "X": 2.375,
+      "Source": -0.0022031250409781933,
+      "Metric": -0.01843045838177204,
+      "Expected": -0.018430139592793715
+    },
+    {
+      "X": 2.625,
+      "Source": 0.02904687449336052,
+      "Metric": 0.2308904528617859,
+      "Expected": 0.23094564748114843
+    },
+    {
+      "X": 2.875,
+      "Source": 0.06342187523841858,
+      "Metric": 0.4808904528617859,
+      "Expected": 0.4804296554507279
+    },
+    {
+      "X": 3.125,
+      "Source": 0.1009218767285347,
+      "Metric": 0.7308904528617859,
+      "Expected": 0.7299960063872284
+    },
+    {
+      "X": 3.375,
+      "Source": 0.14154687523841858,
+      "Metric": 0.9808904528617859,
+      "Expected": 0.9796264586489438
+    },
+    {
+      "X": 3.625,
+      "Source": 0.18529687821865082,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": 3.875,
+      "Source": 0.23217187821865082,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": 4.125,
+      "Source": 0.2821718752384186,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": 4.375,
+      "Source": 0.3352968692779541,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": 4.625,
+      "Source": 0.3915468752384186,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": 4.875,
+      "Source": 0.4509218633174896,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": 5.125,
+      "Source": 0.513421893119812,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": 5.375,
+      "Source": 0.5790468454360962,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": 5.625,
+      "Source": 0.6477968692779541,
+      "Metric": 1,
+      "Expected": 1
+    },
+    {
+      "X": 5.875,
+      "Source": 0.7196718454360962,
+      "Metric": 1,
+      "Expected": 1
+    }
+  ]
+}

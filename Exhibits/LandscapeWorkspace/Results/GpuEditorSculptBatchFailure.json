@@ -1,0 +1,243 @@
+{
+  "Status": "failed",
+  "Date": "2026-11-07T17:51:17.847Z",
+  "Revision": "e1ce5629e8927ea1fc1b11646df21e7332687e68",
+  "Branch": "arena/ceeabe45-frontier",
+  "WorkingTree": "Uncommitted LandscapeWorkspace import and corrections; runtime source fingerprints retained below.",
+  "Platform": "linux",
+  "Architecture": "x64",
+  "Runtime": "v22.22.3",
+  "Origin": "http://127.0.0.1:5173",
+  "Viewport": [
+    1600,
+    1000
+  ],
+  "Checks": [
+    {
+      "Name": "ProjectZero typography and neutral graphite docks render with loaded local fonts",
+      "Status": "passed",
+      "Observed": {
+        "Outliner": "rgb(21, 21, 21)",
+        "CardRadius": "18px",
+        "Font": "\"DM Sans\", \"Segoe UI\", sans-serif",
+        "PageOverflow": false
+      }
+    },
+    {
+      "Name": "prepared XYZ geometry source matches canonical raw residuals in 12 generator/CSG cases; no GPU SDF probe shader",
+      "Status": "passed",
+      "Observed": {
+        "Probes": 84,
+        "MaximumAbsoluteError": 0,
+        "Comparison": "CPU canonical vs CPU geometry preparation, not GPU distance evaluation"
+      }
+    },
+    {
+      "Name": "GPU ocean displacement and analytic normals match the CPU wave spectrum",
+      "Status": "passed",
+      "Observed": {
+        "Channels": 9,
+        "MaximumAbsoluteError": 0.000045896491650487814
+      }
+    },
+    {
+      "Name": "searchable generator catalogue exposes landforms separately from volume operations",
+      "Status": "passed",
+      "Observed": {
+        "Landforms": 10,
+        "SearchMatches": 4
+      }
+    },
+    {
+      "Name": "ocean edits change actual GPU pixels without rebuilding the terrain geometry",
+      "Status": "passed",
+      "Observed": {
+        "Before": {
+          "Hash": 3952849097,
+          "Width": 996,
+          "Height": 823,
+          "TerrainRenders": 6,
+          "GeometryRevision": "1",
+          "FieldEvaluations": 801701,
+          "Error": 0
+        },
+        "After": {
+          "Hash": 1326250801,
+          "Width": 996,
+          "Height": 823,
+          "TerrainRenders": 7,
+          "GeometryRevision": "1",
+          "FieldEvaluations": 801701,
+          "Error": 0
+        }
+      }
+    },
+    {
+      "Name": "inspector relief edits alter actual GPU pixels and rebuild the XYZ surface",
+      "Status": "passed",
+      "Observed": {
+        "Before": {
+          "Hash": 3952849097,
+          "Width": 996,
+          "Height": 823,
+          "TerrainRenders": 8,
+          "GeometryRevision": "1",
+          "FieldEvaluations": 801701,
+          "Error": 0
+        },
+        "After": {
+          "Hash": 3908119817,
+          "Width": 996,
+          "Height": 823,
+          "TerrainRenders": 10,
+          "GeometryRevision": "2",
+          "FieldEvaluations": 829534,
+          "Error": 0
+        }
+      }
+    },
+    {
+      "Name": "direct generator insertion, undo and redo preserve all other mask stacks",
+      "Status": "passed",
+      "Observed": "2 → 3 → 2 → 3 → 2 generators"
+    },
+    {
+      "Name": "mask selection and boundary-only insertion retain explicit, independent ownership",
+      "Status": "passed",
+      "Observed": "Region operation does not enter the mask or another mask"
+    },
+    {
+      "Name": "multi-selected masks use an explicit catalogue target and one atomic independent-stack edit",
+      "Status": "passed",
+      "Observed": "2 mask-wide insertions; no boundary or unselected-mask changes; one undo restores both"
+    },
+    {
+      "Name": "mask drag reorder carries strokes, boundaries and generator ownership together",
+      "Status": "passed",
+      "Observed": "0 → 1 reorder preserves all mask contents; undo restores order and active ownership"
+    },
+    {
+      "Name": "mask duplication, independent renaming, deletion and undo retain complete scoped contents",
+      "Status": "passed",
+      "Observed": "Copy changes do not mutate the source; deletion and every edit are reversible"
+    }
+  ],
+  "Images": [
+    "Landscape.png",
+    "GeneratorMenu.png",
+    "OceanInspector.png",
+    "BoundaryStack.png",
+    "BatchGeneratorMenu.png"
+  ],
+  "SourceSHA256": {
+    "VolumeSculpt.js": "ca98f309cfa86515d1cae52a67717e4bcb232f19f592800ae1937d8cfbe4005f",
+    "VolumeSculptInteraction.js": "409fa5f0aace1e4fc6aece84cbd4926a612d2683c74d8abeca73746e08bf09ec",
+    "VolumeRefinement.js": "28a76b3b5d1f0c35eb807aa5794ba14e869d5a8ceb5da9e8f4e62bfbd9a5feb9",
+    "PreviewSampling.js": "b2ad4b3ac260e72790e32ca9b553779cf5301952b634611f71edc5d27d41a262",
+    "VolumePresentation.js": "d750d07abb2ba4392ff7fe7bc1e02bab0b232181768d6e6ecd8872614e59fa25",
+    "VolumeSubmission.js": "330f5a06511905d1ccb83e787d3b105e35110a425bca88d3586ea402cf3e257d",
+    "VolumeRayField.js": "0d50bbf37adb5354cfe438a786366f1a5202100a9309d0fa3bc83351f9512f8a",
+    "VolumeSurface.js": "9e20ab3b35a3ffaf57b599e4621a4df61ee3075ef53cc515174fb501ffdf02a6",
+    "VolumeLattice.js": "e5bf325e18111f345432a5b67e594d2a33a3df771c165db35c48d12d42aa58be",
+    "VolumeDetail.js": "fe85264484b42306d45f87766d651a89c35ac220598ca332388e863116a71916",
+    "CoastalWorld.js": "5ff1a667e02322b6e22ef3e36824acbe5d14a851a4e53a4f3962f1470048895d",
+    "PreviewTiling.js": "f0a6538a19e3e036bca099ec56df623b4c34c86fa0833cbe460dab1214bf0ff6",
+    "Workspace.js": "8073f6ee33ef053797c455147c25d72e1b6d4787686f26b624d44422be2e93ca",
+    "Workspace.css": "0e15998808547dbbdf69b8faa41a588fc97823d6b877a7364f692331354878bb",
+    "index.html": "0efc9dafd1f54f6224879752203497e9b46a9fa68f7e7820cdc6492df8131092",
+    "LayerStackPanel.js": "5e6f109a945369e2b76a3e63ebec27f877004c2de8786ddcaa18ecf3fdb62573",
+    "DistanceField.js": "2a46a80893b3465f36c70bb830831ba434a06d9fe263cb529143078efa6c1531",
+    "LandformStack.js": "d875289a32e6ca7fa6b047ef1a6a839253d3719c175e57b9ac2caed77f8ffde0",
+    "LandformShader.js": "f6e939f671386cf006f8f510beb8aab7c9dcde9835fc99aa24891101c3a9aa4c",
+    "TerrainInfluence.js": "aa2d90dfe5f4da424a0581fdad31ca2ac9d9ae3a494a8e4d9b16abed0feba098",
+    "VolumeRasterization.js": "10ba72b987b00699bae0cf9cfa4ef96205b0d16898690ad1f22ae9a09b174aa6",
+    "OceanSurface.js": "a525acb53c312109e3038ff042f10a7ad6678ed16f9862dd385461ae9e9eafcf",
+    "SparseVolume.js": "d2157d97e2a627c958c5366768f5f29c12fb18a075f8fd14eb9f50495e1a562d",
+    "DistanceReinitialization.js": "01af682ad985de8d1620f6fce7bdd7aa91dfc26a4037beda7ecd97db9854c80b",
+    "VolumeBaking.js": "f023aaf649b4357efd356ac20e76415c07a5586958aabd7f2689300354bf5a44"
+  },
+  "Browser": "153.0.8010.0",
+  "Renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+  "Failure": "AssertionError [ERR_ASSERTION]: {\"previewWidth\":\"1440\",\"sculptEnabled\":\"false\",\"displayedSamplingMode\":\"high\",\"displayedSamplingMatchesTarget\":\"false\",\"sculptPending\":\"false\",\"viewSchedule\":\"animation\",\"cameraTarget\":\"[-47.5,23.64,-72.5]\",\"cameraYaw\":\"-0.35\",\"renderStatus\":\"failed\",\"renderMessage\":\"The GPU did not finish a bounded image within four seconds. Further submissions are stopped; no software fallback.\",\"graphicsImageTimeoutMilliseconds\":\"10000\",\"renderTechnique\":\"xyz-surface\",\"renderExecution\":\"thread\",\"volumeRevision\":\"23\",\"automaticWorking\":\"false\",\"renderMode\":\"webgl2\",\"graphicsContexts\":\"1\",\"contextEpoch\":\"1\",\"renderer\":\"ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)\",\"pendingGpuImages\":\"1\",\"maximumPendingGpuImages\":\"1\",\"shaderTerrainFieldEvaluations\":\"0\",\"depthFormat\":\"reverse-float32\",\"terrainRenders\":\"12\",\"oceanRenders\":\"13\",\"surfaceBytes\":\"0\",\"previewSuspended\":\"false\",\"geometrySamples\":\"0\",\"geometryPreparationEpoch\":\"46\",\"requestedDetailKey\":\"\",\"geometrySampleBudget\":\"1100000\",\"shaderInitializationMilliseconds\":\"2939.7999999970198\",\"surfaceDetailLimited\":\"false\",\"surfaceQuality\":\"96\",\"surfaceDetailKey\":\"\",\"surfacePreparationEpoch\":\"46\",\"workingLattice\":\"null\",\"contextTriangles\":\"0\",\"workingTriangles\":\"0\",\"workingContextReused\":\"false\",\"workingContextExpansion\":\"1\",\"surfacePitch\":\"1\",\"surfaceTriangles\":\"0\",\"surfaceSamples\":\"0\",\"surfaceEvaluations\":\"0\",\"surfacePreparationMilliseconds\":\"0.30000000447034836\",\"surfaceMaximumSliceMilliseconds\":\"0.20000000298023224\",\"bufferWidth\":\"996\",\"bufferHeight\":\"823\",\"drawCalls\":\"2\",\"oceanVertices\":\"4225\",\"lastSubmitMilliseconds\":\"0.10000000149011612\",\"submittedComposition\":\"[{\\\"Yaw\\\":-0.35,\\\"Pitch\\\":0.72,\\\"Orbit\\\":1134.675,\\\"Target\\\":[-47.5,23.64,-72.5]},1,true,18,[996,823],23,96,\\\"\\\",46]\",\"previewPixelBudget\":\"1500000\",\"previewPixelCeiling\":\"1500000\",\"oceanWorldExtent\":\"8000\",\"oceanSpectrumFootprint\":\"0\",\"geometryCompletedEpoch\":\"46\",\"geometryCompletedQuality\":\"96\",\"geometryCompletedRevision\":\"23\",\"geometryCompletedDetailKey\":\"\",\"gpuImageMilliseconds\":\"231.853936\",\"previewDensitySettled\":\"true\",\"completedRevision\":\"10\",\"completedQuality\":\"96\",\"completedDetailKey\":\"\",\"completedPreparationEpoch\":\"20\",\"displayedSurfacePitch\":\"14.479166666666666\",\"displayedSurfaceTriangles\":\"119922\",\"displayedWorkingLattice\":\"null\",\"displayedSurfaceRefinement\":\"{\\\"Method\\\":\\\"projected-adaptive-xyz\\\",\\\"InitialPitch\\\":14.479166666666666,\\\"InitialTriangles\\\":54642,\\\"SplitEdges\\\":32663,\\\"ProjectedVertices\\\":59971,\\\"Vertices\\\":59971,\\\"Samples\\\":856154,\\\"TriangleLimit\\\":120000,\\\"Limited\\\":true}\",\"displayedWidth\":\"996\",\"displayedHeight\":\"823\",\"completedComposition\":\"[{\\\"Yaw\\\":-0.35,\\\"Pitch\\\":0.72,\\\"Orbit\\\":1134.675,\\\"Target\\\":[-47.5,23.64,-72.5]},1,true,18,[996,823],10,96,\\\"\\\",20]\",\"maximumFenceMilliseconds\":\"1833.1999999955297\",\"lastFenceMilliseconds\":\"360.8999999985099\",\"previewStopped\":\"true\"}\n\n'failed' !== 'ready'\n\n    at WaitForRender (file:///home/user/Frontier/Exhibits/LandscapeWorkspace/BrowserValidation.mjs:86:12)\n    at runNextTicks (node:internal/process/task_queues:64:5)\n    at process.processImmediate (node:internal/timers:452:9)\n    at process.callbackTrampoline (node:internal/async_hooks:130:17)\n    at async file:///home/user/Frontier/Exhibits/LandscapeWorkspace/BrowserValidation.mjs:376:5",
+  "BrowserErrors": [],
+  "FailedResponses": [],
+  "PreviewAtFailure": {
+    "previewWidth": "1440",
+    "sculptEnabled": "false",
+    "displayedSamplingMode": "high",
+    "displayedSamplingMatchesTarget": "false",
+    "sculptPending": "false",
+    "viewSchedule": "animation",
+    "cameraTarget": "[-47.5,23.64,-72.5]",
+    "cameraYaw": "-0.35",
+    "renderStatus": "failed",
+    "renderMessage": "The GPU did not finish a bounded image within four seconds. Further submissions are stopped; no software fallback.",
+    "graphicsImageTimeoutMilliseconds": "10000",
+    "renderTechnique": "xyz-surface",
+    "renderExecution": "thread",
+    "volumeRevision": "23",
+    "automaticWorking": "false",
+    "renderMode": "webgl2",
+    "graphicsContexts": "1",
+    "contextEpoch": "1",
+    "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+    "pendingGpuImages": "1",
+    "maximumPendingGpuImages": "1",
+    "shaderTerrainFieldEvaluations": "0",
+    "depthFormat": "reverse-float32",
+    "terrainRenders": "12",
+    "oceanRenders": "13",
+    "surfaceBytes": "0",
+    "previewSuspended": "false",
+    "geometrySamples": "0",
+    "geometryPreparationEpoch": "46",
+    "requestedDetailKey": "",
+    "geometrySampleBudget": "1100000",
+    "shaderInitializationMilliseconds": "2939.7999999970198",
+    "surfaceDetailLimited": "false",
+    "surfaceQuality": "96",
+    "surfaceDetailKey": "",
+    "surfacePreparationEpoch": "46",
+    "workingLattice": "null",
+    "contextTriangles": "0",
+    "workingTriangles": "0",
+    "workingContextReused": "false",
+    "workingContextExpansion": "1",
+    "surfacePitch": "1",
+    "surfaceTriangles": "0",
+    "surfaceSamples": "0",
+    "surfaceEvaluations": "0",
+    "surfacePreparationMilliseconds": "0.30000000447034836",
+    "surfaceMaximumSliceMilliseconds": "0.20000000298023224",
+    "bufferWidth": "996",
+    "bufferHeight": "823",
+    "drawCalls": "2",
+    "oceanVertices": "4225",
+    "lastSubmitMilliseconds": "0.10000000149011612",
+    "submittedComposition": "[{\"Yaw\":-0.35,\"Pitch\":0.72,\"Orbit\":1134.675,\"Target\":[-47.5,23.64,-72.5]},1,true,18,[996,823],23,96,\"\",46]",
+    "previewPixelBudget": "1500000",
+    "previewPixelCeiling": "1500000",
+    "oceanWorldExtent": "8000",
+    "oceanSpectrumFootprint": "0",
+    "geometryCompletedEpoch": "46",
+    "geometryCompletedQuality": "96",
+    "geometryCompletedRevision": "23",
+    "geometryCompletedDetailKey": "",
+    "gpuImageMilliseconds": "231.853936",
+    "previewDensitySettled": "true",
+    "completedRevision": "10",
+    "completedQuality": "96",
+    "completedDetailKey": "",
+    "completedPreparationEpoch": "20",
+    "displayedSurfacePitch": "14.479166666666666",
+    "displayedSurfaceTriangles": "119922",
+    "displayedWorkingLattice": "null",
+    "displayedSurfaceRefinement": "{\"Method\":\"projected-adaptive-xyz\",\"InitialPitch\":14.479166666666666,\"InitialTriangles\":54642,\"SplitEdges\":32663,\"ProjectedVertices\":59971,\"Vertices\":59971,\"Samples\":856154,\"TriangleLimit\":120000,\"Limited\":true}",
+    "displayedWidth": "996",
+    "displayedHeight": "823",
+    "completedComposition": "[{\"Yaw\":-0.35,\"Pitch\":0.72,\"Orbit\":1134.675,\"Target\":[-47.5,23.64,-72.5]},1,true,18,[996,823],10,96,\"\",20]",
+    "maximumFenceMilliseconds": "1833.1999999955297",
+    "lastFenceMilliseconds": "360.8999999985099",
+    "previewStopped": "true"
+  }
+}

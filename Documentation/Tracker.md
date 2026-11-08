@@ -434,3 +434,249 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
     unattended full-library pass (risk of silently regressing 100+ shipped pattern designs without
     per-pattern visual verification).
 
+
+## Landscape workspace correction — 2026-11-06
+
+| Area                | Outcome                                               | Evidence                       |
+| ------------------- | ----------------------------------------------------- | ------------------------------ |
+| Prior prototype     | Imported and repaired the isolated workspace          | Pinned baseline `4b26efc`      |
+| Foundation / coast  | Y = 0, underwater depth, radial relief and coast fade | 90 passing unit tests          |
+| Ocean               | 24 textureless components and analytic slopes         | CPU/GPU and rendered pixels    |
+| Editor presentation | Pinned ProjectZero graphite, three-column editor      | Actual application captures    |
+| Authoring ownership | Independent mask, boundary and multi-mask edits       | 21 passing browser checks      |
+| Layer workflow      | Catalogue, reorder, mask copy/delete, scoped history  | UI interaction checks          |
+| Full sparse bake    | 1024 × 128 × 1024; volumetric solid–air–solid column  | Decoded actual UI download     |
+| Production build    | Built UI, fonts, WebGL and bundled sampling verified  | 3 production browser checks    |
+| Reference pinning   | Immutable SDF/UI sources retained in CLAUDE.md        | Fingerprinted source snapshots |
+
+- Work remains on `arena/ceeabe45-frontier`, based on `e1ce562`; no commit, push, PR or GitHub Actions performed.
+- SDF reference: `c7egoist/Frontier@09b7064f282f4df5c5352f2bc97c82fb1c06a098`.
+- UI reference: `SultanAladin/Frontier-@28ec0657a23ed6bbf680f17cc06b464a53639dae`.
+- Retained code, actual captures, raw results, commands, source fingerprints and limitations:
+  [`Exhibits/LandscapeWorkspace/README.md`](../Exhibits/LandscapeWorkspace/README.md).
+- Browser verification used Chromium 153 and ANGLE/SwiftShader, not a physical GPU or the native Windows editor.
+- Still outside this prototype: physical erosion/simulation execution, baked-volume loading,
+  WebGPU and native integration. Scoped ownership is retained for later simulation; no solver parity is claimed.
+- Export limits remain explicit: 256 MiB raw encoding budget, finite GPU authoring capacity; complex noise-stack
+  performance is not established by the retained geometric full-resolution fixture.
+
+
+## Landscape metric-export continuation — 2026-11-06
+
+| Area                   | Outcome                                               | Evidence                         |
+| ---------------------- | ----------------------------------------------------- | -------------------------------- |
+| Metric propagation     | Sparse anisotropic 3D Godunov fast sweeping           | 90 total unit tests              |
+| Interface placement    | Original-residual bisection and interface normals     | Scaled-plane regression + UI     |
+| Numeric quality        | Six analytic fixtures; gradient and brick-seam checks | Retained measured chart and JSON |
+| Grid refinement        | Fixed-domain sphere mean error decreases             | 24³ / 48³ / 96³ measurements      |
+| Export compatibility   | Conservative V1 retained; metric V2 validated         | Actual downloads in both modes   |
+| Background workflow    | Phased progress, frozen snapshot, convergence report | Seven actual metric UI checks    |
+| Cancellation / failure | Sweep cancellation, expired messages, no bad archive | UI and injected-cycle failure    |
+| Full-resolution metric | 134,217,728 cells; two cycles; zero sign changes      | Actual 1024 × 128 × 1024 UI bake  |
+| Built application      | Packaged metric script, fonts, WebGL and export      | Three built-browser checks       |
+
+- Retained full export: 68,574,181 raw bytes / 7,457,646 gzip bytes; 88,936 leaves, 15,548 newly saturated bricks.
+- Independent anisotropic-sphere maximum error: 0.0864824 m at 0.25/0.60/0.35 m voxel pitches.
+  The 0.127392 m allocated-box maximum records expected first-order medial-ridge error, not exact distance.
+- New masks default to metric. Imported documents with no distance mode keep legacy behaviour. Export-only metadata
+  changes leave analytic geometry and its intersection cache unchanged.
+- Convergence measures maximum Float32 sweep update, not distance-to-surface accuracy. Metric output is approximate;
+  cell signs are preserved but exact subvoxel topology is not guaranteed. No simulation-readiness claim is made.
+- Metric working storage has an estimated 384 MiB guard, not a measured RSS guarantee; the 256 MiB archive cap remains.
+- The authoring field remains analytic; the current GPU preview samples an approximate XYZ surface from it.
+  Baked-volume loading, erosion/simulation, WebGPU and native integration remain open.
+- Current source fingerprints, actual captures, chart observations and reproducible commands are retained in
+  [`Exhibits/LandscapeWorkspace/README.md`](../Exhibits/LandscapeWorkspace/README.md).
+- All work stays on `arena/ceeabe45-frontier`. No commit, push, PR or GitHub Actions was performed.
+
+
+## Landscape GPU-only surface, quality and water repair — 2026-11-07
+
+The user rejected CPU fallback after freezes on two PCs. That earlier recovery approach is superseded, not current
+acceptance. The user then reported a visible Landscape and requested sharper detail/resolution and stable water.
+This section records the 150-test quality baseline; the subsequent per-region continuation below refreshes current
+verification and adds actual authored-pitch working geometry.
+
+| Area                   | Current outcome                                         | Current evidence                 |
+| ---------------------- | ------------------------------------------------------- | -------------------------------- |
+| GPU architecture       | Off-thread XYZ surface → ordinary GPU triangles         | 12 dev + 12 built checks         |
+| No software fallback   | Missing/failing GPU stops; Mask/save retained           | 5 dev + 5 built checks           |
+| Preview resolution     | Auto refines 360k initial pixels, hard 1.5M cap         | 3 dev + 3 built quality checks   |
+| Default coastal detail | 53,716 → 96,798 triangles; 120k triangle cap unchanged  | 480×397 → 996×823 actual images  |
+| Genuine XYZ geometry   | Arch opening and four vertical interfaces retained      | GPU capture + independent units  |
+| Water stability        | Dolly never retunes wave spectrum or world-grid scale   | Actual linked-GPU uniforms match |
+| Context lifecycle      | One context/queue; real loss stops, restart explicit    | Exact document/camera preserved  |
+| New-world regression   | Non-blocking confirmation; paint/allocation/Focus works | 22 editor checks                 |
+| Units / build          | 150 passed; 2,039 bundled modules                       | Current TAP and build log        |
+| Exports                | Metric/legacy, snapshot, cancel and failure retained    | 7 metric UI + 3 built checks     |
+| Full XYZ export        | 1024×128×1024; solid–air–solid at one X/Z               | 134,217,728 decoded cells        |
+
+- The live application contains no CPU pixel renderer, automatic context recreation or UI-thread GL path.
+  GPU field evaluations per terrain pixel are zero. Surface extraction still uses the genuine canonical XYZ field;
+  it is an approximation, not an exact continuous-SDF renderer or topology guarantee.
+- Optional 64-cell refinement retains the working 48-cell surface if its triangle cap is reached. Density grows
+  only after completed GPU images; measured cost sets a session ceiling. Geometry and pixel limits remain explicit.
+- Wave displacement uses the same full 24-component world-space spectrum at all dolly distances. Four short-wave
+  shading bands resolve reflections per pixel; only unresolved shading detail is filtered. The 256² shore texture
+  stores signed mask distance, not terrain elevations. The bounded grid blends into a distant-ocean background.
+- The current regression batch exited zero in 475.05 s, including units/build, development and built GPU lifecycle,
+  quality, negative/no-RAF checks, production UI/export, broad editor, metric UI/numeric and full 3D export.
+  GPU acceptance uses unmodified production deadlines, no source interception and no 90-second override.
+- Native no-GL, absent APIs, real context loss and simulated protocol silence are distinct conditions. None establish
+  a confirmed cause of the earlier physical Windows failures. No acceleration-settings advice is required.
+- SwiftShader still recorded a 2.62 s startup UI heartbeat gap. That local startup stall is not claimed eliminated;
+  no physical Windows frame-rate, native-editor performance or driver-reset-prevention claim is made.
+- Previous CPU/recovery reports, scripts and override-based GPU results are historical and explicitly superseded.
+  Export budgets, reference pins and authoritative document formats remain unchanged. Baked-volume loading,
+  erosion/simulation, WebGPU and native integration remain outside this prototype.
+- Source fingerprints, actual before/after images, commands and current results:
+  [`Exhibits/LandscapeWorkspace/README.md`](../Exhibits/LandscapeWorkspace/README.md).
+- No engine/native edits, Actions, commit, push or PR. Work stays on `arena/ceeabe45-frontier`.
+
+
+## Landscape per-region working resolution — 2026-11-07
+
+This section records the 166-unit working-detail baseline; the sampling-diagnostics continuation below supersedes
+its current-verification and optional resume-diagnostic status.
+
+The user correctly identified that high requested export dimensions still produced low-poly working geometry.
+The analytic XYZ field is unchanged in ownership; allocation/lattice counts, resident geometry and screen pixels
+are now explicitly separated. This extends the previous GPU-quality work rather than treating it as sufficient.
+
+| Area                | Current result                                              | Evidence                 |
+| ------------------- | ----------------------------------------------------------- | ------------------------ |
+| Region ownership    | Independent XYZ counts; legacy defaults; Y=96               | 6 lattice units + UI     |
+| Shared sampling     | Same target for normal export and working pitch             | 32×96×24 UI export       |
+| Working workflow    | Pick, focus, native-pitch brick, pan, edits, overview       | 10 dev + 10 built checks |
+| Actual detail       | 512×96×512 target; 64³ at 1.357×3.427×1.143 m               | Same-camera GPU images   |
+| Bounded storage     | Coast: 118,218 triangles / 456,583 samples                  | Caps stay 120k / 1.1M    |
+| XYZ / interfaces    | Arch, four hits, opening, anisotropic normals and face cuts | 10 working units         |
+| Cancellation/reuse  | Coalesced focus, context cache, same-revision epochs        | Mid-job exit validated   |
+| Full regression     | 166 units, 2,040 modules; 12+3+5 GPU checks dev and built   | All current reports      |
+| Editing/export      | 22 editor, 7 metric UI, 3 built, 6 numeric + 3 grids        | Refreshed reports        |
+| Full metric export  | 1024×128×1024; 208.55 s; signs unchanged; solid–air–solid   | UI download and decode   |
+
+- Region counts are stored as optional `Region.Resolution = [X,Y,Z]`; the document format remains the established
+  prototype JSON format. `VolumeLattice.js` derives world pitch from bounds and is reused by `SparseVolume.js` and
+  `VolumeDetail.js`. Explicit 64³ diagnostic export retains its own dimensions. X/Z linking is optional in the UI.
+- Overview remains bounded 16→48→64. **Work here** / double-click picks the XYZ field off-thread and zooms into a
+  native-pitch patch. Panning schedules a coalesced brick job; orbit, dolly and ocean reuse existing geometry.
+  Coarse context can coarsen first; working coverage then shrinks to 48³/32³ if required, without relabelling pitch.
+- Four-cell boundary blending uses the coarse piecewise tetrahedral interpolant, nested by a common dyadic factor.
+  Context fragments inside the working AABB are excluded by the GPU. Six-face interpolation and extracted arch
+  cuts within 1 mm passed; no universal watertightness or exact-topology claim is made.
+- A real two-region arch scene initially exhausted the context triangle cap. Reserving working triangles and
+  coarsening context fixed it without increasing caps. A separate mid-preparation exit could let a late working
+  result replace overview; generation checks and preparation-epoch completion now prevent that regression.
+- The completed acceptance batch exited zero in **592.69 s**, excluding the separately retained units/build.
+  Native authored working preparation measured 2.836 s development / 3.202 s built; panning completed in
+  2.39 / 2.48 s in this SwiftShader lab. The cooperative slice target is 6 ms, not a guarantee: 23.5 ms was observed.
+  Startup still recorded a 2.68 s UI heartbeat gap. No physical Windows speed or driver-reset-prevention claim.
+- One GPU context owner, zero UI-thread GL/CPU pixel copies, unchanged 4 s fence / 10 s first-image / 4 s reply
+  policy, distance-stable water, exact document save and explicit-only restart remain covered. The latest optional
+  native-modal diagnostic did not reproduce; a preceding run did, so it does not establish the cause on either PC.
+- **Limit:** authoring remains procedural generators and volumetric operations. No direct voxel sculpt brush,
+  complete volume paging, exact continuous-field rendering, erosion/simulation or native integration is supplied.
+  Authored pitch applies to the working interior, not the four-cell rim or coarse context. Y pitch follows the
+  currently derived vertical bounds. A 512×96×512 dense Float32 allocation (96 MiB) is deliberately not created.
+- Commands, fingerprints, current measurements and actual proof images:
+  [`Exhibits/LandscapeWorkspace/README.md`](../Exhibits/LandscapeWorkspace/README.md).
+- No commit, push, PR, Actions, native-engine edit or Windows binary. Branch remains `arena/ceeabe45-frontier`.
+
+
+## Landscape displayed sampling and working zoom — 2026-11-07
+
+The user still saw low-poly terrain at a 2048×512×2048 target and asked whether server, fallback or cache caused it.
+A fresh 1050×720 browser reproduction confirmed **64-step overview / 10.859375 m** spacing despite that target.
+The problem is the application's whole-view LOD limit, not evidence of any of those three causes.
+
+| Area                  | Outcome                                              | Evidence                      |
+| --------------------- | ---------------------------------------------------- | ----------------------------- |
+| Target versus actual  | GPU-completed pitch, triangle/patch counts and mode   | 6 dev + 6 built checks        |
+| Detail access         | Inspector View authored detail; nonwrapped toolbar  | Actual narrow browser captures |
+| Fine working camera   | 25 m floor removed; observed 10.055→3.699 m orbit     | Target-pitch 48³ working area |
+| Image versus geometry | Pixel-width label; actual framebuffer dimensions     | 515×543 image; 10.859 m mesh  |
+| Driver/cache clarity  | Report browser driver and document/image revisions   | `sampling-readout-1`          |
+| Units / build         | 173/173; 2,041 modules                               | TAP and production build log |
+| Existing GPU checks   | Surface 12, working 10, quality 3, failure 5 per mode | Dev + built passed           |
+| Editor / exports      | Editor 22, metric UI 7, built UI/export 3 passed      | Refreshed source fingerprints |
+| Resume diagnostic     | Two-page sequence failed at unchanged 4 s fence      | Failed report retained       |
+| Isolated editor check | Actual HTML/new-world/paint/resume passed separately | No preceding native dialog  |
+
+- New sampling metadata is snapshotted on submission and exposed only after that image's fence completes. Pending
+  uploads are not labelled displayed detail. No software pixel renderer, extra GPU context, deadline increase,
+  automatic recreation, terrain representation change or water-spectrum change was introduced.
+- The 401.30 s follow-up batch exited **1** at the last resume diagnostic after 13 passing scripts. The isolated
+  editor-only run passed in 13.89 s. This is not a resolved GPU-stability issue or an all-green full acceptance run.
+  Diagnostic code now retains editor telemetry before asserting and supports explicit editor-only isolation.
+- **Still open:** high-resolution whole-island adaptive LOD/paging, direct sculpting, native integration and physical
+  Windows GPU validation. Local working interior pitch is not a whole-region residency or exact-topology guarantee.
+  Numeric/full-size export evidence remains the preceding baseline, not rerun for this UI/camera-only follow-up.
+- Actual before/after UI, source fingerprints, commands, scope and failed/passing diagnostics:
+  [`Exhibits/LandscapeWorkspace/README.md`](../Exhibits/LandscapeWorkspace/README.md).
+- No commit, push, PR, Actions, native-engine edit or Windows binary. Branch remains `arena/ceeabe45-frontier`.
+
+
+## Landscape 3D sculpting and high default — 2026-11-07
+
+The latest request explicitly adds sculpting and rejects the low-poly geometry even with the high option selected.
+This supersedes the preceding coarse-only/direct-sculpt-open descriptions; complete volume paging is still open.
+
+| Area                   | Implemented / observed result                                  |
+| ---------------------- | -------------------------------------------------------------- |
+| Actual geometry        | Shared-edge adaptive XYZ field projection; High is the default |
+| Image control          | No quality dropdown; fixed 1440-wide ceiling, bounded density   |
+| Clay / Carve           | Region-owned XYZ capsules, world radius/strength, release edit |
+| Ownership / history    | Protected neighbours, atomic undo/redo, pointer cancellation    |
+| Persistence / export   | Validated project strokes and decoded actual sculpted volume   |
+| Genuine underside      | Negative-pitch camera, negative-Y picks and actual carved pixels |
+| Working detail         | Sculpt/native focus; automatic close-zoom detail; 0.5 m floor  |
+| Focused validation     | 10 dev + 10 built sculpt checks; 183/183 units; 2,044 modules   |
+| Other GPU checks       | Surface 12, working 10, sampling 6, quality 3, failure 5 per mode |
+| Export verification    | Metric UI 7, built UI/export 3, six fixtures + three grids      |
+| Full-size volume       | Rerun 1024×128×1024, preserved solid–air–solid and source signs |
+| Broad editor stability | **Failed after 11 checks at unchanged four-second GPU fence**  |
+
+- Actual preceding-build capture preserves Quality64/96,798 triangles. Current identical coastal authoring/camera
+  displays 119,922 triangles, 801,701 field samples, 33,122 shared-edge splits and 59,972 projected vertices.
+  This is actual field-resampled geometry, not cosmetic normals or an image-width relabel.
+- Quality96 is an adaptive method, not a uniform 96³/target lattice. The 120k-triangle/1.1M-sample budgets remain.
+  Native 64³/48³/32³ coverage preserves pitch; the transition rim/context remain coarser. Full 2048³ residency,
+  universal watertightness and subvoxel topology are not claimed.
+- Sculpt uses the same canonical XYZ field for picking, normals, GPU geometry and export. In-place validation
+  invalidates compiled sculpt caches. Limits: 256 strokes/region, 2,048 XYZ points/document, 256 points/gesture.
+  Alt-orbit and cancelled pointers do not paint. Camera stays fixed during actual stroke application.
+- A native-to-high queue guard was repaired: an in-flight working request cannot remain displayed after the
+  current view no longer requests it, including imported 32³ targets. No fake UI options were added for tests.
+- All twelve focused dev/built GPU scripts passed. The broad editor then failed at the four-second fence while
+  hiding all masks: zero prepared triangles, two draws, one pending image. Original telemetry is retained in
+  `GpuEditorSculptBatchFailure.json`; latest `BrowserValidation.json` independently failed at the same point.
+  This is not an all-green editor/stability acceptance. No fallback, timeout increase or automatic restart was added.
+- An intervening isolated run reached 19 checks, then asserted file-import status before its async read finished.
+  `GpuEditorImportWaitFailure.json` is retained. The test now waits for the actual rejection; the latest run still
+  stops earlier at the GPU fence, so its tail is not verified. Separate HTML/editor resume passed; the historical
+  two-page resume failure remains retained and unproven fixed. Do not infer the user's physical GPU cause.
+- **Open:** GPU stability and physical Windows verification, Smooth/Flatten/adjustable falloff, continuous-drag
+  geometry, complete camera-driven paging, baked-volume loading, erosion/wind/weathering, Studio and native port.
+  Automatic detail can clamp to a region edge when looking into empty inter-layer space; explicitly refocus then.
+- Current reports, actual captures, immutable provenance, commands and limits:
+  [`Exhibits/LandscapeWorkspace/README.md`](../Exhibits/LandscapeWorkspace/README.md).
+- No commit, push, PR, Actions, native-engine edit or Windows binary. Branch remains `arena/ceeabe45-frontier`.
+
+
+## Landscape source publication
+
+The user explicitly authorised committing and pushing the current landscape work to GitHub.
+Publication stays on `arena/ceeabe45-frontier`; it does not merge or modify another branch.
+
+- Retain the prototype, immutable references, validation scripts, actual captures and raw passing/failing reports.
+  Dependencies, build output, large exported volumes and scratch files remain ignored.
+- The pre-commit evidence audit matched 560 source comparisons across 20 reports and all eight built assets.
+  Retained verification includes 183 passing units and 10/10 development plus 10/10 built sculpt checks.
+- **Known blocker remains:** the broad editor GPU regression stops at its unchanged four-second fence.
+  Publishing does not turn this into passing stability or physical Windows GPU verification.
+- Workflow branch/path filters do not include this change. A `[skip ci]` commit marker additionally preserves
+  the standing instruction not to run GitHub Actions. No pull request or merge is requested.
+- Preserve the exact tested source bytes. Strict whitespace review reports one existing extra blank line at EOF
+  in `CoastalWorld.js`; no clean-formatting certification is claimed by this publication.
+- Earlier dated no-commit/no-push statements describe capture-time state, not a restriction on this publication.

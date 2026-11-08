@@ -1,0 +1,33 @@
+{
+  "name": "frontier-landscape-workspace",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "test": "node --test",
+    "test:browser": "node ../../Exhibits/LandscapeWorkspace/BrowserValidation.mjs",
+    "test:volume": "node ../../Exhibits/LandscapeWorkspace/HighResolutionValidation.mjs",
+    "preview": "vite preview --host 0.0.0.0",
+    "test:production": "node ../../Exhibits/LandscapeWorkspace/ProductionValidation.mjs",
+    "test:metric": "node ../../Exhibits/LandscapeWorkspace/MetricDistanceValidation.mjs",
+    "test:metric-browser": "node ../../Exhibits/LandscapeWorkspace/MetricBrowserValidation.mjs",
+    "test:preview": "node ../../Exhibits/LandscapeWorkspace/GpuSurfaceValidation.mjs",
+    "test:gpu-failure": "node ../../Exhibits/LandscapeWorkspace/GpuFailureValidation.mjs",
+    "test:gpu-quality": "node ../../Exhibits/LandscapeWorkspace/GpuQualityValidation.mjs",
+    "test:gpu-dialog": "node ../../Exhibits/LandscapeWorkspace/GpuDialogValidation.mjs",
+    "test:working": "node ../../Exhibits/LandscapeWorkspace/GpuRegionResolutionValidation.mjs",
+    "test:sampling": "node ../../Exhibits/LandscapeWorkspace/GpuPreviewSamplingValidation.mjs",
+    "test:sculpt": "node ../../Exhibits/LandscapeWorkspace/GpuSculptValidation.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "vite": "^7.1.0"
+  },
+  "dependencies": {
+    "lucide": "1.66.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

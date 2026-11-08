@@ -1,0 +1,24 @@
+{
+  "Date": "2026-11-07T08:49:20.866Z",
+  "Arguments": [
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--disable-software-rasterizer",
+    "--no-zygote"
+  ],
+  "Native": {
+    "WebGL": false,
+    "WebGL2": false,
+    "Canvas2D": true
+  },
+  "Preview": {
+    "previewWidth": "256",
+    "cameraTarget": "[-47.5,23.64,-72.5]",
+    "cameraYaw": "-0.35",
+    "renderStatus": "failed",
+    "renderMessage": "WebGL2 is unavailable. Your vector masks remain editable.",
+    "renderExecution": "thread"
+  },
+  "Message": "WebGL2 is unavailable. Your vector masks remain editable."
+}

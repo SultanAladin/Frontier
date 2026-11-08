@@ -1,0 +1,221 @@
+{
+  "Status": "passed",
+  "Date": "2026-11-07T09:53:27.666Z",
+  "Runtime": "v22.22.3",
+  "Platform": "linux",
+  "Revision": "e1ce5629e8927ea1fc1b11646df21e7332687e68",
+  "Branch": "arena/ceeabe45-frontier",
+  "Origin": "http://127.0.0.1:5173",
+  "Checks": [
+    {
+      "Name": "Mask startup creates no WebGL context or hidden 3D workload",
+      "Status": "passed",
+      "Observed": {
+        "GraphicsThreads": 0
+      }
+    },
+    {
+      "Name": "returning immediately to Mask cancels deferred graphics creation",
+      "Status": "passed",
+      "Observed": {
+        "GraphicsThreads": 0
+      }
+    },
+    {
+      "Name": "cold high-DPI Landscape presents real land while accepting input during GPU work",
+      "Status": "passed",
+      "Observed": {
+        "ColdFirstVisibleTerrainSeconds": 12.062141944999999,
+        "LandscapeClickMilliseconds": 42.69357800000034,
+        "InspectorInputMilliseconds": 32.5464209999991,
+        "Appearance": {
+          "Width": 96,
+          "Height": 79,
+          "Complete": true,
+          "Error": 0,
+          "renderExecution": "thread",
+          "graphicsContexts": "1",
+          "renderMode": "webgl2",
+          "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+          "initializationEpoch": "1",
+          "renderStatus": "ready",
+          "renderMessage": "",
+          "previewSuspended": "false",
+          "volumeRevision": "1",
+          "previewWidth": "256",
+          "gpuUploads": "1",
+          "submittedComposition": "[\"[96,79,1,{\\\"Yaw\\\":-0.35,\\\"Pitch\\\":0.72,\\\"Orbit\\\":1134.675,\\\"Target\\\":[-47.5,23.64,-72.5]}]\",1,true,27.33291000000003]",
+          "maximumTerrainTilePixels": "256",
+          "gpuDraws": "141",
+          "previewProgress": "0",
+          "maximumFenceMilliseconds": "6343",
+          "bufferWidth": "96",
+          "bufferHeight": "79",
+          "completedOrbit": "1134.675",
+          "completedTarget": "[-47.5,23.64,-72.5]",
+          "completedRevision": "1",
+          "completedComposition": "[\"[96,79,1,{\\\"Yaw\\\":-0.35,\\\"Pitch\\\":0.72,\\\"Orbit\\\":1134.675,\\\"Target\\\":[-47.5,23.64,-72.5]}]\",1,true,18.583210000000008]",
+          "terrainRenders": "1",
+          "Hash": 1062014123,
+          "LandPixels": 693
+        }
+      }
+    },
+    {
+      "Name": "the procedural ocean changes the presented pixels without rerendering stable terrain",
+      "Status": "passed",
+      "Observed": {
+        "BeforeHash": 2130074853,
+        "AfterHash": 2881215251,
+        "Width": 256,
+        "TerrainRenders": "2"
+      }
+    },
+    {
+      "Name": "Mask suspends the existing renderer without further GPU draws or uploads",
+      "Status": "passed",
+      "Observed": {
+        "MaskClickMilliseconds": 60.97613900000579,
+        "Draws": "777",
+        "Uploads": "1"
+      }
+    },
+    {
+      "Name": "3D camera zoom completes a new perspective",
+      "Status": "passed",
+      "Observed": {
+        "PreviousOrbit": "1134.675",
+        "CompletedOrbit": "1037.0148676476308"
+      }
+    },
+    {
+      "Name": "3D middle-button pan completes a newly rendered camera target",
+      "Status": "passed",
+      "Observed": {
+        "PreviousTarget": "[-47.5,23.64,-72.5]",
+        "CompletedTarget": "[-82.446703016458,23.64,-112.85514233580898]"
+      }
+    },
+    {
+      "Name": "real context loss is prevented, restoration in Mask stays suspended, Landscape rebuilds fresh resources",
+      "Status": "passed",
+      "Observed": {
+        "BeforeEpoch": "1",
+        "Recovered": {
+          "renderExecution": "thread",
+          "graphicsContexts": "1",
+          "renderMode": "webgl2",
+          "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+          "initializationEpoch": "3",
+          "renderStatus": "ready",
+          "renderMessage": "",
+          "previewSuspended": "false",
+          "volumeRevision": "1",
+          "previewWidth": "256",
+          "gpuUploads": "2",
+          "maximumTerrainTilePixels": "256",
+          "gpuDraws": "1548",
+          "previewProgress": "0",
+          "maximumFenceMilliseconds": "7237.800000000745",
+          "bufferWidth": "96",
+          "bufferHeight": "79",
+          "completedOrbit": "1037.0148676476308",
+          "completedTarget": "[-82.446703016458,23.64,-112.85514233580898]",
+          "terrainRenders": "5",
+          "contextLossPrevented": "true",
+          "contextLosses": "1",
+          "submittedComposition": "[\"[96,79,1,{\\\"Yaw\\\":-0.35,\\\"Pitch\\\":0.72,\\\"Orbit\\\":1037.0148676476308,\\\"Target\\\":[-82.446703016458,23.64,-112.85514233580898]}]\",1,true,63.755809999995066]",
+          "completedRevision": "1",
+          "completedComposition": "[\"[96,79,1,{\\\"Yaw\\\":-0.35,\\\"Pitch\\\":0.72,\\\"Orbit\\\":1037.0148676476308,\\\"Target\\\":[-82.446703016458,23.64,-112.85514233580898]}]\",1,true,56.86330999999728]",
+          "Suspended": false,
+          "ContextLost": false
+        },
+        "DocumentPreserved": true
+      }
+    },
+    {
+      "Name": "eight Mask/Landscape cycles reuse the same rendering thread and WebGL context",
+      "Status": "passed",
+      "Observed": {
+        "GraphicsThreads": [
+          "http://127.0.0.1:5173/VolumeSubmission.js?worker_file&type=module"
+        ],
+        "Contexts": "1"
+      }
+    },
+    {
+      "Name": "all WebGL calls stay off the UI thread through rendering, navigation and recovery",
+      "Status": "passed",
+      "Observed": {
+        "MainThreadContexts": 0,
+        "MainThreadDraws": 0,
+        "MaximumHeartbeatMilliseconds": 43.69999999925494,
+        "HeartbeatStalls": [],
+        "SlowCanvasCalls": []
+      }
+    },
+    {
+      "Name": "third real graphics reset stops GPU retries and automatically presents software terrain while preserving Save project",
+      "Status": "passed",
+      "Observed": {
+        "ContextLosses": "3",
+        "DocumentPreserved": true,
+        "Export": "CoastalStudy.frontier.json"
+      }
+    },
+    {
+      "Name": "native disabled WebGL without OffscreenCanvas presents software terrain and preserves Mask authoring",
+      "Status": "passed",
+      "Observed": {
+        "WebGLDisabled": true,
+        "OffscreenDisabled": true,
+        "PageErrors": []
+      }
+    },
+    {
+      "Name": "injected graphics-thread allocation failure automatically presents real software terrain",
+      "Status": "passed",
+      "Observed": {
+        "SimulatedContextAllocationFailure": true,
+        "PageErrors": []
+      }
+    }
+  ],
+  "SourceSHA256": {
+    "Workspace.js": "82109694f350cbd6087edaa2a941a645a0ef1d7d821381955cc8cd2a935be13c",
+    "VolumeRasterization.js": "a4a0329dab8d393cd4104c866ce99e3ba1ef4724e86b98533b35b12f7b73b59c",
+    "VolumePresentation.js": "49276540a78abf29be9b45854287a6dd4df14338cba1f37088f84ff98b0e66c2",
+    "VolumeSubmission.js": "69860ebf0f0ce4b692d53912a84f41d607e4e4ec6c611524afb8dc3760797caf",
+    "VolumeRayField.js": "4f123a86a17e3d11161724889fa38abdff1e8d016ea55259c85c29d8085600a3",
+    "VolumeScalarRasterization.js": "1ba9ccd3608f9311070445a8f973c0bbf3ac8fcee334261bb858af692cf256fe",
+    "PreviewTiling.js": "ea7a768e8b260eb3c2e9d6f126ed5ed603a5484a1c844065555dfe271a1d185d",
+    "Workspace.css": "0d3bacc27e065c3b00d3064e297b6fec9eecbe5ec209c0cdf6a6ce2196c784c1",
+    "index.html": "7d33fcb7e9ff26147aa9d457cba56dc7b3e20d45b51c637844f87d2bcd1725a7"
+  },
+  "Note": "The responsiveness interval starts at first Landscape entry, after the separately recorded Mask-only startup. Captures follow this interval. Uncommitted freeze repair; actual application and WEBGL_lose_context, not synthetic DOM events. Linux Chromium / software GPU, not Windows hardware. Cold means the first WebGL context in this page; the driver shader cache may be warm.",
+  "GraphicsDeadlineConfiguration": {
+    "Milliseconds": 90000,
+    "Note": "GPU-only lifecycle/900px quality validation deliberately allows a slow software GPU to finish. This HTTP-only constructor-option override is NOT production behaviour. Default 12-second recovery is independently exercised unmodified in PreviewDeadlineValidation and ProductionPreviewDeadline.",
+    "OriginalHTTPSourceSHA256": "33f4e4f2e65ce0ef10270f89d007d8a20fc38890868d8d98ce44607dc26cf84f",
+    "ModifiedHTTPSourceSHA256": "bfda17df1940d0ec7baa0c2ba93ccebe84825cc75f06148fd004b280c786facf"
+  },
+  "BeforeGraphics": {
+    "BrowserMilliseconds": 4944.699999999255,
+    "Telemetry": {
+      "MainThreadContexts": 0,
+      "MainThreadDraws": 0,
+      "MaximumHeartbeatMilliseconds": 3913.5,
+      "HeartbeatStalls": [
+        {
+          "Elapsed": 3913.5,
+          "Phase": "returning immediately to Mask cancels deferred graphics creation",
+          "Timestamp": 4930.900000002235
+        }
+      ],
+      "SlowCanvasCalls": []
+    }
+  },
+  "ColdFirstVisibleTerrainSeconds": 12.062141944999999,
+  "Browser": "153.0.8010.0",
+  "Renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+}

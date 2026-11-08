@@ -1,0 +1,18 @@
+
+> build
+> vite build
+
+vite v7.3.7 building client environment for production...
+transforming...
+✓ 2044 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/assets/dm-sans-latin-300-normal-C46oWILc.woff2  13.71 kB
+dist/assets/dm-sans-latin-400-normal-CW0RaeGs.woff2  14.20 kB
+dist/assets/dm-sans-latin-500-normal-B9HHJjqV.woff2  14.30 kB
+dist/index.html                                      21.62 kB │ gzip:  6.04 kB
+dist/assets/VolumeBaking-DIWxdHgv.js                 32.41 kB
+dist/assets/VolumeSubmission-Cezu_m9h.js             62.78 kB
+dist/assets/index-Bpdr43Nb.css                       30.30 kB │ gzip:  7.07 kB
+dist/assets/index-BpE8H3Be.js                        92.40 kB │ gzip: 33.30 kB
+✓ built in 1.81s

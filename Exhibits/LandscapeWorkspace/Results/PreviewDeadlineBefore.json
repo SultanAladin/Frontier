@@ -1,0 +1,18 @@
+{
+  "Date": "2026-11-07T09:32:02.502Z",
+  "ElapsedMilliseconds": 13684,
+  "Simulation": "A real WebGL2 context is allocated, then the dedicated graphics thread is deliberately blocked without error or first image.",
+  "NativeWebGL2": "true",
+  "Preview": {
+    "previewWidth": "256",
+    "cameraTarget": "[-47.5,23.64,-72.5]",
+    "cameraYaw": "-0.35",
+    "renderStatus": "compiling",
+    "renderMessage": "Preparing the 3D landscape. The mask editor remains available.",
+    "renderExecution": "thread",
+    "renderMode": "webgl2",
+    "validationNativeWebGL": "true"
+  },
+  "SoftwareCanvasCount": 0,
+  "Message": "Preparing the 3D landscape. The mask editor remains available."
+}

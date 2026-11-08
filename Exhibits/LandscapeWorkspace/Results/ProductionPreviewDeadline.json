@@ -1,0 +1,223 @@
+{
+  "Status": "passed",
+  "Date": "2026-11-07T09:57:15.669Z",
+  "Runtime": "v22.22.3",
+  "Platform": "linux",
+  "Revision": "e1ce5629e8927ea1fc1b11646df21e7332687e68",
+  "Branch": "arena/ceeabe45-frontier",
+  "Origin": "http://127.0.0.1:4173",
+  "Checks": [
+    {
+      "Name": "a genuine WebGL2 context can exist while the preview worker remains blocked with no image or failure",
+      "Status": "passed",
+      "Observed": {
+        "NativeWebGL2": "true",
+        "Simulation": "GPU worker infinite loop after actual context allocation",
+        "Waiting": "compiling",
+        "AuthoredGeneratorCount": 3
+      }
+    },
+    {
+      "Name": "the visible-image deadline replaces the blocked GPU with a fresh CPU worker and actual terrain",
+      "Status": "passed",
+      "Observed": {
+        "ElapsedMilliseconds": 12084.917200000002,
+        "DeadlineMilliseconds": 12000,
+        "Threads": 2,
+        "FirstImage": {
+          "Width": 48,
+          "Height": 39,
+          "Complete": true,
+          "Error": 0,
+          "PixelOrder": "top-down RGBA8",
+          "renderExecution": "thread",
+          "renderMode": "software",
+          "renderer": "CPU software · volumetric SDF ray intersections",
+          "graphicsContexts": "0",
+          "initializationEpoch": "1",
+          "softwareReason": "The GPU preview did not present an image within 12 seconds.",
+          "renderStatus": "refining",
+          "renderMessage": "Rendering the same 3D SDF in software; the editor remains usable.",
+          "volumeRevision": "1",
+          "softwareUploads": "1",
+          "previewWidth": "160",
+          "submittedComposition": "[\"[160,132,1,{\\\"Yaw\\\":-0.35,\\\"Pitch\\\":0.72,\\\"Orbit\\\":1134.675,\\\"Target\\\":[-47.5,23.64,-72.5]}]\",1,true,31.366200000000024]",
+          "softwareRays": "2385",
+          "softwareMaximumSliceMilliseconds": "16.5",
+          "previewProgress": "0.024289772727272726",
+          "terrainRenders": "1",
+          "completedOrbit": "1134.675",
+          "completedTarget": "[-47.5,23.64,-72.5]",
+          "completedRevision": "1",
+          "completedComposition": "[\"[48,39,1,{\\\"Yaw\\\":-0.35,\\\"Pitch\\\":0.72,\\\"Orbit\\\":1134.675,\\\"Target\\\":[-47.5,23.64,-72.5]}]\",1,true,30.982900000000022]",
+          "bufferWidth": "48",
+          "bufferHeight": "39",
+          "softwareImages": "1",
+          "Hash": 3507857409,
+          "LandPixels": 172
+        },
+        "ExactDocumentRetained": true
+      }
+    },
+    {
+      "Name": "the recovered preview still accepts camera navigation and edits to the third multifractal generator",
+      "Status": "passed",
+      "Observed": {
+        "PreviousOrbit": "1134.675",
+        "CompletedOrbit": "986.43905575114",
+        "Relief": 75
+      }
+    },
+    {
+      "Name": "Use software renderer bypasses the GPU deadline without reload or document loss",
+      "Status": "passed",
+      "Observed": {
+        "ElapsedMilliseconds": 4180.9444650000005,
+        "Threads": 2,
+        "Image": {
+          "Width": 160,
+          "Height": 132,
+          "Complete": true,
+          "Error": 0,
+          "PixelOrder": "top-down RGBA8",
+          "renderExecution": "thread",
+          "renderMode": "software",
+          "renderer": "CPU software · volumetric SDF ray intersections",
+          "graphicsContexts": "0",
+          "initializationEpoch": "1",
+          "softwareReason": "Software rendering was requested while the GPU preview was preparing.",
+          "renderStatus": "refining",
+          "renderMessage": "Rendering the same 3D SDF in software; the editor remains usable.",
+          "volumeRevision": "1",
+          "softwareUploads": "1",
+          "previewWidth": "160",
+          "submittedComposition": "[\"[160,132,1,{\\\"Yaw\\\":-0.35,\\\"Pitch\\\":0.72,\\\"Orbit\\\":1134.675,\\\"Target\\\":[-47.5,23.64,-72.5]}]\",1,true,18.966700000000014]",
+          "softwareRays": "22992",
+          "softwareMaximumSliceMilliseconds": "22",
+          "previewProgress": "0.10568181818181818",
+          "terrainRenders": "2",
+          "completedOrbit": "1134.675",
+          "completedTarget": "[-47.5,23.64,-72.5]",
+          "completedRevision": "1",
+          "completedComposition": "[\"[160,132,1,{\\\"Yaw\\\":-0.35,\\\"Pitch\\\":0.72,\\\"Orbit\\\":1134.675,\\\"Target\\\":[-47.5,23.64,-72.5]}]\",1,true,18.950000000000014]",
+          "bufferWidth": "160",
+          "bufferHeight": "132",
+          "softwareImages": "2",
+          "Hash": 1531174888,
+          "LandPixels": 1921
+        },
+        "ExactDocumentRetained": true
+      }
+    },
+    {
+      "Name": "startup, software recovery and camera resubmission still work with every animation callback suppressed",
+      "Status": "passed",
+      "Observed": {
+        "ExplicitAnimationSuppression": true,
+        "SyntheticWheelInput": true,
+        "ViewSchedule": "timer",
+        "ElapsedMilliseconds": 12375.779636,
+        "Image": {
+          "Width": 48,
+          "Height": 39,
+          "Complete": true,
+          "Error": 0,
+          "PixelOrder": "top-down RGBA8",
+          "renderExecution": "thread",
+          "renderMode": "software",
+          "renderer": "CPU software · volumetric SDF ray intersections",
+          "graphicsContexts": "0",
+          "initializationEpoch": "1",
+          "softwareReason": "The GPU preview did not present an image within 12 seconds.",
+          "renderStatus": "refining",
+          "renderMessage": "Rendering the same 3D SDF in software; the editor remains usable.",
+          "volumeRevision": "1",
+          "softwareUploads": "1",
+          "previewWidth": "160",
+          "submittedComposition": "[\"[160,132,1,{\\\"Yaw\\\":-0.35,\\\"Pitch\\\":0.72,\\\"Orbit\\\":1134.675,\\\"Target\\\":[-47.5,23.64,-72.5]}]\",1,true,23.200000000000074]",
+          "softwareRays": "2567",
+          "softwareMaximumSliceMilliseconds": "17.299999997019768",
+          "previewProgress": "0.03290719696969697",
+          "terrainRenders": "1",
+          "completedOrbit": "1134.675",
+          "completedTarget": "[-47.5,23.64,-72.5]",
+          "completedRevision": "1",
+          "completedComposition": "[\"[48,39,1,{\\\"Yaw\\\":-0.35,\\\"Pitch\\\":0.72,\\\"Orbit\\\":1134.675,\\\"Target\\\":[-47.5,23.64,-72.5]}]\",1,true,23.00000000000007]",
+          "bufferWidth": "48",
+          "bufferHeight": "39",
+          "softwareImages": "1",
+          "Hash": 873156388,
+          "LandPixels": 172
+        },
+        "PreviousOrbit": "1134.675",
+        "CompletedOrbit": "986.43905575114"
+      }
+    },
+    {
+      "Name": "a silent CPU replacement also times out and local yielding CPU rendering still presents terrain",
+      "Status": "passed",
+      "Observed": {
+        "ElapsedMilliseconds": 15457.664862000005,
+        "GraphicsDeadline": 12000,
+        "SoftwareHandshakeDeadline": 3000,
+        "Image": {
+          "Width": 48,
+          "Height": 39,
+          "Complete": true,
+          "Error": 0,
+          "PixelOrder": "top-down RGBA8",
+          "renderExecution": "main-sliced",
+          "renderMode": "software",
+          "renderer": "CPU software · volumetric SDF ray intersections",
+          "graphicsContexts": "0",
+          "initializationEpoch": "1",
+          "softwareReason": "The software rendering thread did not start. Using yielding local CPU rendering.",
+          "renderStatus": "refining",
+          "renderMessage": "Rendering the same 3D SDF in software; the editor remains usable.",
+          "volumeRevision": "1",
+          "softwareUploads": "1",
+          "previewWidth": "160",
+          "submittedComposition": "[\"[160,132,1,{\\\"Yaw\\\":-0.35,\\\"Pitch\\\":0.72,\\\"Orbit\\\":1134.675,\\\"Target\\\":[-47.5,23.64,-72.5]}]\",1,true,31.299435999999982]",
+          "softwareRays": "2456",
+          "softwareMaximumSliceMilliseconds": "11.700000002980232",
+          "previewProgress": "0.027651515151515153",
+          "terrainRenders": "1",
+          "completedOrbit": "1134.675",
+          "completedTarget": "[-47.5,23.64,-72.5]",
+          "completedRevision": "1",
+          "completedComposition": "[\"[48,39,1,{\\\"Yaw\\\":-0.35,\\\"Pitch\\\":0.72,\\\"Orbit\\\":1134.675,\\\"Target\\\":[-47.5,23.64,-72.5]}]\",1,true,31.01613599999998]",
+          "bufferWidth": "48",
+          "bufferHeight": "39",
+          "softwareImages": "1",
+          "Hash": 1013090953,
+          "LandPixels": 172
+        },
+        "MaskUsable": true
+      }
+    },
+    {
+      "Name": "all deadline and manual recovery cases finish without uncaught application errors",
+      "Status": "passed",
+      "Observed": {
+        "Errors": []
+      }
+    }
+  ],
+  "SourceSHA256": {
+    "Workspace.js": "82109694f350cbd6087edaa2a941a645a0ef1d7d821381955cc8cd2a935be13c",
+    "VolumePresentation.js": "49276540a78abf29be9b45854287a6dd4df14338cba1f37088f84ff98b0e66c2",
+    "VolumeSubmission.js": "69860ebf0f0ce4b692d53912a84f41d607e4e4ec6c611524afb8dc3760797caf",
+    "VolumeRasterization.js": "a4a0329dab8d393cd4104c866ce99e3ba1ef4724e86b98533b35b12f7b73b59c",
+    "VolumeRayField.js": "4f123a86a17e3d11161724889fa38abdff1e8d016ea55259c85c29d8085600a3",
+    "VolumeScalarRasterization.js": "1ba9ccd3608f9311070445a8f973c0bbf3ac8fcee334261bb858af692cf256fe",
+    "LandformStack.js": "e39ad15fadd98c1a5d290ed8ddeb66ae413b07f9bf4d8861e000359419e0d836",
+    "Workspace.css": "0d3bacc27e065c3b00d3064e297b6fec9eecbe5ec209c0cdf6a6ce2196c784c1",
+    "index.html": "7d33fcb7e9ff26147aa9d457cba56dc7b3e20d45b51c637844f87d2bcd1725a7"
+  },
+  "Deadlines": {
+    "GraphicsImageTimeoutMilliseconds": 12000,
+    "SoftwareThreadTimeoutMilliseconds": 3000
+  },
+  "Note": "Real Chromium/SwiftShader WebGL2 allocation followed by an explicitly injected infinite loop in only the GPU worker. This reproduces no-error/no-image startup, not the physical cause on the user device. The software replacement has no transferred GL surface. An extra case explicitly silences that replacement to exercise local recovery. Uncommitted browser-prototype edits, not Windows hardware certification.",
+  "Browser": "153.0.8010.0"
+}
