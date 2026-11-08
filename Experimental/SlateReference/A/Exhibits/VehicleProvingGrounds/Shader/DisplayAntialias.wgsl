@@ -33,6 +33,25 @@ fn ExpandRange(Colour: vec3f) -> vec3f
     return Colour / max(1.0 - ResolveLuminance(Colour), 1.0e-4);
 }
 
+// 📝 The Vehicle Proving Grounds camera component feeds an 8-bit strength in reserved Frame.Features bits 16–23.
+//    A capped five-tap current-frame shutter follows the existing per-pixel screen motion vector; no camera means no blur.
+fn ResolveCameraMotionBlur(Pixel: vec2i, MotionPixels: vec2f, Strength: f32) -> vec3f
+{
+    let Centre = textureLoad(RecombinedRadiance, Pixel, 0).rgb;
+    let Speed = length(MotionPixels);
+    if (Strength <= 0.0 || Speed < 0.75 || Frame.InspectionMode != 0u)
+        return Centre;
+    let ClampedMotion = MotionPixels * min(1.0, 24.0 / Speed) * Strength;
+    let CentreUv = (vec2f(Pixel) + 0.5) * Frame.InverseScreenExtent;
+    var Sum = vec3f(0.0);
+    for (var Tap = -2; Tap <= 2; Tap++)
+    {
+        let Offset = ClampedMotion * (f32(Tap) * 0.25) * Frame.InverseScreenExtent;
+        Sum += textureSampleLevel(RecombinedRadiance, LinearClamp, CentreUv - Offset, 0.0).rgb;
+    }
+    return Sum * 0.2;
+}
+
 @compute @workgroup_size(8, 8)
 fn IntegrateAntialias(@builtin(global_invocation_id) Invocation: vec3u)
 {
@@ -41,7 +60,9 @@ fn IntegrateAntialias(@builtin(global_invocation_id) Invocation: vec3u)
     {
         return;
     }
-    let Current = CompressRange(textureLoad(RecombinedRadiance, Pixel, 0).rgb);
+    let Motion = textureLoad(SurfaceMotion, Pixel, 0).xy;
+    let MotionBlurStrength = f32((Frame.Features >> 16u) & 255u) / 255.0;
+    let Current = CompressRange(ResolveCameraMotionBlur(Pixel, Motion, MotionBlurStrength));
     if (!FeatureEnabled(Frame, FeatureTemporalAntialias) || Frame.InspectionMode == 6u || Frame.InspectionMode == 7u)
     {
         textureStore(AntialiasTarget, Pixel, vec4f(ExpandRange(Current), 1.0));
@@ -68,7 +89,6 @@ fn IntegrateAntialias(@builtin(global_invocation_id) Invocation: vec3u)
     Minimum = max(Minimum, Mean - 1.25 * Deviation);
     Maximum = min(Maximum, Mean + 1.25 * Deviation);
 
-    let Motion = textureLoad(SurfaceMotion, Pixel, 0).xy;
     let PriorCoordinates = (vec2f(Pixel) + 0.5 - Motion) * Frame.InverseScreenExtent;
     var Fraction = 0.1;
     var Prior = Current;

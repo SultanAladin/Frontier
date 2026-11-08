@@ -182,6 +182,9 @@ function BuildRender(Host, C, Body)
     C.Segmented(Quality, S, "Quality", [["Low", 0], ["Medium", 1], ["High", 2]], { Label: "Quality grade · reloads" });
     C.Segmented(Quality, S, "TraceScale", [["Full", 1], ["Half", 2], ["Quarter", 4]], { Label: "Trace resolution" });
     Slider(C, Quality, S, "RenderScale", "Render scale", 0.25, 2.0, 0.05, "×", 2, ["Faster", "Sharper"]);
+    const Profile = C.ActionRow(Quality);
+    C.Button(Profile, "Apply fast profile", "Gauge", () => Host.ApplyFastPerformanceProfile(), "primary");
+    C.Button(Profile, "Restore saved", "RotateCcw", () => Host.RestorePerformanceProfile());
 
     const Gather = C.Card(Body, "Global illumination · ReSTIR", "Sparkles", { Accent: Accent.Render, Index: 2 });
     C.Switch(Gather, S, "ScreenTraversal", { Label: "Screen traces, then distance field", Detail: "Nearest-depth pyramid walk first (?screentraces=1)" });
@@ -215,14 +218,30 @@ function BuildRender(Host, C, Body)
     C.Metric(Timing, () => 1.0 / Math.max(Host.FrameSeconds || 1, 1.0e-4), "fps", 0, () => [`1% low ${Host.LowRate || "–"}`, ""]);
     C.Stats(Timing, [["Frame", () => (Host.FrameSeconds || 0) * 1000.0, "ms", 1], ["Draw runs", () => Host.Scene.DrawRuns.length],
                      ["Bricks / frame", () => Host.Distance.FrameBricks.length / 4]]);
+    C.Muted(Timing, "CPU timings are main-thread wall time. GPU pass timings are separate asynchronous timestamp queries; unsupported adapters report unavailable, not zero.");
+    C.Switch(Timing, Host.PerformanceCapture, "Enabled", {
+        Label: "Log every second",
+        Detail: "vehiclehmi_perf_v1 JSON in the developer console",
+        OnChange: (Enabled) => Host.SetPerformanceLogging(Enabled)
+    });
     C.Readout(Timing, () =>
     {
+        const Samples = Host.PerformanceWindowSamples;
+        const Mean = (Values) => Values.length ? (Values.reduce((Total, Value) => Total + Value, 0.0) / Values.length).toFixed(2) : "–";
+        const Lines = [`CPU callback       ${Mean(Samples.callback_cpu_ms)} ms avg`,
+                       `CPU scene update   ${Mean(Samples.scene_update_cpu_ms)} ms avg`,
+                       `CPU command encode ${Mean(Samples.command_encode_cpu_ms)} ms avg`,
+                       `CPU queue submit   ${Mean(Samples.queue_submit_cpu_ms)} ms avg`];
         if (!Host.Metrics.Enabled)
-            return ["GPU pass timings need the timestamp-query feature;", "this adapter does not expose it."];
-        return Object.entries(Host.Metrics.Durations).filter(([, Milliseconds]) => Milliseconds > 0.0)
-                     .map(([Name, Milliseconds]) => `${Name.padEnd(24)}${Milliseconds.toFixed(2).padStart(7)} ms`);
+            Lines.push("GPU timestamps unavailable on this adapter.");
+        else
+            Lines.push(...Object.entries(Host.Metrics.Durations).filter(([Name]) => Host.Metrics.PassSamples[Name] > 0)
+                .map(([Name, Milliseconds]) => `GPU ${Name.padEnd(20)} ${Milliseconds.toFixed(2)} ms EMA`));
+        return Lines;
     });
-    C.Button(Timing, "Copy timing log", "Activity", () => Host.CopyTimingLog());
+    const LogActions = C.ActionRow(Timing);
+    C.Button(LogActions, "Copy JSON", "Copy", () => Host.CopyTimingLog(), "primary");
+    C.Button(LogActions, "Download JSON", null, () => Host.DownloadTimingLog());
 }
 
 function BuildField(Host, C, Body)
@@ -408,6 +427,14 @@ function BuildVehicle(Host, C, Body)
     C.Switch(Camera, S, "SpeedFov", { Label: "Speed-based FOV" });
     Slider(C, Camera, S, "SpeedFovBoost", "FOV boost at speed", 0, 24, 1, "°", 0);
     C.Muted(Camera, "Shake and speed FOV apply to driving cameras only; the HMI touch view and tyre inspection stay steady.");
+    C.Switch(Camera, Host.ActiveCamera.MotionBlur, "Enabled", {
+        Label: "Camera motion blur",
+        Detail: "Camera component · Proving Grounds only",
+        OnChange: () => { Host.PriorValid = false; }
+    });
+    Slider(C, Camera, Host.ActiveCamera.MotionBlur, "Strength", "Blur strength", 0, 1, 0.05, "×", 2,
+           ["Subtle", "Strong"], () => { Host.PriorValid = false; });
+    C.Muted(Camera, "Uses the camera's screen-space motion vectors in the Vehicle Proving Grounds antialias/resolve pass. Other exhibits and the native editor are unaffected.");
     C.Muted(Camera, "Drag to orbit the chase camera, wheel to zoom; inside the car drag to look around and click the tablet to use it. Free camera: WASD, Q/E, Shift.");
 }
 
