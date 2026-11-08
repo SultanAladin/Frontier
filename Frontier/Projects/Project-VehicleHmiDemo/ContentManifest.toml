@@ -1,0 +1,26 @@
+[Manifest]
+# Shared engine content paths referenced by the project at runtime
+# (copied to the build output only when used)
+
+[Assets]
+# Scene
+Scenes/ProvingGrounds.gltf = "Content/Scenes/ProvingGrounds.gltf"
+
+# Fonts (shared)
+EngineContent/FontArchives/DM Sans/DM Sans-300.ttf = "EngineContent/FontArchives/DM Sans/DM Sans-300.ttf"
+EngineContent/FontArchives/DM Sans/DM Sans-400.ttf = "EngineContent/FontArchives/DM Sans/DM Sans-400.ttf"
+EngineContent/FontArchives/DM Sans/DM Sans-500.ttf = "EngineContent/FontArchives/DM Sans/DM Sans-500.ttf"
+
+# Icons (shared)
+EngineContent/Icons/Editor/folder-open.svg = "EngineContent/Icons/Editor/folder-open.svg"
+EngineContent/Icons/Editor/save.svg = "EngineContent/Icons/Editor/save.svg"
+EngineContent/Icons/Editor/sliders-horizontal.svg = "EngineContent/Icons/Editor/sliders-horizontal.svg"
+
+# UI Kit (shared)
+EngineContent/Icons/ThorVG/asset-folder-models.svg = "EngineContent/Icons/ThorVG/asset-folder-models.svg"
+EngineContent/Icons/ThorVG/asset-folder-scenes.svg = "EngineContent/Icons/ThorVG/asset-folder-scenes.svg"
+EngineContent/Icons/ThorVG/slate-image-widget-variant2.svg = "EngineContent/Icons/ThorVG/slate-image-widget-variant2.svg"
+
+[Project]
+ContentLocation = "Content"
+OpeningScene = "Content/Scenes/ProvingGrounds.gltf"
