@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Sugarwyrm — a candy dragon in 3D</title>
+<style>
+  :root {
+    --ink: #fff4fa;
+    --muted: #d3a9c4;
+    --pink: #ff5fa2;
+    --mint: #6ef2c0;
+    --grape: #9b6bff;
+    --glass: rgba(30, 12, 30, 0.42);
+    --stroke: rgba(255, 190, 225, 0.22);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: #140914;
+    color: var(--ink);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  #stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+  /* ---------- chrome ---------- */
+  .ui { position: fixed; inset: 0; pointer-events: none; z-index: 3; }
+  .ui > * { pointer-events: auto; }
+
+  .title-block {
+    position: absolute; top: clamp(18px, 4vh, 44px); left: clamp(18px, 4vw, 52px);
+    max-width: min(520px, 70vw); pointer-events: none;
+  }
+  .eyebrow {
+    font-size: 10px; letter-spacing: 0.34em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 12px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .eyebrow::before {
+    content: ""; width: 26px; height: 1px;
+    background: linear-gradient(90deg, var(--pink), transparent);
+  }
+  h1 {
+    margin: 0; font-size: clamp(38px, 7.4vw, 82px); line-height: 0.92;
+    font-weight: 800; letter-spacing: -0.045em;
+    background: linear-gradient(102deg, #fff0f7 4%, #ff9ccb 38%, #b98cff 68%, #7ff0d4 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 8px 30px rgba(255, 95, 162, 0.32));
+  }
+  .sub {
+    margin: 16px 0 0; color: #e7c6da; font-size: clamp(13px, 1.5vw, 15.5px);
+    max-width: 40ch; line-height: 1.62;
+  }
+  .sub b { color: #fff; font-weight: 600; }
+
+  .dock {
+    position: absolute; left: clamp(16px, 4vw, 52px); bottom: clamp(16px, 4vh, 40px);
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  }
+  button.chip {
+    --bg: var(--glass);
+    appearance: none; border: 1px solid var(--stroke); background: var(--bg);
+    color: var(--ink); border-radius: 999px; padding: 10px 16px;
+    font: inherit; font-size: 12.5px; letter-spacing: 0.02em; cursor: pointer;
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    transition: transform .18s cubic-bezier(.2,.8,.3,1), border-color .18s, background .18s, box-shadow .18s;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  button.chip:hover { transform: translateY(-2px); border-color: rgba(255,190,225,.5); }
+  button.chip:active { transform: translateY(0) scale(.98); }
+  button.chip[aria-pressed="true"] {
+    background: linear-gradient(180deg, rgba(255,110,178,.32), rgba(155,107,255,.24));
+    border-color: rgba(255,170,215,.62);
+    box-shadow: 0 0 0 1px rgba(255,140,200,.18) inset, 0 8px 26px rgba(255,90,160,.24);
+  }
+  button.chip .dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--pink);
+    box-shadow: 0 0 10px var(--pink);
+  }
+  button.chip[aria-pressed="false"] .dot { background: #7a5c72; box-shadow: none; }
+
+  .hint {
+    position: absolute; right: clamp(16px, 4vw, 52px); bottom: clamp(16px, 4vh, 40px);
+    font-size: 11.5px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: rgba(240, 210, 228, 0.6); text-align: right; pointer-events: none;
+    line-height: 1.9;
+  }
+  .hint kbd {
+    font: inherit; font-size: 10.5px; padding: 1px 6px; border-radius: 5px;
+    border: 1px solid rgba(255,190,225,.24); color: #f6d9e8;
+  }
+
+  /* ---------- loader ---------- */
+  #loader {
+    position: fixed; inset: 0; z-index: 20; display: grid; place-items: center;
+    background: radial-gradient(120% 90% at 50% 30%, #2a0f28 0%, #150a17 55%, #0c060f 100%);
+    transition: opacity .8s ease, visibility .8s;
+  }
+  #loader[hidden-fade] { opacity: 0; visibility: hidden; }
+  .loader-inner { text-align: center; width: min(340px, 80vw); }
+  .candy-bar {
+    height: 3px; border-radius: 3px; overflow: hidden; margin-top: 18px;
+    background: rgba(255,255,255,.1);
+  }
+  .candy-bar > i {
+    display: block; height: 100%; width: 30%;
+    background: linear-gradient(90deg, #ff5fa2, #ffd166, #6ef2c0, #9b6bff, #ff5fa2);
+    background-size: 300% 100%;
+    animation: slide 1.4s linear infinite;
+  }
+  @keyframes slide { from { background-position: 0 0; } to { background-position: 300% 0; } }
+  .loader-label { font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--muted); }
+
+  /* ---------- error ---------- */
+  #fatal {
+    position: fixed; inset: auto 16px 16px 16px; z-index: 30; display: none;
+    background: rgba(60, 8, 24, .92); border: 1px solid rgba(255,120,150,.4);
+    border-radius: 14px; padding: 16px 18px; color: #ffd9e2;
+    font: 12px/1.6 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap;
+    max-height: 40vh; overflow: auto;
+  }
+  #fatal[data-on] { display: block; }
+
+  @media (max-width: 720px) {
+    .hint { display: none; }
+    .sub { display: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<div class="ui">
+  <div class="title-block">
+    <div class="eyebrow">Confectionery · III</div>
+    <h1>Sugarwyrm</h1>
+    <p class="sub">
+      A rearing dragon sculpted entirely from <b>candy</b> — poured raspberry
+      fondant, butterscotch horns, mint rock-crystal spines and a grape-taffy
+      wing spread. Drag to circle it.
+    </p>
+  </div>
+
+  <div class="dock">
+    <button class="chip" id="btnRoar" aria-pressed="false"><span class="dot"></span>Roar</button>
+    <button class="chip" id="btnFlap" aria-pressed="true"><span class="dot"></span>Wings</button>
+    <button class="chip" id="btnOrbit" aria-pressed="true"><span class="dot"></span>Auto-orbit</button>
+    <button class="chip" id="btnSugar" aria-pressed="true"><span class="dot"></span>Sugar dust</button>
+  </div>
+
+  <div class="hint">
+    <div>drag &nbsp;·&nbsp; orbit</div>
+    <div>scroll &nbsp;·&nbsp; zoom</div>
+    <div><kbd>space</kbd> &nbsp;roar</div>
+  </div>
+</div>
+
+<div id="loader">
+  <div class="loader-inner">
+    <div class="loader-label">Pulling sugar</div>
+    <div class="candy-bar"><i></i></div>
+  </div>
+</div>
+
+<div id="fatal"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
+<script type="module">
+  const fatal = document.getElementById('fatal');
+  const fail = (err) => {
+    fatal.dataset.on = '';
+    fatal.textContent = 'The candy dragon could not be rendered:\n\n' + (err && err.stack ? err.stack : err);
+    console.error(err);
+  };
+  window.addEventListener('error', (e) => fail(e.error || e.message));
+  window.addEventListener('unhandledrejection', (e) => fail(e.reason));
+  try {
+    const { boot } = await import('./src/main.js');
+    await boot();
+  } catch (err) {
+    fail(err);
+  }
+</script>
+</body>
+</html>

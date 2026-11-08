@@ -1,0 +1,15 @@
+{
+  "name": "sugarwyrm",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A rearing candy dragon in WebGL — procedural anatomy, no asset downloads.",
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 8099",
+    "render": "node tools/trace-dragon.mjs hero side face"
+  },
+  "devDependencies": {
+    "pngjs": "^7.0.0",
+    "three": "file:vendor/three"
+  }
+}

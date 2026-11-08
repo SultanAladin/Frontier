@@ -1,0 +1,6 @@
+# Local review tooling dependencies (reinstall with `npm i pngjs`).
+node_modules/
+package-lock.json
+
+# Scratch renders and contact sheets from the offline review tools.
+tools/out/
