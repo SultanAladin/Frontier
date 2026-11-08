@@ -4,7 +4,7 @@
 import InitJolt from '../node_modules/jolt-physics/dist/jolt-physics.wasm-compat.js';
 import { RigidBodyWorld } from './RigidBodyWorld.js';
 import { VehicleGeometry } from './VehicleSpecification.js';
-import { KerbConstants, EmitRampFacets } from './CourseStructure.js';
+import { KerbConstants, EmitRampFacets, ResolveStuntJoltBoxes } from './CourseStructure.js';
 const Static = 0, Loose = 1, Car = 2, Step = 1 / 120;
 let ModulePromise;
 const XYZ = V => [V.GetX(), V.GetY(), V.GetZ()];
@@ -43,6 +43,11 @@ export class JoltWorld extends RigidBodyWorld {
             this.TerrainBodies.push(this.AddBox({ Minimum: [X0,Y0,0], Maximum: [X1,Y1,KerbConstants.Height] }));
         const Ramp = EmitRampFacets().flatMap(F => F.Corners);
         this.TerrainBodies.push(this.CreateHull(Ramp, [0,0,0], [0,0,0,1], 0, Static));
+        // 📝 Stunt park: coarse convex proxies (wedges and chords, world-space corners) so knocked cones and debris
+        //    rest on the ramps instead of falling through to the ground plane. The car never reads these — it drives
+        //    the analytic course height.
+        for (const Corners of ResolveStuntJoltBoxes())
+            this.TerrainBodies.push(this.CreateHull(Corners, [0,0,0], [0,0,0,1], 0, Static));
         this.Metrics.Backend = this.Backend;
     }
     Pose(Position, Orientation) { this.P.Set(...Position); this.Q.Set(...Orientation); }

@@ -18,7 +18,7 @@
 //    hard for 0.9 s; outside the grounds (35 m past the pad) or below them. The old 3 s overturn respawn in the
 //    vehicle solver is gone — this replaces it.
 
-import { CourseConstants, SpawnPoint } from "./CourseStructure.js";
+import { CourseConstants, SpawnPoint, StuntBounds, ResolveCourseHeight } from "./CourseStructure.js";
 import { VehicleGeometry } from "./VehicleSpecification.js";
 import { RotateVector, LengthVector } from "./TransformProjection.js";
 
@@ -31,7 +31,9 @@ export const RecoverySettingsDefaults = Object.freeze({
     AirborneSeconds: 2.5,    // [s]
     TumbleSeconds:  0.9,     // [s]
     TumbleRate:     5.0,     // [rad/s]
-    HiddenSeconds:  0.35     // [s]
+    HiddenSeconds:  0.35,    // [s]
+    StuntAirborneSeconds: 6.0,   // [s] the stunt park allows real airtime: Big Air flies ~2.5 s
+    StuntTumbleSeconds:   2.2    // [s] ... and a thrown flip needs room to land (or to crash honestly)
 });
 
 export class RecoveryDirector
@@ -83,7 +85,10 @@ export class RecoveryDirector
         else if (this.Stage === "hidden")
         {
             const Destination = this.Pending.Destination;
-            Vehicle.Respawn([Destination.Position[0], Destination.Position[1], VehicleGeometry.CoMHeight + 0.02], Destination.Yaw);
+            // 📝 Height-aware: a recovery onto a ramp deck or a bank rezzes onto its surface, not buried in it.
+            const Rest = ResolveCourseHeight(Destination.Position[0], Destination.Position[1]);
+            Vehicle.Respawn([Destination.Position[0], Destination.Position[1], Rest + VehicleGeometry.CoMHeight + 0.05],
+                            Destination.Yaw);
             Vehicle.Frozen = true;
             if (this.Host.RestoreTyres)
                 this.Host.RestoreTyres();
@@ -125,9 +130,13 @@ export class RecoveryDirector
         this.Overturned = Up[2] < 0.3 && Speed < 2.5 ? this.Overturned + Seconds : 0.0;
         this.Airborne = Contacts === 0 ? this.Airborne + Seconds : 0.0;
         this.Tumbling = Contacts === 0 && Spin > this.Settings.TumbleRate ? this.Tumbling + Seconds : 0.0;
+        // 📝 Inside the stunt park the air and tumble budgets relax (a stuck overturn still recovers as usual).
+        const Stunt = this.WithinStunt(P);
+        const AirLimit = Stunt ? this.Settings.StuntAirborneSeconds : this.Settings.AirborneSeconds;
+        const TumbleLimit = Stunt ? this.Settings.StuntTumbleSeconds : this.Settings.TumbleSeconds;
         if (this.Overturned > this.Settings.OverturnSeconds)
             this.Begin(RecoveryReasons.Overturned, this.ResolveUpright(Vehicle));
-        else if (this.Airborne > this.Settings.AirborneSeconds || this.Tumbling > this.Settings.TumbleSeconds)
+        else if (this.Airborne > AirLimit || this.Tumbling > TumbleLimit)
             this.Begin(RecoveryReasons.SpinOut, this.WithinPad(P, 0.0) ? this.ResolveUpright(Vehicle) : this.Safe);
         else if (!this.WithinPad(P, 35.0) || P[2] < -3.0)
             this.Begin(RecoveryReasons.OutOfBounds, this.Safe);
@@ -138,6 +147,12 @@ export class RecoveryDirector
         const C = CourseConstants;
         return Position[0] > C.PadMinimum[0] - Margin && Position[0] < C.PadMaximum[0] + Margin &&
                Position[1] > C.PadMinimum[1] - Margin && Position[1] < C.PadMaximum[1] + Margin;
+    }
+
+    WithinStunt(Position)
+    {
+        return Position[0] > StuntBounds.Minimum[0] && Position[0] < StuntBounds.Maximum[0] &&
+               Position[1] > StuntBounds.Minimum[1] && Position[1] < StuntBounds.Maximum[1];
     }
 
     // 📝 Upright where it lies, keeping its heading.

@@ -4,8 +4,11 @@
 // 🧩 The Frontier proving grounds: training track, boundary barrier perimeter, tarmac markings, cones, lighting & traffic fixtures.
 
 import { CourseMaterial } from "./MaterialSpecification.js";
-import { CourseConstants, KerbConstants, SpawnPoint, EmitQuad, EmitBoxFacets, EmitPanelFacets, EmitPrismFacets,
-         EmitExtrusionFacets, EmitConeFacets, EmitRampFacets, EmitTyreBarrierFacets, EmitSphereFacets } from "./CourseStructure.js";
+import { CourseConstants, KerbConstants, SpawnPoint, StuntPark, EmitQuad, EmitBoxFacets, EmitPanelFacets, EmitPrismFacets,
+         EmitExtrusionFacets, EmitConeFacets, EmitRampFacets, EmitTyreBarrierFacets, EmitSphereFacets,
+         EmitStuntTabletopFacets, EmitStuntHalfPipeFacets, EmitStuntBowlFacets, EmitStuntBankRingFacets,
+         EmitStuntStraightBankFacets, EmitStuntFunboxFacets, EmitStuntWhoopsFacets, EmitStuntEntryWedgeFacets,
+         EmitStuntRingFacets } from "./CourseStructure.js";
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                      SHAPES
@@ -73,13 +76,33 @@ export const LevelShapes = Object.freeze({
     GardenMirror:    { Emit: () => EmitBoxFacets(2.4, 0.15, 2.0, CourseMaterial.SteelDark,
                                                 [CourseMaterial.SteelDark, CourseMaterial.SteelDark, CourseMaterial.SteelDark,
                                                  CourseMaterial.SteelDark, CourseMaterial.SteelDark, CourseMaterial.Mirror]),
-                       Voxel: 0.08, Cards: 12 }
+                       Voxel: 0.08, Cards: 12 },
+    // 📝 The stunt park (far-east wing): world-space facets sampled from the stunt heightfield (CourseStructure's
+    //    StuntPark table), so each placement rides the identity. Coarse voxels: the distance volumes auto-coarsen to
+    //    128 texels on the longest axis, and these are big concrete the GI only needs to occlude, never to resolve.
+    StuntTableS:    { Emit: () => EmitStuntTabletopFacets(0), Voxel: 0.2, Cards: 6 },
+    StuntTableM:    { Emit: () => EmitStuntTabletopFacets(1), Voxel: 0.2, Cards: 6 },
+    StuntTableL:    { Emit: () => EmitStuntTabletopFacets(2), Voxel: 0.2, Cards: 6 },
+    StuntPipe:      { Emit: () => EmitStuntHalfPipeFacets(), Voxel: 0.25, Cards: 4 },
+    StuntBowl:      { Emit: () => EmitStuntBowlFacets(), Voxel: 0.3, Cards: 4 },
+    StuntBankRing:  { Emit: () => EmitStuntBankRingFacets(), Voxel: 0.25, Cards: 4 },
+    StuntBank:      { Emit: () => EmitStuntStraightBankFacets(), Voxel: 0.25, Cards: 4 },
+    StuntFunbox:    { Emit: () => EmitStuntFunboxFacets(), Voxel: 0.15, Cards: 8 },
+    StuntWhoops:    { Emit: () => EmitStuntWhoopsFacets(), Voxel: 0.1, Cards: 8 },
+    StuntWedge:     { Emit: () => EmitStuntEntryWedgeFacets(), Voxel: 0.15, Cards: 8 },
+    StuntRing:      { Emit: () => EmitStuntRingFacets(), Voxel: 0.12, Cards: 8 },
+    StuntPylon:     { Emit: () => EmitBoxFacets(1.2, 1.2, 9.0, CourseMaterial.BarrierConcrete), Voxel: 0.12, Cards: 8 }
 });
 
-// 📝 Shapes the car collides with (as world boxes)
+// 📝 The stunt ring's two pylons, under the tube's south and north feet (StuntPark.Ring).
+const StuntPylonY = [StuntPark.Ring.Centre[1] - StuntPark.Ring.Radius, StuntPark.Ring.Centre[1] + StuntPark.Ring.Radius];
+
+// 📝 Shapes the car collides with (as world boxes). Stunt ramps are NOT here: a ramp's box would fill the air over its
+//    slopes, so the car meets them through the analytic course height only — exactly like the jump ramp. Only the
+//    stunt ring's pylons (true vertical boxes) collide; the ring tube itself is flown through, never hit.
 const ColliderShapes = new Set(["HangarPanel", "HangarAccent", "Cabinet", "Container40", "Container20", "TunnelWall",
                                 "Tower", "Jersey", "TyreStack", "Pole", "FramePost", "TrafficPost", "TyreBarrier", "GantryPost",
-                                "GardenAluminium", "GardenGold", "GardenGlass", "GardenMirror"]);
+                                "GardenAluminium", "GardenGold", "GardenGlass", "GardenMirror", "StuntPylon"]);
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                    PLACEMENTS
@@ -93,15 +116,16 @@ export function ResolveLevelPlacements()
     const Place = (Shape, Name, X, Y, Z = 0.0, Yaw = 0.0, Material = -1) =>
         List.push({ Shape, Name, Position: [X, Y, Z], Yaw, Material, Collider: ColliderShapes.has(Shape) });
 
-    // ① Boundary Jersey Barriers Perimeter: completely surrounds the large asphalt course [-58.5..154.5] X [-58.5..58.5] Y
-    for (let X = -58.0; X <= 154.0; X += 4.0)
+    // ① Boundary Jersey Barriers Perimeter: completely surrounds the large asphalt course [-58.5..250.5] X [-58.5..58.5] Y,
+    //    the stunt park's far-east wing included — the old east wall is gone, so the park is driven to, not fenced off.
+    for (let X = -58.0; X <= 250.0; X += 4.0)
         Place("Jersey", `Boundary North ${X.toFixed(0)}`, X, 58.5, 0.0, 0.0);
-    for (let X = -58.0; X <= 154.0; X += 4.0)
+    for (let X = -58.0; X <= 250.0; X += 4.0)
         Place("Jersey", `Boundary South ${X.toFixed(0)}`, X, -58.5, 0.0, 0.0);
     for (let Y = -54.0; Y <= 54.0; Y += 4.0)
         Place("Jersey", `Boundary West ${Y.toFixed(0)}`, -58.5, Y, 0.0, 90.0 * Degrees);
     for (let Y = -54.0; Y <= 54.0; Y += 4.0)
-        Place("Jersey", `Boundary East ${Y.toFixed(0)}`, 154.5, Y, 0.0, 90.0 * Degrees);
+        Place("Jersey", `Boundary East ${Y.toFixed(0)}`, 250.5, Y, 0.0, 90.0 * Degrees);
 
     // ② Main straight kerbs & jump ramp
     KerbConstants.Strips.forEach(([X0, X1, Y0, Y1], Strip) =>
@@ -189,7 +213,11 @@ export function ResolveLevelPlacements()
         [-30.0, -10.0, 90.0], [0.0, -10.0, 90.0], [30.0, -10.0, 90.0], [-48.0, 30.0, 0.0],
         [-12.0, 44.0, 180.0], [-56.0, -24.0, 0.0], [20.0, -38.0, 90.0], [8.0, 30.0, 0.0],
         [85.0, -36.0, 180.0], [85.0, 8.0, 180.0], [85.0, 44.0, 180.0], [115.0, -36.0, 0.0],
-        [115.0, 8.0, 0.0], [115.0, 44.0, 0.0], [145.0, -24.0, 180.0], [145.0, 24.0, 180.0]
+        [115.0, 8.0, 0.0], [115.0, 44.0, 0.0], [145.0, -24.0, 180.0], [145.0, 24.0, 180.0],
+        // 📝 Stunt park: on the flat only — the plaza, between the bank and the ring, between ring/bowl/pipe,
+        //    between the kickers, mid landing-corridor and the north-east corner. All clear of ramps and flight lines.
+        [164.0, 14.0, 0.0], [180.0, -2.0, 45.0], [210.0, 18.0, 0.0],
+        [200.0, -33.0, 90.0], [222.0, -32.0, 90.0], [246.0, 26.0, 225.0]
     ];
     Poles.forEach(([X, Y, Facing], Index) =>
     {
@@ -204,6 +232,23 @@ export function ResolveLevelPlacements()
     Place("GardenGold", "Gold sphere", -31.5, 11.5);
     Place("GardenGlass", "Glass sphere", -29.0, 11.5);
     Place("GardenMirror", "Standing mirror", -26.5, 11.5);
+
+    // ⑩ Stunt park (far-east wing): freeride stunt features over open asphalt — no track, no gates to follow. Facets
+    //    are world-space (the Ramp precedent), so every feature placement rides the identity; only the ring's pylons
+    //    stand on their own positions. Run-ups and the Big Air landing corridor stay flat and empty by layout.
+    Place("StuntTableS", "Tabletop S", 0.0, 0.0);
+    Place("StuntTableM", "Tabletop M", 0.0, 0.0);
+    Place("StuntTableL", "Tabletop L · Big Air", 0.0, 0.0);
+    Place("StuntPipe", "Half-pipe", 0.0, 0.0);
+    Place("StuntBowl", "Bowl", 0.0, 0.0);
+    Place("StuntBankRing", "45° bank ring", 0.0, 0.0);
+    Place("StuntBank", "45° wall-ride bank", 0.0, 0.0);
+    Place("StuntFunbox", "Funbox", 0.0, 0.0);
+    Place("StuntWhoops", "Whoops", 0.0, 0.0);
+    Place("StuntWedge", "Bowl entry wedge", 0.0, 0.0);
+    Place("StuntRing", "Stunt ring", 0.0, 0.0);
+    Place("StuntPylon", "Stunt ring pylon south", StuntPark.Ring.Centre[0], StuntPylonY[0]);
+    Place("StuntPylon", "Stunt ring pylon north", StuntPark.Ring.Centre[0], StuntPylonY[1]);
 
     return List;
 }
@@ -269,6 +314,17 @@ export function ResolveConePlacements()
         Cone("parking", 62.0 + 7.0 * i, 36.0);
         Cone("parking", 62.0 + 7.0 * i, 46.0);
     }
+
+    // ⑥ Stunt park: a plaza slalom, the Big Air gate pair and the half-pipe gate pair — all on the flat, so they
+    //    sleep where placed (a cone on a ramp would wake and slide).
+    Cone("stunt", 161.0, 6.0);
+    Cone("stunt", 165.0, 10.0);
+    Cone("stunt", 169.0, 14.0);
+    Cone("stunt", 173.0, 12.0);
+    Cone("stunt", 180.0, -14.5);
+    Cone("stunt", 180.0, -19.5);
+    Cone("stunt", 196.0, 34.0);
+    Cone("stunt", 196.0, 42.0);
 
     return List;
 }
@@ -342,12 +398,13 @@ export function EmitLevelGroundFacets()
                  [Math.max(X0, X1), Math.max(Y0, Y1), PaintLift], [Math.min(X0, X1), Math.max(Y0, Y1), PaintLift], Family);
 
     const White = CourseMaterial.PaintWhite, Yellow = CourseMaterial.PaintYellow;
+    const Blue = CourseMaterial.PaintBlue, Green = CourseMaterial.PaintGreen;
 
-    // ① Boundary edge lines inside jersey barrier perimeter
-    Paint(-56.5, 56.5, 152.5, 56.7, White);
-    Paint(-56.5, -56.7, 152.5, -56.5, White);
+    // ① Boundary edge lines inside jersey barrier perimeter (the stunt park's far-east wing included)
+    Paint(-56.5, 56.5, 250.5, 56.7, White);
+    Paint(-56.5, -56.7, 250.5, -56.5, White);
     Paint(-56.7, -56.5, -56.5, 56.5, White);
-    Paint(152.5, -56.5, 152.7, 56.5, White);
+    Paint(250.5, -56.5, 250.7, 56.5, White);
 
     // ② Main straight lines & center dashes
     for (const Y of [6.0, -6.0])
@@ -402,6 +459,24 @@ export function EmitLevelGroundFacets()
     Paint(91.0, -40.0, 91.15, 40.0, White);
     Paint(99.0, -40.0, 99.15, 40.0, White);
 
+    // ⑨ Stunt park markings — paint lies flat, so it keeps to the flat: the entry gate, the plaza ring, the Big Air
+    //    approach bars and landing-corridor dashes, the wall-ride line and the whoops lane edges.
+    Paint(155.7, -4.0, 156.3, -2.0, Blue);
+    Paint(155.7, 18.0, 156.3, 20.0, Blue);
+    for (let X = 157.0; X < 163.0; X += 3.0)
+        Paint(X, 7.92, X + 1.8, 8.08, White);
+    PaintRing(Paint, Facets, 166.0, 8.0, 5.0, 0.25, 24, 0.5, Blue);
+    for (const X of [170.0, 174.0, 178.0])
+        Paint(X, -19.0, X + 0.4, -15.0, White);
+    for (let X = 209.0; X < 246.0; X += 6.0)
+    {
+        Paint(X, -23.1, X + 3.2, -22.9, White);
+        Paint(X, -11.1, X + 3.2, -10.9, White);
+    }
+    Paint(162.0, -14.6, 180.0, -14.4, Green);
+    Paint(162.0, -52.6, 192.0, -52.4, White);
+    Paint(162.0, -45.6, 192.0, -45.4, White);
+
     return Facets;
 }
 
@@ -424,11 +499,13 @@ export const TrainingDrills = Object.freeze([
     { Id: "skidpad", Name: "Skidpad", Glyph: "CircleDot", Note: "Hold the 14 m ring",
       Teleport: { Position: [-30.0, 18.5], Yaw: 0.0 }, Zone: { Minimum: [-47.0, 13.0], Maximum: [-13.0, 47.0] }, Groups: ["skidpad"] },
     { Id: "jump", Name: "Jump", Glyph: "TrendingUp", Note: "Airtime and distance past the lip",
-      Teleport: { Position: [-20.0, 0.0], Yaw: 0.0 }, Lip: 28.0, Groups: ["straight"] },
+      Teleport: { Position: [-20.0, 0.0], Yaw: 0.0 }, Lip: 28.0, LipY: 0.0, LipHalf: 3.4, Groups: ["straight"] },
     { Id: "smash", Name: "Smash alley", Glyph: "Hammer", Note: "Breakable props",
       Teleport: { Position: [-16.0, -27.0], Yaw: 0.0 }, Zone: { Minimum: [-12.0, -34.4], Maximum: [54.0, -19.6] }, Groups: [] },
     { Id: "slalom", Name: "Slalom", Glyph: "Waves", Note: "8 cones agility course",
-      Teleport: { Position: [95.0, -42.0], Yaw: 90.0 }, Groups: ["slalom"] }
+      Teleport: { Position: [95.0, -42.0], Yaw: 90.0 }, Groups: ["slalom"] },
+    { Id: "bigair", Name: "Big Air", Glyph: "Target", Note: "Thread the ring off the big kicker",
+      Teleport: { Position: [150.0, -17.0], Yaw: 0.0 }, Lip: 191.0, LipY: -17.0, LipHalf: 4.5, Groups: ["stunt"] }
 ]);
 
 export const ArenaZones = Object.freeze([
@@ -437,7 +514,9 @@ export const ArenaZones = Object.freeze([
     { Name: "Tunnel",      Position: [-36.0, -48.0], Yaw: 0.0,   Note: "Lamps in the dark" },
     { Name: "East Course", Position: [80.0, 0.0],    Yaw: 0.0,   Note: "Open proving grounds" },
     { Name: "Smash Alley", Position: [-16.0, -27.0], Yaw: 0.0,   Note: "Breakable objects" },
-    { Name: "Skidpad",     Position: [-30.0, 18.5],  Yaw: 0.0,   Note: "14 m drift ring" }
+    { Name: "Skidpad",     Position: [-30.0, 18.5],  Yaw: 0.0,   Note: "14 m drift ring" },
+    { Name: "Stunt Park",  Position: [166.0, 8.0],   Yaw: 0.0,   Note: "Freeride stunt park" },
+    { Name: "Big Air",     Position: [150.0, -17.0], Yaw: 0.0,   Note: "Big kicker & stunt ring" }
 ]);
 
 export const LevelClearZones = Object.freeze([
@@ -447,7 +526,8 @@ export const LevelClearZones = Object.freeze([
     [-12.0, -40.0, 54.0, -17.0],   // smash alley
     [-38.0, -56.0, 12.0, -40.0],   // tunnel and approaches
     [-60.0, -16.0, -47.0, -6.0],   // control tower
-    [60.0, -58.0, 154.0, 58.0]     // east training grounds
+    [60.0, -58.0, 154.0, 58.0],    // east training grounds
+    [158.0, -58.0, 252.0, 58.0]    // stunt park
 ]);
 
 export { SpawnPoint };

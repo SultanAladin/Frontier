@@ -473,7 +473,8 @@ class IlluminationHost
             this.Recovery.Begin(RecoveryReasons.Teleport, Destination, () => { this.Shell.Announce(`${Zone.Name}`); if (Done) Done(); });
             return;
         }
-        this.Vehicle.Respawn([Destination.Position[0], Destination.Position[1], 0.63], Destination.Yaw);
+        const Rest = ResolveCourseHeight(Destination.Position[0], Destination.Position[1]);
+        this.Vehicle.Respawn([Destination.Position[0], Destination.Position[1], Rest + 0.63], Destination.Yaw);
         this.AfterVehicleMoved();
         this.Shell.Announce(`${Zone.Name}`);
         if (Done)

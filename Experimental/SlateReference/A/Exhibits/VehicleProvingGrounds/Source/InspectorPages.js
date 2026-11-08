@@ -866,7 +866,7 @@ function HexToRgb(Hex)
 function BuildLevel(Host, C, Body)
 {
     const Zones = C.Card(Body, "Proving grounds", "Map", { Accent: Accent.Level, Index: 1, Subtitle: "Teleport the car" });
-    C.Muted(Zones, "A 216 × 120 m asphalt pad in a grass surround. West: the main straight with kerbs and a jump, a skidpad, a concrete burnout box, a smash alley of breakable props, a slatted hangar for bounce light, a container yard and a lit tunnel. East: the training arena — launch strip, slalom, moose test, cone bowling, spin box and a figure-8.");
+    C.Muted(Zones, "A 312 × 120 m asphalt pad in a grass surround. West: the main straight with kerbs and a jump, a skidpad, a concrete burnout box, a smash alley of breakable props, a slatted hangar for bounce light, a container yard and a lit tunnel. Centre: the training arena — launch strip, slalom, moose test, cone bowling, spin box and a figure-8. Far east: the stunt park — tabletops, a half-pipe, a bowl, 45° banks, a funbox, whoops and a jump-through stunt ring, freeride, no track.");
     for (const Zone of LevelZones)
         C.LinkButton(Zones, `${Zone.Name} · ${Zone.Note}`, () => Host.TeleportVehicle(Zone));
 
@@ -996,6 +996,8 @@ function BuildDerez(Host, C, Body)
     Slider(C, Recovery, R.Settings, "AirborneSeconds", "Airborne for", 1, 6, 0.1, "s", 1);
     Slider(C, Recovery, R.Settings, "TumbleSeconds", "Tumbling for", 0.3, 3, 0.1, "s", 1);
     Slider(C, Recovery, R.Settings, "TumbleRate", "Tumble rate", 2, 12, 0.5, "rad/s", 1);
+    Slider(C, Recovery, R.Settings, "StuntAirborneSeconds", "Airborne for · stunt park", 1, 10, 0.1, "s", 1);
+    Slider(C, Recovery, R.Settings, "StuntTumbleSeconds", "Tumbling for · stunt park", 0.3, 5, 0.1, "s", 1);
     C.Readout(Recovery, () => [...R.QueryReadout(), ...E.QueryReadout()]);
 }
 

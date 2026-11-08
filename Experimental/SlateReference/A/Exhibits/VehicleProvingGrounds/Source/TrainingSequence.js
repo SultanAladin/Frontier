@@ -151,7 +151,8 @@ export class TrainingSequence
             else if (Drill.Zone)
                 Enter = this.Within(Drill.Zone, State.Position) && !this.Within(Drill.Zone, State.Previous);
             else if (Drill.Lip !== undefined)
-                Enter = State.Previous[0] < Drill.Lip && State.Position[0] >= Drill.Lip && Math.abs(State.Position[1]) < 3.4;
+                Enter = State.Previous[0] < Drill.Lip && State.Position[0] >= Drill.Lip
+                     && Math.abs(State.Position[1] - (Drill.LipY ?? 0.0)) < (Drill.LipHalf ?? 3.4);
             if (!Enter)
                 continue;
             this.Arm(Drill);
@@ -202,7 +203,8 @@ export class TrainingSequence
             case "spin":    this.AdvanceSpin(Run, Drill, State, Hits); break;
             case "drift":
             case "skidpad": this.AdvanceDrift(Run, Drill, State, Hits); break;
-            case "jump":    this.AdvanceJump(Run, Drill, State); break;
+            case "jump":
+            case "bigair":  this.AdvanceJump(Run, Drill, State); break;
             case "smash":   this.AdvanceSmash(Run, Drill, State); break;
             case "burnout": this.AdvanceBurnout(Run, Drill, State); break;
         }

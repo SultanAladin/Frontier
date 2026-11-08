@@ -31,12 +31,13 @@ export const VertexStride = 32;   // [B] - position.xyz, family (u32), normal.xy
 //    stress pool included, must fit below this ceiling.
 export const IdentityCeiling = 2044;   // [-]
 
-// 📝 The ground tiling the card depot uses for the course plane: an 18 × 10 lattice of 12 m tiles over the pad and
-//    four strips over the authored 480 m surround. A ground hit resolves its card from x, y alone through this layout.
+// 📝 The ground tiling the card depot uses for the course plane: a 26 × 10 lattice of 12 m tiles over the pad (the
+//    stunt park's far-east wing included) and four strips over the authored 480 m surround. A ground hit resolves its
+//    card from x, y alone through this layout.
 export const GroundLayout = Object.freeze({
     PadMinimum:   Object.freeze([-60.0, -60.0]),   // [m]
     TileExtent:   12.0,                            // [m]
-    TileCount:    Object.freeze([18, 10]),         // [-] along x, y
+    TileCount:    Object.freeze([26, 10]),         // [-] along x, y
     OuterExtent:  240.0,                           // [m] half extent of the authored surround quad, about the pad centre
     PadDensity:   6.0,                             // [texel/m]
     StripDensity: 0.5                              // [texel/m]

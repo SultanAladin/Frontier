@@ -47,7 +47,7 @@ test("LightingSystem packs street lamps and automotive headlights without buffer
         Y: p.Position[1],
         Z: p.Position[2]
     }));
-    assert.equal(poles.length, 20);
+    assert.equal(poles.length, 26);
 
     const vehicleTransform = ConstructIdentityTransform();
     const buffer = sys.Update(vehicleTransform, poles);

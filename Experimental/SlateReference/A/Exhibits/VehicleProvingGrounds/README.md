@@ -191,9 +191,9 @@ Edits apply live. The eye toggles switch an entity off (smoke, fracture, a singl
 
 ## The proving grounds
 
-`Source/LevelStructure.js` declares the level, `Source/CourseStructure.js` its analytic relief (kerbs, the jump ramp),
-which the tyres, the fragments and the smoke all read. A 216 × 120 m asphalt pad in a grass surround — the original
-120 m square in the west, the training arena in the east:
+`Source/LevelStructure.js` declares the level, `Source/CourseStructure.js` its analytic relief (kerbs, the jump ramp,
+the stunt park's ramps), which the tyres, the fragments and the smoke all read. A 312 × 120 m asphalt pad in a grass
+surround — the original 120 m square in the west, the training arena in the centre, the stunt park in the far east:
 
 - **main straight** with red-and-white kerbs, a jump ramp, a start strip, FRONTIER painted on the road and a gravel
   run-off with a tyre wall;
@@ -236,6 +236,30 @@ retroreflective collars on a chamfered rubber base, weighted low (3.2 kg, centre
 before it topples. A cone at rest is a *sleeping* rigid body and a static occupant (in the distance field, carded,
 relit round-robin), so they cost nothing until the car arrives; a knocked cone follows its body every frame until it
 settles. Reset (T, or a drill start) bursts it into cubes where it lies and assembles it on its mark.
+
+## The stunt park
+
+The far-east wing (x 158–252) is a freeride skate-style park for the car — deliberately **not** a track: no circuit,
+no gates to follow. Drive east from the training arena through the blue entry gate, or teleport from the Proving
+grounds page (**Stunt Park**, **Big Air**). The park's relief lives in `StuntPark` (`Source/CourseStructure.js`), one
+table the heightfield, the facet emitters and the Jolt proxies all read, so physics and visuals match by
+construction:
+
+- **three tabletop kickers** (S/M/Big Air) launching +X with yellow lips, concrete decks and landing slopes;
+- **half-pipe** — a 24 m U with circular 70° transitions, decks and mellow tapered entries;
+- **bowl** — an above-grade concrete crater with a rim deck, reached over the entry wedge or by climbing the 45°
+  outer chamfer, for drop-ins and carves;
+- **45° bank ring** — rail the banked wall around the inner disc, the car railing the wall at 45°;
+- **45° wall-ride bank** — a straight wall to ride tilted along the south lane;
+- **funbox** with four chamfered entries, a **whoops** rhythm section, and a striped **stunt ring** standing over
+  the Big Air flight line: launch the big kicker at 60+ km/h and thread it (or drive underneath — it clears 3 m).
+
+The **Big Air** drill (Training page, or just drive over the big lip) scores distance and airtime like the Jump
+drill. Recovery allows real stunts here: 6 s of air and 2.2 s of tumbling inside the park before the car derezzes
+(tuneable on the Derez · VFX page), and respawns land on the relief instead of inside it. Honest limits: the
+physics is a heightfield plus struts, so sustained upside-down driving (a full loop-the-loop) is out of scope —
+the ring is flown *through*, the steep lips throw the car sideways and inverted *through the air*, and the ring's
+tube itself does not collide (its pylons do).
 
 ## Smoke and fire
 
