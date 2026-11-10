@@ -87,7 +87,8 @@ Frontier/
 │
 ├── Projects/                                   # Standalone executable hosts (Project-Zero/, etc.)
 ├── Exhibits/                                   # Retained validation executables, exhibits & captured proof
-│   └── FrontierEngine/                         # Interactive WebGPU engine & Project-Zero editor exhibit
+│   ├── FrontierEngine/                         # Baseline WebGPU engine & Project-Zero editor exhibit
+│   └── FrontierEngineV2/                       # Same scene running ReSTIR PT Enhanced (Lin et al. 2026, 10.1145/3804494)
 ├── Experimental/                               # Isolated prototypes (never linked into Engine/)
 ├── Documentation/
 │   ├── FolderStructure.md                      # This ownership map

@@ -17,7 +17,8 @@ carcass dynamics, `GizmoPRO` 3D scene authoring, thin-lens camera optics, socket
 | `UI/`                      | Reusable cards, controls, menus (`CardPanel/`, `ControlPanel/`, `MenuPanel/`) & editor  |
 | `Projects/`                | Standalone native applications built on `Engine/` (`Project-Zero/`, etc.)               |
 | `EngineContent/`           | Shared runtime icons (`Icons/`), OFL fonts (`FontArchives/`), materials, and defaults   |
-| `Exhibits/FrontierEngine/` | Interactive WebGPU engine & Project-Zero editor exhibit (Studio Lobby & Proving Grounds)|
+| `Exhibits/FrontierEngine/`   | Baseline WebGPU engine & Project-Zero editor exhibit (Studio Lobby & Proving Grounds)   |
+| `Exhibits/FrontierEngineV2/` | Same scene upgraded to **ReSTIR PT Enhanced** (Lin, Kettunen & Wyman 2026, `10.1145/3804494`) |
 | `Experimental/`            | Isolated research & UI prototypes (never linked into `Engine/`)                         |
 | `Automation/`              | Build, shader compilation, font preparation, and dependency bootstrap scripts           |
 | `ExternalPackages/`        | Pinned third-party dependencies (`Dependencies.lock.json`, git-ignored source trees)    |

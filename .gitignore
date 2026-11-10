@@ -27,7 +27,8 @@ ExternalPackages/*
 !ExternalPackages/.gitkeep
 !ExternalPackages/Dependencies.lock.json
 !ExternalPackages/README.md
-**/node_modules/
+**/node_modules
+**/.swiftshader/
 
 # Downloaded font archives (restored via Automation/PrepareFonts.py)
 EngineContent/FontArchives/*
