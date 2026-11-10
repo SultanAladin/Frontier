@@ -11,5 +11,5 @@ class Handler(SimpleHTTPRequestHandler):
         super().end_headers()
 
 
-Port = int(os.environ.get("PORT", "8081"))
+Port = int(os.environ.get("PORT", "8082"))
 ThreadingHTTPServer(("0.0.0.0", Port), Handler).serve_forever()
