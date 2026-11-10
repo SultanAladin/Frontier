@@ -1,0 +1,20 @@
+# npm --prefix Tools run test:stability
+
+pass  rest, RR blowout                             body 497.0 mm, swing 0.05 mm, loads 1491/4762/4843/1659 N
+pass  FL vs FR blowout mirror                      worst load mismatch 0.01 %
+pass  RL vs RR blowout mirror                      worst load mismatch 0.02 %
+pass  FL blowout at 25 m/s                         upright 1.000, airborne frames 0, off the line ≤ 2.8 m
+pass  FR blowout at 25 m/s                         upright 1.000, airborne frames 0, off the line ≤ 2.8 m
+pass  RL blowout at 25 m/s                         upright 1.000, airborne frames 0, off the line ≤ 9.5 m
+pass  RR blowout at 25 m/s                         upright 1.000, airborne frames 0, off the line ≤ 9.5 m
+pass  both fronts blown at 25 m/s                  upright 0.999, airborne frames 0, off the line ≤ 0.0 m
+pass  all four blown at 20 m/s                     upright 1.000, airborne frames 0, off the line ≤ 0.0 m
+pass  FL shredded at 25 m/s                        upright 0.999, airborne frames 0, off the line ≤ 4.8 m
+pass  RR shredded, coasting at 25 m/s              upright 0.999, airborne frames 0, off the line ≤ 1.2 m
+pass  220 kPa, slalom at 25 m/s                    upright 1.000, airborne frames 0, off the line ≤ 6.2 m
+pass  60 kPa, slalom at 25 m/s                     upright 1.000, airborne frames 0, off the line ≤ 6.2 m
+pass  both fronts flat, slalom at 15 m/s           upright 0.999, airborne frames 0, off the line ≤ 3.0 m
+pass  donuts left vs right mirror                  sliding MJ 0.10/0.34/0.52/0.61 vs 0.34/0.10/0.60/0.52
+pass  coasting backwards, RR shredded              speed 6.32 m/s, fastest wheel 13.0 rad/s
+
+all passed

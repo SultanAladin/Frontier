@@ -434,3 +434,20 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
     unattended full-library pass (risk of silently regressing 100+ shipped pattern designs without
     per-pattern visual verification).
 
+## Vehicle testing level: lobby + proving grounds only (2026-11-10, branch arena/0ae367fc-frontier)
+
+- Added `Experimental/VehicleTestingLevel/`: the vehicle HMI demo's pre-level build
+  (`streamlinkinbox/Frontier` `arena/85b411ac-frontier` @ `dfc92a0`, itself reconstructed from the
+  `SultanAladin/Frontier-` patch) copied here and renamed, so the folder is no longer a prototype name.
+- Single level by construction, not by a disabled switch: D-Day Assault, City Pursuit & AI Lab, Inversion Arena,
+  Materials Garden and Road Studio are absent together with their structure/sequence modules, level catalogue,
+  workspace tabs and toolbar actions. `Tools/TestingLevelLobby.test.mjs` asserts that absence against the files.
+- New lobby (`index.html`, `Style/Lobby.css`, `Source/LobbyScreen.js`): one level card, real bring-up caption and
+  percentage, entry disabled until the scene is ready, Enter/Esc hand-over, `Lobby` button in the viewport bar,
+  `?lobby=0` bypass for harnesses and captures, bring-up failures reported on the card.
+- Host integration is limited to the progress/ready/failure hooks and a keyboard gate in `IlluminationHost` plus one
+  viewport-bar button in `EditorShell`; no scene, physics, HMI or rendering code was altered.
+- Local verification: 47/47 node tests, 16/16 stability scenarios, Dawn null-backend bring-up and 12/36/48-frame
+  runs with 0 errors and 0 warnings, and a headless lobby hand-over probe.
+- Not verified: browser rendering of the lobby (no Chromium or rasteriser on this host), WebGPU pixels and GPU
+  performance (null backend only), touch input, Windows runtime. See `Exhibits/VehicleTestingLevel/README.md`.
