@@ -30,6 +30,12 @@
     display: none !important;
 }
 
+/* 📝 The editor underneath must not take clicks through the card; keyboard input is gated by the host itself. */
+body.lobby-open #shell
+{
+    pointer-events: none;
+}
+
 #lobby.leaving
 {
     opacity: 0;
