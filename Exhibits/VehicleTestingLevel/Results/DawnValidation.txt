@@ -1,25 +1,22 @@
-# Dawn null-backend validation (no GPU present on this host)
+# Dawn null-backend validation, level parameter honoured (no GPU present on this host)
 
 ## npm --prefix Tools run validate   (?capture=1, lobby up)
-> node HeadlessHarness.mjs .. 12 "?capture=1"
 
 
-=== harness: 12 frames, 0 errors, 0 warnings, 1.5 s
+=== harness: 12 frames, 0 errors, 0 warnings, 1.7 s
 
-## node HeadlessHarness.mjs .. 12 "?capture=1&lobby=0"
+## node HeadlessHarness.mjs .. 12 "?capture=1&lobby=0&level=proving"
 
-=== harness: 12 frames, 0 errors, 0 warnings, 1.5 s
+=== harness: 12 frames, 0 errors, 0 warnings, 1.8 s
 
 ## npm --prefix Tools run validate:effects
-> HOOKS=VehicleEffectsHooks.mjs node HeadlessHarness.mjs .. 36 "?capture=1"
 
 
-=== harness: 36 frames, 0 errors, 0 warnings, 1.8 s
+=== harness: 36 frames, 0 errors, 0 warnings, 2.0 s
 effects integration: sparks, shredded wheel and Garage modes exercised
 
 ## npm --prefix Tools run validate:slate
-> HOOKS=SlateIntegrationHooks.mjs node HeadlessHarness.mjs .. 48 "?capture=1"
 
 
-=== harness: 48 frames, 0 errors, 0 warnings, 1.9 s
+=== harness: 48 frames, 0 errors, 0 warnings, 2.0 s
 Slate integration: Jolt active; plume sources/transport/march exercised (48 steps); scaled HMI focus and cockpit cameras exercised

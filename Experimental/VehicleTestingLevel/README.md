@@ -8,6 +8,9 @@ tablet HMI, garage, physics, smoke, fracture and rendering work are unchanged; t
 | Item | State |
 | --- | --- |
 | Lobby | **New here.** Names the level, shows real bring-up progress, gates entry until the scene is ready. |
+| Levels UI | **New here.** The lobby lists every level in `Source/LevelCatalog.js`, marks the current one and switches to any other (see [The level UI](#the-level-ui)). One level ships today; a second is a catalogue entry plus its scene content. |
+| Editor columns | **Changed.** The outliner and inspector close independently — one at a time — instead of folding together. `P` still folds both. |
+| Viewport chrome | **Changed.** The "Proving Grounds" notch that hung under the viewport tabs is gone; the level name lives in the lobby, the level list and the outliner's scene title. |
 | Proving grounds | The parent's course, training arena, drills and 136 knockable cones, unchanged. |
 | D-Day Assault, City Pursuit & AI Lab, Inversion Arena, Materials Garden, Road Studio | **Not in this build.** Their level and sequence modules were never copied; no dead branches, catalogues or toolbar entries remain. |
 | Car, cabin HMI, garage, effects, physics | Unchanged from the parent prototype and still covered by its tests. |
@@ -34,6 +37,25 @@ in `../interactive-vehicle-hmi-configurator`.
 - While the card is up the host ignores driving keys, and held keys are cleared on both transitions.
 - A failed bring-up is reported on the card, not behind a permanently disabled button.
 - `?lobby=0` skips the lobby for headless harnesses and captures.
+
+## The level UI
+
+`Source/LevelCatalog.js` is the only register of levels. The lobby builds one row per entry, marks the current level
+and switches by reloading with `?level=<key>` so the chosen level builds its own scene and reports its own bring-up.
+`IlluminationHost` resolves `?level=` through the same catalogue and falls back to the shipped level for an unknown or
+missing key, so a stale bookmark cannot leave the app without a scene.
+
+With one level the list shows one row; adding a level is an entry here plus its scene content — no new switch in the
+lobby, the host or the tests. `Esc` (or the **Levels** button in the viewport bar) returns to the lobby from the level.
+
+## Editor columns
+
+The outliner and inspector each have their own close button, visibility key and dock button:
+
+- The **×** on a column closes that column only; the viewport takes back exactly that column's width.
+- `P` folds both columns together, and brings both back when either one is closed.
+- A closed column reappears as `⊞ Outliner` / `⊞ Inspector` in the bottom-right dock.
+- The choice persists; storage written by the older single-panel build is migrated to both columns.
 
 ## Added Garage functionality
 
@@ -95,7 +117,7 @@ normal viewing. Scene emission strength does not boost the UI.
 # From Experimental/VehicleTestingLevel:
 npm ci
 npm --prefix Tools ci
-npm test                    # 47 checks, including the lobby and single-level scope
+npm test                    # 50 checks, including the lobby, level catalogue and column toggles
 npm --prefix Tools run test:stability
 npm --prefix Tools run validate
 npm --prefix Tools run validate:effects

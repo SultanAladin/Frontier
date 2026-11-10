@@ -9,11 +9,23 @@
 // ⚠️ The lobby owns no scene state. It only forwards visibility to the host, which blocks driving input while the card is
 //    up; `?lobby=0` skips it so headless harnesses and captures reach the frame loop without a synthetic click.
 
+import { LevelCatalog, QueryLevel, ResolveLevelKey, ConstructLevelSearch } from "./LevelCatalog.js";
+
 const LeavingMilliseconds = 420;   // [ms] matches the #lobby opacity transition in Style/Lobby.css
 
 function QueryElement(Id)
 {
     return document.getElementById(Id);
+}
+
+function Construct(Tag, ClassName = "", Text = "")
+{
+    const Element = document.createElement(Tag);
+    if (ClassName)
+        Element.className = ClassName;
+    if (Text)
+        Element.textContent = Text;
+    return Element;
 }
 
 export class LobbyScreen
@@ -27,10 +39,19 @@ export class LobbyScreen
         this.StatusLine = QueryElement("lobby-status");
         this.ProgressBar = QueryElement("lobby-progress-bar");
         this.ProgressRail = this.Root ? this.Root.querySelector(".lobby-progress") : null;
+        this.Levels = QueryElement("lobby-levels");
+        this.LevelCount = QueryElement("lobby-level-count");
+        this.LevelTitle = QueryElement("lobby-title");
+        this.Lede = QueryElement("lobby-lede");
+        this.Chips = QueryElement("lobby-chips");
+        this.LevelKey = ResolveLevelKey(Host.LevelKey);
+        this.Level = QueryLevel(this.LevelKey);
         this.Visible = !!this.Root && !this.QuerySkip();
         this.Ready = false;
         this.ExitTimer = 0;
 
+        this.ConstructLevelList();
+        this.ApplyLevelCopy();
         if (this.EnterButton)
             this.EnterButton.addEventListener("click", () => this.Enter());
         window.addEventListener("keydown", (Event) => this.HandleKey(Event));
@@ -38,6 +59,68 @@ export class LobbyScreen
         if (this.Root)
             this.Root.classList.toggle("hidden", !this.Visible);
         this.AssignBodyFlag();
+    }
+
+    // 📝 One row per catalogue entry. The current level is marked and pressing it enters; any other row asks the browser
+    //    for that level, which then boots behind this same lobby with its own progress.
+    ConstructLevelList()
+    {
+        if (!this.Levels)
+            return;
+        this.Levels.innerHTML = "";
+        if (this.LevelCount)
+            this.LevelCount.textContent = String(LevelCatalog.length);
+        for (const Entry of LevelCatalog)
+        {
+            const Current = Entry.Key === this.LevelKey;
+            const Row = Construct("button", Current ? "lobby-level current" : "lobby-level");
+            Row.type = "button";
+            Row.dataset.Level = Entry.Key;
+            Row.setAttribute("aria-pressed", Current ? "true" : "false");
+            Row.title = Current ? `Enter ${Entry.Title}` : `Switch to ${Entry.Title}`;
+            Row.append(Construct("span", "lobby-level-index", Entry.Index),
+                       this.ConstructLevelBody(Entry),
+                       Construct("span", "lobby-level-state", Current ? "Current" : "Switch"));
+            Row.addEventListener("click", () => this.Select(Entry.Key));
+            this.Levels.appendChild(Row);
+        }
+    }
+
+    ConstructLevelBody(Entry)
+    {
+        const Body = Construct("span", "lobby-level-body");
+        Body.append(Construct("span", "lobby-level-title", Entry.Title),
+                    Construct("span", "lobby-level-sub", Entry.Subtitle));
+        return Body;
+    }
+
+    // 📝 The hero copy is the active level's, so a switched level never inherits the previous level's description.
+    ApplyLevelCopy()
+    {
+        const Level = this.Level;
+        if (this.LevelTitle)
+            this.LevelTitle.textContent = Level.Title;
+        if (this.Lede)
+            this.Lede.textContent = Level.Lede;
+        if (this.Chips)
+        {
+            this.Chips.innerHTML = "";
+            for (const Item of Level.Contents)
+                this.Chips.appendChild(Construct("li", "", Item));
+        }
+        if (this.EnterLabel && !this.Ready)
+            this.EnterLabel.textContent = "Preparing the ground";
+    }
+
+    Select(Key)
+    {
+        const Resolved = ResolveLevelKey(Key);
+        if (Resolved === this.LevelKey)
+        {
+            this.Enter();
+            return;
+        }
+        location.search = ConstructLevelSearch(Resolved);
     }
 
     // 📝 ?lobby=0 boots straight into the level; the lobby then behaves as if it had already been entered.
@@ -69,14 +152,14 @@ export class LobbyScreen
     {
         this.Ready = true;
         if (this.StatusLine)
-            this.StatusLine.textContent = "Ready · proving grounds loaded";
+            this.StatusLine.textContent = `Ready · ${this.Level.Title.toLowerCase()} loaded`;
         if (this.ProgressBar)
             this.ProgressBar.style.width = "100%";
         if (this.EnterButton)
         {
             this.EnterButton.disabled = false;
             if (this.EnterLabel)
-                this.EnterLabel.textContent = "Enter proving grounds";
+                this.EnterLabel.textContent = `Enter ${this.Level.Title}`;
             if (this.Visible && this.EnterButton.focus)
                 this.EnterButton.focus();
         }

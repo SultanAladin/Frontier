@@ -13,7 +13,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Frontier · Testing Level — Proving Grounds</title>
+<title>Frontier · Testing Level</title>
 <link rel="stylesheet" href="Style/FrontierEditor.css">
 <link rel="stylesheet" href="Style/Lobby.css">
 </head>
@@ -21,7 +21,7 @@
     <div id="shell">
         <aside id="outliner" class="column editor-column">
             <div class="column-tabs">
-                <div class="column-tab">Outliner <button data-overlay="Panel" title="Hide the editor columns (P)">×</button></div>
+                <div class="column-tab">Outliner <button data-overlay="Outliner" title="Close the outliner (P closes both)">×</button></div>
                 <div class="tab-fill"></div>
             </div>
             <div class="outliner-body" id="outliner-body"></div>
@@ -30,7 +30,6 @@
         <section id="viewport-column" class="column">
             <div class="column-tabs viewport-tabs">
                 <div class="column-tab">Viewport</div>
-                <div class="scene-pill">Proving Grounds</div>
                 <div class="tab-fill"></div>
             </div>
             <div class="viewport-bar" id="viewport-bar"></div>
@@ -46,7 +45,7 @@
                 <div id="overlay-notice" class="hidden"></div>
                 <div id="event-notice" class="hidden"></div>
                 <div id="bring-up">
-                    <h2>Frontier · Proving Grounds</h2>
+                    <h2>Frontier · Testing Level</h2>
                     <div class="bring-up-caption">Starting</div>
                     <div class="bring-up-bar"><div></div></div>
                 </div>
@@ -56,7 +55,7 @@
 
         <aside id="inspector" class="column editor-column">
             <div class="column-tabs">
-                <div class="column-tab">Inspector <button data-overlay="Panel" title="Hide the editor columns (P)">×</button></div>
+                <div class="column-tab">Inspector <button data-overlay="Inspector" title="Close the inspector (P closes both)">×</button></div>
                 <div class="tab-fill"></div>
             </div>
             <div class="inspector-top" id="inspector-top"></div>
@@ -81,10 +80,10 @@
                 <section class="lobby-copy">
                     <p class="lobby-kicker">Lobby</p>
                     <h1 id="lobby-title">Proving Grounds</h1>
-                    <p class="lobby-lede">One level, one car, no menus between them. The reduction carries the driving demo only:
+                    <p id="lobby-lede" class="lobby-lede">One level, one car, no menus between them. The reduction carries the driving demo only:
                         the Project Drive ControlVehicle, its cabin and tablet HMI, and the asphalt proving grounds it was tuned on.</p>
 
-                    <ul class="lobby-chips" aria-label="Course contents">
+                    <ul id="lobby-chips" class="lobby-chips" aria-label="Course contents">
                         <li>Skidpad</li>
                         <li>Jump wedge</li>
                         <li>Smash alley</li>
@@ -92,6 +91,11 @@
                         <li>Slalom</li>
                         <li>Training drills</li>
                     </ul>
+
+                    <div class="lobby-levels-wrap">
+                        <p class="lobby-levels-label" id="lobby-levels-label">Levels · <span id="lobby-level-count">1</span></p>
+                        <div id="lobby-levels" class="lobby-levels" role="group" aria-labelledby="lobby-levels-label"></div>
+                    </div>
 
                     <button id="lobby-enter" class="lobby-enter" type="button" disabled>
                         <span id="lobby-enter-label" class="lobby-enter-label">Preparing the ground</span>
@@ -148,12 +152,12 @@
 
             <footer class="lobby-foot">
                 <span><b>W A S D</b> drive · <b>Space</b> handbrake · <b>R</b> respawn · <b>M</b> HMI / cockpit</span>
-                <span><b>Esc</b> returns to this lobby</span>
+                <span><b>Esc</b> or <b>Levels</b> returns to this lobby</span>
             </footer>
         </div>
         <p class="lobby-note">Excluded from this build: D-Day Assault, City Pursuit &amp; AI Lab, Inversion Arena, Road Studio.</p>
     </div>
 
-    <script type="module" src="Source/IlluminationHost.js?v=testing-level-lobby-1"></script>
+    <script type="module" src="Source/IlluminationHost.js?v=levels-panels-2"></script>
 </body>
 </html>

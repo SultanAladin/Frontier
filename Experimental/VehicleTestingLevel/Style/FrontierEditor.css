@@ -90,12 +90,24 @@ input, select
     grid-template-areas: "outliner viewport inspector" "status status status";
 }
 
-body.panels-hidden #shell
+/* 📝 Each column closes on its own: the viewport takes back exactly the room that column was using. */
+body.outliner-hidden #shell
+{
+    grid-template-columns: 0 minmax(0, 1fr) 380px;
+}
+
+body.inspector-hidden #shell
+{
+    grid-template-columns: 288px minmax(0, 1fr) 0;
+}
+
+body.outliner-hidden.inspector-hidden #shell
 {
     grid-template-columns: 0 minmax(0, 1fr) 0;
 }
 
-body.panels-hidden .editor-column
+body.outliner-hidden #outliner,
+body.inspector-hidden #inspector
 {
     display: none;
 }
@@ -533,19 +545,6 @@ body.panels-hidden .editor-column
 {
     grid-area: viewport;
     background: #0c0c0c;
-}
-
-.viewport-tabs .scene-pill
-{
-    margin: 0 auto;
-    align-self: center;
-    font-size: 11px;
-    color: #9a9a9a;
-    padding: 4px 28px;
-    border-radius: 0 0 14px 14px;
-    background: #1a1a1a;
-    border: 1px solid #262626;
-    border-top: 0;
 }
 
 .viewport-bar

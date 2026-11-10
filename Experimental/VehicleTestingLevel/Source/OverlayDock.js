@@ -1,23 +1,26 @@
 //============================================================================================================================================
 //                                                              OVERLAYDOCK.JS
 //============================================================================================================================================
-// 🧩 The debug overlays — readout, distance-slice inset, control panel — closable, recallable from a dock, and remembered.
+// 🧩 The debug overlays — readout, distance-slice inset, and the outliner and inspector columns — closable one at a time, recalled from a dock.
 
-// 📝 Three overlays: the heads-up readout (top left of the viewport), the distance-slice inset the present pass draws
-//    (top right, with its HTML legend and close button framed over it), and the editor's two columns. Each has
-//    a close button and a key; whatever is closed reappears as a button in the dock at the bottom right. V hides all
-//    of them (and the dock) for a clean view and brings back exactly what was open. Choices persist across reloads.
+// 📝 Four overlays: the heads-up readout (top left of the viewport), the distance-slice inset the present pass draws
+//    (top right, with its HTML legend and close button framed over it), and the editor's two columns. Each column has
+//    its own close button, its own visibility key and its own dock button, so closing the outliner leaves the inspector
+//    standing and the viewport only takes the room that was actually freed. P still folds both columns together and V
+//    hides everything for a clean view. Choices persist across reloads; the older single `Panel` entry is migrated.
 
 const StorageKey = "IlluminationExhibit.Overlays";
 
-export const OverlayKeys = Object.freeze({ Hud: "KeyH", Inset: "KeyJ", Panel: "KeyP", Clean: "KeyV" });
+export const OverlayKeys = Object.freeze({ Hud: "KeyH", Inset: "KeyJ", Panels: "KeyP", Clean: "KeyV" });
 
-const OverlayCaptions = Object.freeze({ Hud: "Readout (H)", Inset: "Distance slice (J)", Panel: "Editor (P)" });
+const OverlayCaptions = Object.freeze({ Hud: "Readout (H)", Inset: "Distance slice (J)", Outliner: "Outliner", Inspector: "Inspector" });
+const SettingKeys = Object.freeze({ Hud: "HudVisible", Inset: "InsetEnabled", Outliner: "OutlinerVisible", Inspector: "InspectorVisible" });
+const PanelNames = Object.freeze(["Outliner", "Inspector"]);
 
 export class OverlayDock
 {
-    // 📝 Settings carries HudVisible, InsetEnabled (read by the present pass) and PanelVisible; OnChange(Name) lets
-    //    the host resynchronise the panel and rebuild screen targets when the panel's width enters or leaves the stage.
+    // 📝 Settings carries HudVisible, InsetEnabled (read by the present pass), OutlinerVisible and InspectorVisible;
+    //    OnChange(Name) lets the host resynchronise and rebuild screen targets when a column's width enters or leaves.
     constructor(Settings, OnChange)
     {
         this.Settings = Settings;
@@ -46,12 +49,16 @@ export class OverlayDock
         try
         {
             const Stored = JSON.parse(localStorage.getItem(StorageKey) || "null");
-            if (Stored && typeof Stored === "object")
-            {
-                for (const [Name, Key] of [["Hud", "HudVisible"], ["Inset", "InsetEnabled"], ["Panel", "PanelVisible"]])
-                    if (typeof Stored[Name] === "boolean")
-                        this.Settings[Key] = Stored[Name];
-            }
+            if (!Stored || typeof Stored !== "object")
+                return;
+            // 📝 Builds before the split stored a single `Panel`; apply it to both columns so the remembered choice survives.
+            if (typeof Stored.Panel === "boolean")
+                for (const Name of PanelNames)
+                    if (typeof Stored[Name] !== "boolean")
+                        Stored[Name] = Stored.Panel;
+            for (const Name of [...PanelNames, "Hud", "Inset"])
+                if (typeof Stored[Name] === "boolean")
+                    this.Settings[SettingKeys[Name]] = Stored[Name];
         }
         catch (Failure)
         {
@@ -63,8 +70,12 @@ export class OverlayDock
     {
         try
         {
-            localStorage.setItem(StorageKey, JSON.stringify({ Hud: !!this.Settings.HudVisible, Inset: !!this.Settings.InsetEnabled,
-                                                              Panel: !!this.Settings.PanelVisible }));
+            localStorage.setItem(StorageKey, JSON.stringify({
+                Hud: !!this.Settings.HudVisible,
+                Inset: !!this.Settings.InsetEnabled,
+                Outliner: !!this.Settings.OutlinerVisible,
+                Inspector: !!this.Settings.InspectorVisible
+            }));
         }
         catch (Failure)
         {
@@ -75,7 +86,10 @@ export class OverlayDock
     {
         if (this.Clean)
             return false;
-        return !!this.Settings[{ Hud: "HudVisible", Inset: "InsetEnabled", Panel: "PanelVisible" }[Name]];
+        if (Name === "Panels")
+            return PanelNames.every((Panel) => !!this.Settings[SettingKeys[Panel]]);
+        const Key = SettingKeys[Name];
+        return Key ? !!this.Settings[Key] : false;
     }
 
     Toggle(Name)
@@ -85,7 +99,18 @@ export class OverlayDock
             this.ToggleClean();
             return;
         }
-        const Key = { Hud: "HudVisible", Inset: "InsetEnabled", Panel: "PanelVisible" }[Name];
+        if (Name === "Panels")
+        {
+            // 📝 P folds both columns; when either one is already folded it brings both back.
+            const Show = !this.QueryVisible("Panels");
+            for (const Panel of PanelNames)
+                this.Settings[SettingKeys[Panel]] = Show;
+            this.LeaveClean();
+            this.Apply();
+            this.OnChange("Panels");
+            return;
+        }
+        const Key = SettingKeys[Name];
         if (!Key)
             return;
         if (this.Clean)
@@ -100,6 +125,12 @@ export class OverlayDock
         }
         this.Apply();
         this.OnChange(Name);
+    }
+
+    LeaveClean()
+    {
+        if (this.Clean)
+            this.Clean = false;
     }
 
     ToggleClean()
@@ -121,11 +152,11 @@ export class OverlayDock
     //                                                PRESENTATION
     //--------------------------------------------------------------------------------------------------------------------
 
-    // 📝 The editor's viewport bar carries the readout and inset toggles; the dock only has to bring the editor back.
+    // 📝 The editor's viewport bar carries the readout and inset toggles; the dock brings back whichever column is closed.
     ConstructDock()
     {
         this.DockButtons = {};
-        for (const Name of ["Panel"])
+        for (const Name of PanelNames)
         {
             const Button = document.createElement("button");
             Button.textContent = `⊞ ${OverlayCaptions[Name]}`;
@@ -138,18 +169,20 @@ export class OverlayDock
 
     Apply()
     {
-        const Hud = this.QueryVisible("Hud"), Inset = this.QueryVisible("Inset"), Panel = this.QueryVisible("Panel");
+        const Hud = this.QueryVisible("Hud"), Inset = this.QueryVisible("Inset");
+        const Visible = { Outliner: this.QueryVisible("Outliner"), Inspector: this.QueryVisible("Inspector") };
         this.Elements.Hud.classList.toggle("hidden", !Hud);
         this.Elements.Inset.classList.toggle("hidden", !Inset);
-        // 📝 The editor's outliner and inspector columns fold away together; the viewport takes their room.
-        document.body.classList.toggle("panels-hidden", !Panel);
+        // 📝 Each column folds on its own; the grid gives its width to the viewport without touching the other column.
+        document.body.classList.toggle("outliner-hidden", !Visible.Outliner);
+        document.body.classList.toggle("inspector-hidden", !Visible.Inspector);
         // 📝 The present pass draws the inset; in the clean view it must stop drawing it without forgetting the choice.
         this.InsetDrawn = Inset;
         let Closed = 0;
-        for (const [Name, Visible] of [["Panel", Panel]])
+        for (const Name of PanelNames)
         {
-            this.DockButtons[Name].classList.toggle("hidden", Visible);
-            Closed += Visible ? 0 : 1;
+            this.DockButtons[Name].classList.toggle("hidden", Visible[Name]);
+            Closed += Visible[Name] ? 0 : 1;
         }
         this.Elements.Dock.classList.toggle("hidden", this.Clean || Closed === 0);
         this.PersistChoices();

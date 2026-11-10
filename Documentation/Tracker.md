@@ -451,3 +451,20 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   runs with 0 errors and 0 warnings, and a headless lobby hand-over probe.
 - Not verified: browser rendering of the lobby (no Chromium or rasteriser on this host), WebGPU pixels and GPU
   performance (null backend only), touch input, Windows runtime. See `Exhibits/VehicleTestingLevel/README.md`.
+
+### Levels UI, notch removal and independent columns (2026-11-10, same branch)
+
+- Added `Source/LevelCatalog.js` as the single register of levels; `?level=` is resolved through it with a safe fallback
+  to the shipped level. The lobby now builds a level list from the catalogue (one row today), marks the current level,
+  fills its hero copy from the entry, and switches by reloading `?level=<key>` so the chosen level builds behind the lobby.
+- Removed the "Proving Grounds" notch (`.scene-pill`, `border-radius: 0 0 14px 14px`) from the viewport tabs and its CSS;
+  the level name remains in the lobby, the level list and the outliner's scene title. Browser title is now
+  "Frontier · Testing Level"; the bring-up overlay names the build, not the level.
+- The outliner and inspector close independently: `Settings.OutlinerVisible` / `InspectorVisible` replace the single
+  `PanelVisible`, each × closes only its column, `P` folds/restores both, closed columns reappear as separate dock
+  buttons, and old single-panel storage is migrated. Grid columns and the `outliner-hidden` / `inspector-hidden` body
+  classes give the freed width to the viewport, and the host rebuilds screen targets on either change.
+- Verification: 50/50 node tests (8 lobby/scope/level/column), 16/16 stability scenarios unchanged, Dawn null-backend
+  12-frame runs with the lobby, with `?lobby=0&level=proving`, 36-frame effects and 48-frame Slate hooks — 0 errors,
+  0 warnings — plus a headless UI probe (`Exhibits/VehicleTestingLevel/Code/UiProbe.mjs`). Browser appearance of the new
+  list and column states remains unverified on this host (no Chromium or GPU).

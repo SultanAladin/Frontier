@@ -4,6 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { LobbyScreen } from "../Source/LobbyScreen.js";
+import { OverlayDock } from "../Source/OverlayDock.js";
+import { LevelCatalog, ResolveLevelKey, QueryLevel } from "../Source/LevelCatalog.js";
 
 const Root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -20,15 +22,20 @@ class FakeElement
         this.textContent = "";
         this.disabled = false;
         this.Attributes = {};
-        const Members = new globalThis.Set();
+        this.Members = new globalThis.Set();
         this.classList = {
-            add: (...Names) => Names.forEach((Name) => Members.add(Name)),
-            remove: (...Names) => Names.forEach((Name) => Members.delete(Name)),
-            toggle: (Name, Force) => { const On = Force === undefined ? !Members.has(Name) : Force; if (On) Members.add(Name); else Members.delete(Name); return On; },
-            contains: (Name) => Members.has(Name)
+            add: (...Names) => Names.forEach((Name) => this.Members.add(Name)),
+            remove: (...Names) => Names.forEach((Name) => this.Members.delete(Name)),
+            clear: () => this.Members.clear(),
+            toggle: (Name, Force) => { const On = Force === undefined ? !this.Members.has(Name) : Force; if (On) this.Members.add(Name); else this.Members.delete(Name); return On; },
+            contains: (Name) => this.Members.has(Name)
         };
     }
     addEventListener(Name, Handler) { (this.Listeners[Name] = this.Listeners[Name] || []).push(Handler); }
+    get className() { return [...this.Members].join(" "); }
+    set className(Value) { this.classList.clear(); this.classList.add(...String(Value).split(/\s+/).filter(Boolean)); }
+    append(...Children) { Children.forEach((Child) => this.appendChild(Child)); }
+    appendChild(Child) { this.children.push(Child); return Child; }
     dispatch(Name, Event = {}) { (this.Listeners[Name] || []).forEach((Handler) => Handler({ preventDefault() {}, target: this, ...Event })); }
     setAttribute(Name, Value) { this.Attributes[Name] = Value; }
     querySelector() { return new FakeElement(); }
@@ -50,6 +57,8 @@ function AssignDom(Search = "")
     globalThis.HTMLSelectElement = class extends FakeElement {};
     globalThis.document = {
         getElementById(Id) { if (!Elements.has(Id)) Elements.set(Id, new FakeElement(Id)); return Elements.get(Id); },
+        createElement(Tag) { return new FakeElement(Tag); },
+        querySelectorAll() { return []; },
         body: new FakeElement("body"),
         activeElement: null
     };
@@ -75,7 +84,7 @@ test("the build ships the lobby and one level, with no other level content in So
     for (const File of Sources.filter((Name) => Name.endsWith(".js")).map((Name) => path.join("Source", Name)))
     {
         const Source = Text(File);
-        assert.doesNotMatch(Source, /LevelCatalog|DDayStructure|InversionArenaStructure|CityPursuitStructure|RoadStudio/, File);
+        assert.doesNotMatch(Source, /DDayStructure|InversionArenaStructure|CityPursuitStructure|RoadStudio/, File);
     }
 
     // 📝 One card, one entry point, no workspace tabs from the multi-level parent.
@@ -84,6 +93,11 @@ test("the build ships the lobby and one level, with no other level content in So
     assert.equal((Index.match(/class="lobby-enter"/g) || []).length, 1);
     assert.doesNotMatch(Index, /data-workspace-tab|open-dday|open-city-pursuit|workspace-tabs/);
     assert.match(Index, /Style\/Lobby\.css/);
+    // 📝 The level name no longer hangs as a notch under the viewport tabs, and the columns close one at a time.
+    assert.doesNotMatch(Index, /scene-pill/);
+    assert.match(Index, /data-overlay="Outliner"/);
+    assert.match(Index, /data-overlay="Inspector"/);
+    assert.doesNotMatch(Index, /data-overlay="Panel"/);
 });
 
 test("the lobby reports real bring-up progress and refuses entry until the scene is ready", () => {
@@ -147,4 +161,58 @@ test("a bring-up failure is reported on the card instead of a silent disabled bu
     assert.equal(Elements.get("lobby-status").textContent, "Bring-up failed · WebGPU device rejected");
     assert.ok(Elements.get("lobby").classList.contains("failed"));
     assert.equal(Elements.get("lobby-enter").disabled, true);
+});
+
+test("the lobby lists the catalogue, marks the current level and shows its copy", () => {
+    AssignDom();
+    const Lobby = new LobbyScreen(ConstructHost());
+    const Rows = Elements.get("lobby-levels").children;
+
+    assert.equal(Rows.length, LevelCatalog.length);
+    assert.equal(Elements.get("lobby-level-count").textContent, String(LevelCatalog.length));
+    assert.equal(Rows[0].dataset.Level, LevelCatalog[0].Key);
+    assert.ok(Rows[0].classList.contains("current"));
+    assert.equal(Rows[0].Attributes["aria-pressed"], "true");
+    assert.equal(Elements.get("lobby-title").textContent, LevelCatalog[0].Title);
+    assert.equal(Elements.get("lobby-chips").children.length, LevelCatalog[0].Contents.length);
+    assert.equal(Lobby.LevelKey, LevelCatalog[0].Key);
+});
+
+test("level keys resolve through the catalogue and unknown keys fall back", () => {
+    assert.ok(LevelCatalog.length >= 1);
+    for (const Entry of LevelCatalog)
+    {
+        assert.ok(Entry.Key && Entry.Title, "every level needs a key and a title");
+        assert.equal(QueryLevel(Entry.Key), Entry);
+        assert.equal(ResolveLevelKey(Entry.Key), Entry.Key);
+    }
+    assert.equal(ResolveLevelKey("dday"), LevelCatalog[0].Key);
+    assert.equal(ResolveLevelKey(undefined), LevelCatalog[0].Key);
+});
+
+test("each editor column closes on its own and P folds both", () => {
+    AssignDom();
+    const Settings = { HudVisible: false, InsetEnabled: false, OutlinerVisible: true, InspectorVisible: true };
+    const Changes = [];
+    const Dock = new OverlayDock(Settings, (Name) => Changes.push(Name));
+
+    Dock.Toggle("Outliner");
+    assert.equal(Settings.OutlinerVisible, false);
+    assert.ok(document.body.classList.contains("outliner-hidden"));
+    assert.ok(!document.body.classList.contains("inspector-hidden"), "closing the outliner must leave the inspector standing");
+    assert.equal(Settings.InspectorVisible, true);
+
+    Dock.Toggle("Inspector");
+    assert.ok(document.body.classList.contains("inspector-hidden"));
+    assert.ok(document.body.classList.contains("outliner-hidden"));
+
+    Dock.Toggle("Outliner");
+    assert.ok(!document.body.classList.contains("outliner-hidden"), "the outliner comes back alone");
+    assert.ok(document.body.classList.contains("inspector-hidden"), "and the inspector stays closed");
+
+    Dock.Toggle("Panels");
+    assert.ok(!document.body.classList.contains("inspector-hidden") && !document.body.classList.contains("outliner-hidden"));
+    Dock.Toggle("Panels");
+    assert.ok(document.body.classList.contains("inspector-hidden") && document.body.classList.contains("outliner-hidden"));
+    assert.deepEqual(Changes, ["Outliner", "Inspector", "Outliner", "Panels", "Panels"]);
 });

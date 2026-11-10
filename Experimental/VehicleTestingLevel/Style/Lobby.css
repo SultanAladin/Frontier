@@ -189,6 +189,112 @@ body.lobby-open #shell
 }
 
 /*------------------------------------------------------------------------------------------------------------------------------------------
+                                                           LEVEL SELECTOR
+------------------------------------------------------------------------------------------------------------------------------------------*/
+
+/* 📝 Built from Source/LevelCatalog.js — one row per level. Today there is one row; the layout, the pressed state and the
+   switching path are the ones a second level will use. */
+.lobby-levels-wrap
+{
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    margin-top: 4px;
+}
+
+.lobby-levels-label
+{
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--faint);
+}
+
+.lobby-levels-label span
+{
+    color: #9a9a9a;
+}
+
+.lobby-levels
+{
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.lobby-level
+{
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid #2c2c2c;
+    border-radius: 10px;
+    background: #181818;
+    text-align: left;
+    transition: background .16s, border-color .16s;
+}
+
+.lobby-level:hover
+{
+    background: #1e1e1e;
+    border-color: #3d3d3d;
+}
+
+.lobby-level.current
+{
+    border-color: #3b4a3b;
+    background: linear-gradient(180deg, #1c211c, #191b19);
+}
+
+.lobby-level-index
+{
+    font: 400 10px/1 var(--mono);
+    color: #6f6f6f;
+}
+
+.lobby-level-body
+{
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.lobby-level-title
+{
+    font-size: 12.5px;
+    font-weight: 500;
+    color: #e4e4e4;
+}
+
+.lobby-level-sub
+{
+    font-size: 10px;
+    color: #8a8a8a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lobby-level-state
+{
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #8f9f8e;
+    white-space: nowrap;
+}
+
+.lobby-level:not(.current) .lobby-level-state
+{
+    color: #a9a9a9;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------------------------
                                                                  ENTER
 ------------------------------------------------------------------------------------------------------------------------------------------*/
 

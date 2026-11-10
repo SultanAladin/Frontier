@@ -1,0 +1,11 @@
+level list · rows=1 currentRow=true rowKey=proving hero="Proving Grounds"
+boot · outlinerHidden=false inspectorHidden=false
+close outliner · outlinerHidden=true inspectorHidden=false
+close inspector · outlinerHidden=true inspectorHidden=true
+reopen outliner · outlinerHidden=false inspectorHidden=true
+P (restore both) · outlinerHidden=false inspectorHidden=false
+P (fold both) · outlinerHidden=true inspectorHidden=true
+entered level · lobbyVisible=false
+
+=== harness: 12 frames, 0 errors, 0 warnings, 1.6 s
+final · ready=true frames=12 level=proving lobbyVisible=false

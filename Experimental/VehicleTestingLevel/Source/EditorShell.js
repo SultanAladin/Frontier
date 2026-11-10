@@ -78,7 +78,7 @@ export class EditorShell
         const Label = Construct("div", "scene-label", "WORKSPACE");
         Label.appendChild(Construct("span", "status-dot"));
         Body.appendChild(Label);
-        const Title = Construct("div", "scene-title", "Proving Grounds");
+        const Title = Construct("div", "scene-title", this.Host.Level ? this.Host.Level.Title : "Testing Level");
         Title.appendChild(Construct("span", "scene-extension", ".scene"));
         Body.appendChild(Title);
 
@@ -320,9 +320,9 @@ export class EditorShell
         Display.addEventListener("change", () => { Host.Settings.Inspection = Number(Display.value); Host.ApplySetting("Inspection"); this.Controls.Synchronise(); });
         this.DisplaySelect = Display;
         Bar.append(Display, Construct("span", "bar-fill"));
-        // 📝 Single-level build: the lobby stays reachable from the level (Esc does the same).
-        const LobbyButton = Construct("button", "lobby-button", "Lobby");
-        LobbyButton.title = "Back to the lobby (Esc)";
+        // 📝 The lobby is the level UI: it lists the catalogue, marks the current level and switches to any other.
+        const LobbyButton = Construct("button", "lobby-button", "Levels");
+        LobbyButton.title = "Levels and lobby (Esc)";
         LobbyButton.addEventListener("click", () => Host.Lobby?.Show());
         Bar.appendChild(LobbyButton);
         const Icon = (Glyph, Title, Action) =>

@@ -1,6 +1,6 @@
 # npm test — Tools/*.test.mjs   (host: Linux x86_64, Node v22.22.3)
 
-# tests 47
-# pass 47
+# tests 50
+# pass 50
 # fail 0
 # skipped 0

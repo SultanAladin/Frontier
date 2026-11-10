@@ -3,6 +3,7 @@ import { DrivingCameraMotion } from "./DrivingCameraMotion.js";
 import { ResolveHudStyle } from "./HudLayout.js";
 import { VehicleAppearance } from "./VehicleAppearance.js";
 import { LobbyScreen } from "./LobbyScreen.js";
+import { ResolveLevelKey, QueryLevel } from "./LevelCatalog.js";
 import { LightingSystem, LightBufferBytes, AutomotiveMode, RoofFixtureType } from "./LightingSystem.js";
 //============================================================================================================================================
 //                                                           ILLUMINATIONHOST.JS
@@ -96,13 +97,16 @@ class IlluminationHost
     constructor()
     {
         const Query = new URLSearchParams(location.search);
+        // 📝 The level is a URL parameter resolved against Source/LevelCatalog.js; an unknown key falls back safely.
+        this.LevelKey = ResolveLevelKey(Query.get("level"));
+        this.Level = QueryLevel(this.LevelKey);
         this.GradeName = QualityGrades[Query.get("quality")] ? Query.get("quality") : "high";
         this.Grade = { ...QualityGrades[this.GradeName] };
         if (Query.has("scale"))
             this.Grade.RenderScale = Math.max(0.25, Math.min(2.0, Number(Query.get("scale"))));
         this.Settings = {
             Inspection: Number(Query.get("inspection") || 0), DistanceInspection: 1, InsetEnabled: false, SliceHeight: 0.6,
-            HudVisible: false, PanelVisible: true,
+            HudVisible: false, OutlinerVisible: true, InspectorVisible: true,
             SmokeEnabled: true, SmokeResolution: 2, IgnitionMode: 0, ThermalGrip: false, LineLock: true,
             TyreMarks: true, TyreMarkStrength: 1.0,
             Gas: ConstructGasParameters(),
@@ -351,7 +355,7 @@ class IlluminationHost
     // 📝 A single level needs no level switch: entering the lobby's card simply hands the keyboard back to the car.
     OnLobbyEntered()
     {
-        this.Shell?.Announce("Proving Grounds — W A S D to drive, Esc for the lobby");
+        this.Shell?.Announce(`${this.Level.Title} — W A S D to drive, Esc for the lobby`);
     }
 
     // 📝 The Frontier Editor around the viewport; the dock owns overlay visibility (readout, inset, editor columns).
@@ -362,7 +366,7 @@ class IlluminationHost
         this.Dock = new OverlayDock(this.Settings, (Name) =>
         {
             this.Shell.Controls.Synchronise();
-            if (Name === "Panel" || Name === "Clean")
+            if (Name === "Outliner" || Name === "Inspector" || Name === "Panels" || Name === "Clean")
                 this.ReconstructScreenTargets();
         });
         this.Fracture.OnBreak = (Prop) => this.Shell.Announce(`${Prop.Definition.Name} — ${Prop.Pieces.length} fragments`);
