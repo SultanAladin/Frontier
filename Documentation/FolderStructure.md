@@ -90,6 +90,8 @@ Frontier/
 │   ├── FrontierEngine/                         # Baseline WebGPU engine & Project-Zero editor exhibit
 │   └── FrontierEngineV2/                       # Same scene running ReSTIR PT Enhanced (Lin et al. 2026, 10.1145/3804494)
 ├── Experimental/                               # Isolated prototypes (never linked into Engine/)
+│   ├── ProjectZeroEditor/                      # Standalone Project-Zero Editor UI prototype (port 8083)
+│   └── FrontierEditor/                         # Standalone FrontierEditor UI prototype (Vite + React, port 8084)
 ├── Documentation/
 │   ├── FolderStructure.md                      # This ownership map
 │   ├── Rules/                                  # Additional subsystem engineering specifications

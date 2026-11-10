@@ -19,6 +19,8 @@ carcass dynamics, `GizmoPRO` 3D scene authoring, thin-lens camera optics, socket
 | `EngineContent/`           | Shared runtime icons (`Icons/`), OFL fonts (`FontArchives/`), materials, and defaults   |
 | `Exhibits/FrontierEngine/`   | Baseline WebGPU engine & Project-Zero editor exhibit (Studio Lobby & Proving Grounds)   |
 | `Exhibits/FrontierEngineV2/` | Same scene upgraded to **ReSTIR PT Enhanced** (Lin, Kettunen & Wyman 2026, `10.1145/3804494`) |
+| `Experimental/ProjectZeroEditor/` | Standalone **Project-Zero Editor UI** prototype (HTML/React bundle, port `8083`)   |
+| `Experimental/FrontierEditor/`    | Standalone **FrontierEditor UI** prototype (Vite + React, port `8084`)             |
 | `Experimental/`            | Isolated research & UI prototypes (never linked into `Engine/`)                         |
 | `Automation/`              | Build, shader compilation, font preparation, and dependency bootstrap scripts           |
 | `ExternalPackages/`        | Pinned third-party dependencies (`Dependencies.lock.json`, git-ignored source trees)    |
