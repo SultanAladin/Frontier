@@ -6,7 +6,13 @@ Build/
 Binaries/
 
 # Sample meshes / textures / assets — tracked separately.
-EngineContent/
+EngineContent/*
+!EngineContent/Icons/
+!EngineContent/README.md
+!EngineContent/Defaults/
+!EngineContent/MaterialArchives/
+!EngineContent/PatternArchives/
+!EngineContent/EnvironmentArchives/
 
 # Agent scratch space.
 _ClaudeScratch/
@@ -22,3 +28,24 @@ _ClaudeScratch/
 .DS_Store
 Thumbs.db
 *.swp
+
+# Python tooling intermediates.
+__pycache__/
+*.pyc
+
+# Downloaded open fonts and generated catalogue; recover with Automation/PrepareFonts.py.
+EngineContent/FontArchives/
+
+# Overlay (Frontier/ portable engine) outputs and local state.
+_AgentScratch/
+**/Build/Output/
+**/ThirdParty/
+*.local.*
+.env
+*.obj
+*.pdb
+*.exe
+*.dll
+*.lib
+/google_drive/
+**/Saved/

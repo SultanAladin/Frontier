@@ -1,0 +1,545 @@
+/*==========================================================================================================================================
+                                                                 LOBBY.CSS
+==========================================================================================================================================
+ 🧩 The testing-level lobby: one level card, real bring-up progress, and the entry into the grounds — in the Frontier Editor tokens.
+
+ 📝 The lobby is a fixed overlay above the editor shell, so it survives the editor columns being hidden and cannot be
+    panned or overlapped by the viewport. It is opaque until Enter: the renderer boots behind it, and the card only
+    becomes actionable when the host reports the scene ready. Colours come from FrontierEditor.css (`--column`, `--edge`,
+    `--muted`, `--on`) so the lobby and the editor read as one application.
+==========================================================================================================================================*/
+
+#lobby
+{
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: grid;
+    grid-template-rows: 1fr auto;
+    place-items: center;
+    row-gap: 14px;
+    padding: 32px;
+    background: #0b0b0b;
+    opacity: 1;
+    visibility: visible;
+    transition: opacity .42s ease, visibility .42s ease;
+}
+
+#lobby.hidden
+{
+    display: none !important;
+}
+
+/* 📝 The editor underneath must not take clicks through the card; keyboard input is gated by the host itself. */
+body.lobby-open #shell
+{
+    pointer-events: none;
+}
+
+#lobby.leaving
+{
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+/* 📝 Slow moving field behind the panel: enough shape to read as depth, never a photograph of a scene we did not render. */
+.lobby-aurora
+{
+    position: absolute;
+    inset: -20%;
+    background:
+        radial-gradient(closest-side at 24% 30%, rgba(120, 140, 118, 0.16), transparent 70%),
+        radial-gradient(closest-side at 78% 72%, rgba(110, 118, 138, 0.13), transparent 72%),
+        radial-gradient(closest-side at 62% 18%, rgba(150, 120, 96, 0.09), transparent 70%);
+    filter: blur(8px);
+    animation: lobby-drift 26s ease-in-out infinite alternate;
+    pointer-events: none;
+}
+
+@keyframes lobby-drift
+{
+    from { transform: translate3d(-1.5%, -1%, 0) scale(1.02); }
+    to   { transform: translate3d(1.5%, 1.5%, 0) scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce)
+{
+    .lobby-aurora { animation: none; }
+    #lobby { transition: none; }
+}
+
+.lobby-panel
+{
+    position: relative;
+    width: min(1040px, 100%);
+    height: min(640px, 100%);
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    background: linear-gradient(158deg, #1a1a1a 0%, #141414 52%, #101010 100%);
+    border: 1px solid var(--edge);
+    border-radius: 18px;
+    box-shadow: 0 40px 120px rgba(0, 0, 0, 0.66), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    overflow: hidden;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------------------------
+                                                                HEADER
+------------------------------------------------------------------------------------------------------------------------------------------*/
+
+.lobby-top
+{
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 20px 26px 16px;
+    border-bottom: 1px solid #232323;
+}
+
+.lobby-mark
+{
+    font-size: 16px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: #ececec;
+}
+
+.lobby-dot
+{
+    color: #3ec46d;
+}
+
+.lobby-build
+{
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    color: var(--faint);
+    text-align: right;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------------------------
+                                                                 BODY
+------------------------------------------------------------------------------------------------------------------------------------------*/
+
+.lobby-body
+{
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.86fr);
+    gap: 28px;
+    align-items: center;
+    padding: 30px 30px 24px;
+    min-height: 0;
+    overflow: auto;
+}
+
+.lobby-copy
+{
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    min-width: 0;
+}
+
+.lobby-kicker
+{
+    font-size: 9.5px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: #7f8f7e;
+}
+
+.lobby-copy h1
+{
+    font-size: clamp(34px, 4.4vw, 52px);
+    font-weight: 300;
+    line-height: 0.98;
+    letter-spacing: -0.035em;
+    color: #f0f0f0;
+}
+
+.lobby-lede
+{
+    max-width: 46ch;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--soft);
+}
+
+.lobby-chips
+{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    list-style: none;
+    margin-top: 2px;
+}
+
+.lobby-chips li
+{
+    padding: 4px 10px;
+    border: 1px solid #2c2c2c;
+    border-radius: 999px;
+    background: #1c1c1c;
+    font-size: 10.5px;
+    color: #a6a6a6;
+    white-space: nowrap;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------------------------
+                                                           LEVEL SELECTOR
+------------------------------------------------------------------------------------------------------------------------------------------*/
+
+/* 📝 Built from Source/LevelCatalog.js — one row per level. Today there is one row; the layout, the pressed state and the
+   switching path are the ones a second level will use. */
+.lobby-levels-wrap
+{
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    margin-top: 4px;
+}
+
+.lobby-levels-label
+{
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--faint);
+}
+
+.lobby-levels-label span
+{
+    color: #9a9a9a;
+}
+
+.lobby-levels
+{
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.lobby-level
+{
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid #2c2c2c;
+    border-radius: 10px;
+    background: #181818;
+    text-align: left;
+    transition: background .16s, border-color .16s;
+}
+
+.lobby-level:hover
+{
+    background: #1e1e1e;
+    border-color: #3d3d3d;
+}
+
+.lobby-level.current
+{
+    border-color: #3b4a3b;
+    background: linear-gradient(180deg, #1c211c, #191b19);
+}
+
+/* 📝 The lobby is a level in the list too: it reads as "you are here" rather than as a destination. */
+.lobby-level.here
+{
+    border-color: #31402f;
+    background: linear-gradient(180deg, #1a1d1a, #171917);
+}
+
+/* 📝 Clicking a row selects it, always: even the lobby row you are already standing in shows the click. */
+.lobby-level.selected
+{
+    box-shadow: inset 0 0 0 1px #4c4c4c;
+}
+
+.lobby-level.here.selected
+{
+    box-shadow: inset 0 0 0 1px #3f5741;
+}
+
+.lobby-level.here .lobby-level-state
+{
+    color: var(--on);
+}
+
+.lobby-level-index
+{
+    font: 400 10px/1 var(--mono);
+    color: #6f6f6f;
+}
+
+.lobby-level-body
+{
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.lobby-level-title
+{
+    font-size: 12.5px;
+    font-weight: 500;
+    color: #e4e4e4;
+}
+
+.lobby-level-sub
+{
+    font-size: 10px;
+    color: #8a8a8a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lobby-level-state
+{
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #8f9f8e;
+    white-space: nowrap;
+}
+
+.lobby-level:not(.current) .lobby-level-state
+{
+    color: #a9a9a9;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------------------------
+                                                                 ENTER
+------------------------------------------------------------------------------------------------------------------------------------------*/
+
+.lobby-enter
+{
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 8px;
+    padding: 13px 18px 13px 20px;
+    border: 1px solid #3a3a3a;
+    border-radius: 12px;
+    background: linear-gradient(180deg, #262626, #1d1d1d);
+    color: #ededed;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    transition: background .18s, border-color .18s, transform .18s, opacity .18s;
+}
+
+.lobby-enter:disabled
+{
+    cursor: progress;
+    opacity: 0.55;
+}
+
+.lobby-enter:not(:disabled):hover
+{
+    background: linear-gradient(180deg, #2e2e2e, #232323);
+    border-color: #4d4d4d;
+    transform: translateY(-1px);
+}
+
+.lobby-enter:not(:disabled):active
+{
+    transform: translateY(0);
+}
+
+.lobby-enter-key
+{
+    padding: 3px 8px;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    background: #141414;
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    color: #8f8f8f;
+    text-transform: uppercase;
+}
+
+.lobby-progress
+{
+    width: min(380px, 100%);
+    height: 3px;
+    border-radius: 2px;
+    background: #262626;
+    overflow: hidden;
+}
+
+.lobby-progress > div
+{
+    width: 0%;
+    height: 100%;
+    background: #cfcfcf;
+    transition: width .25s ease;
+}
+
+.lobby-status
+{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 16px;
+    font-size: 10.5px;
+    color: var(--muted);
+}
+
+.lobby-status::before
+{
+    content: "";
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: 50%;
+    background: #6a6a6a;
+    transition: background .2s;
+}
+
+#lobby.ready .lobby-status::before
+{
+    background: var(--on);
+    box-shadow: 0 0 10px rgba(62, 196, 109, 0.55);
+}
+
+#lobby.ready .lobby-progress > div
+{
+    background: var(--on);
+}
+
+/*------------------------------------------------------------------------------------------------------------------------------------------
+                                                              COURSE PLAN
+------------------------------------------------------------------------------------------------------------------------------------------*/
+
+.lobby-plan
+{
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+    margin: 0;
+}
+
+.lobby-plan svg
+{
+    width: 100%;
+    height: auto;
+    border: 1px solid #242424;
+    border-radius: 14px;
+    background: #121212;
+}
+
+.lobby-plan figcaption
+{
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--faint);
+    text-align: right;
+}
+
+#lobby-racing-line
+{
+    stroke-dashoffset: 0;
+    animation: lobby-line 6s linear infinite;
+}
+
+@keyframes lobby-line
+{
+    to { stroke-dashoffset: -28; }
+}
+
+@media (prefers-reduced-motion: reduce)
+{
+    #lobby-racing-line { animation: none; }
+}
+
+/*------------------------------------------------------------------------------------------------------------------------------------------
+                                                                 FOOT
+------------------------------------------------------------------------------------------------------------------------------------------*/
+
+.lobby-foot
+{
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 10px 22px;
+    padding: 14px 26px;
+    border-top: 1px solid #232323;
+    background: #101010;
+    font-size: 10.5px;
+    color: var(--muted);
+}
+
+.lobby-foot b
+{
+    font-weight: 500;
+    color: #b6b6b6;
+}
+
+.lobby-note
+{
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: #5f5f5f;
+    text-align: center;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------------------------
+                                                               RESPONSIVE
+------------------------------------------------------------------------------------------------------------------------------------------*/
+
+@media (max-width: 860px)
+{
+    #lobby { padding: 16px; }
+
+    .lobby-panel { height: min(720px, 100%); }
+
+    .lobby-body
+    {
+        grid-template-columns: minmax(0, 1fr);
+        align-content: start;
+        padding: 22px;
+    }
+
+    .lobby-plan { display: none; }
+
+    .lobby-top { padding: 16px 18px 12px; }
+
+    .lobby-foot { padding: 12px 18px; font-size: 10px; }
+}
+
+/*------------------------------------------------------------------------------------------------------------------------------------------
+                                                     VIEWPORT TAB STRIP BUTTON
+------------------------------------------------------------------------------------------------------------------------------------------*/
+
+/* 📝 In the viewport's own tab strip, not in the crowded toolbar: the way back to the lobby can never be clipped or
+   pushed off the end of the bar when the columns are open. */
+.tab-action
+{
+    margin: 5px 8px 5px 6px;
+    padding: 0 12px;
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+    background: #191919;
+    font-size: 10.5px;
+    color: #c4c4c4;
+    white-space: nowrap;
+}
+
+.tab-action:hover
+{
+    background: #262626;
+    border-color: #3a3a3a;
+    color: #f0f0f0;
+}

@@ -1,0 +1,13 @@
+level list · rows=2 hubHere=true sceneCurrent=true sceneKey=proving sceneSelected=true hero="Proving Grounds"
+click lobby row · selected=true sceneSelected=false status="Lobby · you are here · enter Proving Grounds when ready" lobbyVisible=true
+boot · outlinerHidden=false inspectorHidden=false
+close outliner · outlinerHidden=true inspectorHidden=false
+close inspector · outlinerHidden=true inspectorHidden=true
+reopen outliner · outlinerHidden=false inspectorHidden=true
+P (restore both) · outlinerHidden=false inspectorHidden=false
+P (fold both) · outlinerHidden=true inspectorHidden=true
+entered level · lobbyVisible=false
+click viewport Lobby button · lobbyVisible=true sceneSelected=true
+
+=== harness: 12 frames, 0 errors, 0 warnings, 1.5 s
+final · ready=true frames=12 level=proving lobbyVisible=false

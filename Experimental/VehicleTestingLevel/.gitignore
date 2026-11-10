@@ -1,0 +1,5 @@
+# Pinned npm packages for the browser/WASM demo and its headless tools — installed locally, never committed.
+node_modules/
+
+# Local render captures from the headless harness.
+Tools/*.png

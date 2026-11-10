@@ -1,5 +1,8 @@
 # Frontier — Folder Structure Plan
 
+Historical reference only. Current ownership is in `Documentation/FolderStructure.md`;
+current progress and findings belong in `Documentation/Tracker.md`. Do not maintain a competing map or tracker here.
+
 Six-pillar engine under `Internal/`. Coordinator suffix = `…Extension`. Editors are separate
 executables. A WorkspaceDocument = one tab = one editable authoring session (Simulation is
 document-less). Naming follows CLAUDE.md + SKILL-Naming.md (banned: Application, Division,

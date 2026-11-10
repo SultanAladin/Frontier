@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<!--
+==============================================================================================================================================
+                                                                  INDEX.HTML
+==============================================================================================================================================
+ 🧩 Testing-level build of the Vehicle HMI exhibit: a lobby that names the one level, then the Frontier Editor around the WebGPU viewport.
+
+ 📝 Single-level build. The lobby card is the only entry point; there is no level selector because the proving grounds is the
+    only level in this tree (no D-Day Assault, City Pursuit, Inversion Arena or Road Studio workspaces). The page still boots
+    the renderer immediately behind the lobby, so the card reports real bring-up progress and Enter reveals a live scene.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Frontier · Testing Level</title>
+<link rel="stylesheet" href="Style/FrontierEditor.css">
+<link rel="stylesheet" href="Style/Lobby.css">
+</head>
+<body class="lobby-open">
+    <div id="shell">
+        <aside id="outliner" class="column editor-column">
+            <div class="column-tabs">
+                <div class="column-tab">Outliner <button data-overlay="Outliner" title="Close the outliner (P closes both)">×</button></div>
+                <div class="tab-fill"></div>
+            </div>
+            <div class="outliner-body" id="outliner-body"></div>
+        </aside>
+
+        <section id="viewport-column" class="column">
+            <div class="column-tabs viewport-tabs">
+                <div class="column-tab">Viewport</div>
+                <div class="tab-fill"></div>
+                <button id="lobby-return" class="tab-action" type="button" title="Back to the lobby (Esc)">Lobby</button>
+            </div>
+            <div class="viewport-bar" id="viewport-bar"></div>
+            <div id="stage">
+                <canvas id="viewport"></canvas>
+                <canvas id="capture" class="capture"></canvas>
+                <div id="hud"><button class="overlay-close" data-overlay="Hud" title="Hide the readout (H)">×</button><pre id="hud-text">Starting…</pre></div>
+                <div id="inset-frame" class="hidden">
+                    <button class="overlay-close" data-overlay="Inset" title="Hide the distance slice (J)">×</button>
+                    <div id="inset-legend">GDF slice · blue inside · amber outside · magenta = rewritten by a moving occupant · teal = scrolled · green = cascade 0</div>
+                </div>
+                <div id="overlay-dock" class="hidden"></div>
+                <div id="overlay-notice" class="hidden"></div>
+                <div id="event-notice" class="hidden"></div>
+                <div id="bring-up">
+                    <h2>Frontier · Testing Level</h2>
+                    <div class="bring-up-caption">Starting</div>
+                    <div class="bring-up-bar"><div></div></div>
+                </div>
+                <div id="failure" class="hidden"></div>
+            </div>
+        </section>
+
+        <aside id="inspector" class="column editor-column">
+            <div class="column-tabs">
+                <div class="column-tab">Inspector <button data-overlay="Inspector" title="Close the inspector (P closes both)">×</button></div>
+                <div class="tab-fill"></div>
+            </div>
+            <div class="inspector-top" id="inspector-top"></div>
+            <div class="inspector-content" id="inspector-content"></div>
+        </aside>
+
+        <footer id="status"></footer>
+    </div>
+
+    <!-- ===================================================================================================================================
+                                                              LOBBY
+    ==================================================================================================================================== -->
+    <div id="lobby" role="dialog" aria-modal="true" aria-labelledby="lobby-title">
+        <div class="lobby-aurora" aria-hidden="true"></div>
+        <div class="lobby-panel">
+            <header class="lobby-top">
+                <span class="lobby-mark">frontier<span class="lobby-dot">.</span></span>
+                <span class="lobby-build">TESTING LEVEL · SINGLE-LEVEL BUILD</span>
+            </header>
+
+            <main class="lobby-body">
+                <section class="lobby-copy">
+                    <p class="lobby-kicker">Lobby</p>
+                    <h1 id="lobby-title">Proving Grounds</h1>
+                    <p id="lobby-lede" class="lobby-lede">One level, one car, no menus between them. The reduction carries the driving demo only:
+                        the Project Drive ControlVehicle, its cabin and tablet HMI, and the asphalt proving grounds it was tuned on.</p>
+
+                    <ul id="lobby-chips" class="lobby-chips" aria-label="Course contents">
+                        <li>Skidpad</li>
+                        <li>Jump wedge</li>
+                        <li>Smash alley</li>
+                        <li>Tunnel</li>
+                        <li>Slalom</li>
+                        <li>Training drills</li>
+                    </ul>
+
+                    <div class="lobby-levels-wrap">
+                        <p class="lobby-levels-label" id="lobby-levels-label">Levels · <span id="lobby-level-count">1</span></p>
+                        <div id="lobby-levels" class="lobby-levels" role="group" aria-labelledby="lobby-levels-label"></div>
+                    </div>
+
+                    <button id="lobby-enter" class="lobby-enter" type="button" disabled>
+                        <span id="lobby-enter-label" class="lobby-enter-label">Preparing the ground</span>
+                        <span class="lobby-enter-key">Enter</span>
+                    </button>
+                    <div class="lobby-progress" role="progressbar" aria-labelledby="lobby-title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                        <div id="lobby-progress-bar"></div>
+                    </div>
+                    <p id="lobby-status" class="lobby-status" role="status" aria-live="polite">Negotiating the WebGPU device</p>
+                </section>
+
+                <figure class="lobby-plan">
+                    <svg viewBox="0 0 340 260" role="img" aria-label="Schematic plan of the proving grounds course">
+                        <defs>
+                            <pattern id="lobby-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#242424" stroke-width="1"/>
+                            </pattern>
+                        </defs>
+                        <rect x="0" y="0" width="340" height="260" fill="url(#lobby-grid)"/>
+                        <!-- boundary barrier perimeter -->
+                        <rect x="26" y="34" width="288" height="192" rx="10" fill="none" stroke="#3a3a3a" stroke-width="2"/>
+                        <!-- main straight and return loop -->
+                        <path d="M 56 190 L 236 190" stroke="#2f2f2f" stroke-width="26" stroke-linecap="round" fill="none"/>
+                        <path d="M 236 190 C 300 190 300 92 232 92 L 74 92" stroke="#2c2c2c" stroke-width="22" stroke-linecap="round" fill="none"/>
+                        <!-- skidpad -->
+                        <circle cx="90" cy="148" r="30" fill="none" stroke="#333" stroke-width="16"/>
+                        <circle cx="90" cy="148" r="30" fill="none" stroke="#4a4a4a" stroke-width="1" stroke-dasharray="4 6"/>
+                        <!-- jump wedge -->
+                        <path d="M 150 176 L 178 176 L 178 160 Z" fill="#3d3d3d"/>
+                        <!-- smash alley -->
+                        <g fill="none" stroke="#454545" stroke-width="2">
+                            <rect x="196" y="132" width="14" height="10"/>
+                            <rect x="216" y="128" width="14" height="10"/>
+                            <rect x="236" y="132" width="14" height="10"/>
+                        </g>
+                        <!-- tunnel -->
+                        <path d="M 60 78 L 112 78" stroke="#4d4d4d" stroke-width="12" stroke-linecap="butt"/>
+                        <!-- slalom cones -->
+                        <g fill="#565656">
+                            <circle cx="132" cy="92" r="2.6"/>
+                            <circle cx="156" cy="86" r="2.6"/>
+                            <circle cx="180" cy="92" r="2.6"/>
+                            <circle cx="204" cy="86" r="2.6"/>
+                        </g>
+                        <!-- racing line -->
+                        <path id="lobby-racing-line" d="M 62 194 C 150 194 236 198 258 176 C 284 150 258 116 216 108 C 168 99 96 104 68 88"
+                              fill="none" stroke="#c5c5c5" stroke-width="1.6" stroke-dasharray="7 7" stroke-linecap="round" opacity="0.55"/>
+                        <!-- spawn -->
+                        <circle cx="62" cy="194" r="3.4" fill="#3ec46d"/>
+                    </svg>
+                    <figcaption>Course plan · schematic, not a render</figcaption>
+                </figure>
+            </main>
+
+            <footer class="lobby-foot">
+                <span><b>W A S D</b> drive · <b>Space</b> handbrake · <b>R</b> respawn · <b>M</b> HMI / cockpit</span>
+                <span><b>Esc</b> or <b>Levels</b> returns to this lobby</span>
+            </footer>
+        </div>
+        <p class="lobby-note">Excluded from this build: D-Day Assault, City Pursuit &amp; AI Lab, Inversion Arena, Road Studio.</p>
+    </div>
+
+    <script type="module" src="Source/IlluminationHost.js?v=levels-panels-2"></script>
+</body>
+</html>

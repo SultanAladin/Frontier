@@ -1,0 +1,6 @@
+# npm --prefix Tools run test:stability
+
+pass  donuts left vs right mirror                  sliding MJ 0.10/0.34/0.52/0.61 vs 0.34/0.10/0.60/0.52
+pass  coasting backwards, RR shredded              speed 6.32 m/s, fastest wheel 13.0 rad/s
+
+all passed
