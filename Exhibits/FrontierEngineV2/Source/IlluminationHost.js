@@ -22,8 +22,8 @@ import { VerticalFovFromFocalLength, FocalLengthFromVerticalFov } from "./Camera
 //============================================================================================================================================
 // 🧩 Exhibit entry point: bring-up of every stage, then the frame — drive, invalidate, relight, gather, resolve, present.
 
-import { DeviceExchange } from "./DeviceExchange.js";
-import { ShaderInterchange } from "./ShaderInterchange.js";
+import { DeviceExchange } from "./DeviceExchange.js?v=restir-pt-enhanced-2";
+import { ShaderInterchange } from "./ShaderInterchange.js?v=restir-pt-enhanced-2";
 import { SceneStructure, OccupantStride, GroundLayout, OccupantRole } from "./FacetStructure.js";
 import { ConstructMaterialSpecification, EncodeMaterialRecords, CourseMaterial, MarkedFamilyFirst, MarkedFamilyLast,
          MarkedFamilyExtraFirst, MarkedFamilyExtraLast, DefaultGlassIndex, FresnelF0FromIndex, MaterialRecordBytes } from "./MaterialSpecification.js";
@@ -40,12 +40,12 @@ import { AtmosphereIntegrator } from "./AtmosphereIntegrator.js";
 import { ShadowProjection } from "./ShadowProjection.js";
 import { SurfaceProjection } from "./SurfaceProjection.js";
 import { NearestDepthSpace } from "./NearestDepthSpace.js";
-import { ResamplingSequence } from "./ResamplingSequence.js";
-import { VarianceIntegrator } from "./VarianceIntegrator.js";
-import { DisplayProjection } from "./DisplayProjection.js";
+import { ResamplingSequence } from "./ResamplingSequence.js?v=restir-pt-enhanced-2";
+import { VarianceIntegrator } from "./VarianceIntegrator.js?v=restir-pt-enhanced-2";
+import { DisplayProjection } from "./DisplayProjection.js?v=restir-pt-enhanced-2";
 import { HardwareMetrics } from "./HardwareMetrics.js";
-import { EditorShell } from "./EditorShell.js";
-import { LightingPresets } from "./InspectorPages.js";
+import { EditorShell } from "./EditorShell.js?v=restir-pt-enhanced-2";
+import { LightingPresets } from "./InspectorPages.js?v=restir-pt-enhanced-2";
 import { OverlayDock, OverlayKeys } from "./OverlayDock.js";
 import { StressSequence } from "./StressSequence.js";
 import { FractureSequence } from "./FractureSequence.js";

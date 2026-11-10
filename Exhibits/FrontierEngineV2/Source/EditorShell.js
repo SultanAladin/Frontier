@@ -8,11 +8,11 @@
 //    - Outliner (Visible/Hidden 64px stat cards, Search + Filter chips, Collapsible Collections incl. Cameras, Footer)
 //    - Viewport Header (Scene switcher + Edit / Sim / Play modes + Construct, Focus, Camera select, Split, Diagnostics, Settings)
 
-import { ConstructEntities, InspectionModes } from "./InspectorPages.js";
+import { ConstructEntities, InspectionModes } from "./InspectorPages.js?v=restir-pt-enhanced-2";
 import { EditorControls, ClearElement } from "./EditorControls.js";
 import { ConstructGlyph as ConstructEditorGlyph } from "./EditorIcons.js";
 import { ConstructGlyph as ConstructPzGlyph } from "./ProjectZeroIcons.js";
-import { ConstructTopNotch, ConstructBottomAssetBrowser } from "./ProjectZeroDrawers.js";
+import { ConstructTopNotch, ConstructBottomAssetBrowser } from "./ProjectZeroDrawers.js?v=restir-pt-enhanced-2";
 import { LevelAtlas, QueryLevelEntry } from "./LevelAtlas.js";
 
 const StorageKey = "IlluminationExhibitV2.Editor";

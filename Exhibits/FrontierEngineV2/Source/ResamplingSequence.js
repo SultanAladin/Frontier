@@ -8,7 +8,7 @@
 //    ④ ComputeDuplicationMap : §5 24×24 shared-memory tile computing 17×17 PathSeed duplication D ∈ [0, 1] + Inspector diagnostics
 //    ⑤ TraverseReflection    : retained ONLY for SDF sphere-tracing mode or 2022 baseline comparison when EnhancedUnifiedDiGi is off
 
-import { PairingSpace } from "./PairingSpace.js";
+import { PairingSpace } from "./PairingSpace.js?v=restir-pt-enhanced-2";
 
 export const ReservoirStride   = 64;   // [B] - 16 × 4 B unified ReservoirRecord (§6.2.1 / §7.1)
 export const PairedLayerBudget = 3;    // [-] - N = 3 coupled Gaussian pairing maps (254², 230², 210²)

@@ -19,7 +19,7 @@ export class ShaderInterchange
     {
         const Retrievals = FileNames.map(async (FileName) =>
         {
-            const Response = await fetch(`${this.SourceFolder}/${FileName}`, { cache: "no-cache" });
+            const Response = await fetch(`${this.SourceFolder}/${FileName}?v=restir-pt-enhanced-2`, { cache: "no-store" });
             if (!Response.ok)
                 throw new Error(`Shader source ${FileName} could not be retrieved (${Response.status})`);
             this.Sources.set(FileName, await Response.text());
