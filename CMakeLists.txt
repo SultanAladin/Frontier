@@ -98,14 +98,52 @@ if(NOT FRONTIER_PROFILE STREQUAL "Shipping")
 endif()
 
 #------------------------------------------------------------------------------------------------------------------------
+#                                         DESKTOP GLFW 3.4 BACKEND (NON-ANDROID)
+#------------------------------------------------------------------------------------------------------------------------
+
+if(NOT ANDROID)
+    set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
+    if(UNIX AND NOT APPLE)
+        include(CheckIncludeFile)
+        check_include_file("X11/Xlib.h" FRONTIER_HAS_X11_HEADERS)
+        check_include_file("wayland-client.h" FRONTIER_HAS_WAYLAND_HEADERS)
+        find_program(FRONTIER_WAYLAND_SCANNER NAMES wayland-scanner)
+
+        if(FRONTIER_HAS_X11_HEADERS)
+            set(GLFW_BUILD_X11 ON CACHE BOOL "" FORCE)
+        else()
+            set(GLFW_BUILD_X11 OFF CACHE BOOL "" FORCE)
+        endif()
+
+        if(FRONTIER_HAS_WAYLAND_HEADERS AND FRONTIER_WAYLAND_SCANNER)
+            set(GLFW_BUILD_WAYLAND ON CACHE BOOL "" FORCE)
+        else()
+            set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
+        endif()
+    endif()
+
+    add_subdirectory(ExternalPackages/glfw EXCLUDE_FROM_ALL)
+endif()
+
+#------------------------------------------------------------------------------------------------------------------------
 #                                               ENGINE RUNTIME LIBRARY
 #------------------------------------------------------------------------------------------------------------------------
 
-add_library(FrontierEngine STATIC
+set(FRONTIER_ENGINE_SOURCES
     Engine/Input/InputExchange.cpp
     Engine/Input/InputExtension.cpp
     Engine/Windowing/PlatformWindowStub.cpp
 )
+if(NOT ANDROID)
+    list(APPEND FRONTIER_ENGINE_SOURCES Engine/Windowing/PlatformWindowDesktop.cpp)
+endif()
+
+add_library(FrontierEngine STATIC ${FRONTIER_ENGINE_SOURCES})
 
 target_include_directories(FrontierEngine PUBLIC
     "${CMAKE_SOURCE_DIR}"
@@ -114,6 +152,10 @@ target_include_directories(FrontierEngine PUBLIC
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include"
 )
 target_link_libraries(FrontierEngine PUBLIC FrontierCompileSettings)
+if(NOT ANDROID)
+    target_include_directories(FrontierEngine PUBLIC "${CMAKE_SOURCE_DIR}/ExternalPackages/glfw/include")
+    target_link_libraries(FrontierEngine PRIVATE glfw)
+endif()
 
 #------------------------------------------------------------------------------------------------------------------------
 #                                         VALIDATION EXHIBITS (CTEST TARGETS)
@@ -126,4 +168,8 @@ if(BUILD_TESTING)
         target_link_libraries(InputValidation PRIVATE FrontierImGui)
     endif()
     add_test(NAME InputValidation COMMAND InputValidation)
+
+    add_executable(WindowValidation Exhibits/WindowValidation.cpp)
+    target_link_libraries(WindowValidation PRIVATE FrontierEngine)
+    add_test(NAME WindowValidation COMMAND WindowValidation)
 endif()

@@ -1,14 +1,16 @@
 # 🧩 `Experimental/` — Reference Studios Pending Native C++20 Conversion
 
-> **TL;DR**: `Experimental/` stages **eight interactive web/WebGPU/WebGL2 reference studios** extracted from prior Frontier prototype branches. None of these JavaScript prototypes ship in the production runtime; each serves as the verified UX, mathematical, and shader specification for native **ISO C++20 + `.slang` GPU** modules inside `Engine/` and `Editor/` (`FRONTIER_PROFILE_EDITOR`).
+> **TL;DR**: `Experimental/` stages **ten reference editor shells and interactive web/WebGPU/WebGL2 studios** extracted from prior Frontier prototype branches. None of these prototypes ship directly in production; each serves as the verified UX, component, mathematical, and shader specification for shared **ISO C++20 `Engine/Components/` + `Engine/Workspaces/` + `.slang` GPU** modules (`FRONTIER_PROFILE_EDITOR`).
 
 ---
 
-## 🏷️ 1. Staged Reference Studios & C++20 Conversion Targets
+## 🏷️ 1. Staged Reference Editor UIs & Studios
 
 | Studio Directory | Prototype Scope | Provenance | Target Native C++20 / `.slang` Destination |
 | :--- | :--- | :--- | :--- |
-| **`FluidEditor/`** | Gaseous plume, combustion, detonation, wildfire, and vortex solver (`WebGPU` + `WebGL2`) with `.gasscene.toml` serialization and flipbook baking. | `Frontier-OLD` @ `438aeaf` | `Engine/Physics/` (fluid/gas solver) + `Shaders/` (`.slang` compute advection & raymarch) + `Engine/Editor/` |
+| **`FrontierEditor/`** | Dockable-tab editor shell with Control Centre Notch, live Appearance theme bridge (`EditorTheme`), Outliner per-classification icons & chevron folds, Log Stream, and Input bench. | `c7egoist/Frontier` (`arena/85f85fa9-frontier` @ `c0aaab6`) | `Engine/Components/` + `Engine/Workspaces/` + `Engine/Editor/` |
+| **`ProjectZeroEditor/`** | Interactive Project-Zero editor shell uniting Notch quick-tools, Outliner tree, Construct menu, Asset drawer, and shared Light/Atmosphere/Fog/Wind/Material inspector cards. | `c7egoist/Frontier` (`arena/f3437631-frontier` @ `186a7b8`) | `Engine/Components/` + `Engine/Editor/Explorer/` + `Engine/Editor/Workspaces/` |
+| **`FluidEditor/`** | Gaseous plume, combustion, detonation, wildfire, and vortex solver (`WebGPU` + `WebGL2`) with `.gasscene.toml` serialization and flipbook baking. | `Frontier-OLD` @ `438aeaf` | `Engine/SimulationSpace/FluidSimulation/` + `Shaders/Compute/` + `Engine/Editor/` |
 | **`FractureEditor/`** | Six fracture & debris solvers: baked Voronoi fracture, fast runtime shattering, convex partitioning, piece SDFs, rigid-body dynamics, and atmospheric drag. | `Frontier-OLD` @ `438aeaf` | `Engine/Geometry/` (Voronoi/convex partitioning) + `Engine/Physics/` (`JoltPhysics` rigid bodies) + `Engine/Editor/` |
 | **`ParticleEditor/`** | GPU compute particle emitters, fibres/ribbons, procedural lightning, and live spatial force-field sampling (**Particle Studio**). | `Frontier-OLD` @ `438aeaf` | `Engine/Render/` & `Shaders/` (`.slang` GPU compute simulation & indirect draw) + `Engine/Editor/` |
 | **`PhotometricEditor/`** | LM-63 `.ies` luminaire profiles, automotive headlamp optics, celestial sky scattering, ACES tone mapping, and isolux metering (**Photometric Studio**). | `Frontier-OLD` @ `438aeaf` | `Engine/Render/` (photometric light evaluation & sky LUTs in `.slang`) + `Engine/Editor/` |

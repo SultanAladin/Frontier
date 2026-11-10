@@ -41,12 +41,12 @@ Starting focus agreed with user: **`Input/` + `Editor/` groundwork**.
    - Platform-neutral C++20 input signal packets covering keyboard scancodes, pointer motion/buttons/scroll, gamepad axes/buttons, and multi-touch/pen contact points (supporting Windows, Linux, and Android).
    - Bi-directional fixed-capacity deterministic exchange (`InputExchange`) covering both OS→Engine signal intake (`InputSignalSink`) and Engine→OS cursor confinement & haptic rumble directives (`InputFeedbackTarget`) with zero heap churn per tick.
    - Lifecycle coordination via `InputExtension` (`Initialize` → `TickExchange` / `FlushOutboundDirectives` → `Finalize`).
-3. **`Engine/Windowing/PlatformWindow.h` & `PlatformWindowStub.cpp`**:
-   - Cross-platform surface interface (`Win32`, `X11`, `Wayland`, `Android`, `Stub`) exchanging OS events and cursor/haptic directives with `InputExtension`.
-4. **Validation (`Exhibits/InputValidation.cpp`)**:
-   - Deterministic CTest verification across `Editor`, `Development`, and `Shipping` profiles covering inbound peripheral/multi-touch intake and outbound cursor-lock / haptic directive delivery.
-5. **Reference Studio Prototypes (`Experimental/`)**:
-   - Eight verified reference studios (`FluidEditor`, `FractureEditor`, `ParticleEditor`, `PhotometricEditor`, `ForceFieldEditor`, `VehicleLab`, `UVEditor`, `TextureStudio`) extracted and staged under `Experimental/` as functional specifications for native C++20 + `.slang` conversion.
+3. **`Engine/Windowing/PlatformWindow.h`, `PlatformWindowDesktop.cpp` & `PlatformWindowStub.cpp`**:
+   - Composable `WindowStyleFlags` (`DecoratedFrame`, `ResizableBorder`, `CenteredOnMonitor`, `FloatingTopmost`, `AutoMinimizeFocus`, `HighDpiScale`, `TransparentClient`, `AcceptFileDrops`, `StartVisible`, `FocusOnShow`), `WindowPresentationMode` (`SplashBorderless`, `Windowed`, `MaximizedWindowed`, `BorderlessFullscreen`, `ExclusiveFullscreen`), application presets (`MakeSplashWindow`, `MakeApplicationWindow`, `MakeGameWindow`), and dynamic runtime transitions restoring saved windowed bounds across GLFW 3.4 (`Win32`, `X11`, `Wayland`, `GlfwNull`) and `HeadlessPlatformWindow`.
+4. **Validation (`Exhibits/InputValidation.cpp` & `Exhibits/WindowValidation.cpp`)**:
+   - Deterministic CTest verification across `Editor`, `Development`, and `Shipping` profiles covering inbound peripheral/multi-touch intake, outbound cursor-lock / haptic directive delivery, splash/windowed/maximized creation, and dynamic game fullscreen transitions.
+5. **Reference Editor UIs & Studio Prototypes (`Experimental/`)**:
+   - Staged `FrontierEditor` (`c0aaab6`), `ProjectZeroEditor` (`186a7b8`), and 8 domain studios (`FluidEditor`, `FractureEditor`, `ParticleEditor`, `PhotometricEditor`, `ForceFieldEditor`, `VehicleLab`, `UVEditor`, `TextureStudio`) under `Experimental/` as UI component & solver specifications for `Engine/Components/`, `Engine/Workspaces/`, and `Engine/Editor/`.
 
 ---
 

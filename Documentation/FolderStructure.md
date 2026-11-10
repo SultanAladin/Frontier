@@ -57,9 +57,12 @@ Frontier/
 │   └── Tracker.md                             // Active milestone roadmap & bringup status
 │
 ├── Exhibits/                                  // Validation test suites, benches, and EditorMirror
-│   └── InputValidation.cpp                    // Deterministic Input & BuildConfiguration verification
+│   ├── InputValidation.cpp                    // Deterministic Input & BuildConfiguration verification
+│   └── WindowValidation.cpp                   // Splash, windowed, maximized & fullscreen mode verification
 │
-├── Experimental/                              // Reference studios staged for native C++20 conversion
+├── Experimental/                              // Reference studios & UIs staged for C++20 conversion
+│   ├── FrontierEditor/                        // Native C++ dockspace, Notch, Outliner & theme UI (c0aaab6)
+│   ├── ProjectZeroEditor/                     // Project-Zero editor shell, Notch, Outliner & inspectors
 │   ├── FluidEditor/                           // Gas, plume, combustion, and vortex solver prototype
 │   ├── FractureEditor/                        // Voronoi, convex partition, SDF, and debris prototype
 │   ├── ParticleEditor/                        // GPU compute particle, fibre, and lightning studio
@@ -226,7 +229,8 @@ Frontier/
     │   └── InputExchange.{h,cpp}              // OS->Engine signal intake & Engine->OS cursor/haptic exchange
     │
     ├── Windowing/                             // Native cross-platform surface abstractions
-    │   ├── PlatformWindow.h                   // Cross-platform window & surface interface
+    │   ├── PlatformWindow.h                   // Window flags, application presets & mode-switch interface
+    │   ├── PlatformWindowDesktop.cpp          // GLFW 3.4 Win32, X11, Wayland & offscreen desktop surface
     │   ├── PlatformWindowWin32.cpp            // Win32 / DXGI / Vulkan surface presentation
     │   ├── PlatformWindowX11.cpp              // Xlib / Vulkan presentation
     │   ├── PlatformWindowWayland.cpp          // Wayland XDG surface presentation

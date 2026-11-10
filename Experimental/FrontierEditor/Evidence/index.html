@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frontier Editor — Experimental Workspace</title>
+<style>
+  :root { --bg:#0b0e11; --panel:#12161b; --panel2:#171c23; --line:#232a33; --text:#e8ecf1; --muted:#9aa3af; --faint:#5f6b78; --accent:#3b82f6; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.55 -apple-system,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif; }
+  header { padding:40px 24px 8px; max-width:1180px; margin:0 auto; }
+  h1 { margin:0 0 6px; font-size:30px; font-weight:650; letter-spacing:.2px; }
+  h1 .tag { color:var(--accent); font-size:14px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; vertical-align:middle; margin-left:10px; }
+  .sub { color:var(--muted); max-width:820px; margin:0; }
+  main { max-width:1180px; margin:0 auto; padding:0 24px 56px; }
+  h2 { margin:38px 0 4px; font-size:19px; font-weight:650; }
+  .note { color:var(--muted); margin:0 0 14px; max-width:820px; }
+  .hero { margin-top:22px; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--panel); }
+  .hero img, .gif img, .still img { display:block; width:100%; height:auto; }
+  .grid { display:grid; gap:16px; }
+  .gifs { grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); }
+  .stills { grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); }
+  .gif, .still { border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--panel); }
+  .cap { padding:10px 14px 12px; border-top:1px solid var(--line); background:var(--panel2); }
+  .cap b { display:block; font-size:14px; }
+  .cap span { color:var(--muted); font-size:13px; }
+  .facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; margin-top:6px; }
+  .card { border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:14px 16px; }
+  .card h3 { margin:0 0 8px; font-size:14px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); font-weight:650; }
+  .card ul { margin:0; padding-left:18px; color:var(--muted); }
+  .card li b { color:var(--text); font-weight:600; }
+  code, kbd { background:#0d1117; border:1px solid var(--line); border-radius:5px; padding:0 5px; font-size:13px; }
+  .ok { color:#4ade80; font-weight:650; }
+  footer { color:var(--faint); border-top:1px solid var(--line); margin-top:44px; padding-top:16px; font-size:13px; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Frontier Editor <span class="tag">Experimental</span></h1>
+  <p class="sub">Standalone editor workspace on the production dockable-tab composer: Notch / Control Centre,
+  Outliner, a deliberately blank Viewport, Log Stream, a blank-for-now Inspector, and the new shared
+  input layer with its live test-bench panel. All frames below are real renders from the headless
+  interaction harness (<code>FrontierEditorEvidence</code>): <span class="ok">0 failures</span>.</p>
+  <div class="hero"><img src="still-workspace-overview.png" alt="Frontier Editor workspace overview"></div>
+</header>
+<main>
+  <h2>Interaction evidence</h2>
+  <p class="note">Scripted pointer/keyboard driving the actual panels (learn-by-effect, replayed on record).
+  The white arrow is the harness cursor.</p>
+  <div class="grid gifs">
+    <div class="gif"><img loading="lazy" src="outliner-inspector.gif" alt="Outliner interactions">
+      <div class="cap"><b>Outliner</b><span>Row selection, chevron collapse/expand of the vehicle subtree, text filter, spawn from the + menu. Per-classification icons throughout.</span></div></div>
+    <div class="gif"><img loading="lazy" src="docking-input.gif" alt="Docking and input panel">
+      <div class="cap"><b>Docking + Input</b><span>F6 toggling the Input panel, press-to-assign rebinding to Ctrl+L, Ctrl+L toggling Log Stream, splitter drags, log pause.</span></div></div>
+    <div class="gif"><img loading="lazy" src="notch-simulation.gif" alt="Notch and simulation capture">
+      <div class="cap"><b>Notch + Simulation</b><span>Notch click opens the Control Centre, quick tile, dismissal; canvas click captures the Simulation context, W/A/D drive the axes, Esc releases.</span></div></div>
+  </div>
+
+  <h2>Stills</h2>
+  <p class="note">Full-resolution captures from the same run.</p>
+  <div class="grid stills">
+    <div class="still"><img loading="lazy" src="still-outliner-collapsed.png" alt="Collapsed outliner">
+      <div class="cap"><b>Collapsed subtree</b><span>Chevron folded: tyres hidden, counts intact (“8 shown · 12 total”).</span></div></div>
+    <div class="still"><img loading="lazy" src="still-input-panel.png" alt="Input panel">
+      <div class="cap"><b>Input panel</b><span>Appearance theme (blue accent): contexts, live actions/axes, assignments.</span></div></div>
+    <div class="still"><img loading="lazy" src="still-input-reassigned.png" alt="Input panel after rebind">
+      <div class="cap"><b>After press-to-assign</b><span><code>Editor.ToggleLogStream</code> rebound to Ctrl+L through the live map.</span></div></div>
+    <div class="still"><img loading="lazy" src="still-simulation-captured.png" alt="Simulation captured">
+      <div class="cap"><b>Simulation captured</b><span>Blank viewport surface holding the Simulation input context.</span></div></div>
+    <div class="still"><img loading="lazy" src="still-control-centre.png" alt="Control Centre">
+      <div class="cap"><b>Control Centre</b><span>Notch sheet open (headless raster: the frosted backdrop is a Vulkan effect).</span></div></div>
+    <div class="still"><img loading="lazy" src="still-spawn-menu-debug.png" alt="Spawn menu">
+      <div class="cap"><b>Spawn menu</b><span>One record per classification, created under the selection.</span></div></div>
+  </div>
+
+  <h2>At a glance</h2>
+  <div class="facts">
+    <div class="card"><h3>Panels</h3><ul>
+      <li><b>Notch</b> — Control Centre (appearance, quick tiles)</li>
+      <li><b>Outliner</b> — scene tree, icons, folds, filters, spawn</li>
+      <li><b>Viewport</b> — blank except its header (by request)</li>
+      <li><b>Log Stream</b> — retained engine panel, unchanged</li>
+      <li><b>Inspector</b> — blank for now</li>
+      <li><b>Input</b> — shared input layer test bench</li></ul></div>
+    <div class="card"><h3>Default keys</h3><ul>
+      <li><kbd>F5</kbd> capture simulation · <kbd>Esc</kbd> release</li>
+      <li><kbd>F6</kbd> Input · <kbd>F7</kbd> Log Stream</li>
+      <li><kbd>F8</kbd> Outliner · <kbd>F9</kbd> Inspector</li>
+      <li><kbd>Ctrl+Shift+R</kbd> reset layout</li>
+      <li><kbd>W/A/S/D</kbd> drive · <kbd>Space</kbd> handbrake (simulation)</li></ul></div>
+    <div class="card"><h3>Verification</h3><ul>
+      <li>Evidence harness: <span class="ok">0 failures</span></li>
+      <li>Input validation: <span class="ok">43 / 43 checks</span></li>
+      <li>Log Stream exhibit tests: <span class="ok">2 / 2</span></li>
+      <li>Theming follows Control Centre Appearance live</li></ul></div>
+  </div>
+
+  <footer>Frontier Editor lives in <code>Experimental/FrontierEditor/</code> on branch
+  <code>arena/85f85fa9-frontier</code>. Regenerate this evidence with
+  <code>FrontierEditorEvidence &lt;frames-dir&gt; &lt;repo-root&gt;</code> then
+  <code>EncodeGif.py</code>. See the folder README for build/run details.</footer>
+</main>
+</body>
+</html>
