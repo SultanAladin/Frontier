@@ -65,12 +65,12 @@ input, geometry, or render paths:
    };
    ```
 
-2. **Static Policy Composition**:
-   Parameterize hardware substrates, coordinate precisions (`float` vs `double`), and memory allocators via concepts so unit validations (`Exhibits/`) can substitute deterministic headless substrates (`PlatformWindowStub`) at zero runtime cost.
+2. **Static Policy Parameterization**:
+   Parameterize hardware device interfaces, coordinate precisions (`float` vs `double`), and memory allocators via concepts so unit validations (`Exhibits/`) can substitute deterministic headless windows (`HeadlessPlatformWindow`) at zero runtime cost.
 3. **Shared Resource / Multi-Instance Idiom**:
-   A modular type owns shared GPU or session resources **once**; per-instance parameters are supplied at submission/invocation time via lightweightPOD structs or push-constants.
+   A modular type owns shared GPU or session resources **once**; per-instance parameters are supplied at invocation/encoding time via lightweight POD structs or push-constants.
 4. **Compile-Time Hygiene**:
-   Keep heavy third-party headers (`vulkan.h`, `Jolt.h`, `imgui.h`, `toml.hpp`) confined to `.cpp` files or dedicated `*Substrate` boundaries; forward-declare opaque handles in public headers.
+   Keep heavy third-party headers (`vulkan.h`, `Jolt.h`, `imgui.h`, `toml.hpp`) confined to `.cpp` files or dedicated hardware-boundary translation units; forward-declare opaque handles in public headers.
 
 ---
 
@@ -92,14 +92,14 @@ Exactly one profile is active per binary, enforced via `static_assert` in `Engin
 ## 5. Memory, Determinism & Error Handling
 
 - **Zero Raw `new` / `delete`**: Allocate bulk lifetime-grouped memory through `RegionAllocator`, recycled indexed instances through `IndexedSlotRecycler`, and stale-detecting handles through `TokenIssuer` + `TokenAuthentication`.
-- **Non-Owning Views**: Pass contiguous sequences via `std::span<const T>` or `BitSlice` — never copy `std::vector` across call boundaries.
-- **No Hot-Path Exceptions or RTTI**: Engine runtime ticks, physics, audio mixing, input routing, and GPU submission never throw exceptions and never use `dynamic_cast` / `typeid`. Report recoverable failures via explicit status enums or value-or-error structs.
+- **Non-Owning Views**: Pass contiguous sequences via `std::span<const T>` or `PackedBits` — never copy `std::vector` across call boundaries.
+- **No Hot-Path Exceptions or RTTI**: Engine runtime ticks, physics, audio mixing, input routing, and GPU command encoding never throw exceptions and never use `dynamic_cast` / `typeid`. Report recoverable failures via explicit status enums or result structs.
 
 ---
 
 ## 6. Cross-Platform & `.slang` GPU Interop Rules
 
 1. **Target Matrix**: Every engine module (`Engine/*`) must compile cleanly on **Windows (x64/ARM64)**, **Linux (X11/Wayland, x64/ARM64)**, and **Android (NDK ARM64/x64)**.
-2. **OS Header Isolation**: `<windows.h>`, `<X11/Xlib.h>`, `<wayland-client.h>`, and `<android/native_window.h>` may appear **only** inside platform-specific `*Win32.cpp`, `*X11.cpp`, `*Wayland.cpp`, `*Android.cpp`, or `*Substrate.cpp` translation units.
+2. **OS Header Isolation**: `<windows.h>`, `<X11/Xlib.h>`, `<wayland-client.h>`, and `<android/native_window.h>` may appear **only** inside platform-specific `*Win32.cpp`, `*X11.cpp`, `*Wayland.cpp`, `*Android.cpp`, or hardware-endpoint `.cpp` translation units.
 3. **SIMD Portability**: Guard x86 intrinsics (`<immintrin.h>`) behind `#if defined(__x86_64__) || defined(_M_X64)` and provide ARM NEON (`<arm_neon.h>`) + portable scalar `constexpr` paths so Android ARM64 always builds cleanly.
 4. **C++20 ↔ `.slang` Struct Parity**: Structures shared with `.slang` shaders use explicit fixed-width types (`uint32_t`, `float`), `alignas(16)`, and mandatory `static_assert(sizeof(...) == ExpectedBytes)` + `static_assert(offsetof(...) == ExpectedOffset)`.

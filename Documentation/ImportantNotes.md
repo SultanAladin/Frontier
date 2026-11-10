@@ -11,7 +11,7 @@ Durable engineering rules, non-negotiable architectural invariants, and referenc
 - **Never Draw Viewport Overlays on CPU or ImGui**:
   - 🔴 **NEVER** rasterize grids, gizmos, or debug lines on the CPU.
   - 🔴 **NEVER** submit viewport grids, 3D gizmos, or debug wireframes through ImGui (`ImDrawList`). ImGui is strictly for docked editor panels, inspectors, ribbons, and chrome controls.
-  - 🔴 **NEVER** scatter ad-hoc raw Vulkan draw boilerplate across editor/engine tools; all GPU submission routes cleanly through `GeometricRaster/` (`RenderDeviceSubstrate`, `DrawBatchSubmitter`) backed by **Slang (`.slang`)** shaders.
+  - 🔴 **NEVER** scatter ad-hoc raw Vulkan draw boilerplate across editor/engine tools; all GPU draw encoding routes cleanly through `GeometricRaster/` (`RenderDeviceInterface`, `IndirectDrawEncoder`) backed by **Slang (`.slang`)** shaders.
 - **Slang (`.slang`) Exclusively**: Every shader in `Engine/Shaders/` is authored in `.slang` and compiled via `slangc` (`Automation/PrepareShaderToolchain.py`). Do not introduce raw `.glsl` or `.hlsl` shader sources.
 
 ---
@@ -20,7 +20,7 @@ Durable engineering rules, non-negotiable architectural invariants, and referenc
 
 - **Universal Device Support**: Frontier is architected from day one to compile and run on **Windows** (Win32/DXGI/Vulkan), **Linux** (X11 & Wayland), **Android** (NDK / `ANativeWindow` / ARM64), and **Headless validation** (`PlatformWindowStub`).
 - **Platform Isolation**:
-  - Keep OS headers strictly inside `PlatformWindow{Win32,X11,Wayland,Android,Stub}.cpp` and hardware `*Substrate` files.
+  - Keep OS headers strictly inside `PlatformWindow{Win32,X11,Wayland,Android,Stub}.cpp` and hardware-endpoint `.cpp` files.
   - Note that `glfw` covers desktop windowing only; Android uses `PlatformWindowAndroid.cpp` (`ANativeWindow` / `GameActivity`), so `Engine/Input/` and `Engine/Windowing/` expose platform-neutral C++20 interfaces supporting keyboard, mouse, controller, **and multi-touch/stylus** events natively.
   - Never hardcode x86-only SIMD intrinsics without an ARM64 NEON / scalar path.
 

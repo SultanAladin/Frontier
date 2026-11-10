@@ -18,7 +18,7 @@ namespace Frontier::Windowing
 //                                                    ENUMERATIONS
 //------------------------------------------------------------------------------------------------------------------------
 
-enum class WindowSubstrateCategory : uint8_t
+enum class WindowPlatformCategory : uint8_t
 {
     HeadlessStub = 0, // [-] - Deterministic offscreen validation surface
     Win32        = 1, // [-] - Windows HWND / DXGI / Vulkan surface
@@ -53,16 +53,16 @@ struct WindowExtentReading
 //------------------------------------------------------------------------------------------------------------------------
 
 template <typename SurfaceType>
-concept WindowSurfaceSubstrate = requires(
+concept PlatformWindowSurface = requires(
     SurfaceType&                         Surface,
     const WindowConfigurationDescriptor& Descriptor,
     Input::InputExtension&               InputCoordinator)
 {
-    { Surface.Initialize(Descriptor) }            noexcept -> std::same_as<bool>;
+    { Surface.Initialize(Descriptor) }                noexcept -> std::same_as<bool>;
     { Surface.PollOperatingEvents(InputCoordinator) } noexcept -> std::same_as<void>;
-    { Surface.Finalize() }                        noexcept -> std::same_as<void>;
-    { Surface.CloseRequested() }                  noexcept -> std::same_as<bool>;
-    { Surface.InspectExtent() }                   noexcept -> std::same_as<WindowExtentReading>;
+    { Surface.Finalize() }                            noexcept -> std::same_as<void>;
+    { Surface.CloseRequested() }                      noexcept -> std::same_as<bool>;
+    { Surface.InspectExtent() }                       noexcept -> std::same_as<WindowExtentReading>;
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -86,9 +86,9 @@ public:
     void               RequestClose() noexcept;
     [[nodiscard]] bool QueueSyntheticSignal(const Input::InputSignalPacket& Packet) noexcept;
 
-    [[nodiscard]] bool                    CloseRequested()    const noexcept;
-    [[nodiscard]] WindowExtentReading     InspectExtent()     const noexcept;
-    [[nodiscard]] WindowSubstrateCategory SubstrateCategory() const noexcept;
+    [[nodiscard]] bool                   CloseRequested()   const noexcept;
+    [[nodiscard]] WindowExtentReading    InspectExtent()    const noexcept;
+    [[nodiscard]] WindowPlatformCategory PlatformCategory() const noexcept;
 
 private:
     Input::RawInputRouter PendingSyntheticSignals{}; // [-]  - Synthetic OS events queued for next PollOperatingEvents
@@ -97,7 +97,7 @@ private:
     bool                  ClosingRequested   = false;// [-]  - True once RequestClose has been triggered
 };
 
-static_assert(WindowSurfaceSubstrate<HeadlessPlatformWindow>,
-              "HeadlessPlatformWindow must satisfy the WindowSurfaceSubstrate C++20 concept.");
+static_assert(PlatformWindowSurface<HeadlessPlatformWindow>,
+              "HeadlessPlatformWindow must satisfy the PlatformWindowSurface C++20 concept.");
 
 } // namespace Frontier::Windowing

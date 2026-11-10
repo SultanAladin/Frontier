@@ -11,9 +11,9 @@ Deferred items live in [Backlog.md](Backlog.md); architectural invariants live i
 | Phase | Milestone | Status | Primary Domains |
 | ----- | --------- | ------ | --------------- |
 | **Phase 0** | Governance, Pinned Dependencies, ImGui Patch Stack & CMake Profiles | 🟢 Complete | `Documentation/` · `Automation/` · `ExternalPackages/` · `Engine/Configuration/` |
-| **Phase 1** | **Input Foundation & Cross-Platform Windowing Substrate** | 🟢 Groundwork Active | `Engine/Input/` · `Engine/Windowing/` · `Exhibits/` |
+| **Phase 1** | **Input Foundation & Cross-Platform Windowing** | 🟢 Groundwork Active | `Engine/Input/` · `Engine/Windowing/` · `Exhibits/` |
 | **Phase 2** | **Editor & Multi-Document Workspace Groundwork** | 🚩 Next | `Engine/Workspaces/` · `Engine/Editor/` · `Engine/Components/` |
-| **Phase 3** | **`.slang` Shader Compiler, GPU Device Substrate & GPU Viewport Overlays** | 🏳️ Planned | `Engine/GeometricRaster/` · `Engine/Shaders/` · `Engine/Annotation/` · `Engine/Editor/Viewports/` |
+| **Phase 3** | **`.slang` Shader Compiler, GPU Device Interface & GPU Viewport Overlays** | 🏳️ Planned | `Engine/GeometricRaster/` · `Engine/Shaders/` · `Engine/Annotation/` · `Engine/Editor/Viewports/` |
 | **Phase 4** | **Geometry Processing, UV Space, Color Space & Asset Interchange** | 🏳️ Planned | `Engine/MetricSpace/` · `Engine/GeometryProcessing/` · `Engine/UVSpace/` · `Engine/ColorSpace/` · `Engine/Interchange/` |
 | **Phase 5** | **Simulation, Audio & Networking Spaces** | 🏳️ Planned | `Engine/SimulationSpace/` · `Engine/AudioSpace/` · `Engine/NetworkingSpace/` |
 
@@ -31,12 +31,12 @@ Deferred items live in [Backlog.md](Backlog.md); architectural invariants live i
 
 ---
 
-## Phase 1 — Input Foundation & Windowing Substrate (🟢 Groundwork Active)
+## Phase 1 — Input Foundation & Cross-Platform Windowing (🟢 Groundwork Active)
 
 Starting focus agreed with user: **`Input/` + `Editor/` groundwork**.
 
 1. **`Engine/Configuration/BuildConfiguration.h`**:
-   - Compile-time mutually exclusive `FRONTIER_PROFILE_EDITOR`, `FRONTIER_PROFILE_DEVELOPMENT`, and `FRONTIER_PROFILE_SHIPPING` policy with `static_assert` validation and `constexpr` predicates.
+   - Compile-time mutually exclusive `FRONTIER_PROFILE_EDITOR`, `FRONTIER_PROFILE_DEVELOPMENT`, and `FRONTIER_PROFILE_SHIPPING` policy with `static_assert` validation and `constexpr` booleans.
 2. **`Engine/Input/RawInputRouter.{h,cpp}` & `Engine/Input/InputExtension.{h,cpp}`**:
    - Platform-neutral C++20 input signal packets covering keyboard scan/key codes, pointer motion/buttons/scroll, gamepad axes/buttons, and multi-touch/pen contact points (supporting Windows, Linux, and Android).
    - Fixed-capacity deterministic ring intake (`RawInputRouter`) with C++20 `concept`-constrained signal routing (`InputSignalSink`) and zero heap churn per tick.

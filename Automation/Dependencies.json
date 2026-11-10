@@ -18,7 +18,7 @@
       "url": "https://codeload.github.com/thorvg/thorvg/tar.gz/6715f99ac106b6d4587f384a78c59fe957cfd2a3",
       "sha256": "60f878d34b0c27ab743fb786831baab08efe36b32858d3aa4f314c3511b9fe3a",
       "verified": true,
-      "purpose": "SVG icon & vector shape atlas baking into GPU textures (staged via StageThorVG.py)",
+      "purpose": "SVG icon & vector shape rasterization into GPU textures (staged via StageThorVG.py)",
       "witness": "inc/thorvg.h"
     },
     {
@@ -38,7 +38,7 @@
       "url": "https://codeload.github.com/glfw/glfw/tar.gz/a74efa0d5628b74adc0426af4c5710e287fa7c2c",
       "sha256": "7e85e39ade1efdda00734d323a0230b5c938074e9fb2ddbe453bdbb281064d2c",
       "verified": true,
-      "purpose": "GLFW 3.4 desktop window and peripheral input substrate",
+      "purpose": "GLFW 3.4 desktop window and peripheral input library",
       "witness": "include/GLFW/glfw3.h"
     },
     {

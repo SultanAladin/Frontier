@@ -39,10 +39,10 @@ void InputExtension::Finalize() noexcept
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                  HARDWARE SUBMISSION
+//                                                  HARDWARE INTAKE
 //------------------------------------------------------------------------------------------------------------------------
 
-bool InputExtension::SubmitHardwareSignal(const InputSignalPacket& Packet) noexcept
+bool InputExtension::IntakeHardwareSignal(const InputSignalPacket& Packet) noexcept
 {
     if (!LifecycleActive)
     {
@@ -51,7 +51,7 @@ bool InputExtension::SubmitHardwareSignal(const InputSignalPacket& Packet) noexc
     return Router.IntakeSignal(Packet);
 }
 
-std::size_t InputExtension::SubmitHardwareBatch(std::span<const InputSignalPacket> Packets) noexcept
+std::size_t InputExtension::IntakeHardwareBatch(std::span<const InputSignalPacket> Packets) noexcept
 {
     if (!LifecycleActive)
     {

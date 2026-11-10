@@ -90,7 +90,7 @@ Frontier/
     │   ├── RegionAllocator.{h,cpp}            // Monotonic non-freeing block allocator
     │   ├── TokenIssuer.h                      // Stale-detecting monotonic ID generator
     │   ├── TokenAuthentication.h              // Validation primitives for issued handles
-    │   ├── BitSlice.h                         // Contiguous bit-range view and bitwise operations
+    │   ├── PackedBits.h                       // Contiguous packed-bit operations and bit-range queries
     │   ├── IndexedSlotRecycler.h              // Preallocated indexed instance slot recycler
     │   └── Assertion.h                        // Invariant enforcement macros and diagnostics
     │
@@ -127,7 +127,7 @@ Frontier/
     │
     ├── GeometryProcessing/                    // Topological surface complexes and discrete operators
     │   ├── PolygonComplex.{h,cpp}             // Indexed polygon collection and topological groupings
-    │   ├── HalfEdgeComplex.{h,cpp}            // Directional half-edge adjacency structure
+    │   ├── HalfEdgeComplex.{h,cpp}            // Directional half-edge connectivity structure
     │   ├── DecimationSolver.{h,cpp}           // Quadric error metric (QEM) edge collapse simplifier
     │   ├── SubdivisionSurface.{h,cpp}         // Catmull-Clark and Loop refinement operators
     │   ├── SurfaceTopology.{h,cpp}            // Non-manifold detection and boundary loop traverser
@@ -135,7 +135,7 @@ Frontier/
     │
     ├── UVSpace/                               // Surface parameterization, chart routing, and packing
     │   ├── ChartParameterizer.{h,cpp}         // Least Squares Conformal (LSCM) / ARAP solver
-    │   ├── UVAtlasPacker.{h,cpp}              // Scanline chart packing
+    │   ├── UVChartPacker.{h,cpp}              // Scanline UV chart packing
     │   ├── SeamDetector.{h,cpp}               // High-distortion edge loop finder
     │   ├── ConformalProjector.{h,cpp}         // Angle-preserving harmonic coordinate projector
     │   └── DistortionMetrics.{h,cpp}          // Area/angle deformation measurement
@@ -147,12 +147,12 @@ Frontier/
     │   ├── SpectralDistribution.{h,cpp}       // Wavelength tristimulus integration and Planckian Kelvin
     │   └── GamutCompression.{h,cpp}           // Out-of-gamut perceptual chroma reduction and clipping solvers
     │
-    ├── GeometricRaster/                       // Hardware draw submission, commands, and GPU resources
+    ├── GeometricRaster/                       // Hardware draw encoding, commands, and GPU resources
     │   ├── RenderExtension.{h,cpp}            // Render lifecycle coordinator and device attachment
     │   ├── RasterExecutionPath.{h,cpp}        // GPU execution sequence
     │   ├── RenderScheduler.{h,cpp}            // Transient dependency-sorted workload coordinator
-    │   ├── DrawBatchSubmitter.{h,cpp}         // Draw-call batching, instancing, and indirect submission
-    │   ├── RenderDeviceSubstrate.h            // GPU hardware substrate interface and capability limits
+    │   ├── IndirectDrawEncoder.{h,cpp}        // Draw-call batching, instancing, and indirect encoding
+    │   ├── RenderDeviceInterface.h            // GPU hardware device interface and capability limits
     │   ├── DescriptorSlotRegister.{h,cpp}     // Descriptor layout and push-constant slot register
     │   └── PostProcess/                       // Ordered image operations
     │       ├── PostProcessSequence.{h,cpp}    // Ordered image operation execution sequence
@@ -233,7 +233,7 @@ Frontier/
     │   └── InterchangeFilmboxReader.{h,cpp}   // FBX interchange reader
     │
     ├── Annotation/                            // GPU-rasterized visual annotations, callouts, and debug lines
-    │   ├── AnnotationExtension.{h,cpp}        // Annotation lifecycle coordinator and GPU draw submission
+    │   ├── AnnotationExtension.{h,cpp}        // Annotation lifecycle coordinator and GPU draw queueing
     │   ├── VectorAnnotation.{h,cpp}           // GPU 2D/3D vector line, arrow, Bézier, and curve markers
     │   ├── TextAnnotation.{h,cpp}             // GPU billboarded world-space and screen-space callouts
     │   ├── SpatialAnnotation.{h,cpp}          // GPU 3D debug bounding volumes, coordinate axes, and shapes
@@ -297,7 +297,7 @@ Frontier/
     │   ├── VectorIcons/                       // Unit-square vector shape icons & rasterization
     │   │   ├── VectorIcon.{h,cpp}             // Unit-square vector icon descriptor
     │   │   ├── IconGeometry.{h,cpp}           // Normalized [0, 1] path and stroke buffers
-    │   │   ├── IconRasterizer.{h,cpp}         // Specialized unit-square rasterizer & atlas store
+    │   │   ├── IconRasterizer.{h,cpp}         // Specialized unit-square icon sheet rasterizer
     │   │   └── VectorRasterizer.{h,cpp}       // Generalized analytical vector tessellator/rasterizer
     │   └── Overlays/                          // Viewport and cursor interaction overlays
     │       ├── ToolShelf.{h,cpp}              // Viewport-anchored tool row (ToolCluster / UtilityStrip)
@@ -316,7 +316,7 @@ Frontier/
     │
     └── AudioSpace/                            // Spatial acoustics, waveform decoding, and hardware mixing
         ├── AudioExtension.{h,cpp}             // Lifecycle coordinator: device output, mix ticks, and voice budgets
-        ├── AudioDeviceSubstrate.{h,cpp}       // Native OS audio endpoint ingestion and lock-free ring buffers
+        ├── AudioHardwareOutput.{h,cpp}        // Native OS audio endpoint intake and lock-free ring buffers
         ├── WaveformDecoder.{h,cpp}            // PCM, WAV, Ogg Vorbis, and FLAC sample stream decoding
         ├── AcousticMixer.{h,cpp}              // Bus summing, gain envelopes, biquad filtering, and resampling
         └── SpatialAcoustics.{h,cpp}           // 3D HRTF binaural panning, Doppler pitch shift, and occlusion

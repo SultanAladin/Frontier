@@ -42,7 +42,7 @@ void HeadlessPlatformWindow::PollOperatingEvents(Input::InputExtension& InputCoo
 
         void AcceptInputSignal(const Input::InputSignalPacket& Packet) noexcept
         {
-            (void)Coordinator->SubmitHardwareSignal(Packet);
+            (void)Coordinator->IntakeHardwareSignal(Packet);
         }
     };
 
@@ -98,9 +98,9 @@ WindowExtentReading HeadlessPlatformWindow::InspectExtent() const noexcept
     return ActiveExtent;
 }
 
-WindowSubstrateCategory HeadlessPlatformWindow::SubstrateCategory() const noexcept
+WindowPlatformCategory HeadlessPlatformWindow::PlatformCategory() const noexcept
 {
-    return WindowSubstrateCategory::HeadlessStub;
+    return WindowPlatformCategory::HeadlessStub;
 }
 
 } // namespace Frontier::Windowing

@@ -134,7 +134,7 @@ int main()
     InputSignalPacket FirstFingerLift = FirstFingerTouch;
     FirstFingerLift.TimestampNanoseconds = 4000;
     FirstFingerLift.TouchPhase           = TouchContactCategory::Ended;
-    (void)Coordinator.SubmitHardwareSignal(FirstFingerLift);
+    (void)Coordinator.IntakeHardwareSignal(FirstFingerLift);
     (void)Coordinator.TickRouting();
 
     if (Coordinator.ActiveTouchContactCount() != 1u)

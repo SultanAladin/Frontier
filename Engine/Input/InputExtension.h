@@ -56,8 +56,8 @@ public:
     void BeginTick() noexcept;
     void Finalize() noexcept;
 
-    [[nodiscard]] bool        SubmitHardwareSignal(const InputSignalPacket& Packet) noexcept;
-    [[nodiscard]] std::size_t SubmitHardwareBatch(std::span<const InputSignalPacket> Packets) noexcept;
+    [[nodiscard]] bool        IntakeHardwareSignal(const InputSignalPacket& Packet) noexcept;
+    [[nodiscard]] std::size_t IntakeHardwareBatch(std::span<const InputSignalPacket> Packets) noexcept;
 
     std::size_t TickRouting() noexcept;
 

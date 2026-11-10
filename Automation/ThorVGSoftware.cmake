@@ -1,7 +1,7 @@
 #============================================================================================================================================
 #                                                       THORVGSOFTWARE.CMAKE
 #============================================================================================================================================
-# 🧩 Build ThorVG 1.0.0 (6715f99ac1) as a static library for offline/atlas SVG vector icon baking into GPU textures.
+# 🧩 Build ThorVG 1.0.0 (6715f99ac1) as a static library for offline SVG vector icon baking into GPU textures.
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 if(NOT DEFINED FRONTIER_ROOT)

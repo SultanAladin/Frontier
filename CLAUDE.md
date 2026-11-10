@@ -26,14 +26,14 @@ code, shaders, build scripts, or documentation.
 - **Every** viewport overlay — reference grids (`NavigationOverlay`), transform manipulators (`TransformGizmo`), wireframe debug lines/boxes/spheres/rays (`DiagnosticPrimitives`, `SpatialAnnotation`, `VectorAnnotation`), and world/screen text callouts (`TextAnnotation`) — **MUST be drawn directly on the GPU** via dedicated **Slang (`.slang`)** `…Rasterization` units.
 - **NEVER** draw grids, gizmos, or debug overlays on the CPU.
 - **NEVER** draw viewport grids, 3D gizmos, or debug geometry through ImGui (`ImDrawList`). ImGui is strictly restricted to docked UI panels, inspectors, tool ribbons, and chrome controls.
-- **NEVER** scatter inline raw Vulkan draw state across feature/editor code; route all GPU execution through `Engine/GeometricRaster/` (`RenderDeviceSubstrate`, `DrawBatchSubmitter`) and `.slang` shaders.
+- **NEVER** scatter inline raw Vulkan draw state across feature/editor code; route all GPU execution through `Engine/GeometricRaster/` (`RenderDeviceInterface`, `IndirectDrawEncoder`) and `.slang` shaders.
 
 ### 🔴 2.2 Slang (`.slang`) Shader Standard
 - All raster, compute, and image-operation shaders in `Engine/Shaders/` are written in **`.slang`** and compiled via `slangc` (`Automation/PrepareShaderToolchain.py`). Do not add `.glsl` or `.hlsl` files to `Engine/Shaders/`.
 
 ### 🔴 2.3 Cross-Platform Portability (Any Device: Windows · Linux · Android)
 - Frontier is strictly cross-platform and must work cleanly on **Windows** (Win32 / x64 / ARM64), **Linux** (X11 & Wayland), **Android** (NDK / `ANativeWindow` / ARM64), and **Headless validation** (`PlatformWindowStub`).
-- Confine OS-specific headers to `PlatformWindow{Win32,X11,Wayland,Android,Stub}.cpp` and `*Substrate.cpp` files.
+- Confine OS-specific headers to `PlatformWindow{Win32,X11,Wayland,Android,Stub}.cpp` and platform device implementation `.cpp` files.
 - Always provide portable scalar + ARM64 NEON + x86_64 SSE4.2 paths — never lock math or physics to x86-only intrinsics.
 
 ### 🔴 2.4 Three-Profile Build Architecture (`Editor` · `Development` · `Shipping`)
