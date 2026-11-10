@@ -49,3 +49,4 @@ _AgentScratch/
 *.lib
 /google_drive/
 **/Saved/
+**/node_modules/
