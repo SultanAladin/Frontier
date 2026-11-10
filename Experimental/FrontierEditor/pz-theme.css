@@ -1,0 +1,2248 @@
+/* ============================================================================================================================================
+                                                              PZ-THEME.CSS
+   ============================================================================================================================================
+   ProjectZeroEditor UI design system (Notch + 3-Dock TabStrip + Checkerboard Viewport + Lighting lp-card + Folders workspace-card)
+   applied across FrontierEditor while preserving all entity diagrams and controls.
+*/
+
+html, body, #root, #Editor.pz-editor-root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background: #090909;
+    color: #f0f0f0;
+    font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 13px;
+    font-weight: 300;
+}
+
+body.resizing {
+    cursor: col-resize;
+    user-select: none;
+}
+
+/* ProjectZeroEditor 26px capsule range sliders */
+.pz-editor-root input[type="range"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 100%;
+    border: 0;
+    height: 26px !important;
+    border-radius: 30px !important;
+    background: linear-gradient(
+        90deg,
+        #454545 0 var(--fill, var(--progress, 50%)),
+        #242424 var(--fill, var(--progress, 50%)) 100%
+    ) !important;
+    cursor: ew-resize;
+    margin: 4px 0;
+    padding: 0;
+}
+
+.pz-editor-root input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 24px !important;
+    height: 24px !important;
+    border-radius: 50% !important;
+    border: none !important;
+    background: #e0e0e0 !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.55) !important;
+}
+
+.pz-editor-root input[type="range"]::-moz-range-thumb {
+    width: 24px !important;
+    height: 24px !important;
+    border: 0 !important;
+    border-radius: 50% !important;
+    background: #e0e0e0 !important;
+}
+
+/* Pull-down ProjectZeroEditor Notch */
+.pz-notch-wrap {
+    position: fixed;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    pointer-events: none;
+}
+
+.pz-notch-handle {
+    pointer-events: auto;
+    height: 28px;
+    padding: 0 14px;
+    background: #121212;
+    border: 1px solid #ffffff12;
+    border-top: none;
+    border-radius: 0 0 14px 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #e6e8e3;
+    font-size: 11.5px;
+    cursor: pointer;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+}
+
+.pz-notch-handle:hover {
+    background: #1b1b1b;
+}
+
+.pz-notch-handle small {
+    color: #8c9587;
+    font-size: 10.5px;
+}
+
+.pz-notch-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #589979;
+}
+
+.pz-notch-drawer {
+    pointer-events: auto;
+    margin-top: 6px;
+    width: min(580px, 92vw);
+    background: #151515;
+    border: 1px solid #ffffff14;
+    border-radius: 22px;
+    padding: 16px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.72);
+}
+
+.pz-notch-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.pz-notch-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.pz-notch-grid .pz-action-btn,
+.pz-notch-channels .pz-action-btn {
+    grid-column: 1 / -1;
+    margin-top: 4px;
+}
+
+.pz-notch-channels {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.pz-mini-channel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    background: #1d1d1d;
+    border: 1px solid #ffffff0a;
+    color: #cfcfcf;
+    font-size: 11.5px;
+    cursor: pointer;
+    text-align: left;
+}
+
+.pz-mini-channel.is-on {
+    background: #253029;
+    border-color: #58997966;
+    color: #eef5ef;
+}
+
+.pz-mini-channel b {
+    font-variant-numeric: tabular-nums;
+    color: #8c9587;
+    font-size: 10px;
+}
+
+.pz-notch-about p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.65;
+    color: #b7bbb3;
+}
+
+/* 3-Column Dockable Workspace */
+.pz-workspace {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    grid-template-columns: var(--pz-left, 306px) minmax(280px, 1fr) var(--pz-right, 392px);
+    background: #090909;
+    gap: 0;
+}
+
+.pz-workspace.is-wide-inspector {
+    grid-template-columns: var(--pz-left, 306px) minmax(0, 1fr);
+}
+
+.pz-dock {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: #121212;
+    overflow: hidden;
+}
+
+.pz-dock-left {
+    border-right: 1px solid #ffffff0c;
+}
+
+.pz-dock-right {
+    border-left: 1px solid #ffffff0c;
+}
+
+.pz-dock-centre {
+    background: #0b0b0b;
+}
+
+.pz-tab-strip {
+    flex: 0 0 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 6px;
+    background: #0c0c0c;
+    border-bottom: 1px solid #ffffff0c;
+}
+
+.pz-tabs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pz-tab {
+    height: 24px;
+    padding: 0 11px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #8c9088;
+    font-size: 11px;
+    font-weight: 400;
+    cursor: pointer;
+}
+
+.pz-tab:hover {
+    color: #dcdcdc;
+    background: #1a1a1a;
+}
+
+.pz-tab.is-active {
+    background: #1e1e1e;
+    border-color: #ffffff12;
+    color: #f0f0f0;
+}
+
+.pz-tab-plus {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #888;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pz-tab-plus:hover {
+    background: #222;
+    color: #fff;
+}
+
+.pz-dock-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.pz-divider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    cursor: col-resize;
+    z-index: 20;
+}
+
+.pz-divider-left { right: -3px; }
+.pz-divider-right { left: -3px; }
+.pz-divider:hover { background: rgba(88, 153, 121, 0.45); }
+
+/* Viewport Pane (Checkerboard Authoring Stage) */
+.pz-viewport-pane {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: #0b0b0b;
+}
+
+.pz-viewport-toolbar {
+    flex: 0 0 44px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 12px;
+    background: #101010;
+    border-bottom: 1px solid #ffffff0a;
+    flex-wrap: wrap;
+}
+
+.pz-viewport-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.pz-toolbar-pill,
+.pz-construct-pill,
+.pz-action-btn,
+.pz-icon-pill {
+    border-radius: 999px !important;
+    border: 1px solid #ffffff12;
+    background: #1e1e1e;
+    color: #e3e5df;
+    height: 28px;
+    padding: 0 12px;
+    font-size: 11.5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.pz-toolbar-pill:hover,
+.pz-construct-pill:hover,
+.pz-action-btn:hover {
+    background: #2a2a2a;
+}
+
+.pz-toolbar-pill.is-active {
+    background: #25312a;
+    border-color: #58997977;
+    color: #edf5ef;
+}
+
+.pz-debug-select {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: #1b1b1b;
+    border: 1px solid #ffffff12;
+}
+
+.pz-debug-select select {
+    background: transparent !important;
+    border: 0 !important;
+    height: 26px !important;
+    padding: 0 4px !important;
+    font-size: 11.5px !important;
+    color: #e4e6e0 !important;
+    cursor: pointer;
+}
+
+.pz-scene-stage {
+    flex: 1 1 auto;
+    min-height: 0;
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr;
+    overflow: hidden;
+}
+
+.pz-scene-stage.is-split {
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: #ffffff14;
+}
+
+.pz-checker-canvas {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: #111212;
+    background-image:
+        linear-gradient(45deg, #161717 25%, transparent 25%),
+        linear-gradient(-45deg, #161717 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #161717 75%),
+        linear-gradient(-45deg, transparent 75%, #161717 75%);
+    background-size: 32px 32px;
+    background-position: 0 0, 0 16px, 16px -16px, -16px 0;
+}
+
+.pz-horizon-grid {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.pz-stage-pin {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    height: 28px;
+    padding: 0 10px 0 7px;
+    border-radius: 999px;
+    background: rgba(20, 21, 21, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    color: #d6d9d2;
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+    white-space: nowrap;
+    transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.pz-stage-pin:hover {
+    background: rgba(36, 38, 38, 0.95);
+    border-color: rgba(255, 255, 255, 0.25);
+    z-index: 4;
+}
+
+.pz-stage-pin.is-selected {
+    background: #233029;
+    border-color: #6ab58f;
+    color: #ffffff;
+    box-shadow: 0 0 0 3px rgba(88, 153, 121, 0.22);
+    z-index: 5;
+}
+
+.pz-diagnostics-card {
+    position: absolute;
+    left: 14px;
+    bottom: 14px;
+    right: 14px;
+    max-width: 520px;
+    padding: 14px 16px;
+    border-radius: 18px;
+    background: rgba(22, 23, 22, 0.94);
+    border: 1px solid rgba(185, 169, 105, 0.36);
+    backdrop-filter: blur(10px);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    z-index: 10;
+}
+
+.pz-diagnostics-card strong {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: #f0f2ec;
+    margin: 3px 0;
+}
+
+.pz-diagnostics-card p {
+    margin: 0;
+    font-size: 11px;
+    color: #989c94;
+}
+
+.pz-diag-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.pz-diag-actions button {
+    border-radius: 999px;
+    padding: 5px 11px;
+    background: #262626;
+    border: 1px solid #ffffff14;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.pz-viewport-footer {
+    flex: 0 0 28px;
+    height: 28px;
+    padding: 0 14px;
+    background: #0d0d0d;
+    border-top: 1px solid #ffffff0c;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    color: #7e827b;
+}
+
+.pz-viewport-footer b {
+    color: #cfd3cb;
+    font-weight: 500;
+}
+
+/* Outliner restyled onto ProjectZeroEditor */
+.pz-outliner-pane {
+    width: 100% !important;
+    height: 100% !important;
+    background: #121212 !important;
+    border-right: none !important;
+    padding: 14px 12px !important;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pz-outliner-hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 2px;
+}
+
+.pz-filter-pills {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.pz-filter-pills button {
+    height: 22px;
+    padding: 0 9px;
+    border-radius: 999px;
+    border: 1px solid #ffffff0d;
+    background: #1a1a1a;
+    color: #8f948c;
+    font-size: 10.5px;
+    cursor: pointer;
+}
+
+.pz-filter-pills button.is-active {
+    background: #27322c;
+    border-color: #58997966;
+    color: #eaf2ec;
+}
+
+.pz-outliner-tree .tree-row {
+    height: 32px !important;
+    min-height: 32px !important;
+    border-radius: 10px !important;
+    padding: 0 6px 0 calc(6px + var(--tree-depth, 0) * 14px) !important;
+}
+
+.pz-outliner-tree .tree-row.selected {
+    background: #222825 !important;
+    border-color: #58997944 !important;
+}
+
+.tree-expander-spacer {
+    width: 16px;
+    flex: 0 0 16px;
+}
+
+/* Inspector Pane restyled onto ProjectZeroEditor Lighting + Folders */
+.pz-inspector-pane {
+    width: 100% !important;
+    height: 100% !important;
+    background: #121212 !important;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.pz-inspector-pane .inspector-top {
+    background: #0f0f0f !important;
+    border-bottom: 1px solid #ffffff0c !important;
+    padding: 8px 16px !important;
+}
+
+.pz-crumbs {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: #8f938b;
+}
+
+.pz-inspector-pane .inspector-content {
+    padding: 18px 18px 34px !important;
+    overflow-y: auto;
+}
+
+.pz-subject-hero .object-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.pz-subject-hero h1 {
+    font-size: 26px !important;
+    font-weight: 300 !important;
+    letter-spacing: -0.7px !important;
+    margin: 2px 0 0 !important;
+}
+
+.workspace-eyebrow {
+    font-size: 8.5px;
+    letter-spacing: 1.15px;
+    color: #8c9587;
+    font-weight: 500;
+}
+
+/* ProjectZeroEditor Lighting (.lp-card) & Folders (.workspace-card) surfaces */
+.pz-inspector-pane .card,
+.lp-card {
+    background: #191919 !important;
+    border: 1px solid #ffffff0c !important;
+    border-radius: 18px !important;
+    padding: 17px 16px !important;
+    box-shadow: none !important;
+}
+
+.lp-card > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 13px;
+}
+
+.lp-card > header h3 {
+    margin: 0;
+    font-size: 13.5px;
+    font-weight: 400;
+    color: #eceee9;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.workspace-card {
+    background: #202020;
+    border: 1px solid #ffffff0a;
+    border-radius: 24px;
+    padding: 21px 20px;
+    min-width: 0;
+}
+
+.workspace-card h2 {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 13px;
+    font-weight: 400;
+    margin: 0 0 14px;
+    color: #eceee8;
+}
+
+.workspace-card h2 > i {
+    height: 15px;
+    width: 3px;
+    border-radius: 3px;
+    background: #589979;
+    flex: none;
+}
+
+.workspace-card h2 > i.warm {
+    background: #b9a969;
+}
+
+.workspace-card h2 small {
+    font-size: 9px;
+    color: #8c9088;
+    margin-left: auto;
+    letter-spacing: 0.8px;
+}
+
+.workspace-number {
+    font-size: 46px;
+    letter-spacing: -2px;
+    line-height: 1.08;
+    font-weight: 300;
+    display: flex;
+    align-items: baseline;
+    font-variant-numeric: tabular-nums;
+    flex-wrap: wrap;
+    color: #f2f4ee;
+}
+
+.workspace-number small {
+    font-size: 14px;
+    font-weight: 300;
+    letter-spacing: 0;
+    color: #82857f;
+    margin-left: 8px;
+}
+
+.workspace-card > p {
+    font-size: 11.5px;
+    color: #8d9189;
+    line-height: 1.6;
+    margin: 10px 0 14px;
+}
+
+/* Lighting stat rail (.mp-rail & .mp-pill from LightPanel.css) */
+.mp-rail {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.mp-pill {
+    padding: 11px 12px;
+    min-height: 58px;
+    border-radius: 8px;
+    background: #161616;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 4px;
+}
+
+.mp-pill .k {
+    font-size: 8px;
+    letter-spacing: 1.05px;
+    color: #888d84;
+    font-weight: 500;
+}
+
+.mp-pill .v {
+    font-size: 15.5px;
+    letter-spacing: -0.3px;
+    color: #eef0ea;
+    font-weight: 400;
+}
+
+/* FolderInspector components */
+.folder-inspector {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.collection-facts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.collection-facts > div {
+    background: #171717;
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.collection-facts b {
+    font-size: 18px;
+    font-weight: 400;
+    color: #eef1eb;
+}
+
+.collection-facts span {
+    font-size: 10px;
+    color: #888c84;
+}
+
+.collection-status {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.collection-status button {
+    height: 26px;
+    padding: 0 11px;
+    border-radius: 999px;
+    background: #181818;
+    border: 1px solid #ffffff0d;
+    color: #959991;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.collection-status button.is-active {
+    background: #26322b;
+    border-color: #58997966;
+    color: #eef5ef;
+}
+
+.pz-inline-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #141414;
+    border: 1px solid #ffffff10;
+    border-radius: 999px;
+    padding: 0 12px;
+    height: 30px;
+    margin-bottom: 10px;
+}
+
+.pz-inline-search input {
+    flex: 1;
+    background: transparent !important;
+    border: 0 !important;
+    color: #eaece6;
+    font-size: 12px;
+}
+
+.pz-member-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pz-member-eye {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 999px;
+    background: transparent;
+    border: 1px solid transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0.72;
+}
+
+.pz-member-eye:hover {
+    opacity: 1;
+    background: #272727;
+}
+
+/* Display & Debug Channels controls */
+.pz-inspector-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.pz-segmented {
+    display: flex;
+    gap: 4px;
+    background: #121212;
+    padding: 3px;
+    border-radius: 999px;
+    border: 1px solid #ffffff0d;
+    margin-bottom: 10px;
+}
+
+.pz-segmented button {
+    flex: 1 1 auto;
+    height: 26px;
+    border-radius: 999px;
+    border: 0;
+    background: transparent;
+    color: #8f938b;
+    font-size: 11.5px;
+    cursor: pointer;
+    padding: 0 10px;
+}
+
+.pz-segmented button[aria-pressed="true"] {
+    background: #292929;
+    color: #f3f5ef;
+}
+
+.pz-field-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 10px 0;
+}
+
+.pz-slider-row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.pz-slider-row > div {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12px;
+    color: #cfd2cb;
+}
+
+.pz-slider-row strong {
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    color: #f0f2ec;
+}
+
+.pz-toggle-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.pz-chip-toggle {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: #141414;
+    border: 1px solid #ffffff0a;
+    color: #b8bcb4;
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+}
+
+.pz-chip-toggle > i {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #444;
+    flex: none;
+}
+
+.pz-chip-toggle.is-on {
+    background: #1d2621;
+    border-color: #58997955;
+    color: #eef4ef;
+}
+
+.pz-chip-toggle.is-on > i {
+    background: #589979;
+}
+
+.pz-chip-toggle small {
+    margin-left: auto;
+    font-size: 10px;
+    color: #899086;
+}
+
+.pz-channel-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.pz-channel-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 11px;
+    border-radius: 12px;
+    background: #141414;
+    border: 1px solid #ffffff08;
+    text-align: left;
+    cursor: pointer;
+    color: #d0d3cc;
+}
+
+.pz-channel-row:hover {
+    background: #1d1d1d;
+}
+
+.pz-channel-row.is-selected {
+    background: #212b25;
+    border-color: #58997966;
+    color: #f5f7f3;
+}
+
+.pz-channel-code {
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+    color: #8c9587;
+    padding: 3px 6px;
+    border-radius: 6px;
+    background: #0e0e0e;
+}
+
+.pz-channel-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.pz-channel-text strong {
+    font-size: 12px;
+    font-weight: 400;
+}
+
+.pz-channel-text small {
+    font-size: 10.5px;
+    color: #868a82;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pz-channel-row > i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #333;
+}
+
+.pz-channel-row > i.on {
+    background: #589979;
+}
+
+.pz-select-label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 11.5px;
+    color: #b7bbb3;
+    margin-bottom: 10px;
+}
+
+.pz-select-label select {
+    height: 32px;
+    border-radius: 12px;
+    background: #111;
+    border: 1px solid #ffffff14;
+    padding: 0 10px;
+    color: #eceee8;
+}
+
+/* Popup dock menu */
+.pz-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+}
+
+.pz-popup-menu {
+    position: fixed;
+    z-index: 75;
+    min-width: 190px;
+    padding: 6px;
+    border-radius: 14px;
+    background: #181818;
+    border: 1px solid #ffffff16;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.pz-popup-menu label {
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: #858981;
+    padding: 4px 8px;
+}
+
+.pz-popup-menu button {
+    border: 0;
+    background: transparent;
+    color: #dedfda;
+    text-align: left;
+    padding: 7px 10px;
+    border-radius: 9px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.pz-popup-menu button:hover {
+    background: #282828;
+}
+
+.pz-popup-menu hr {
+    border: 0;
+    border-top: 1px solid #ffffff10;
+    margin: 4px 0;
+}
+
+/* ============================================================================================================================================
+   EXACT PROJECTZEROEDITOR (PORT 8081) SHELL, DOCKING, VIEWPORT HEADER, TOP NOTCH CONTROL CENTER & BOTTOM ASSET BROWSER
+   ============================================================================================================================================ */
+
+#Editor.pz-editor-root .workspace {
+    display: grid;
+    grid-template-columns: var(--left, 316px) minmax(230px, 1fr) var(--right, 388px);
+    gap: 2px;
+    width: 100%;
+    height: 100%;
+    background: #262626;
+}
+
+#Editor.pz-editor-root .workspace.inspector-workspace {
+    grid-template-columns: var(--left, 316px) 1fr;
+}
+#Editor.pz-editor-root .workspace.inspector-workspace .dock.centre {
+    display: none;
+}
+
+#Editor.pz-editor-root .dock {
+    background: #121212;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+    overflow: hidden;
+}
+#Editor.pz-editor-root .dock.left { border-radius: 0 0 0 8px; }
+#Editor.pz-editor-root .dock.right { border-radius: 0 0 8px 0; }
+
+#Editor.pz-editor-root .tab-strip {
+    height: 30px;
+    flex: none;
+    display: flex;
+    align-items: flex-end;
+    padding: 4px 4px 0 0;
+    background: #0a0a0a;
+    overflow: hidden;
+}
+
+#Editor.pz-editor-root .document-tab {
+    height: 26px;
+    min-width: 110px;
+    padding: 0 14px 0 26px;
+    background: #26262c;
+    clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 100%, 0 100%);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    position: relative;
+    cursor: default;
+    font-size: 11px;
+    color: #999;
+    margin-left: -12px;
+    user-select: none;
+}
+#Editor.pz-editor-root .document-tab:first-child { margin-left: 0; }
+#Editor.pz-editor-root .document-tab.active {
+    background: #121212;
+    color: #f0f0f0;
+    z-index: 1;
+}
+#Editor.pz-editor-root .document-tab:hover { background: #32323a; }
+#Editor.pz-editor-root .document-tab.active:hover { background: #171717; }
+#Editor.pz-editor-root .document-tab button {
+    border: 0;
+    min-height: 18px;
+    height: 18px;
+    width: 18px;
+    padding: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: #888;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+#Editor.pz-editor-root .document-tab button:hover { background: #444; color: #fff; }
+
+#Editor.pz-editor-root .tab-add {
+    height: 24px;
+    width: 24px;
+    min-height: 24px;
+    border-radius: 50%;
+    border: 1px solid #ffffff0d;
+    padding: 0;
+    margin: 0 0 3px 28px;
+    background: #26262c;
+    color: #bebec4;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+#Editor.pz-editor-root .tab-add:hover { background: #35353d; color: #fff; }
+
+#Editor.pz-editor-root .divider {
+    position: absolute;
+    top: 30px;
+    bottom: 0;
+    width: 7px;
+    cursor: col-resize;
+    z-index: 6;
+}
+#Editor.pz-editor-root .divider.left { right: -4px; }
+#Editor.pz-editor-root .divider.right { left: -4px; }
+#Editor.pz-editor-root .divider:hover { background: #ffffff20; }
+
+#Editor.pz-editor-root .return-viewport {
+    position: fixed;
+    right: 14px;
+    top: 3px;
+    height: 24px;
+    min-height: 24px;
+    padding: 0 12px;
+    border-radius: 16px;
+    border: 1px solid #ffffff14;
+    font-size: 10px;
+    z-index: 35;
+    background: #252525;
+    color: #eee;
+    cursor: pointer;
+}
+
+/* Outliner 1:1 ProjectZeroEditor Chrome */
+#Editor.pz-editor-root .outliner-heading {
+    height: 63px;
+    padding: 14px 18px 12px 22px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: none;
+}
+#Editor.pz-editor-root .outliner-heading h1 {
+    font-size: 20px;
+    font-weight: 300;
+    letter-spacing: 1px;
+    margin: 0;
+    color: #f0f0f0;
+}
+#Editor.pz-editor-root .outliner-heading small {
+    font-size: 10px;
+    white-space: nowrap;
+    color: #686868;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#Editor.pz-editor-root .outliner-heading > button {
+    width: 29px;
+    height: 29px;
+    min-height: 29px;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    background: transparent;
+    padding: 0;
+    margin-left: auto;
+    color: #777;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+#Editor.pz-editor-root .outliner-heading > button:hover { background: #222; color: #ddd; }
+
+#Editor.pz-editor-root .stats {
+    display: flex;
+    gap: 8px;
+    padding: 0 14px;
+    flex: none;
+}
+#Editor.pz-editor-root .stats button {
+    height: 64px;
+    flex: 1;
+    position: relative;
+    border-radius: 20px;
+    background: #191919;
+    border: 1px solid #2c2c2c;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 11px 12px;
+    color: #f0f0f0;
+    cursor: pointer;
+}
+#Editor.pz-editor-root .stats button:hover { background: #212121; }
+#Editor.pz-editor-root .stats button.is-filtered { border-color: #ffb45488; background: #231f19; }
+#Editor.pz-editor-root .stats small {
+    position: absolute;
+    bottom: 10px;
+    left: 12px;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    color: #a1a1a1;
+}
+#Editor.pz-editor-root .stats strong {
+    font-size: 28px;
+    font-weight: 300;
+    position: absolute;
+    bottom: 7px;
+    right: 14px;
+}
+#Editor.pz-editor-root .status-disc,
+#Editor.pz-editor-root .muted-disc {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #34c759;
+    color: #103719;
+    font-size: 11px;
+}
+#Editor.pz-editor-root .muted-disc {
+    background: #242424;
+    color: #5c5c5c;
+}
+
+#Editor.pz-editor-root .outliner-search {
+    display: flex;
+    padding: 10px 14px 6px;
+    gap: 8px;
+    flex: none;
+}
+#Editor.pz-editor-root .outliner-search label {
+    height: 40px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    background: #191919;
+    border: 1px solid #2c2c2c;
+    border-radius: 22px;
+    flex: 1;
+    min-width: 0;
+    color: #696969;
+}
+#Editor.pz-editor-root .outliner-search input {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: #f0f0f0;
+    font-size: 11px;
+    outline: none;
+}
+#Editor.pz-editor-root .outliner-search > button {
+    height: 40px;
+    border-radius: 20px;
+    border: 1px solid #2c2c2c;
+    background: #191919;
+    font-size: 10px;
+    color: #939393;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+}
+#Editor.pz-editor-root .outliner-search > button:hover { background: #232323; color: #ddd; }
+
+#Editor.pz-editor-root .outliner-footer {
+    height: 45px;
+    flex: none;
+    display: flex;
+    gap: 12px;
+    padding: 7px 15px;
+    border-top: 1px solid #ffffff06;
+    background: #151515;
+    overflow: hidden;
+}
+#Editor.pz-editor-root .outliner-footer span {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    white-space: nowrap;
+}
+#Editor.pz-editor-root .outliner-footer small {
+    font-size: 7px;
+    letter-spacing: 0.7px;
+    color: #555;
+}
+#Editor.pz-editor-root .outliner-footer b {
+    font-size: 10px;
+    font-weight: 400;
+    color: #b0b0b0;
+}
+#Editor.pz-editor-root .outliner-footer span:first-child b { color: #34c759; }
+
+/* Viewport Header (ProjectZeroEditor 1:1 with Edit / Sim / Play) */
+#Editor.pz-editor-root .viewport-toolbar {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 0 12px 11px;
+    background: #121212;
+    position: relative;
+}
+#Editor.pz-editor-root .viewport-heading-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 51px;
+}
+#Editor.pz-editor-root .viewport-identity {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+#Editor.pz-editor-root .viewport-identity > div {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+#Editor.pz-editor-root .viewport-scene-btn {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    color: #e2e2e2;
+    font-size: 13px;
+    font-weight: 400;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+}
+#Editor.pz-editor-root .viewport-scene-btn:hover { color: #fff; }
+#Editor.pz-editor-root .viewport-identity > div > span {
+    color: #696969;
+    font-size: 9px;
+    white-space: nowrap;
+}
+#Editor.pz-editor-root .viewport-preview-badge {
+    margin-left: 4px;
+    padding: 4px 6px;
+    font-size: 8px;
+    font-style: normal;
+    font-weight: 400;
+    letter-spacing: 0.8px;
+    color: #baa889;
+    background: #bfa27a14;
+    border: 1px solid #bfa27a33;
+    border-radius: 5px;
+}
+
+#Editor.pz-editor-root .viewport-modes {
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid #ffffff0a;
+    border-radius: 10px;
+    background: #090909;
+    flex: none;
+}
+#Editor.pz-editor-root .viewport-modes button {
+    height: 25px;
+    min-height: 25px;
+    min-width: 52px;
+    gap: 5px;
+    padding: 4px 10px;
+    border: 0;
+    border-radius: 6px;
+    font-size: 10px;
+    color: #747474;
+    background: transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+#Editor.pz-editor-root .viewport-modes button.active {
+    color: #ececec;
+    background: #2c2c2c;
+    box-shadow: 0 1px 3px #0005, inset 0 1px #ffffff08;
+}
+#Editor.pz-editor-root .viewport-modes button:hover:not(.active) {
+    background: #1e1e1e;
+    color: #aaa;
+}
+
+#Editor.pz-editor-root .viewport-action-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding-top: 9px;
+    border-top: 1px solid #ffffff08;
+}
+#Editor.pz-editor-root .viewport-action-row button {
+    flex: none;
+    min-height: 31px;
+    height: 31px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+#Editor.pz-editor-root .viewport-action-row .viewport-construct {
+    gap: 7px;
+    padding: 0 10px;
+    background: #dededb;
+    border: 1px solid #eeeeeb;
+    color: #242424;
+    font-size: 11px;
+    font-weight: 400;
+}
+#Editor.pz-editor-root .viewport-action-row .viewport-construct:hover { background: #fff; }
+#Editor.pz-editor-root .viewport-construct kbd {
+    color: #777;
+    font: 9px "DM Sans", sans-serif;
+    padding-left: 9px;
+    margin-left: 3px;
+    border-left: 1px solid #0002;
+}
+#Editor.pz-editor-root .viewport-action-row .viewport-icon-button {
+    width: 31px;
+    padding: 0;
+    border: 1px solid #ffffff0c;
+    background: #1a1a1a;
+    color: #939393;
+}
+#Editor.pz-editor-root .viewport-action-row .viewport-icon-button:hover { background: #2b2b2b; color: #dedede; }
+#Editor.pz-editor-root .viewport-action-row .viewport-icon-button[aria-pressed="true"] {
+    background: #bfa27a19;
+    border-color: #bfa27a55;
+    color: #dec193;
+}
+#Editor.pz-editor-root .viewport-tool-divider {
+    flex: none;
+    width: 1px;
+    height: 19px;
+    margin: 0 3px;
+    background: #ffffff0c;
+}
+#Editor.pz-editor-root .viewport-projection {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px;
+    height: 31px;
+    border: 1px solid #ffffff0c;
+    background: #1a1a1a;
+    border-radius: 8px;
+    min-width: 0;
+}
+#Editor.pz-editor-root .viewport-projection select {
+    border: 0;
+    background: transparent;
+    height: 29px;
+    padding: 0 4px 0 0;
+    color: #b8b8b8;
+    font-size: 11px;
+    outline: none;
+    cursor: pointer;
+}
+#Editor.pz-editor-root .viewport-secondary-tools {
+    display: flex;
+    gap: 5px;
+    margin-left: auto;
+}
+#Editor.pz-editor-root .viewport-settings-popover {
+    position: absolute;
+    right: 12px;
+    top: 96px;
+    width: 280px;
+    padding: 14px 16px;
+    background: #171717;
+    border: 1px solid #ffffff1a;
+    border-radius: 14px;
+    box-shadow: 0 16px 48px #000b;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+#Editor.pz-editor-root .viewport-settings-popover header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: #eee;
+}
+#Editor.pz-editor-root .viewport-settings-popover header button {
+    border: 0;
+    background: transparent;
+    color: #888;
+    cursor: pointer;
+    font-size: 16px;
+}
+#Editor.pz-editor-root .viewport-settings-popover label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-size: 11px;
+    color: #9e9e9e;
+}
+#Editor.pz-editor-root .viewport-settings-popover label.inline-check {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+}
+#Editor.pz-editor-root .viewport-settings-popover select {
+    height: 30px;
+    border-radius: 8px;
+    background: #0d0d0d;
+    border: 1px solid #ffffff14;
+    color: #e0e0e0;
+    padding: 0 8px;
+    font-size: 11px;
+}
+
+/* Popup Menu (ProjectZeroEditor 1:1) */
+#Editor.pz-editor-root .menu-dismiss {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+}
+#Editor.pz-editor-root .popup-menu {
+    position: fixed;
+    z-index: 81;
+    background: #1a1a1a;
+    border: 1px solid #ffffff13;
+    border-radius: 14px;
+    box-shadow: 0 10px 40px #0009;
+    padding: 8px;
+    min-width: 220px;
+    max-height: calc(100vh - 60px);
+    overflow: auto;
+}
+#Editor.pz-editor-root .popup-menu > button {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    border-radius: 8px;
+    padding: 9px 12px;
+    font-size: 12px;
+    gap: 10px;
+    color: #e4e4e4;
+    text-align: left;
+    cursor: pointer;
+}
+#Editor.pz-editor-root .popup-menu > button:hover { background: #2c2c2c; }
+#Editor.pz-editor-root .popup-menu small { margin-left: auto; font-size: 10px; color: #7d7d7d; }
+#Editor.pz-editor-root .popup-menu label {
+    font-size: 9px;
+    color: #777;
+    display: block;
+    padding: 8px 12px 4px;
+    letter-spacing: 1px;
+}
+#Editor.pz-editor-root .popup-menu hr {
+    border: 0;
+    border-top: 1px solid #ffffff0b;
+    margin: 6px;
+}
+#Editor.pz-editor-root .popup-menu i.dot {
+    height: 6px;
+    width: 6px;
+    border-radius: 50%;
+    background: #555;
+    display: inline-block;
+}
+#Editor.pz-editor-root .popup-menu i.dot.green { background: #34c759; }
+
+/* Top Notch Control Center & Bottom Asset Browser Drawers (ProjectZeroEditor 1:1) */
+#Editor.pz-editor-root .drawer-shell {
+    position: fixed;
+    left: 0;
+    right: 0;
+    pointer-events: none;
+    z-index: 40;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+#Editor.pz-editor-root .drawer-shell.top { top: 0; bottom: 36px; }
+#Editor.pz-editor-root .drawer-shell.bottom { top: 36px; bottom: 0; }
+#Editor.pz-editor-root .drawer-shell.open { z-index: 55; }
+#Editor.pz-editor-root .drawer-shell.dragging { transition: none; user-select: none; }
+
+#Editor.pz-editor-root .drawer-surface {
+    position: absolute;
+    left: 0;
+    right: 0;
+    overflow: hidden;
+    background: #101010;
+    pointer-events: auto;
+    border: 1px solid #ffffff0d;
+    box-shadow: 0 12px 65px #0009;
+}
+#Editor.pz-editor-root .drawer-shell.top .drawer-surface { bottom: 0; }
+#Editor.pz-editor-root .drawer-shell.bottom .drawer-surface { top: 0; }
+#Editor.pz-editor-root .drawer-shell:not(.open) .drawer-surface { pointer-events: none; }
+
+#Editor.pz-editor-root .drawer-shell .drawer-handle {
+    position: absolute;
+    width: 220px;
+    height: 36px;
+    padding: 0;
+    min-height: 36px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #aaa;
+    pointer-events: auto;
+    touch-action: none;
+    cursor: grab;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font: 300 11px "DM Sans", sans-serif;
+}
+#Editor.pz-editor-root .drawer-shell.top .drawer-handle { top: 100%; }
+#Editor.pz-editor-root .drawer-shell.bottom .drawer-handle { bottom: 100%; top: auto; }
+#Editor.pz-editor-root .drawer-shell .drawer-handle svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 36px;
+    fill: #242424;
+    stroke: none;
+}
+#Editor.pz-editor-root .drawer-shell.bottom .drawer-handle svg { transform: rotate(180deg); }
+#Editor.pz-editor-root .drawer-shell .drawer-handle span { position: relative; padding: 0; z-index: 1; }
+#Editor.pz-editor-root .drawer-shell.top .drawer-handle span { padding-bottom: 4px; }
+#Editor.pz-editor-root .drawer-shell.bottom .drawer-handle span { padding-top: 4px; }
+#Editor.pz-editor-root .drawer-shell .drawer-handle:hover { color: #eee; background: transparent; }
+#Editor.pz-editor-root .drawer-shell .drawer-handle:hover svg { fill: #333; }
+
+#Editor.pz-editor-root .drawer-page-grip {
+    position: absolute;
+    left: calc(50% - 125px);
+    width: 250px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 0;
+    background: transparent;
+    color: #626262;
+    font-size: 8px;
+    cursor: ns-resize;
+    z-index: 3;
+}
+#Editor.pz-editor-root .drawer-page-grip i {
+    display: block;
+    width: 28px;
+    height: 3px;
+    border-radius: 3px;
+    background: #777;
+}
+#Editor.pz-editor-root .drawer-shell.top .drawer-page-grip { bottom: 2px; }
+#Editor.pz-editor-root .drawer-shell.bottom .drawer-page-grip { top: 0; }
+
+#Editor.pz-editor-root .control-drawer .shade {
+    position: relative;
+    height: 100%;
+    background: #080808;
+    padding: 28px 24px 40px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    overflow: auto;
+}
+#Editor.pz-editor-root .control-dashboard {
+    width: 420px;
+    max-width: 100%;
+    font-weight: 400;
+}
+#Editor.pz-editor-root .control-dashboard > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 36px;
+    margin-bottom: 30px;
+    color: #ffffff80;
+    font-size: 13px;
+}
+#Editor.pz-editor-root .control-dashboard > header > span {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+#Editor.pz-editor-root .control-dashboard > header button {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #888;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+#Editor.pz-editor-root .control-dashboard > header button:hover { background: #1e1e20; color: #fff; }
+
+#Editor.pz-editor-root .dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    column-gap: 16px;
+    row-gap: 34px;
+}
+#Editor.pz-editor-root .dashboard-grid > button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 11px;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: #ffffffb3;
+    font-size: 11.5px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+#Editor.pz-editor-root .dashboard-grid > button > i {
+    display: grid;
+    place-items: center;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: #1c1c1e;
+    font-style: normal;
+    color: #ddd;
+    transition: background 0.15s ease;
+}
+#Editor.pz-editor-root .dashboard-grid > button.active > i {
+    background: #3b82f6;
+    color: #fff;
+}
+#Editor.pz-editor-root .dashboard-grid > button:hover > i { background: #2c2c2e; }
+#Editor.pz-editor-root .dashboard-grid > button.active:hover > i { background: #60a5fa; }
+
+#Editor.pz-editor-root .render-scale {
+    height: 64px;
+    border-radius: 40px;
+    background: #1c1c1e;
+    margin-top: 42px;
+    padding: 8px 18px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+#Editor.pz-editor-root .render-scale input[type="range"] {
+    flex: 1;
+}
+#Editor.pz-editor-root .render-scale output {
+    width: 44px;
+    text-align: right;
+    color: #ccc;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+#Editor.pz-editor-root .settings-hub {
+    width: 420px;
+    max-width: 100%;
+    background: #101011;
+    border: 1px solid #ffffff0f;
+    border-radius: 26px;
+    overflow: hidden;
+}
+#Editor.pz-editor-root .settings-hub > header {
+    height: 96px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 22px 24px;
+    font-size: 19px;
+}
+#Editor.pz-editor-root .settings-hub > header small {
+    display: block;
+    font-size: 11px;
+    color: #888;
+    margin-top: 4px;
+}
+#Editor.pz-editor-root .settings-hub > header button,
+#Editor.pz-editor-root .settings-dialog > header button {
+    border: 0;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: transparent;
+    color: #888;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+#Editor.pz-editor-root .settings-hub > header button:last-child,
+#Editor.pz-editor-root .settings-dialog > header button:last-child { margin-left: auto; }
+#Editor.pz-editor-root .hub-row {
+    height: 74px;
+    padding: 14px 24px;
+    width: 100%;
+    background: #141415;
+    border: 0;
+    border-top: 1px solid #ffffff0a;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 18px;
+    font-size: 13px;
+    color: #eee;
+    cursor: pointer;
+}
+#Editor.pz-editor-root .hub-row:hover { background: #1c1c1e; }
+#Editor.pz-editor-root .hub-row > span { text-align: left; flex: 1; }
+#Editor.pz-editor-root .hub-row small { display: block; font-size: 10px; color: #888; margin-top: 5px; }
+
+#Editor.pz-editor-root .settings-dialog {
+    width: 680px;
+    max-width: 100%;
+    background: #101011;
+    border: 1px solid #ffffff14;
+    border-radius: 24px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+#Editor.pz-editor-root .settings-dialog > header {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    padding: 22px 26px;
+    border-bottom: 1px solid #ffffff0b;
+}
+#Editor.pz-editor-root .settings-dialog h2 { font-size: 19px; font-weight: 400; margin: 0; }
+#Editor.pz-editor-root .settings-dialog > header p { font-size: 11.5px; color: #888; margin: 5px 0 0; }
+#Editor.pz-editor-root .settings-body {
+    padding: 22px 26px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 60vh;
+    overflow: auto;
+}
+#Editor.pz-editor-root .cc-setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 16px;
+    background: #171718;
+    border: 1px solid #ffffff0a;
+    border-radius: 14px;
+    font-size: 12.5px;
+}
+
+/* Asset Browser inside Bottom Drawer */
+#Editor.pz-editor-root .asset-browser {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 24px 28px 0;
+    background: #111;
+    min-height: 0;
+}
+#Editor.pz-editor-root .asset-browser-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    flex: none;
+    padding: 8px 0 15px;
+}
+#Editor.pz-editor-root .asset-eyebrow {
+    font-size: 8px;
+    color: #797979;
+    letter-spacing: 1.3px;
+}
+#Editor.pz-editor-root .asset-browser-header h1 {
+    font-size: 25px;
+    font-weight: 300;
+    letter-spacing: -0.5px;
+    margin: 6px 0 0;
+    color: #e7e7e7;
+}
+#Editor.pz-editor-root .asset-browser-header h1 small {
+    font-size: 10px;
+    color: #727272;
+    margin-left: 12px;
+}
+#Editor.pz-editor-root .asset-header-actions {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+}
+#Editor.pz-editor-root .asset-header-actions button {
+    padding: 7px 13px;
+    font-size: 10.5px;
+    border-radius: 18px;
+    border: 1px solid #ffffff12;
+    background: #222;
+    color: #e6e6e6;
+    cursor: pointer;
+}
+#Editor.pz-editor-root .asset-header-actions button.primary {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: #fff;
+}
+#Editor.pz-editor-root .asset-header-actions button.close-btn {
+    font-size: 20px;
+    padding: 4px 8px;
+    background: none;
+    border: 0;
+}
+
+#Editor.pz-editor-root .asset-browser-tools {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 0 14px;
+    border-bottom: 1px solid #ffffff0b;
+    flex: none;
+}
+#Editor.pz-editor-root .asset-origin-tabs {
+    display: flex;
+    gap: 3px;
+    padding: 3px;
+    border: 1px solid #ffffff09;
+    background: #0c0c0c;
+    border-radius: 20px;
+}
+#Editor.pz-editor-root .asset-origin-tabs button {
+    border: 0;
+    background: none;
+    padding: 6px 14px;
+    font-size: 10px;
+    border-radius: 17px;
+    color: #828282;
+    cursor: pointer;
+}
+#Editor.pz-editor-root .asset-origin-tabs button[aria-pressed="true"] {
+    background: #303030;
+    color: #ddd;
+}
+#Editor.pz-editor-root .asset-browser-tools > input {
+    height: 32px;
+    flex: 1;
+    max-width: 400px;
+    margin-left: auto;
+    padding: 4px 15px;
+    font-size: 11px;
+    border-radius: 18px;
+    background: #1c1c1c;
+    border: 1px solid #ffffff0e;
+    color: #eee;
+    outline: none;
+}
+#Editor.pz-editor-root .asset-view-switch { display: flex; gap: 3px; }
+#Editor.pz-editor-root .asset-view-switch button {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border-radius: 8px;
+    border: 0;
+    font-size: 16px;
+    background: none;
+    color: #777;
+    cursor: pointer;
+}
+#Editor.pz-editor-root .asset-view-switch button[aria-pressed="true"] { background: #2b2b2b; color: #ddd; }
+
+#Editor.pz-editor-root .asset-browser-body {
+    display: grid;
+    grid-template-columns: 150px minmax(200px, 1fr) 275px;
+    min-height: 0;
+    flex: 1;
+    gap: 20px;
+}
+#Editor.pz-editor-root .asset-category-rail {
+    padding: 18px 14px 18px 0;
+    border-right: 1px solid #ffffff0b;
+    overflow: auto;
+}
+#Editor.pz-editor-root .asset-category-rail button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 10px 10px;
+    margin-bottom: 4px;
+    background: none;
+    border: 1px solid transparent;
+    font-size: 11px;
+    color: #888;
+    border-radius: 10px;
+    cursor: pointer;
+}
+#Editor.pz-editor-root .asset-category-rail button[aria-pressed="true"] {
+    background: #292929;
+    border-color: #ffffff0b;
+    color: #e1d7c8;
+}
+#Editor.pz-editor-root .asset-category-rail small { font-size: 8.5px; color: #666; }
+
+#Editor.pz-editor-root .asset-results {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    padding: 16px 0;
+}
+#Editor.pz-editor-root .asset-results > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+#Editor.pz-editor-root .asset-results h2 { margin: 0; font-weight: 300; font-size: 18px; color: #ddd; }
+#Editor.pz-editor-root .asset-results > header span { font-size: 10px; color: #707070; }
+
+#Editor.pz-editor-root .asset-catalogue { overflow: auto; min-height: 0; padding: 2px 4px 6px 1px; }
+#Editor.pz-editor-root .asset-catalogue.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+    align-content: start;
+    gap: 9px;
+}
+#Editor.pz-editor-root .asset-catalogue.list { display: flex; flex-direction: column; gap: 5px; }
+
+#Editor.pz-editor-root .asset-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 12px 7px 10px;
+    min-width: 0;
+    min-height: 135px;
+    background: linear-gradient(135deg, #252525, #1b1b1b);
+    border: 1px solid #ffffff0c;
+    border-radius: 16px;
+    color: #c3c3c3;
+    cursor: pointer;
+}
+#Editor.pz-editor-root .asset-catalogue.list .asset-cell {
+    flex-direction: row;
+    min-height: 56px;
+    gap: 14px;
+    padding: 7px 12px;
+}
+#Editor.pz-editor-root .asset-cell:hover { border-color: #ffffff25; background: #282828; }
+#Editor.pz-editor-root .asset-cell.selected {
+    border-color: #c7ae805c;
+    background: linear-gradient(140deg, #39352e, #24221f);
+}
+#Editor.pz-editor-root .asset-thumbnail {
+    display: grid;
+    place-items: center;
+    height: 78px;
+    width: 100%;
+}
+#Editor.pz-editor-root .asset-catalogue.list .asset-thumbnail { width: 44px; height: 42px; flex: none; }
+#Editor.pz-editor-root .asset-thumbnail img { width: 58px; height: 58px; object-fit: contain; }
+#Editor.pz-editor-root .asset-material-orb {
+    display: block;
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle at 35% 27%, #fffd, transparent 12%),
+        radial-gradient(circle at 35% 30%, var(--orb, #88aacc), #111 90%);
+    box-shadow: 0 6px 8px #0008, inset -2px -2px 5px #0007;
+}
+#Editor.pz-editor-root .asset-catalogue.list .asset-material-orb { width: 34px; height: 34px; }
+#Editor.pz-editor-root .asset-kind-icon { font-size: 34px; color: #b1a796; }
+#Editor.pz-editor-root .asset-cell-name {
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10px;
+    text-align: center;
+    margin-top: 6px;
+}
+#Editor.pz-editor-root .asset-catalogue.list .asset-cell-name { text-align: left; margin-top: 0; }
+#Editor.pz-editor-root .asset-cell-name small { display: block; font-size: 8px; color: #757575; margin-top: 4px; }
+
+#Editor.pz-editor-root .asset-preview {
+    overflow: auto;
+    padding: 18px 0 18px 20px;
+    border-left: 1px solid #ffffff0b;
+    min-width: 0;
+}
+#Editor.pz-editor-root .asset-preview-heading { display: flex; justify-content: space-between; align-items: center; }
+#Editor.pz-editor-root .asset-origin-label {
+    padding: 3px 8px;
+    border: 1px solid #ffffff12;
+    border-radius: 12px;
+    font-size: 8.5px;
+    color: #9d8f7c;
+}
+#Editor.pz-editor-root .asset-preview h2 { font-weight: 300; font-size: 20px; color: #e2e2e2; margin: 12px 0 14px; }
+#Editor.pz-editor-root .asset-preview p { font-size: 10.5px; color: #8b8b8b; line-height: 1.6; }
+#Editor.pz-editor-root .asset-preview dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px;
+    font-size: 10px;
+    padding: 12px 0;
+    border-top: 1px solid #ffffff0a;
+    color: #787878;
+}
+#Editor.pz-editor-root .asset-preview dd { margin: 0; text-align: right; color: #bcbcbc; }
+#Editor.pz-editor-root .asset-preview-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+}
+#Editor.pz-editor-root .asset-preview-actions button {
+    width: 100%;
+    padding: 9px 12px;
+    border-radius: 14px;
+    border: 1px solid #ffffff14;
+    background: #232323;
+    color: #ececec;
+    font-size: 11px;
+    cursor: pointer;
+}
+#Editor.pz-editor-root .asset-preview-actions button.primary {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: #fff;
+}
+#Editor.pz-editor-root .asset-browser-footer {
+    height: 36px;
+    flex: none;
+    border-top: 1px solid #ffffff0a;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 9.5px;
+    color: #6d6d6d;
+}
+
+#Editor.pz-editor-root .pz-post-vignette {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(circle at 50% 50%, transparent 52%, rgba(0, 0, 0, 0.78) 100%);
+    z-index: 2;
+}
+
