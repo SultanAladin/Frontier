@@ -1,4 +1,4 @@
-level list · rows=1 currentRow=true rowKey=proving hero="Proving Grounds"
+level list · rows=2 hubHere=true sceneCurrent=true sceneKey=proving hero="Proving Grounds"
 boot · outlinerHidden=false inspectorHidden=false
 close outliner · outlinerHidden=true inspectorHidden=false
 close inspector · outlinerHidden=true inspectorHidden=true

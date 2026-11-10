@@ -1,5 +1,5 @@
 card before Enter · visible=true ready=true buttonDisabled=false status="Ready · proving grounds loaded" bar=100%
 after Enter · visible=false lobbyHidden=true
 
-=== harness: 12 frames, 0 errors, 0 warnings, 1.7 s
+=== harness: 12 frames, 0 errors, 0 warnings, 1.6 s
 final · ready=true frames=12 lobbyVisible=false

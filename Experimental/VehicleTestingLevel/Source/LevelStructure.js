@@ -403,9 +403,9 @@ function PaintRing(Paint, Facets, CentreX, CentreY, Radius, Width, Segments, Dut
 //                                                 DRILLS AND ZONES
 //------------------------------------------------------------------------------------------------------------------------
 
+// 📝 The skidpad ring is still part of the course (rings, cones, its place in the zone list), but it no longer runs a
+//    scored drill: the points counter it showed was removed by request.
 export const TrainingDrills = Object.freeze([
-    { Id: "skidpad", Name: "Skidpad", Glyph: "CircleDot", Note: "Hold the 14 m ring",
-      Teleport: { Position: [-30.0, 18.5], Yaw: 0.0 }, Zone: { Minimum: [-47.0, 13.0], Maximum: [-13.0, 47.0] }, Groups: ["skidpad"] },
     { Id: "jump", Name: "Jump", Glyph: "TrendingUp", Note: "Airtime and distance past the lip",
       Teleport: { Position: [-20.0, 0.0], Yaw: 0.0 }, Lip: 28.0, Groups: ["straight"] },
     { Id: "smash", Name: "Smash alley", Glyph: "Hammer", Note: "Breakable props",

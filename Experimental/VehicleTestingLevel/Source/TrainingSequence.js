@@ -13,8 +13,6 @@
 //      moose    ISO 3888-2 lane change: entry speed and a clean pass (any cone fails it)
 //      bowling  pins down, 3 s after the foul line (a strike is all 15)
 //      spin     full turns inside the box without touching a cone or leaving it
-//      drift    angle × speed × time while sliding, chained with a growing multiplier; a cone hit loses the chain
-//      skidpad  the same score on the 14 m ring
 //      jump     airtime and distance past the lip
 //      smash    props broken and impact energy, alley entrance to exit
 //      burnout  seconds of held burnout and the hottest tyre
@@ -200,8 +198,6 @@ export class TrainingSequence
             case "moose":   this.AdvanceGated(Run, Drill, State, Hits); break;
             case "bowling": this.AdvanceBowling(Run, Drill, State); break;
             case "spin":    this.AdvanceSpin(Run, Drill, State, Hits); break;
-            case "drift":
-            case "skidpad": this.AdvanceDrift(Run, Drill, State, Hits); break;
             case "jump":    this.AdvanceJump(Run, Drill, State); break;
             case "smash":   this.AdvanceSmash(Run, Drill, State); break;
             case "burnout": this.AdvanceBurnout(Run, Drill, State); break;
@@ -276,55 +272,6 @@ export class TrainingSequence
                           Lines: [`${Run.Score} × 360°`, Hits > 0 ? "touched a cone" : "left the box"], Valid: Run.Score > 0 });
         else if (Run.Clock > 30.0)
             this.Finish({ Primary: Run.Score, Unit: "spins", Lower: false, Lines: [`${Run.Score} × 360° in 30 s`], Valid: true });
-    }
-
-    // 📐 Drift score: while the slip angle between heading and velocity exceeds 12° above 20 km/h, angle [°] ×
-    //    speed [m/s] × Δt accrues into the chain, × a multiplier that grows a step every 2 s of unbroken drift (to ×5).
-    //    A second without drifting banks the chain; a cone hit loses it.
-    AdvanceDrift(Run, Drill, State, Hits)
-    {
-        const Velocity = State.Vehicle.LinearVelocity;
-        const Planar = Math.hypot(Velocity[0], Velocity[1]);
-        let Angle = 0.0;
-        if (Planar > 20.0 / 3.6)
-        {
-            const Cosine = (Velocity[0] * State.Forward[0] + Velocity[1] * State.Forward[1]) / (Planar * Math.hypot(State.Forward[0], State.Forward[1]));
-            Angle = Math.acos(Math.max(-1.0, Math.min(1.0, Cosine))) * 180.0 / Math.PI;
-        }
-        Run.Angle = Angle;
-        if (Hits > (Run.LastHits || 0))
-        {
-            Run.Chain = 0.0;
-            Run.Multiplier = 1.0;
-            Run.Drifting = 0.0;
-            Run.LastHits = Hits;
-            this.Host.Shell.Announce("Cone! Chain lost");
-        }
-        if (Angle > 12.0 && Angle < 120.0)
-        {
-            Run.Drifting = (Run.Drifting || 0.0) + State.Seconds;
-            Run.Since = 0.0;
-            Run.Multiplier = Math.min(5.0, 1.0 + Math.floor(Run.Drifting / 2.0));
-            Run.Chain += Angle * Planar * State.Seconds * Run.Multiplier;
-        }
-        else
-        {
-            Run.Since += State.Seconds;
-            if (Run.Since > 1.0 && Run.Chain > 0.0)
-            {
-                Run.Score += Run.Chain;
-                Run.Best = Math.max(Run.Best || 0.0, Run.Chain);
-                Run.Chain = 0.0;
-                Run.Multiplier = 1.0;
-                Run.Drifting = 0.0;
-            }
-        }
-        if (!this.Within(Drill.Zone, State.Position) || Run.Clock > 90.0)
-        {
-            const Total = Run.Score + Run.Chain;
-            this.Finish({ Primary: Math.round(Total), Unit: "pts", Lower: false,
-                          Lines: [`${Math.round(Total)} points`, `best chain ${Math.round(Math.max(Run.Best || 0.0, Run.Chain))}`], Valid: Total > 0.0 });
-        }
     }
 
     AdvanceJump(Run, Drill, State)
@@ -430,12 +377,7 @@ export class TrainingSequence
         }
         else if (Run.Phase === "running")
         {
-            if (Run.Drill.Id === "drift" || Run.Drill.Id === "skidpad")
-            {
-                Text = `${Math.round(Run.Score + Run.Chain)}`;
-                Detail = [Run.Chain > 0.0 ? `chain ${Math.round(Run.Chain)} ×${Run.Multiplier.toFixed(0)}` : "slide it", `angle ${Math.round(Run.Angle || 0)}°`];
-            }
-            else if (Run.Drill.Id === "spin")
+            if (Run.Drill.Id === "spin")
             {
                 Text = `${Run.Score} × 360°`;
                 Detail = [`${(Math.abs(Run.Turned) * 180.0 / Math.PI % 360).toFixed(0)}° into the next`];

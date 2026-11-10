@@ -468,3 +468,17 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   12-frame runs with the lobby, with `?lobby=0&level=proving`, 36-frame effects and 48-frame Slate hooks — 0 errors,
   0 warnings — plus a headless UI probe (`Exhibits/VehicleTestingLevel/Code/UiProbe.mjs`). Browser appearance of the new
   list and column states remains unverified on this host (no Chromium or GPU).
+
+### Skidpad scoring removed, lobby listed as a level (2026-11-10, same branch)
+
+- Removed the scored skidpad drill: the `TrainingDrills` entry, the `AdvanceDrift` scorer, its dispatch case, its HUD
+  branch and its `"pts"` result are gone. The 14 m ring, its cones, its painting, the arena teleport and the zone stay
+  as a place to drive; nothing on that station reports points any more. `Tools/TestingLevelLobby.test.mjs` asserts the
+  drill, the scorer and the points unit are absent.
+- The lobby is now a level in the level list: `Source/LevelCatalog.js` gained a `Kind: "hub"` entry (index 00) shown as
+  the first row and marked "Here" while the lobby is open. Hub entries are excluded from `SceneLevelCatalog`, so
+  `?level=lobby` still resolves to the drivable level and the hub can never be loaded as a scene. Level count now
+  reports both rows.
+- Verification: 51/51 node tests, 16/16 stability scenarios, Dawn null-backend 12-frame runs (lobby up and
+  `?lobby=0&level=proving`), 36-frame effects and 48-frame Slate hooks — 0 errors, 0 warnings — and refreshed
+  `UiProbe`/`LobbyProbe` output. Browser appearance remains unverified on this host (no Chromium or GPU).

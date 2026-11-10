@@ -5,7 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { LobbyScreen } from "../Source/LobbyScreen.js";
 import { OverlayDock } from "../Source/OverlayDock.js";
-import { LevelCatalog, ResolveLevelKey, QueryLevel } from "../Source/LevelCatalog.js";
+import { LevelCatalog, SceneLevelCatalog, ResolveLevelKey, QueryLevel } from "../Source/LevelCatalog.js";
+import { TrainingDrills } from "../Source/LevelStructure.js";
 
 const Root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -163,31 +164,49 @@ test("a bring-up failure is reported on the card instead of a silent disabled bu
     assert.equal(Elements.get("lobby-enter").disabled, true);
 });
 
-test("the lobby lists the catalogue, marks the current level and shows its copy", () => {
+test("the lobby lists the catalogue, including itself, and marks the current level", () => {
     AssignDom();
     const Lobby = new LobbyScreen(ConstructHost());
     const Rows = Elements.get("lobby-levels").children;
+    const Hub = Rows[0];
+    const Scene = Rows[1];
 
     assert.equal(Rows.length, LevelCatalog.length);
     assert.equal(Elements.get("lobby-level-count").textContent, String(LevelCatalog.length));
-    assert.equal(Rows[0].dataset.Level, LevelCatalog[0].Key);
-    assert.ok(Rows[0].classList.contains("current"));
-    assert.equal(Rows[0].Attributes["aria-pressed"], "true");
-    assert.equal(Elements.get("lobby-title").textContent, LevelCatalog[0].Title);
-    assert.equal(Elements.get("lobby-chips").children.length, LevelCatalog[0].Contents.length);
-    assert.equal(Lobby.LevelKey, LevelCatalog[0].Key);
+    assert.equal(Hub.dataset.Level, "lobby");
+    assert.ok(Hub.className.includes("here"), "the lobby is listed as a level and marked as the one you are in");
+    assert.equal(Hub.Attributes["aria-current"], "true");
+    assert.equal(Hub.children[2].textContent, "Here");
+    assert.equal(Scene.dataset.Level, SceneLevelCatalog[0].Key);
+    assert.ok(Scene.className.includes("current"));
+    assert.equal(Scene.Attributes["aria-pressed"], "true");
+    assert.equal(Elements.get("lobby-title").textContent, SceneLevelCatalog[0].Title);
+    assert.equal(Elements.get("lobby-chips").children.length, SceneLevelCatalog[0].Contents.length);
+    assert.equal(Lobby.LevelKey, SceneLevelCatalog[0].Key);
 });
 
 test("level keys resolve through the catalogue and unknown keys fall back", () => {
     assert.ok(LevelCatalog.length >= 1);
     for (const Entry of LevelCatalog)
-    {
         assert.ok(Entry.Key && Entry.Title, "every level needs a key and a title");
+    for (const Entry of SceneLevelCatalog)
+    {
         assert.equal(QueryLevel(Entry.Key), Entry);
         assert.equal(ResolveLevelKey(Entry.Key), Entry.Key);
     }
-    assert.equal(ResolveLevelKey("dday"), LevelCatalog[0].Key);
-    assert.equal(ResolveLevelKey(undefined), LevelCatalog[0].Key);
+    assert.equal(ResolveLevelKey("dday"), SceneLevelCatalog[0].Key);
+    assert.equal(ResolveLevelKey(undefined), SceneLevelCatalog[0].Key);
+    // 📝 The lobby is in the list but is not a scene: it can never be loaded as one.
+    assert.equal(QueryLevel("lobby").Key, SceneLevelCatalog[0].Key);
+    assert.ok(LevelCatalog.some((Entry) => Entry.Key === "lobby" && Entry.Kind === "hub"));
+});
+
+test("the skidpad no longer runs a scored drill", () => {
+    assert.ok(!TrainingDrills.some((Drill) => Drill.Id === "skidpad"), "no skidpad drill");
+    assert.ok(!TrainingDrills.some((Drill) => Drill.Id === "drift"), "no drift drill");
+    const Sequence = fs.readFileSync(path.join(Root, "Source/TrainingSequence.js"), "utf8");
+    assert.doesNotMatch(Sequence, /AdvanceDrift/, "the drift scorer is gone, not just unused");
+    assert.doesNotMatch(Sequence, /Unit: "pts"/, "nothing reports points any more");
 });
 
 test("each editor column closes on its own and P folds both", () => {

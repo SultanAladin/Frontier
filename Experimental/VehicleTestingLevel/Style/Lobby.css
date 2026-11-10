@@ -250,6 +250,19 @@ body.lobby-open #shell
     background: linear-gradient(180deg, #1c211c, #191b19);
 }
 
+/* 📝 The lobby is a level in the list too: it reads as "you are here" rather than as a destination. */
+.lobby-level.here
+{
+    border-color: #31402f;
+    background: linear-gradient(180deg, #1a1d1a, #171917);
+    cursor: default;
+}
+
+.lobby-level.here .lobby-level-state
+{
+    color: var(--on);
+}
+
 .lobby-level-index
 {
     font: 400 10px/1 var(--mono);

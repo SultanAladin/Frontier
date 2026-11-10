@@ -1,4 +1,4 @@
-# Dawn null-backend validation, level parameter honoured (no GPU present on this host)
+# Dawn null-backend validation (no GPU present on this host)
 
 ## npm --prefix Tools run validate   (?capture=1, lobby up)
 
@@ -7,12 +7,12 @@
 
 ## node HeadlessHarness.mjs .. 12 "?capture=1&lobby=0&level=proving"
 
-=== harness: 12 frames, 0 errors, 0 warnings, 1.8 s
+=== harness: 12 frames, 0 errors, 0 warnings, 1.7 s
 
 ## npm --prefix Tools run validate:effects
 
 
-=== harness: 36 frames, 0 errors, 0 warnings, 2.0 s
+=== harness: 36 frames, 0 errors, 0 warnings, 2.1 s
 effects integration: sparks, shredded wheel and Garage modes exercised
 
 ## npm --prefix Tools run validate:slate

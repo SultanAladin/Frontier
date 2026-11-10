@@ -10,9 +10,12 @@ export default {
             return;
         const Body = document.body.classList;
         const Rows = document.getElementById("lobby-levels").children;
+        const Hub = Rows.find((Row) => Row.dataset.Level === "lobby");
+        const Scene = Rows.find((Row) => Row.dataset.Level !== "lobby");
         console.log("level list ·", `rows=${Rows.length}`,
-                    `currentRow=${Rows[0].className.includes("current")}`,
-                    `rowKey=${Rows[0].dataset.Level}`,
+                    `hubHere=${!!Hub && Hub.className.includes("here")}`,
+                    `sceneCurrent=${!!Scene && Scene.className.includes("current")}`,
+                    `sceneKey=${Scene && Scene.dataset.Level}`,
                     `hero="${document.getElementById("lobby-title").textContent}"`);
         console.log("boot ·", State(Body));
         Host.Dock.Toggle("Outliner");

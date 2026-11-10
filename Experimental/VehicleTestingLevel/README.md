@@ -12,6 +12,8 @@ tablet HMI, garage, physics, smoke, fracture and rendering work are unchanged; t
 | Editor columns | **Changed.** The outliner and inspector close independently — one at a time — instead of folding together. `P` still folds both. |
 | Viewport chrome | **Changed.** The "Proving Grounds" notch that hung under the viewport tabs is gone; the level name lives in the lobby, the level list and the outliner's scene title. |
 | Proving grounds | The parent's course, training arena, drills and 136 knockable cones, unchanged. |
+| Skidpad scoring | **Removed.** The 14 m ring, its cones and its teleport stay as a place to drive; the drill that scored it — the running points counter, its result line and its best score — is gone. |
+| Lobby as a level | **New.** The lobby is listed in the level list and marked "Here" while it is open; it is a hub, never a scene. |
 | D-Day Assault, City Pursuit & AI Lab, Inversion Arena, Materials Garden, Road Studio | **Not in this build.** Their level and sequence modules were never copied; no dead branches, catalogues or toolbar entries remain. |
 | Car, cabin HMI, garage, effects, physics | Unchanged from the parent prototype and still covered by its tests. |
 
@@ -45,8 +47,10 @@ and switches by reloading with `?level=<key>` so the chosen level builds its own
 `IlluminationHost` resolves `?level=` through the same catalogue and falls back to the shipped level for an unknown or
 missing key, so a stale bookmark cannot leave the app without a scene.
 
-With one level the list shows one row; adding a level is an entry here plus its scene content — no new switch in the
-lobby, the host or the tests. `Esc` (or the **Levels** button in the viewport bar) returns to the lobby from the level.
+The lobby lists itself as the first row — `Kind: "hub"`, marked **Here** while it is open — followed by every
+drivable level (one today). Only scene entries can be loaded by `?level=`; the hub can never be selected as a scene.
+Adding a level is an entry here plus its scene content — no new switch in the lobby, the host or the tests.
+`Esc` (or the **Levels** button in the viewport bar) returns to the lobby from the level.
 
 ## Editor columns
 
@@ -117,7 +121,7 @@ normal viewing. Scene emission strength does not boost the UI.
 # From Experimental/VehicleTestingLevel:
 npm ci
 npm --prefix Tools ci
-npm test                    # 50 checks, including the lobby, level catalogue and column toggles
+npm test                    # 51 checks, including the lobby, level catalogue, skidpad removal and column toggles
 npm --prefix Tools run test:stability
 npm --prefix Tools run validate
 npm --prefix Tools run validate:effects
@@ -176,7 +180,7 @@ groups the scene; selecting an entry rebuilds the inspector (`Source/InspectorPa
 | **Smoke & fire** | the Smoke + Fire editor: Domain, Source, Simulation, Appearance, Fire, Presets — every gas quantity as a slider, plus a test emitter |
 | **Derez · VFX** | the Particle Editor's Derez cube · Reverse derez · Glitch dissolve presets, cube timing and motion, **the car's own colours or the palette**, face glow, **momentum**, recovery triggers, test buttons |
 | **Fracture** · each breakable prop | debris (rigid bodies, distance-field admission, respawn); per prop the Fracture editor: Material, Impact, Fragment quality, Bake, Geometry receipt |
-| **Training arena** · Cones | the ten drills with Start buttons, last result and best time; arena reset; the cones |
+| **Training arena** · Cones | the stations with Start buttons, last result and best time; arena reset; the cones |
 | Proving grounds · Stress test | zone teleports and the scene budget; the stress pool |
 
 Edits apply live. The eye toggles switch an entity off (smoke, fracture, a single prop, tyre marks).
@@ -205,7 +209,7 @@ which the tyres, the fragments and the smoke all read. A 216 × 120 m asphalt pa
 
 - **main straight** with red-and-white kerbs, a jump ramp, a start strip, FRONTIER painted on the road and a gravel
   run-off with a tyre wall;
-- **skidpad** — a painted 14 m drift ring with cones;
+- **skidpad** — a painted 14 m drift ring with cones, for practice; it no longer runs a scored drill;
 - **burnout box** — a concrete apron with its outline and BURNOUT painted, a tyre wall behind;
 - **smash alley** — thirteen breakable props between jersey barriers: wooden crates, an annealed and a tempered
   glass pane in steel frames, octagonal concrete pillars, ABS barriers, a stone wall, a concrete block;
@@ -232,9 +236,11 @@ cones the last run knocked over back onto their marks.
 | **Moose test** | the ISO 3888-2 double lane change, coned on both sides: entry speed, clean or failed |
 | **Cone bowling** | fifteen pins at the end of a run-up lane, counted 3 s after the foul line |
 | **Spin box** | full turns inside an 18 m box without touching a cone or leaving it |
-| **Figure-8 drift** · **Skidpad** | angle × speed × time while sliding, chained with a multiplier that grows every 2 s; a cone hit loses the chain |
 | **Jump** | airtime and distance past the lip, read off painted 5 m lines |
 | **Smash alley** · **Burnout box** | props smashed; seconds of held burnout and the hottest tyre |
+
+The skidpad ring stays part of the course, but its scored drill is gone: no points counter, no "N points" result,
+no stored skidpad best. `Tools/TestingLevelLobby.test.mjs` asserts that the drill and the drift scorer are absent.
 
 Station names are painted on the road and on double-sided signs with lit letters (a 5 × 7 block font covering
 A–Z and 0–9).

@@ -72,16 +72,25 @@ export class LobbyScreen
             this.LevelCount.textContent = String(LevelCatalog.length);
         for (const Entry of LevelCatalog)
         {
-            const Current = Entry.Key === this.LevelKey;
-            const Row = Construct("button", Current ? "lobby-level current" : "lobby-level");
+            // 📝 The lobby is a level too: it is listed, marked "Here" while it is open, and never loaded as a scene.
+            const Hub = Entry.Kind === "hub";
+            const Current = !Hub && Entry.Key === this.LevelKey;
+            const Classes = ["lobby-level"];
+            if (Hub)
+                Classes.push("here");
+            else if (Current)
+                Classes.push("current");
+            const Row = Construct("button", Classes.join(" "));
             Row.type = "button";
             Row.dataset.Level = Entry.Key;
-            Row.setAttribute("aria-pressed", Current ? "true" : "false");
-            Row.title = Current ? `Enter ${Entry.Title}` : `Switch to ${Entry.Title}`;
+            Row.setAttribute("aria-pressed", Hub || Current ? "true" : "false");
+            if (Hub)
+                Row.setAttribute("aria-current", "true");
+            Row.title = Hub ? "You are in the lobby" : (Current ? `Enter ${Entry.Title}` : `Switch to ${Entry.Title}`);
             Row.append(Construct("span", "lobby-level-index", Entry.Index),
                        this.ConstructLevelBody(Entry),
-                       Construct("span", "lobby-level-state", Current ? "Current" : "Switch"));
-            Row.addEventListener("click", () => this.Select(Entry.Key));
+                       Construct("span", "lobby-level-state", Hub ? "Here" : (Current ? "Enter" : "Switch")));
+            Row.addEventListener("click", () => { if (!Hub) this.Select(Entry.Key); });
             this.Levels.appendChild(Row);
         }
     }
