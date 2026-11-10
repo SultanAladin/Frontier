@@ -44,7 +44,7 @@ Every header (`.h`) separates **interface declarations (function prototypes)** f
 [[nodiscard]] constexpr bool ValidateSlotCapacity(uint32_t RequestedSlots, uint32_t MaximumSlots) noexcept;
 
 template <InputSignalSink SinkType>
-uint32_t DrainQueuedSignals(RawInputRouter& Router, SinkType&& DestinationSink) noexcept;
+std::size_t DrainSignals(InputExchange& Exchange, SinkType&& DestinationSink) noexcept;
 ```
 
 ---

@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                     INPUTVALIDATION.CPP
 ============================================================================================================================================*/
-// 🧩 Validation executable verifying BuildConfiguration profiles, RawInputRouter concepts, desktop input, and Android multi-touch
+// 🧩 Validation executable verifying BuildConfiguration profiles, bi-directional InputExchange, desktop input, and Android multi-touch
 
 #include "Engine/Configuration/BuildConfiguration.h"
 #include "Engine/Input/InputExtension.h"
@@ -14,7 +14,7 @@ namespace
 
 struct CountingSignalReceiver
 {
-    uint32_t ObservedPackets = 0; // [count] - Total packets received through concept-constrained routing
+    uint32_t ObservedPackets = 0; // [count] - Total packets received through concept-constrained exchange
 
     void AcceptInputSignal(const Frontier::Input::InputSignalPacket& Packet) noexcept
     {
@@ -63,7 +63,20 @@ int main()
     Coordinator.Initialize();
     Coordinator.BeginTick();
 
-    // ③ Inject keyboard press, pointer motion, and two Android-style touch contacts
+    // ③ Queue Engine -> OS cursor lock and haptic rumble directives before surface poll
+    Coordinator.RequestCursorConfinement(CursorConfinementMode::LockedRelativeHidden);
+    HapticFeedbackDirective RumblePulse{};
+    RumblePulse.DeviceIdentifier       = 0;
+    RumblePulse.LowFrequencyAmplitude  = 0.65f;
+    RumblePulse.HighFrequencyAmplitude = 0.35f;
+    RumblePulse.DurationMilliseconds   = 120;
+    if (!Coordinator.RequestHapticFeedback(RumblePulse))
+    {
+        std::fprintf(stderr, "[FAILED] RequestHapticFeedback failed.\n");
+        return 1;
+    }
+
+    // ④ Inject OS -> Engine keyboard press, pointer motion, and two Android-style touch contacts
     InputSignalPacket KeyPress{};
     KeyPress.TimestampNanoseconds = 1000;
     KeyPress.Category             = InputSignalCategory::KeyboardKey;
@@ -105,15 +118,22 @@ int main()
         return 1;
     }
 
-    // ④ Poll surface into InputExtension and route through concept-constrained sink
+    // ⑤ Poll surface (bi-directional OS<->Engine exchange) and drain inbound packets
     Surface.PollOperatingEvents(Coordinator);
 
-    CountingSignalReceiver Receiver{};
-    const std::size_t RoutedCount = Coordinator.TickRoutingWithSink(Receiver);
-
-    if (RoutedCount != 4u || Receiver.ObservedPackets != 4u)
+    if (Surface.AppliedCursorMode() != CursorConfinementMode::LockedRelativeHidden ||
+        Surface.AppliedHapticPulseCount() != 1u)
     {
-        std::fprintf(stderr, "[FAILED] Expected 4 routed signals, observed %zu.\n", RoutedCount);
+        std::fprintf(stderr, "[FAILED] Outbound Engine->OS cursor lock or haptic directive not applied.\n");
+        return 1;
+    }
+
+    CountingSignalReceiver Receiver{};
+    const std::size_t DrainedCount = Coordinator.TickExchangeWithSink(Receiver);
+
+    if (DrainedCount != 4u || Receiver.ObservedPackets != 4u)
+    {
+        std::fprintf(stderr, "[FAILED] Expected 4 exchanged signals, observed %zu.\n", DrainedCount);
         return 1;
     }
 
@@ -130,12 +150,12 @@ int main()
         return 1;
     }
 
-    // ⑤ Lift one touch contact and verify active touch count decrements to 1
+    // ⑥ Lift one touch contact and verify active touch count decrements to 1
     InputSignalPacket FirstFingerLift = FirstFingerTouch;
     FirstFingerLift.TimestampNanoseconds = 4000;
     FirstFingerLift.TouchPhase           = TouchContactCategory::Ended;
     (void)Coordinator.IntakeHardwareSignal(FirstFingerLift);
-    (void)Coordinator.TickRouting();
+    (void)Coordinator.TickExchange();
 
     if (Coordinator.ActiveTouchContactCount() != 1u)
     {

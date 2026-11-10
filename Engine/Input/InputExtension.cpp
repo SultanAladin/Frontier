@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                      INPUTEXTENSION.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of InputExtension hardware signal aggregation across keyboard, pointer, and multi-touch inputs
+// 🧩 Implementation of InputExtension hardware signal aggregation and outbound cursor/haptic directive coordination
 
 #include "Engine/Input/InputExtension.h"
 
@@ -14,7 +14,7 @@ namespace Frontier::Input
 
 void InputExtension::Initialize() noexcept
 {
-    Router.Initialize();
+    Exchange.Initialize();
     HeldScanCodes.fill(false);
     TouchContacts   = {};
     CurrentPointer  = {};
@@ -31,7 +31,7 @@ void InputExtension::BeginTick() noexcept
 
 void InputExtension::Finalize() noexcept
 {
-    Router.Finalize();
+    Exchange.Finalize();
     HeldScanCodes.fill(false);
     TouchContacts   = {};
     CurrentPointer  = {};
@@ -39,7 +39,7 @@ void InputExtension::Finalize() noexcept
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                  HARDWARE INTAKE
+//                                          HARDWARE INTAKE & OUTBOUND REQUESTS
 //------------------------------------------------------------------------------------------------------------------------
 
 bool InputExtension::IntakeHardwareSignal(const InputSignalPacket& Packet) noexcept
@@ -48,7 +48,7 @@ bool InputExtension::IntakeHardwareSignal(const InputSignalPacket& Packet) noexc
     {
         return false;
     }
-    return Router.IntakeSignal(Packet);
+    return Exchange.IntakeSignal(Packet);
 }
 
 std::size_t InputExtension::IntakeHardwareBatch(std::span<const InputSignalPacket> Packets) noexcept
@@ -57,10 +57,28 @@ std::size_t InputExtension::IntakeHardwareBatch(std::span<const InputSignalPacke
     {
         return 0;
     }
-    return Router.IntakeSignalBatch(Packets);
+    return Exchange.IntakeSignalBatch(Packets);
 }
 
-std::size_t InputExtension::TickRouting() noexcept
+void InputExtension::RequestCursorConfinement(CursorConfinementMode Mode) noexcept
+{
+    if (!LifecycleActive)
+    {
+        return;
+    }
+    Exchange.RequestCursorConfinement(Mode);
+}
+
+bool InputExtension::RequestHapticFeedback(const HapticFeedbackDirective& Directive) noexcept
+{
+    if (!LifecycleActive)
+    {
+        return false;
+    }
+    return Exchange.QueueHapticFeedback(Directive);
+}
+
+std::size_t InputExtension::TickExchange() noexcept
 {
     if (!LifecycleActive)
     {
@@ -78,7 +96,7 @@ std::size_t InputExtension::TickRouting() noexcept
     };
 
     InternalSnapshotSink Sink{ this };
-    return Router.RouteQueuedSignals(Sink);
+    return Exchange.DrainSignals(Sink);
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -203,9 +221,9 @@ uint32_t InputExtension::ActiveTouchContactCount() const noexcept
     return ActiveContacts;
 }
 
-const RawInputRouter& InputExtension::InspectRouter() const noexcept
+const InputExchange& InputExtension::InspectExchange() const noexcept
 {
-    return Router;
+    return Exchange;
 }
 
 bool InputExtension::CoordinatorActive() const noexcept

@@ -37,12 +37,12 @@ Starting focus agreed with user: **`Input/` + `Editor/` groundwork**.
 
 1. **`Engine/Configuration/BuildConfiguration.h`**:
    - Compile-time mutually exclusive `FRONTIER_PROFILE_EDITOR`, `FRONTIER_PROFILE_DEVELOPMENT`, and `FRONTIER_PROFILE_SHIPPING` policy with `static_assert` validation and `constexpr` booleans.
-2. **`Engine/Input/RawInputRouter.{h,cpp}` & `Engine/Input/InputExtension.{h,cpp}`**:
-   - Platform-neutral C++20 input signal packets covering keyboard scan/key codes, pointer motion/buttons/scroll, gamepad axes/buttons, and multi-touch/pen contact points (supporting Windows, Linux, and Android).
-   - Fixed-capacity deterministic ring intake (`RawInputRouter`) with C++20 `concept`-constrained signal routing (`InputSignalSink`) and zero heap churn per tick.
-   - Lifecycle coordination via `InputExtension` (`Initialize` → `PollAndRoute` → `Finalize`).
+2. **`Engine/Input/InputExchange.{h,cpp}` & `Engine/Input/InputExtension.{h,cpp}`**:
+   - Platform-neutral C++20 input signal packets covering keyboard scancodes, pointer motion/buttons/scroll, gamepad axes/buttons, and multi-touch/pen contact points (supporting Windows, Linux, and Android).
+   - Bi-directional fixed-capacity deterministic exchange (`InputExchange`) covering both OS→Engine signal intake (`InputSignalSink`) and Engine→OS cursor confinement & haptic rumble directives (`InputFeedbackTarget`) with zero heap churn per tick.
+   - Lifecycle coordination via `InputExtension` (`Initialize` → `TickExchange` / `FlushOutboundDirectives` → `Finalize`).
 3. **`Engine/Windowing/PlatformWindow.h` & `PlatformWindowStub.cpp`**:
-   - Cross-platform surface interface (`Win32`, `X11`, `Wayland`, `Android`, `Stub`) feeding raw OS events directly into `RawInputRouter`.
+   - Cross-platform surface interface (`Win32`, `X11`, `Wayland`, `Android`, `Stub`) exchanging OS events and cursor/haptic directives with `InputExtension`.
 4. **Validation (`Exhibits/InputValidation.cpp`)**:
    - Deterministic CTest verification across `Editor`, `Development`, and `Shipping` profiles.
 

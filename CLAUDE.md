@@ -51,5 +51,5 @@ code, shaders, build scripts, or documentation.
 ## 3. Initial C++ Bringup Order
 
 1. **Dependencies & Build Profiles** (`Automation/`, `ExternalPackages/`, `Engine/Configuration/BuildConfiguration.h`, `CMakeLists.txt`).
-2. **Input & Cross-Platform Windowing** (`Engine/Input/{RawInputRouter,InputExtension}.{h,cpp}`, `Engine/Windowing/PlatformWindow*`).
+2. **Input & Cross-Platform Windowing** (`Engine/Input/{InputExchange,InputExtension}.{h,cpp}`, `Engine/Windowing/PlatformWindow*`).
 3. **Editor & Workspace Groundwork** (`Engine/Workspaces/`, `Engine/Editor/` target gated off `FRONTIER_EDITOR_ENABLED`, patched ImGui docking host, GPU `.slang` viewport overlay hooks).

@@ -19,11 +19,13 @@ bool HeadlessPlatformWindow::Initialize(const WindowConfigurationDescriptor& Des
         return false;
     }
 
-    PendingSyntheticSignals.Initialize();
+    PendingSyntheticExchange.Initialize();
     ActiveExtent.PixelWidth     = Descriptor.PixelWidth;
     ActiveExtent.PixelHeight    = Descriptor.PixelHeight;
     ActiveExtent.DpiScaleFactor = Descriptor.DpiScaleFactor;
     ActiveExtent.Minimized      = false;
+    CurrentCursorMode           = Input::CursorConfinementMode::FreeVisible;
+    DeliveredHapticCount        = 0;
     ClosingRequested            = false;
     SurfaceInitialized          = true;
     return true;
@@ -47,15 +49,33 @@ void HeadlessPlatformWindow::PollOperatingEvents(Input::InputExtension& InputCoo
     };
 
     ForwardToCoordinatorSink Forwarder{ &InputCoordinator };
-    (void)PendingSyntheticSignals.RouteQueuedSignals(Forwarder);
+    (void)PendingSyntheticExchange.DrainSignals(Forwarder);
+    (void)InputCoordinator.FlushOutboundDirectives(*this);
 }
 
 void HeadlessPlatformWindow::Finalize() noexcept
 {
-    PendingSyntheticSignals.Finalize();
-    ActiveExtent       = {};
-    ClosingRequested   = false;
-    SurfaceInitialized = false;
+    PendingSyntheticExchange.Finalize();
+    ActiveExtent         = {};
+    CurrentCursorMode    = Input::CursorConfinementMode::FreeVisible;
+    DeliveredHapticCount = 0;
+    ClosingRequested     = false;
+    SurfaceInitialized   = false;
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                            OUTBOUND OS FEEDBACK APPLICATION
+//------------------------------------------------------------------------------------------------------------------------
+
+void HeadlessPlatformWindow::ApplyCursorConfinement(Input::CursorConfinementMode Confinement) noexcept
+{
+    CurrentCursorMode = Confinement;
+}
+
+void HeadlessPlatformWindow::ApplyHapticFeedback(const Input::HapticFeedbackDirective& Haptic) noexcept
+{
+    (void)Haptic;
+    ++DeliveredHapticCount;
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -81,7 +101,7 @@ bool HeadlessPlatformWindow::QueueSyntheticSignal(const Input::InputSignalPacket
     {
         return false;
     }
-    return PendingSyntheticSignals.IntakeSignal(Packet);
+    return PendingSyntheticExchange.IntakeSignal(Packet);
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -101,6 +121,16 @@ WindowExtentReading HeadlessPlatformWindow::InspectExtent() const noexcept
 WindowPlatformCategory HeadlessPlatformWindow::PlatformCategory() const noexcept
 {
     return WindowPlatformCategory::HeadlessStub;
+}
+
+Input::CursorConfinementMode HeadlessPlatformWindow::AppliedCursorMode() const noexcept
+{
+    return CurrentCursorMode;
+}
+
+uint32_t HeadlessPlatformWindow::AppliedHapticPulseCount() const noexcept
+{
+    return DeliveredHapticCount;
 }
 
 } // namespace Frontier::Windowing

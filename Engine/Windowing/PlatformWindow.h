@@ -82,22 +82,31 @@ public:
     void               PollOperatingEvents(Input::InputExtension& InputCoordinator) noexcept;
     void               Finalize() noexcept;
 
+    void ApplyCursorConfinement(Input::CursorConfinementMode Confinement) noexcept;
+    void ApplyHapticFeedback(const Input::HapticFeedbackDirective& Haptic) noexcept;
+
     void               ResizeSurface(uint32_t NewWidth, uint32_t NewHeight, float NewDpiScale) noexcept;
     void               RequestClose() noexcept;
     [[nodiscard]] bool QueueSyntheticSignal(const Input::InputSignalPacket& Packet) noexcept;
 
-    [[nodiscard]] bool                   CloseRequested()   const noexcept;
-    [[nodiscard]] WindowExtentReading    InspectExtent()    const noexcept;
-    [[nodiscard]] WindowPlatformCategory PlatformCategory() const noexcept;
+    [[nodiscard]] bool                         CloseRequested()          const noexcept;
+    [[nodiscard]] WindowExtentReading          InspectExtent()           const noexcept;
+    [[nodiscard]] WindowPlatformCategory       PlatformCategory()        const noexcept;
+    [[nodiscard]] Input::CursorConfinementMode AppliedCursorMode()       const noexcept;
+    [[nodiscard]] uint32_t                     AppliedHapticPulseCount() const noexcept;
 
 private:
-    Input::RawInputRouter PendingSyntheticSignals{}; // [-]  - Synthetic OS events queued for next PollOperatingEvents
-    WindowExtentReading   ActiveExtent{};            // [px] - Current simulated surface dimensions
-    bool                  SurfaceInitialized = false;// [-]  - True while headless window is active
-    bool                  ClosingRequested   = false;// [-]  - True once RequestClose has been triggered
+    Input::InputExchange         PendingSyntheticExchange{};                                               // [-]     - Synthetic OS events queued for next poll
+    WindowExtentReading          ActiveExtent{};                                                           // [px]    - Current simulated surface dimensions
+    Input::CursorConfinementMode CurrentCursorMode   = Input::CursorConfinementMode::FreeVisible;          // [-]     - Latest cursor confinement applied by Engine
+    uint32_t                     DeliveredHapticCount = 0;                                                 // [count] - Outbound haptic directives received
+    bool                         SurfaceInitialized  = false;                                              // [-]     - True while headless window is active
+    bool                         ClosingRequested    = false;                                              // [-]     - True once RequestClose has been triggered
 };
 
 static_assert(PlatformWindowSurface<HeadlessPlatformWindow>,
               "HeadlessPlatformWindow must satisfy the PlatformWindowSurface C++20 concept.");
+static_assert(Input::InputFeedbackTarget<HeadlessPlatformWindow>,
+              "HeadlessPlatformWindow must satisfy the InputFeedbackTarget C++20 concept.");
 
 } // namespace Frontier::Windowing

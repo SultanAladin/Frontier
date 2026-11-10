@@ -213,9 +213,9 @@ Frontier/
     │           ├── SequenceAnimator.{h,cpp}
     │           └── TimelineAnimator.{h,cpp}
     │
-    ├── Input/                                 // Peripheral & touch hardware polling and signal routing
-    │   ├── InputExtension.{h,cpp}             // Hardware event intake -> command dispatch
-    │   └── RawInputRouter.{h,cpp}             // OS & mobile event translation into engine input signals
+    ├── Input/                                 // Bi-directional peripheral, touch, and OS feedback exchange
+    │   ├── InputExtension.{h,cpp}             // Input lifecycle coordinator and snapshot consolidation
+    │   └── InputExchange.{h,cpp}              // OS->Engine signal intake & Engine->OS cursor/haptic exchange
     │
     ├── Windowing/                             // Native cross-platform surface abstractions
     │   ├── PlatformWindow.h                   // Cross-platform window & surface interface

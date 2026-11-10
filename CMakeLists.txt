@@ -102,7 +102,7 @@ endif()
 #------------------------------------------------------------------------------------------------------------------------
 
 add_library(FrontierEngine STATIC
-    Engine/Input/RawInputRouter.cpp
+    Engine/Input/InputExchange.cpp
     Engine/Input/InputExtension.cpp
     Engine/Windowing/PlatformWindowStub.cpp
 )
