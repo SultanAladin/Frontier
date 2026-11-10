@@ -1,0 +1,43 @@
+# Scratchpad (disposable agent logs, builds, and temp probes)
+_AgentScratch/
+_ClaudeScratch/
+
+# Build & binary outputs
+Build/
+**/Build/Output/
+Binaries/
+build/
+dist/
+out/
+*.obj
+*.o
+*.pdb
+*.ilk
+*.exp
+*.exe
+*.dll
+*.so
+*.dylib
+*.lib
+*.a
+*.spv
+
+# Third-party trees & Node modules
+ExternalPackages/*
+!ExternalPackages/.gitkeep
+!ExternalPackages/Dependencies.lock.json
+!ExternalPackages/README.md
+**/node_modules/
+
+# Downloaded font archives (restored via Automation/PrepareFonts.py)
+EngineContent/FontArchives/*
+!EngineContent/FontArchives/.gitkeep
+
+# Python & editor caches
+__pycache__/
+*.pyc
+.cache/
+.vscode/
+.idea/
+*.local.*
+.env

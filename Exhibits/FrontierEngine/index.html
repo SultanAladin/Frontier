@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<!--
+==============================================================================================================================================
+                                                                  INDEX.HTML
+==============================================================================================================================================
+ 🧩 FrontierEngine — ProjectZeroEditor UI Shell (Top Notch Control Center, Bottom Asset Browser, Edit/Sim/Play Viewport, Docking)
+    Levels: Proving Grounds + Lobby · Studio (sunless enclosed studio bay).
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FrontierEngine · Project-Zero Editor — Proving Grounds &amp; Lobby Studio</title>
+<link rel="stylesheet" href="Style/FrontierEditor.css">
+<link rel="stylesheet" href="Style/SliderControl.css">
+<link rel="stylesheet" href="Style/SplashEnclosure.css">
+<link rel="stylesheet" href="Style/LogStreamEnclosure.css">
+<link rel="stylesheet" href="Style/WorkspaceDock.css">
+<link rel="stylesheet" href="Style/ProjectZeroShell.css">
+</head>
+<body>
+    <div id="cinematic-fade" style="position:fixed;inset:0;background:#050606;opacity:0;pointer-events:none;z-index:90;"></div>
+
+    <!-- Top Notch + Control Center Drawer (ProjectZeroEditor 1:1) -->
+    <div id="top-notch-drawer"></div>
+
+    <div id="shell" class="pz-shell">
+        <main class="workspace" id="pz-workspace">
+            <section class="dock left" id="dock-left">
+                <header class="tab-strip" id="tabs-left"></header>
+                <div class="dock-panel-host" id="host-left">
+                    <aside id="outliner" class="column editor-column pz-outliner">
+                        <div class="outliner-body" id="outliner-body" style="display:flex;flex-direction:column;height:100%;min-height:0;padding:0;"></div>
+                    </aside>
+                </div>
+                <div class="divider left" id="divider-left"></div>
+            </section>
+
+            <section class="dock centre" id="dock-centre">
+                <header class="tab-strip" id="tabs-centre"></header>
+                <div class="dock-panel-host" id="host-centre">
+                    <section id="viewport-column" class="column pz-viewport-col">
+                        <div class="viewport-toolbar" id="viewport-bar"></div>
+                        <div id="stage" class="pz-stage">
+                            <canvas id="viewport"></canvas>
+                            <div id="post-vignette"></div>
+                            <canvas id="capture" class="capture"></canvas>
+                            <div id="hud"><button class="overlay-close" data-overlay="Hud" title="Hide the readout (H)">×</button><pre id="hud-text">Starting…</pre></div>
+                            <div id="inset-frame" class="hidden">
+                                <button class="overlay-close" data-overlay="Inset" title="Hide the distance slice (J)">×</button>
+                                <div id="inset-legend">GDF slice · blue inside · amber outside · magenta = rewritten by a moving occupant · teal = scrolled · green = cascade 0</div>
+                            </div>
+                            <div id="overlay-dock" class="hidden"></div>
+                            <div id="overlay-notice" class="hidden"></div>
+                            <div id="event-notice" class="hidden"></div>
+                            <div id="bring-up">
+                                <h2>Frontier · Project-Zero</h2>
+                                <div class="bring-up-caption">Starting</div>
+                                <div class="bring-up-bar"><div></div></div>
+                            </div>
+                            <div id="failure" class="hidden"></div>
+                        </div>
+                        <div id="log-stream-enclosure" class="hidden" aria-label="Log Stream"></div>
+                        <footer class="viewport-footer" id="status"></footer>
+                    </section>
+                </div>
+            </section>
+
+            <section class="dock right" id="dock-right">
+                <header class="tab-strip" id="tabs-right"></header>
+                <div class="dock-panel-host" id="host-right">
+                    <aside id="inspector" class="column editor-column pz-inspector">
+                        <div class="inspector-top" id="inspector-top"></div>
+                        <div class="inspector-content" id="inspector-content"></div>
+                    </aside>
+                </div>
+                <div class="divider right" id="divider-right"></div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Bottom Asset Browser Drawer (ProjectZeroEditor 1:1) -->
+    <div id="bottom-asset-drawer"></div>
+
+    <!-- Hidden legacy anchors kept so keyboard/splash scripts stay 100% compatible -->
+    <button id="lobby-return" type="button" class="hidden" aria-hidden="true"></button>
+    <div id="level-context-menu" class="hidden" aria-hidden="true"></div>
+
+    <div id="lobby" role="dialog" aria-modal="true" aria-labelledby="lobby-title">
+        <div class="lobby-aurora" aria-hidden="true"></div>
+        <div class="lobby-panel">
+            <header class="lobby-top">
+                <div class="lobby-mark">Frontier<span class="lobby-dot">.</span> Engine</div>
+                <div class="lobby-build">WebGPU · Distance-Field GI · ReSTIR · Jolt Physics</div>
+            </header>
+
+            <div class="lobby-body">
+                <div class="lobby-copy">
+                    <div class="lobby-kicker">Test Level Splash &amp; Scene Select</div>
+                    <h1 id="lobby-title">Proving Grounds</h1>
+                    <p id="lobby-lede" class="lobby-lede"></p>
+                    <ul id="lobby-chips" class="lobby-chips"></ul>
+
+                    <div class="lobby-levels-wrap">
+                        <div class="lobby-levels-label">Available levels · <span id="lobby-level-count">2</span></div>
+                        <div id="lobby-levels" class="lobby-levels" role="listbox" aria-label="Select level"></div>
+                    </div>
+
+                    <div class="lobby-launch-row">
+                        <button id="lobby-enter" class="lobby-enter" type="button" disabled>
+                            <span id="lobby-enter-label">Loading GPU Scene…</span>
+                            <span class="lobby-enter-key">Enter</span>
+                        </button>
+                    </div>
+
+                    <div class="lobby-progress-block">
+                        <div class="lobby-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                            <div id="lobby-progress-bar"></div>
+                        </div>
+                        <div class="lobby-status-row">
+                            <span id="lobby-status" class="lobby-status">Negotiating WebGPU device…</span>
+                            <span id="lobby-progress-pct" class="lobby-progress-pct">0%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <figure class="lobby-plan">
+                    <svg id="lobby-blueprint-svg" viewBox="0 0 340 250" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
+                    <figcaption id="lobby-blueprint-caption"></figcaption>
+                </figure>
+            </div>
+
+            <footer class="lobby-foot">
+                <span><b>W A S D</b> Drive &amp; brake · <b>Space</b> Handbrake · <b>W+S</b> Line-lock burnout</span>
+                <span><b>C</b> Camera rigs · <b>R</b> Recover · <b>`</b> Log Stream · <b>P / H</b> Editor &amp; HUD · <b>Esc</b> Splash &amp; levels</span>
+            </footer>
+        </div>
+    </div>
+
+    <script type="module" src="Source/IlluminationHost.js?v=project-zero-ui-1"></script>
+</body>
+</html>

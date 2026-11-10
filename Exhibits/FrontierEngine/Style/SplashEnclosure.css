@@ -1,0 +1,520 @@
+/*==========================================================================================================================================
+                                                           SPLASHENCLOSURE.CSS
+==========================================================================================================================================
+ 🧩 FrontierEngine startup splash screen, live GPU bring-up progress bar, and level picker (Proving Grounds · Lobby / Garage).
+==========================================================================================================================================*/
+
+#lobby
+{
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: grid;
+    grid-template-rows: 1fr auto;
+    place-items: center;
+    row-gap: 12px;
+    padding: 28px;
+    background: rgba(8, 8, 8, 0.96);
+    backdrop-filter: blur(14px);
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.38s cubic-bezier(0.22, 0.61, 0.36, 1), visibility 0.38s ease;
+}
+
+#lobby.hidden
+{
+    display: none !important;
+}
+
+body.lobby-open #shell
+{
+    pointer-events: none;
+}
+
+#lobby.leaving
+{
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.lobby-aurora
+{
+    position: absolute;
+    inset: -20%;
+    background:
+        radial-gradient(closest-side at 22% 28%, rgba(92, 118, 96, 0.14), transparent 70%),
+        radial-gradient(closest-side at 78% 72%, rgba(96, 108, 128, 0.12), transparent 72%),
+        radial-gradient(closest-side at 62% 18%, rgba(142, 114, 88, 0.08), transparent 70%);
+    filter: blur(10px);
+    animation: splash-drift 24s ease-in-out infinite alternate;
+    pointer-events: none;
+}
+
+@keyframes splash-drift
+{
+    from { transform: translate3d(-1.2%, -0.8%, 0) scale(1.02); }
+    to   { transform: translate3d(1.2%, 1.2%, 0) scale(1.06); }
+}
+
+.lobby-panel
+{
+    position: relative;
+    width: min(1060px, 100%);
+    max-height: min(670px, 100%);
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    background: linear-gradient(158deg, #191a1a 0%, #131414 54%, #0e0f0f 100%);
+    border: 1px solid #2b2c2c;
+    border-radius: 20px;
+    box-shadow: 0 42px 120px rgba(0, 0, 0, 0.72), inset 0 1px 0 rgba(255, 255, 255, 0.045);
+    overflow: hidden;
+}
+
+.lobby-top
+{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 18px 28px 15px;
+    border-bottom: 1px solid #232424;
+    background: rgba(12, 12, 12, 0.45);
+}
+
+.lobby-mark
+{
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: #efefef;
+}
+
+.lobby-dot
+{
+    color: var(--on);
+}
+
+.lobby-build
+{
+    font-size: 9.5px;
+    letter-spacing: 0.2em;
+    color: #7c7e7c;
+    text-transform: uppercase;
+    text-align: right;
+}
+
+.lobby-body
+{
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.85fr);
+    gap: 30px;
+    align-items: center;
+    padding: 26px 30px 22px;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.lobby-copy
+{
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 13px;
+    min-width: 0;
+}
+
+.lobby-kicker
+{
+    font-size: 9.5px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: #849986;
+}
+
+.lobby-copy h1
+{
+    font-size: clamp(32px, 4vw, 48px);
+    font-weight: 300;
+    line-height: 1.0;
+    letter-spacing: -0.035em;
+    color: #f2f2ee;
+}
+
+.lobby-lede
+{
+    max-width: 52ch;
+    font-size: 12.5px;
+    line-height: 1.56;
+    color: #a9aba8;
+}
+
+.lobby-chips
+{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    list-style: none;
+}
+
+.lobby-chips li
+{
+    padding: 4px 10px;
+    border: 1px solid #2b2d2b;
+    border-radius: 999px;
+    background: #171818;
+    font-size: 10px;
+    color: #b0b2ac;
+    white-space: nowrap;
+}
+
+/* ── Level selector cards ─────────────────────────────────────────────────────────────────────────────────── */
+
+.lobby-levels-wrap
+{
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    margin-top: 2px;
+}
+
+.lobby-levels-label
+{
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #767874;
+}
+
+.lobby-levels-label span
+{
+    color: #b2b4ae;
+}
+
+.lobby-levels
+{
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.lobby-level
+{
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid #292a2a;
+    border-radius: 12px;
+    background: #151616;
+    text-align: left;
+    transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.lobby-level:hover
+{
+    background: #1c1d1d;
+    border-color: #3d3f3d;
+}
+
+.lobby-level.selected
+{
+    background: #1e201f;
+    border-color: #565a55;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.lobby-level.current
+{
+    border-color: #38513c;
+    background: linear-gradient(180deg, #1a211b, #151916);
+}
+
+.lobby-level.current.selected
+{
+    border-color: #4c7353;
+    box-shadow: 0 0 0 1px rgba(62, 196, 109, 0.18);
+}
+
+.lobby-level-index
+{
+    display: inline-grid;
+    place-items: center;
+    height: 22px;
+    border-radius: 6px;
+    background: #0d0e0e;
+    border: 1px solid #272828;
+    font: 400 10px/1 var(--mono);
+    color: #8f918c;
+}
+
+.lobby-level.current .lobby-level-index
+{
+    color: #9be3b5;
+    border-color: #2f5438;
+}
+
+.lobby-level-body
+{
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.lobby-level-title
+{
+    font-size: 12.5px;
+    font-weight: 500;
+    color: #eaeae4;
+}
+
+.lobby-level-sub
+{
+    font-size: 10.5px;
+    color: #878984;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lobby-level-state
+{
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: #111212;
+    border: 1px solid #2a2c2a;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #9c9e98;
+    white-space: nowrap;
+}
+
+.lobby-level.current .lobby-level-state
+{
+    color: #9be3b5;
+    border-color: #2f5c3b;
+    background: #132117;
+}
+
+/* ── Action & real-time GPU loading bar ───────────────────────────────────────────────────────────────────── */
+
+.lobby-launch-row
+{
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    margin-top: 4px;
+}
+
+.lobby-enter
+{
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 18px 12px 20px;
+    border: 1px solid #444744;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #2b2d2b, #1f211f);
+    color: #f2f2ee;
+    font-size: 12.5px;
+    font-weight: 500;
+    transition: background 0.16s ease, border-color 0.16s ease, transform 0.14s ease, opacity 0.16s ease;
+}
+
+.lobby-enter:disabled
+{
+    cursor: progress;
+    opacity: 0.58;
+}
+
+.lobby-enter:not(:disabled):hover
+{
+    background: linear-gradient(180deg, #353835, #262826);
+    border-color: #626660;
+    transform: translateY(-1px);
+}
+
+#lobby.ready .lobby-enter:not(:disabled)
+{
+    border-color: #3e6b49;
+    background: linear-gradient(180deg, #233828, #19291d);
+    color: #eaf7ee;
+}
+
+#lobby.ready .lobby-enter:not(:disabled):hover
+{
+    border-color: #528f61;
+    background: linear-gradient(180deg, #2a4530, #1e3223);
+}
+
+.lobby-enter-key
+{
+    padding: 3px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.36);
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    color: #b5b8b2;
+    text-transform: uppercase;
+}
+
+.lobby-progress-block
+{
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.lobby-progress
+{
+    width: 100%;
+    height: 5px;
+    border-radius: 999px;
+    background: #1b1c1c;
+    border: 1px solid #272828;
+    overflow: hidden;
+}
+
+.lobby-progress > div
+{
+    width: 0%;
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #8b8e86, #dcded4);
+    transition: width 0.22s ease;
+}
+
+#lobby.ready .lobby-progress > div
+{
+    background: linear-gradient(90deg, #2ea35a, #49d67b);
+}
+
+#lobby.failed .lobby-progress > div
+{
+    background: var(--fail);
+}
+
+.lobby-status-row
+{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.lobby-status
+{
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 16px;
+    font-size: 10.5px;
+    color: #939590;
+}
+
+.lobby-status::before
+{
+    content: "";
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: 50%;
+    background: #7c7e78;
+}
+
+#lobby.ready .lobby-status::before
+{
+    background: var(--on);
+    box-shadow: 0 0 9px rgba(62, 196, 109, 0.65);
+}
+
+#lobby.failed .lobby-status::before
+{
+    background: var(--fail);
+}
+
+.lobby-progress-pct
+{
+    font: 400 10.5px/1 var(--mono);
+    color: #8a8c86;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Blueprint schematic ──────────────────────────────────────────────────────────────────────────────────── */
+
+.lobby-plan
+{
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    min-width: 0;
+    margin: 0;
+}
+
+.lobby-plan svg
+{
+    width: 100%;
+    height: auto;
+    border: 1px solid #262828;
+    border-radius: 16px;
+    background: #101111;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.lobby-plan figcaption
+{
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #6d6f6a;
+    text-align: right;
+}
+
+.splash-trace-line
+{
+    stroke-dashoffset: 0;
+    animation: splash-line 6s linear infinite;
+}
+
+@keyframes splash-line
+{
+    to { stroke-dashoffset: -28; }
+}
+
+.lobby-foot
+{
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 10px 22px;
+    padding: 13px 28px;
+    border-top: 1px solid #222323;
+    background: #0d0e0e;
+    font-size: 10.5px;
+    color: #80827d;
+}
+
+.lobby-foot b
+{
+    font-weight: 500;
+    color: #c2c4be;
+}
+
+@media (max-width: 860px)
+{
+    #lobby { padding: 14px; }
+    .lobby-body { grid-template-columns: minmax(0, 1fr); padding: 20px; }
+    .lobby-plan { display: none; }
+}
