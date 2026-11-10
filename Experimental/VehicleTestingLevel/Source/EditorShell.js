@@ -320,11 +320,6 @@ export class EditorShell
         Display.addEventListener("change", () => { Host.Settings.Inspection = Number(Display.value); Host.ApplySetting("Inspection"); this.Controls.Synchronise(); });
         this.DisplaySelect = Display;
         Bar.append(Display, Construct("span", "bar-fill"));
-        // 📝 The lobby is the level UI: it lists the catalogue, marks the current level and switches to any other.
-        const LobbyButton = Construct("button", "lobby-button", "Levels");
-        LobbyButton.title = "Levels and lobby (Esc)";
-        LobbyButton.addEventListener("click", () => Host.Lobby?.Show());
-        Bar.appendChild(LobbyButton);
         const Icon = (Glyph, Title, Action) =>
         {
             const Button = Construct("button", "icon-button");

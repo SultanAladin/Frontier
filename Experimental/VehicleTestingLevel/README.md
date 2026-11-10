@@ -13,7 +13,8 @@ tablet HMI, garage, physics, smoke, fracture and rendering work are unchanged; t
 | Viewport chrome | **Changed.** The "Proving Grounds" notch that hung under the viewport tabs is gone; the level name lives in the lobby, the level list and the outliner's scene title. |
 | Proving grounds | The parent's course, training arena, drills and 136 knockable cones, unchanged. |
 | Skidpad scoring | **Removed.** The 14 m ring, its cones and its teleport stay as a place to drive; the drill that scored it — the running points counter, its result line and its best score — is gone. |
-| Lobby as a level | **New.** The lobby is listed in the level list and marked "Here" while it is open; it is a hub, never a scene. |
+| Lobby as a level | **New.** The lobby is listed in the level list and marked "Here" while it is open; clicking it selects it and brings the lobby forward. It is a hub, never a scene. |
+| Way back | **New.** A **Lobby** button in the viewport tab strip (plus `Esc`), independent of the crowded toolbar. |
 | D-Day Assault, City Pursuit & AI Lab, Inversion Arena, Materials Garden, Road Studio | **Not in this build.** Their level and sequence modules were never copied; no dead branches, catalogues or toolbar entries remain. |
 | Car, cabin HMI, garage, effects, physics | Unchanged from the parent prototype and still covered by its tests. |
 
@@ -30,12 +31,12 @@ in `../interactive-vehicle-hmi-configurator`.
 ## The lobby
 
 `index.html` carries the lobby above the editor shell; `Style/Lobby.css` styles it in the Frontier Editor tokens, and
-`Source/LobbyScreen.js` owns its state. It is not a level selector — there is one level, and the card says so.
+`Source/LobbyScreen.js` owns its state. It doubles as the level selector: the list below the card is the level UI.
 
 - The renderer boots behind the card and `ReportProgress` drives the caption and bar, so the button becomes
   actionable exactly when the scene is ready, not on a timer.
-- **Enter** (or a click) hands the keyboard to the car; **Esc** returns to the lobby. The viewport bar has a
-  **Lobby** button for the same thing.
+- **Enter** (or a click) hands the keyboard to the car; **Esc** returns to the lobby. The viewport's tab strip also
+  carries a **Lobby** button — it sits outside the crowded toolbar, so it stays visible at any window width.
 - While the card is up the host ignores driving keys, and held keys are cleared on both transitions.
 - A failed bring-up is reported on the card, not behind a permanently disabled button.
 - `?lobby=0` skips the lobby for headless harnesses and captures.
@@ -50,7 +51,8 @@ missing key, so a stale bookmark cannot leave the app without a scene.
 The lobby lists itself as the first row — `Kind: "hub"`, marked **Here** while it is open — followed by every
 drivable level (one today). Only scene entries can be loaded by `?level=`; the hub can never be selected as a scene.
 Adding a level is an entry here plus its scene content — no new switch in the lobby, the host or the tests.
-`Esc` (or the **Levels** button in the viewport bar) returns to the lobby from the level.
+`Esc` (or the **Lobby** button in the viewport tab strip) returns to the lobby from the level. Every row answers a
+click: the lobby row selects itself, brings the lobby forward and says "you are here", so a click is never swallowed.
 
 ## Editor columns
 

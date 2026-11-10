@@ -482,3 +482,16 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
 - Verification: 51/51 node tests, 16/16 stability scenarios, Dawn null-backend 12-frame runs (lobby up and
   `?lobby=0&level=proving`), 36-frame effects and 48-frame Slate hooks — 0 errors, 0 warnings — and refreshed
   `UiProbe`/`LobbyProbe` output. Browser appearance remains unverified on this host (no Chromium or GPU).
+
+### Lobby row and the way back to the lobby (2026-11-10, same branch)
+
+- The lobby row in the level list answers a click: it selects itself (clearing the other row's selection), brings the
+  lobby forward and reports "Lobby · you are here · enter <level> when ready". Previously the hub row was inert, which
+  read as a dead control. Selection also resets to the level you were in when the lobby is reopened.
+- Added a **Lobby** button to the viewport's tab strip (`#lobby-return`) and removed the toolbar "Levels" button: the
+  tab strip cannot be squeezed out by the camera/display controls and icons, so the way back is always visible. `Esc`
+  and the tab button share the same `LobbyScreen.Show()` path.
+- Verification: 53/53 node tests (11 lobby/scope/level/column/skidpad), Dawn null-backend runs with the lobby and with
+  `?lobby=0&level=proving` plus the 36/48-frame hooks — 0 errors, 0 warnings — and a refreshed `UiProbe` showing the
+  lobby row click, the viewport button reopening the lobby, and the independent columns. Browser appearance remains
+  unverified on this host.

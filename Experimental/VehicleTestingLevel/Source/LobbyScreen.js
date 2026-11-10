@@ -40,6 +40,7 @@ export class LobbyScreen
         this.ProgressBar = QueryElement("lobby-progress-bar");
         this.ProgressRail = this.Root ? this.Root.querySelector(".lobby-progress") : null;
         this.Levels = QueryElement("lobby-levels");
+        this.ReturnButton = QueryElement("lobby-return");
         this.LevelCount = QueryElement("lobby-level-count");
         this.LevelTitle = QueryElement("lobby-title");
         this.Lede = QueryElement("lobby-lede");
@@ -54,6 +55,9 @@ export class LobbyScreen
         this.ApplyLevelCopy();
         if (this.EnterButton)
             this.EnterButton.addEventListener("click", () => this.Enter());
+        // 📝 The viewport tab strip always carries a way back, whatever the toolbar is doing.
+        if (this.ReturnButton)
+            this.ReturnButton.addEventListener("click", () => this.Show());
         window.addEventListener("keydown", (Event) => this.HandleKey(Event));
 
         if (this.Root)
@@ -90,9 +94,10 @@ export class LobbyScreen
             Row.append(Construct("span", "lobby-level-index", Entry.Index),
                        this.ConstructLevelBody(Entry),
                        Construct("span", "lobby-level-state", Hub ? "Here" : (Current ? "Enter" : "Switch")));
-            Row.addEventListener("click", () => { if (!Hub) this.Select(Entry.Key); });
+            Row.addEventListener("click", () => this.Choose(Entry));
             this.Levels.appendChild(Row);
         }
+        this.MarkSelected(this.LevelKey);
     }
 
     ConstructLevelBody(Entry)
@@ -119,6 +124,32 @@ export class LobbyScreen
         }
         if (this.EnterLabel && !this.Ready)
             this.EnterLabel.textContent = "Preparing the ground";
+    }
+
+    // 📝 Every row answers a click. The lobby row is a destination like any other: it selects, brings the lobby
+    //    forward and says so, so a click is never silently swallowed.
+    Choose(Entry)
+    {
+        this.MarkSelected(Entry.Key);
+        if (Entry.Kind === "hub")
+        {
+            this.Show(false);
+            if (this.StatusLine)
+                this.StatusLine.textContent = this.Ready
+                    ? `Lobby · you are here · enter ${this.Level.Title} when ready`
+                    : "Lobby · bringing the scene up";
+            return;
+        }
+        this.Select(Entry.Key);
+    }
+
+    MarkSelected(Key)
+    {
+        if (!this.Levels)
+            return;
+        this.SelectedKey = Key;
+        for (const Row of this.Levels.children)
+            Row.classList.toggle("selected", Row.dataset.Level === Key);
     }
 
     Select(Key)
@@ -210,6 +241,7 @@ export class LobbyScreen
     {
         if (!this.Root)
             return;
+        const WasVisible = this.Visible;
         if (this.ExitTimer)
         {
             clearTimeout(this.ExitTimer);
@@ -218,6 +250,10 @@ export class LobbyScreen
         this.Visible = true;
         this.AssignBodyFlag();
         this.Root.classList.remove("hidden", "leaving");
+        // 📝 Coming back from the level resets the selection to the level you were in; clicking a row while the lobby
+        //    is already open keeps the row the click selected.
+        if (!WasVisible)
+            this.MarkSelected(this.LevelKey);
         if (this.Host.Keys)
             this.Host.Keys.clear();
         if (this.StatusLine && this.Ready)
@@ -225,7 +261,7 @@ export class LobbyScreen
         if (this.EnterButton && this.Ready && this.EnterButton.focus)
             this.EnterButton.focus();
         if (AnnounceChange)
-            this.Host.Shell?.Announce("Lobby — press Enter to return to the proving grounds");
+            this.Host.Shell?.Announce(`Lobby — press Enter to return to ${this.Level.Title}`);
     }
 
     Toggle()

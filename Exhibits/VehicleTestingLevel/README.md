@@ -8,14 +8,14 @@ Linux x86_64 with Node 22.22.3 and Dawn's null backend. No GitHub Actions were r
 
 | Check | Command (from `Experimental/VehicleTestingLevel`) | Result |
 | --- | --- | --- |
-| Unit, scope, level and column checks | `npm test` | **51 / 51 pass** (42 inherited + 9 lobby/scope/levels/columns/skidpad) |
+| Unit, scope, level and column checks | `npm test` | **53 / 53 pass** (42 inherited + 11 lobby/scope/level/columns/skidpad) |
 | Tyre, damage and stability scenarios | `npm --prefix Tools run test:stability` | **all passed** (16 scenarios) |
 | Bring-up, shaders, pipelines, commands, 12 frames, lobby up | `npm --prefix Tools run validate` | **12 frames, 0 errors, 0 warnings** |
 | Same path with the lobby skipped | `cd Tools && node HeadlessHarness.mjs .. 12 "?capture=1&lobby=0"` | **12 frames, 0 errors, 0 warnings** |
 | Effects integration, 36 frames | `npm --prefix Tools run validate:effects` | **36 frames, 0 errors, 0 warnings** |
 | Slate cabin/HMI integration, 48 frames | `npm --prefix Tools run validate:slate` | **48 frames, 0 errors, 0 warnings** |
 | Lobby hand-over through the real host | `cd Tools && HOOKS=../../../Exhibits/VehicleTestingLevel/Code/LobbyProbe.mjs node HeadlessHarness.mjs .. 12 "?capture=1"` | card ready → Enter → lobby hidden, car live |
-| Level list and independent columns through the real host | `cd Tools && HOOKS=../../../Exhibits/VehicleTestingLevel/Code/UiProbe.mjs node HeadlessHarness.mjs .. 12 "?capture=1&level=proving"` | lobby row "Here" + scene row "Current"; each column closes alone; P folds/restores both |
+| Level list, lobby row, way back and columns through the real host | `cd Tools && HOOKS=../../../Exhibits/VehicleTestingLevel/Code/UiProbe.mjs node HeadlessHarness.mjs .. 12 "?capture=1&level=proving"` | lobby row "Here" and clickable; viewport Lobby button reopens the lobby; each column closes alone; P folds/restores both |
 
 Raw output: `Results/Tests.txt`, `Results/Stability.txt`, `Results/DawnValidation.txt`, `Results/LobbyProbe.txt`, `Results/UiProbe.txt`.
 
@@ -41,7 +41,8 @@ the hand-over that clears held keys and hands the keyboard to the car runs exact
 output (`Results/UiProbe.txt`):
 
 ```text
-level list · rows=2 hubHere=true sceneCurrent=true sceneKey=proving hero="Proving Grounds"
+level list · rows=2 hubHere=true sceneCurrent=true sceneKey=proving sceneSelected=true hero="Proving Grounds"
+click lobby row · selected=true sceneSelected=false status="Lobby · you are here · enter Proving Grounds when ready" lobbyVisible=true
 boot · outlinerHidden=false inspectorHidden=false
 close outliner · outlinerHidden=true inspectorHidden=false
 close inspector · outlinerHidden=true inspectorHidden=true
@@ -49,14 +50,17 @@ reopen outliner · outlinerHidden=false inspectorHidden=true
 P (restore both) · outlinerHidden=false inspectorHidden=false
 P (fold both) · outlinerHidden=true inspectorHidden=true
 entered level · lobbyVisible=false
+click viewport Lobby button · lobbyVisible=true sceneSelected=true
 
-=== harness: 12 frames, 0 errors, 0 warnings, 1.6 s
+=== harness: 12 frames, 0 errors, 0 warnings, 1.5 s
 final · ready=true frames=12 level=proving lobbyVisible=false
 ```
 
 The list comes from `Source/LevelCatalog.js`: the lobby is the first row (`hubHere=true`, it is a level in the list
-even though it is not a scene) followed by the single drivable level. Closing the outliner leaves
-`inspectorHidden=false` — the columns are no longer one switch.
+even though it is not a scene) followed by the single drivable level. Clicking the lobby row selects it and reports
+"you are here" through the same host the browser uses — a click is never swallowed. After entering the level, the
+**Lobby** button in the viewport tab strip reopens the lobby and the selection returns to the level you were in.
+Closing the outliner leaves `inspectorHidden=false` — the columns are no longer one switch.
 
 ## Scope checks inside the test suite
 
@@ -73,6 +77,8 @@ even though it is not a scene) followed by the single drivable level. Closing th
 - each editor column closes on its own, `P` folds and restores both, and the notice names arrive in order;
 - the lobby is listed as a level (`Kind: "hub"`) and marked "Here", but `?level=lobby` still resolves to the drivable
   level, so the hub can never be loaded as a scene;
+- clicking the lobby row selects it (and clears the other row's selection) instead of doing nothing, and the viewport
+  tab strip carries a `#lobby-return` button that reopens the lobby from the level;
 - the skidpad drill and the drift scorer are gone: no `Id: "skidpad"`, no `AdvanceDrift`, no `Unit: "pts"` anywhere.
 
 ## Limitations — not passing, not run

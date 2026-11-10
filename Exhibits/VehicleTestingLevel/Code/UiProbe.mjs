@@ -1,6 +1,6 @@
-// 📝 Headless probe for the level UI and the independent editor columns. Run from Experimental/VehicleTestingLevel/Tools:
+// 📝 Headless probe for the level list, the lobby row, the way back and the independent editor columns. Run from
+//    Experimental/VehicleTestingLevel/Tools:
 //    HOOKS=../../../Exhibits/VehicleTestingLevel/Code/UiProbe.mjs node HeadlessHarness.mjs .. 12 "?capture=1&level=proving"
-//    It reads the lobby's generated level list, closes one column at a time, folds both with P, and then enters the level.
 const State = (Body) => `outlinerHidden=${Body.contains("outliner-hidden")} inspectorHidden=${Body.contains("inspector-hidden")}`;
 
 export default {
@@ -12,11 +12,20 @@ export default {
         const Rows = document.getElementById("lobby-levels").children;
         const Hub = Rows.find((Row) => Row.dataset.Level === "lobby");
         const Scene = Rows.find((Row) => Row.dataset.Level !== "lobby");
+        const Status = () => document.getElementById("lobby-status").textContent;
+
         console.log("level list ·", `rows=${Rows.length}`,
-                    `hubHere=${!!Hub && Hub.className.includes("here")}`,
-                    `sceneCurrent=${!!Scene && Scene.className.includes("current")}`,
-                    `sceneKey=${Scene && Scene.dataset.Level}`,
+                    `hubHere=${Hub.className.includes("here")}`,
+                    `sceneCurrent=${Scene.className.includes("current")}`,
+                    `sceneKey=${Scene.dataset.Level}`,
+                    `sceneSelected=${Scene.classList.contains("selected")}`,
                     `hero="${document.getElementById("lobby-title").textContent}"`);
+
+        Hub.click();
+        console.log("click lobby row ·", `selected=${Hub.classList.contains("selected")}`,
+                    `sceneSelected=${Scene.classList.contains("selected")}`,
+                    `status="${Status()}"`, `lobbyVisible=${Host.Lobby.Visible}`);
+
         console.log("boot ·", State(Body));
         Host.Dock.Toggle("Outliner");
         console.log("close outliner ·", State(Body));
@@ -29,8 +38,14 @@ export default {
         Host.Dock.Toggle("Panels");
         console.log("P (fold both) ·", State(Body));
         Host.Dock.Toggle("Panels");
+
         Host.Lobby.Enter();
         console.log("entered level ·", `lobbyVisible=${Host.Lobby.Visible}`);
+        document.getElementById("lobby-return").click();
+        console.log("click viewport Lobby button ·", `lobbyVisible=${Host.Lobby.Visible}`,
+                    `sceneSelected=${document.getElementById("lobby-levels").children
+                        .find((Row) => Row.dataset.Level !== "lobby").classList.contains("selected")}`);
+        Host.Lobby.Enter();
     },
     Report(Host)
     {

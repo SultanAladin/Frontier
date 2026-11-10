@@ -255,7 +255,17 @@ body.lobby-open #shell
 {
     border-color: #31402f;
     background: linear-gradient(180deg, #1a1d1a, #171917);
-    cursor: default;
+}
+
+/* 📝 Clicking a row selects it, always: even the lobby row you are already standing in shows the click. */
+.lobby-level.selected
+{
+    box-shadow: inset 0 0 0 1px #4c4c4c;
+}
+
+.lobby-level.here.selected
+{
+    box-shadow: inset 0 0 0 1px #3f5741;
 }
 
 .lobby-level.here .lobby-level-state
@@ -510,24 +520,26 @@ body.lobby-open #shell
 }
 
 /*------------------------------------------------------------------------------------------------------------------------------------------
-                                                          VIEWPORT BAR BUTTON
+                                                     VIEWPORT TAB STRIP BUTTON
 ------------------------------------------------------------------------------------------------------------------------------------------*/
 
-/* 📝 Lives in the editor's viewport bar, so it borrows that bar's height rather than the lobby panel's scale. */
-.lobby-button
+/* 📝 In the viewport's own tab strip, not in the crowded toolbar: the way back to the lobby can never be clipped or
+   pushed off the end of the bar when the columns are open. */
+.tab-action
 {
-    height: 24px;
+    margin: 5px 8px 5px 6px;
     padding: 0 12px;
     border: 1px solid var(--edge);
-    border-radius: 6px;
-    background: #1d1d1d;
+    border-radius: 8px;
+    background: #191919;
     font-size: 10.5px;
     color: #c4c4c4;
+    white-space: nowrap;
 }
 
-.lobby-button:hover
+.tab-action:hover
 {
     background: #262626;
     border-color: #3a3a3a;
-    color: #e4e4e4;
+    color: #f0f0f0;
 }

@@ -96,6 +96,7 @@ test("the build ships the lobby and one level, with no other level content in So
     assert.match(Index, /Style\/Lobby\.css/);
     // 📝 The level name no longer hangs as a notch under the viewport tabs, and the columns close one at a time.
     assert.doesNotMatch(Index, /scene-pill/);
+    assert.match(Index, /id="lobby-return"/);
     assert.match(Index, /data-overlay="Outliner"/);
     assert.match(Index, /data-overlay="Inspector"/);
     assert.doesNotMatch(Index, /data-overlay="Panel"/);
@@ -162,6 +163,32 @@ test("a bring-up failure is reported on the card instead of a silent disabled bu
     assert.equal(Elements.get("lobby-status").textContent, "Bring-up failed · WebGPU device rejected");
     assert.ok(Elements.get("lobby").classList.contains("failed"));
     assert.equal(Elements.get("lobby-enter").disabled, true);
+});
+
+test("the lobby row answers a click instead of swallowing it", () => {
+    AssignDom();
+    const Lobby = new LobbyScreen(ConstructHost());
+    const Rows = Elements.get("lobby-levels").children;
+    const Hub = Rows.find((Row) => Row.dataset.Level === "lobby");
+
+    assert.ok(Rows.find((Row) => Row.dataset.Level === Lobby.LevelKey).classList.contains("selected"),
+              "the level you would enter starts selected");
+    Hub.dispatch("click");
+    assert.ok(Hub.classList.contains("selected"), "clicking the lobby row selects it");
+    assert.ok(!Rows.find((Row) => Row.dataset.Level === Lobby.LevelKey).classList.contains("selected"),
+              "selecting the lobby clears the other row's selection");
+    assert.equal(Elements.get("lobby-status").textContent, "Lobby · bringing the scene up");
+});
+
+test("the viewport tab carries a way back to the lobby", () => {
+    AssignDom();
+    const Lobby = new LobbyScreen(ConstructHost());
+    Lobby.SetReady();
+    Lobby.Enter();
+    assert.equal(Lobby.Visible, false);
+
+    Elements.get("lobby-return").dispatch("click");
+    assert.equal(Lobby.Visible, true, "the Lobby button in the viewport tab reopens the lobby");
 });
 
 test("the lobby lists the catalogue, including itself, and marks the current level", () => {
