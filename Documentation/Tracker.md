@@ -44,7 +44,9 @@ Starting focus agreed with user: **`Input/` + `Editor/` groundwork**.
 3. **`Engine/Windowing/PlatformWindow.h` & `PlatformWindowStub.cpp`**:
    - Cross-platform surface interface (`Win32`, `X11`, `Wayland`, `Android`, `Stub`) exchanging OS events and cursor/haptic directives with `InputExtension`.
 4. **Validation (`Exhibits/InputValidation.cpp`)**:
-   - Deterministic CTest verification across `Editor`, `Development`, and `Shipping` profiles.
+   - Deterministic CTest verification across `Editor`, `Development`, and `Shipping` profiles covering inbound peripheral/multi-touch intake and outbound cursor-lock / haptic directive delivery.
+5. **Reference Studio Prototypes (`Experimental/`)**:
+   - Eight verified reference studios (`FluidEditor`, `FractureEditor`, `ParticleEditor`, `PhotometricEditor`, `ForceFieldEditor`, `VehicleLab`, `UVEditor`, `TextureStudio`) extracted and staged under `Experimental/` as functional specifications for native C++20 + `.slang` conversion.
 
 ---
 

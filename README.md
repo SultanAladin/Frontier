@@ -15,6 +15,7 @@
 | **[Documentation/ImportantNotes.md](Documentation/ImportantNotes.md)** | Hard architectural invariants (GPU-only overlays, ImGui 8-patch stack, `Frontier-OLD` reference rules). |
 | **[Documentation/Tracker.md](Documentation/Tracker.md)** · **[Backlog.md](Documentation/Backlog.md)** | Active milestone roadmap (`Input/` + `Editor/` bringup) and deferred items ledger. |
 | `Documentation/AgenticInstructions/` | Mandatory skill protocols (`SKILL-CompactOutputProtocol`, `SKILL-Emoji`, `SKILL-Naming`, `SKILL-Formatting`). |
+| **[Experimental/README.md](Experimental/README.md)** | Eight staged web/GPU reference studios (`FluidEditor`, `FractureEditor`, `ParticleEditor`, `PhotometricEditor`, `ForceFieldEditor`, `VehicleLab`, `UVEditor`, `TextureStudio`) slated for native C++20 + `.slang` conversion. |
 
 ---
 

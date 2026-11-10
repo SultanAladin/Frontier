@@ -31,5 +31,6 @@ milestones stay focused and zero technical debt goes undocumented. Move items to
 | ID | Domain | Deferred Item | Target Trigger |
 | -- | ------ | ------------- | -------------- |
 | `BKL-007` | `Input/` | Multi-finger gesture chord recognizer (pinch-zoom, two-finger pan/orbit) over `InputExchange` touch streams for Android and touchscreen laptops. | After core `InputExtension` desktop/touch intake lands. |
+| `BKL-008` | `Experimental/` → `Engine/` | Native ISO C++20 + `.slang` conversion of the 8 reference studios staged under `Experimental/` (`FluidEditor`, `FractureEditor`, `ParticleEditor`, `PhotometricEditor`, `ForceFieldEditor`, `VehicleLab`, `UVEditor`, `TextureStudio`) into `SimulationSpace/`, `UVSpace/`, `Editor/Workspaces/`, and `Shaders/`. | Staged after `GeometricRaster/` & `Shaders/Compiler/` bringup (`M2`–`M4`). |
 | `BKL-008` | `AudioSpace/` | Android `AAudio` low-latency exclusive stream path alongside Windows `WASAPI` and Linux `PipeWire`/`ALSA` inside `AudioHardwareOutput`. | `AudioExtension` bringup. |
 | `BKL-009` | `NetworkingSpace/` | Optional DTLS / encrypted datagram framing over `SocketTransport` for WAN `Shipping` sessions. | `NetworkingExtension` Phase 2. |

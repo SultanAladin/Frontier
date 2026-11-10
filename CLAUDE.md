@@ -44,7 +44,8 @@ code, shaders, build scripts, or documentation.
 ### 🔴 2.5 ImGui 8-Patch Stack & Pinned Dependencies
 - Third-party packages live in `ExternalPackages/` (git-ignored) and are fetched + SHA-256 verified via `python3 Automation/PrepareDependencies.py`.
 - `ExternalPackages/imgui` (`3bae66c`) **requires all 8 stacked patches (`PatchA`–`PatchH`)** applied in order via `Automation/ApplyImGuiPatches.py` and compiled with `ImDrawIdx=unsigned int`.
-- Reference `https://github.com/egoistm1inbox/Frontier-OLD/tree/arena/d96da802-frontier` for proven pins and domain math, **never for blind file copying**.
+- Reference `https://github.com/egoistm1inbox/Frontier-OLD/tree/arena/d96da802-frontier` for proven pins and domain math, **never for blind engine file copying**.
+- The 8 web/GPU prototypes staged under `Experimental/` (`FluidEditor`, `FractureEditor`, `ParticleEditor`, `PhotometricEditor`, `ForceFieldEditor`, `VehicleLab`, `UVEditor`, `TextureStudio`) serve as verified UX/solver specifications slated for native C++20 + `.slang` conversion into `Engine/`.
 
 ---
 

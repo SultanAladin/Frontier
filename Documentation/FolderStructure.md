@@ -16,7 +16,7 @@ For identifier, file, folder, and comment naming rules enforced across the repos
 | `EngineDocs/` | Authoritative architectural guides and deep domain references. |
 | `Documentation/` | Repository governance, `AgenticInstructions/`, `FolderStructure.md`, `BannedWordsVocabulary.md`, `CodingStandards.md`, `ImportantNotes.md`, `Backlog.md`, and `Tracker.md`. |
 | `Exhibits/` | Validation executables (`*Validation`), benchmarks, and `EditorMirror` verification targets. |
-| `Experimental/` | Sandboxed R&D prototypes and exploratory scratch implementations. |
+| `Experimental/` | Reference web/GPU studios (`FluidEditor`, `FractureEditor`, `ParticleEditor`, `PhotometricEditor`, `ForceFieldEditor`, `VehicleLab`, `UVEditor`, `TextureStudio`) staged for native C++20 + `.slang` conversion. |
 | `Automation/` | Dependency pinning (`Dependencies.json`), ImGui 8-patch stack (`Patches/`), `.slang` toolchain setup, CMake modules, and binary packaging. |
 | `ExternalPackages/` | Checksum-verified third-party packages (`imgui`, `thorvg`, `tomlpp`, `glfw`, `vulkan-headers`, `volk`, `stb`, `JoltPhysics`, `VulkanCompute/`). Git-ignored; populated by `Automation/`. |
 | `_ClaudeScratch/` | Ignored local scratchpad and transient planning notes (excluded from version control). |
@@ -59,7 +59,15 @@ Frontier/
 ├── Exhibits/                                  // Validation test suites, benches, and EditorMirror
 │   └── InputValidation.cpp                    // Deterministic Input & BuildConfiguration verification
 │
-├── Experimental/                              // Sandboxed R&D prototypes and scratch implementations
+├── Experimental/                              // Reference studios staged for native C++20 conversion
+│   ├── FluidEditor/                           // Gas, plume, combustion, and vortex solver prototype
+│   ├── FractureEditor/                        // Voronoi, convex partition, SDF, and debris prototype
+│   ├── ParticleEditor/                        // GPU compute particle, fibre, and lightning studio
+│   ├── PhotometricEditor/                     // LM-63 .ies luminaire, sky, and isolux metering studio
+│   ├── ForceFieldEditor/                      // Wind generator and 16 spatial force-field studio
+│   ├── VehicleLab/                            // ControlVehicle FCT1, powertrain, and MF6.1 tyre lab
+│   ├── UVEditor/                              // LSCM unwrap, UDIM layout, and importance packer studio
+│   └── TextureStudio/                         // 5-workspace material, pattern, stamp, paint & SDF baker
 │
 ├── Automation/                                // Build tooling, dependency pinning, patches, and packaging
 │   ├── Dependencies.json                      // SHA-256 pinned C/C++ package manifest
