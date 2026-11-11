@@ -35,7 +35,8 @@ const RequiredAssets = [
     'Fonts/dm-sans-latin-300-normal.woff2', 'Fonts/dm-sans-latin-400-normal.woff2', 'Fonts/dm-sans-latin-500-normal.woff2',
     'Vendor/three.esm.min.js', 'Vendor/orbit-controls.esm.min.js',
     'Engine/TopologySurface.js', 'Engine/UnwrapSolver.js', 'Engine/ImportancePackingSolver.js',
-    'Engine/ControlledIntegratorLoader.js', 'Engine/SampleAssets.js', 'Engine/UVCanvas2D.js', 'Engine/UVViewport3D.js',
+    'Engine/ControlledIntegratorLoader.js', 'Engine/SampleAssets.js', 'Engine/EngineeringMatcaps.js',
+    'Engine/UVCanvas2D.js', 'Engine/UVViewport3D.js',
     'Assets/ControlVehicleBody.facet', 'Assets/ControlVehicleRim.facet', 'Assets/ControlVehicleTyre.facet',
     '../Shared/UvTextureBridge.js'
 ];
@@ -60,13 +61,38 @@ assert.ok(/data-stage-mode="mesh"[^>]*class="nav-button active"|class="nav-butto
 assert.ok((Html.match(/select-pill-wrap vp-compact-select/g) || []).length >= 4, 'Top toolbar dropdowns must use unified .select-pill-wrap with .pill-caret-divider');
 assert.ok(HtmlIds.has('pz-notch-toggle'), 'Project-Zero pull-down notch must be present');
 
-// Verify per-face Multi-MatCap assignment on a single surface + Undo/Redo round-trip
+// Verify 8 Engineering / CAD MatCaps + studio contrast + per-face Multi-MatCap assignment + Undo/Redo round-trip
 {
+    const { MATCAP_STUDIO_CATALOG, SynthesizeMatcapPixels } = await import('./Engine/EngineeringMatcaps.js');
+    assert.equal(MATCAP_STUDIO_CATALOG.length, 8, 'MATCAP_STUDIO_CATALOG must expose 8 Engineering MatCaps');
+    const ExpectedIds = ['cnc-alu', 'ti-grade5', 'cad-clay', 'studio-chrome', 'gunmetal-ano', 'layout-blue', 'cnc-brass', 'cad-zebra'];
+    assert.deepEqual(MATCAP_STUDIO_CATALOG.map(M => M.id), ExpectedIds, 'Engineering MatCap catalog IDs must match');
+
+    for (const Spec of MATCAP_STUDIO_CATALOG)
+    {
+        const Buf = SynthesizeMatcapPixels(Spec, 64);
+        let MinLum = 255, MaxLum = 0;
+        for (let y = 8; y < 56; y++)
+        {
+            for (let x = 8; x < 56; x++)
+            {
+                const Nx = (2 * (x + 0.5)) / 64 - 1;
+                const Ny = 1 - (2 * (y + 0.5)) / 64;
+                if (Nx * Nx + Ny * Ny > 0.88) continue;
+                const i = (y * 64 + x) * 4;
+                const Lum = 0.2126 * Buf[i] + 0.7152 * Buf[i + 1] + 0.0722 * Buf[i + 2];
+                if (Lum < MinLum) MinLum = Lum;
+                if (Lum > MaxLum) MaxLum = Lum;
+            }
+        }
+        assert.ok(MaxLum - MinLum >= 120, `Engineering MatCap "${Spec.label}" must have high studio contrast (got span ${(MaxLum - MinLum).toFixed(1)})`);
+    }
+
     const TestSurf = SampleAssetCatalog[0].create().surface;
     TestSurf.PushUndo('Before Multi-MatCap');
-    TestSurf.AssignMatcapToFaces([0], 2);       // Face 0 -> Red Sculpt Wax
-    TestSurf.AssignMatcapToFaces([1, 2, 3], 5); // Faces 1..3 -> Anodized Cobalt
-    TestSurf.AssignMatcapToFaces([4, 5], 7);    // Faces 4..5 -> Solar Carpaint
+    TestSurf.AssignMatcapToFaces([0], 2);       // Face 0 -> CAD Clay
+    TestSurf.AssignMatcapToFaces([1, 2, 3], 5); // Faces 1..3 -> Steel Blue
+    TestSurf.AssignMatcapToFaces([4, 5], 7);    // Faces 4..5 -> Zebra CAD
     assert.equal(TestSurf.faces[0].matcapSlot, 2);
     assert.equal(TestSurf.faces[2].matcapSlot, 5);
     assert.equal(TestSurf.faces[5].matcapSlot, 7);

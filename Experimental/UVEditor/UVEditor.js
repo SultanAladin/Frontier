@@ -1890,26 +1890,26 @@ function RenderShadingTab(Body, Doc)
 
     ActionRow(MatcapSec.Inner, [
         {
-            Label: 'Auto-Split by Chart',
+            Label: 'Auto-Assign by Part',
             Glyph: 'Layers',
             Tone: 'accent',
-            Act: () => RunWithUndo('Auto-Assign Multi-MatCap', () =>
+            Act: () => RunWithUndo('Auto-Assign Engineering MatCaps', () =>
             {
                 Doc.surface.AutoAssignMatcapsByPart(Doc.islands);
                 if (Viewport3D && !['lit-matcap', 'multi-matcap'].includes(Viewport3D.shadingMode))
                 {
                     Set3DShadingMode('lit-matcap');
                 }
-                Toast(`Distributed 8 MatCaps across ${Doc.islands.length} UV charts`);
+                Toast(`Assigned Engineering MatCaps across ${Doc.islands.length} UV charts`);
             })
         },
         {
-            Label: 'Uniform Clay',
+            Label: 'Uniform CNC Alu',
             Glyph: 'Reset',
-            Act: () => RunWithUndo('Reset Clay MatCap', () =>
+            Act: () => RunWithUndo('Reset CNC Aluminum MatCap', () =>
             {
                 Doc.surface.AssignMatcapToFaces(Doc.surface.faces.map((_, i) => i), 0);
-                Toast('Reset all faces to Sculpt Clay');
+                Toast('Reset all faces to CNC Aluminum');
             })
         }
     ]);
@@ -4359,7 +4359,7 @@ function InitStudioIconsAndBindings()
             const Img = Construct('img');
             Img.src = GetCachedMatcapThumb(Spec.slot);
             Img.alt = Spec.label;
-            const ShortName = Spec.label.split(' ')[0];
+            const ShortName = Spec.short || Spec.label.split(' ')[0];
             const Btn = Construct('button', 'ctx-matcap-btn', [Img, Construct('span', null, ShortName)]);
             Btn.type = 'button';
             Btn.title = `Assign "${Spec.label}" to selected faces`;

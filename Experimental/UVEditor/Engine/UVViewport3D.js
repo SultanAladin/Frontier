@@ -9,6 +9,8 @@
 import * as THREE from '../Vendor/three.esm.min.js';
 import { OrbitControls } from '../Vendor/orbit-controls.esm.min.js';
 import { EdgeKey, UdimFromUV } from './TopologySurface.js';
+import { MATCAP_STUDIO_CATALOG, RenderMatcapSphereToImageData } from './EngineeringMatcaps.js';
+export { MATCAP_STUDIO_CATALOG };
 
 function BuildCheckerTexture()
 {
@@ -50,58 +52,7 @@ function BuildCheckerTexture()
     return Tex;
 }
 
-export const MATCAP_STUDIO_CATALOG = [
-    { slot: 0, id: 'clay',     label: 'Sculpt Clay',      dark: [68, 42, 33],  mid: [182, 122, 98],  spec: [255, 234, 218], rim: [152, 202, 248], power: 22, specGain: 0.40, fresnel: 0.24 },
-    { slot: 1, id: 'satin',    label: 'Satin Titanium',   dark: [22, 26, 32],  mid: [104, 114, 126], spec: [244, 248, 255], rim: [138, 186, 226], power: 46, specGain: 0.88, fresnel: 0.42 },
-    { slot: 2, id: 'red-wax',  label: 'Red Sculpt Wax',   dark: [58, 14, 16],  mid: [168, 44, 42],   spec: [255, 212, 198], rim: [240, 116, 88],  power: 28, specGain: 0.56, fresnel: 0.34 },
-    { slot: 3, id: 'chrome',   label: 'Obsidian Chrome',  dark: [10, 12, 16],  mid: [56, 66, 80],    spec: [255, 255, 255], rim: [176, 214, 255], power: 110, specGain: 1.35, fresnel: 0.65 },
-    { slot: 4, id: 'ceramic',  label: 'Warm Ceramic',     dark: [62, 58, 52],  mid: [212, 204, 190], spec: [255, 252, 244], rim: [196, 212, 228], power: 68, specGain: 0.78, fresnel: 0.28 },
-    { slot: 5, id: 'cobalt',   label: 'Anodized Cobalt',  dark: [14, 28, 62],  mid: [44, 98, 192],   spec: [222, 240, 255], rim: [112, 196, 255], power: 54, specGain: 0.92, fresnel: 0.46 },
-    { slot: 6, id: 'jade',     label: 'Translucent Jade', dark: [16, 46, 38],  mid: [62, 152, 122],  spec: [228, 255, 240], rim: [138, 236, 186], power: 36, specGain: 0.54, fresnel: 0.38 },
-    { slot: 7, id: 'carpaint', label: 'Solar Carpaint',   dark: [56, 28, 10],  mid: [214, 126, 36],  spec: [255, 248, 224], rim: [255, 196, 112], power: 84, specGain: 1.12, fresnel: 0.48 }
-];
-
-function RenderMatcapSphereToImageData(Ctx, Spec, CellSize, OffsetX = 0, OffsetY = 0)
-{
-    const Img = Ctx.createImageData(CellSize, CellSize);
-    const Data = Img.data;
-    const Lx = 0.40, Ly = 0.58, Lz = 0.707;
-    const Hx = Lx * 0.5, Hy = Ly * 0.5, Hz = (Lz + 1) * 0.5;
-    const HLen = Math.hypot(Hx, Hy, Hz);
-    const Hnx = Hx / HLen, Hny = Hy / HLen, Hnz = Hz / HLen;
-    const Fx = -0.58, Fy = -0.35, Fz = 0.73;
-
-    for (let y = 0; y < CellSize; y++)
-    {
-        const Ny = 1 - (2 * (y + 0.5)) / CellSize;
-        for (let x = 0; x < CellSize; x++)
-        {
-            const Nx = (2 * (x + 0.5)) / CellSize - 1;
-            const R2 = Nx * Nx + Ny * Ny;
-            const ClampR2 = Math.min(1.0, R2);
-            const Nz = Math.sqrt(Math.max(0, 1 - ClampR2));
-            const Rn = R2 > 1.0 ? 1.0 / Math.sqrt(R2) : 1.0;
-            const Sx = Nx * Rn, Sy = Ny * Rn;
-            const idx = (y * CellSize + x) * 4;
-
-            const NdL = Math.max(0, Sx * Lx + Sy * Ly + Nz * Lz);
-            const Wrap = Math.max(0, Math.min(1, (Sx * Lx + Sy * Ly + Nz * Lz + 0.45) / 1.45));
-            const NdH = Math.max(0, Sx * Hnx + Sy * Hny + Nz * Hnz);
-            const SpecTerm = Math.pow(NdH, Spec.power) * Spec.specGain;
-            const Fill = Math.max(0, Sx * Fx + Sy * Fy + Nz * Fz) * 0.22;
-            const Fres = Math.pow(1 - Nz, 2.8) * Spec.fresnel;
-            const HorizonBand = Spec.id === 'chrome' ? Math.exp(-Math.pow(Sy + 0.08, 2) * 28.0) * 95.0 : 0.0;
-
-            Data[idx]     = Math.min(255, Spec.dark[0] + (Spec.mid[0] - Spec.dark[0]) * Wrap + Spec.spec[0] * SpecTerm + Spec.rim[0] * (Fres + Fill) + NdL * 24 + HorizonBand);
-            Data[idx + 1] = Math.min(255, Spec.dark[1] + (Spec.mid[1] - Spec.dark[1]) * Wrap + Spec.spec[1] * SpecTerm + Spec.rim[1] * (Fres + Fill) + NdL * 22 + HorizonBand);
-            Data[idx + 2] = Math.min(255, Spec.dark[2] + (Spec.mid[2] - Spec.dark[2]) * Wrap + Spec.spec[2] * SpecTerm + Spec.rim[2] * (Fres + Fill) + NdL * 20 + HorizonBand);
-            Data[idx + 3] = 255;
-        }
-    }
-    Ctx.putImageData(Img, OffsetX, OffsetY);
-}
-
-export function BuildMatcapPreviewDataUrl(Slot = 0, Size = 64)
+export function BuildMatcapPreviewDataUrl(Slot = 0, Size = 72)
 {
     if (typeof document === 'undefined') return '';
     const Spec = MATCAP_STUDIO_CATALOG[Slot & 7] || MATCAP_STUDIO_CATALOG[0];
@@ -115,7 +66,7 @@ export function BuildMatcapPreviewDataUrl(Slot = 0, Size = 64)
 
 function BuildMultiMatcapSheetTexture()
 {
-    const Cell = 256;
+    const Cell = 384;
     const Cols = 4, Rows = 2;
     const Canvas = document.createElement('canvas');
     Canvas.width = Cell * Cols;
@@ -292,10 +243,10 @@ export class UVViewport3D
         this.onBoxSelect3D = onBoxSelect3D;
         this.onPaintSelect3D = onPaintSelect3D;
         this.shadingMode = 'lit-matcap'; // 'lit-eon' | 'multi-matcap' | 'lit-matcap' | 'checker' | 'flat' | 'matcap' | 'matcap-satin' | 'importance' | 'texel' | 'stretch'
-        this.eonRoughness = 0.42;
-        this.blinnShininess = 48.0;
+        this.eonRoughness = 0.36;
+        this.blinnShininess = 64.0;
         this.specularStrength = 0.65;
-        this.matcapCoatBlend = 0.68;
+        this.matcapCoatBlend = 0.90;
         this.shadowsEnabled = true;
         this.eonEnergyComp = true;
         this.lightAzimuthDeg = 42.0;
@@ -593,17 +544,17 @@ export class UVViewport3D
                     return texture2D(uMatcapSheet, sheetUv).rgb;
                 }
 
-                // Studio base albedo per MatCap slot so Studio Preview Rig tints parts cleanly without double-darkening
+                // Engineering neutral albedo per MatCap slot (used only when crossfading toward pure Studio Rig)
                 vec3 StudioSlotTint(float slot) {
                     int s = int(slot + 0.5);
-                    if (s == 1) return vec3(0.84, 0.85, 0.89); // Satin Pearl
-                    if (s == 2) return vec3(0.76, 0.26, 0.22); // Red Sculpt Wax
-                    if (s == 3) return vec3(0.30, 0.68, 0.54); // Celadon Jade
-                    if (s == 4) return vec3(0.84, 0.66, 0.30); // Brushed Gold
-                    if (s == 5) return vec3(0.28, 0.50, 0.86); // Anodized Cobalt
-                    if (s == 6) return vec3(0.24, 0.26, 0.30); // Obsidian Rim
-                    if (s == 7) return vec3(0.86, 0.40, 0.16); // Solar Carpaint
-                    return vec3(0.68, 0.65, 0.62);             // Sculpt Clay
+                    if (s == 1) return vec3(0.66, 0.65, 0.63); // Grade-5 Titanium
+                    if (s == 2) return vec3(0.70, 0.68, 0.65); // CAD Clay
+                    if (s == 3) return vec3(0.78, 0.82, 0.88); // Class-A Chrome
+                    if (s == 4) return vec3(0.28, 0.32, 0.38); // Gunmetal Ano
+                    if (s == 5) return vec3(0.26, 0.44, 0.66); // Steel Blue
+                    if (s == 6) return vec3(0.74, 0.62, 0.38); // Turned Brass
+                    if (s == 7) return vec3(0.80, 0.83, 0.86); // Zebra CAD
+                    return vec3(0.72, 0.75, 0.80);             // CNC Aluminum
                 }
 
                 // Fast geometric screen-space curvature ridge & cavity accent (Workbench Studio style)
@@ -631,29 +582,26 @@ export class UVViewport3D
                     float cavity = EvaluateStudioCavity(Vn);
                     vec3 matcapSrgb = SamplePerFaceMatcap(matcapSlot, Vn);
 
-                    // Pure Multi-MatCap Studio (crisp 1:1 MatCap spheres + geometric cavity)
+                    // Pure Multi-MatCap Studio (crisp 1:1 Engineering MatCap spheres + geometric bevel cavity)
                     if (abs(uMode - 1.0) < 0.25) {
                         gl_FragColor = vec4(clamp(matcapSrgb * cavity, 0.0, 1.0), 1.0);
                         return;
                     }
 
                     // Fast Simplified 3-Point Studio Rig + Trowbridge-Reitz GGX Microfacet Highlight
-                    vec3 slotAlbedo = pow(StudioSlotTint(matcapSlot), vec3(2.2));
-                    vec3 neutralAlbedo = pow(vec3(0.72, 0.73, 0.76), vec3(2.2));
-                    vec3 baseAlbedo = uMode > 1.5 ? mix(neutralAlbedo, slotAlbedo, uMatcapBlend) : neutralAlbedo;
+                    vec3 neutralAlbedo = pow(vec3(0.72, 0.74, 0.77), vec3(2.2));
+                    vec3 baseAlbedo = uMode > 1.5 ? pow(StudioSlotTint(matcapSlot), vec3(2.2)) : neutralAlbedo;
 
                     float ndl = max(0.0, dot(N, L));
                     float wrapKey = clamp((dot(N, L) + 0.32) / 1.32, 0.0, 1.0);
                     float shadowVis = SampleShadowPCF(vShadowCoord, ndl);
 
-                    // Cool studio sky/ground hemisphere + counter-fill + silhouette Fresnel rim
                     vec3 skyDome = mix(vec3(0.11, 0.115, 0.13), vec3(0.34, 0.36, 0.41), N.y * 0.5 + 0.5);
                     vec3 fillDir = normalize(vec3(-L.x, 0.35, -L.z));
                     float wrapFill = clamp((dot(N, fillDir) + 0.4) / 1.4, 0.0, 1.0);
                     float ndv = max(0.02, dot(N, V));
                     float rim = pow(1.0 - ndv, 3.6) * (0.35 + 0.65 * clamp(N.y * 0.5 + 0.5, 0.0, 1.0));
 
-                    // Clean Trowbridge-Reitz GGX microfacet specular (no plastic Blinn-Phong blob)
                     float alpha = max(0.045, uRoughness * uRoughness);
                     float a2 = alpha * alpha;
                     vec3 H = normalize(L + V);
@@ -661,25 +609,28 @@ export class UVViewport3D
                     float vdh = max(0.0, dot(V, H));
                     float denom = ndh * ndh * (a2 - 1.0) + 1.0;
                     float dGgx = a2 / max(1e-4, PI * denom * denom);
-                    float f0 = mix(0.04, 0.14, uMatcapBlend);
+                    float f0 = mix(0.05, 0.22, uMatcapBlend);
                     float fresnel = f0 + (1.0 - f0) * pow(1.0 - vdh, 5.0);
                     float visApprox = 1.0 / max(0.18, 4.0 * mix(ndv, 1.0, alpha * 0.5));
-                    float ggxSpec = min(3.5, dGgx * fresnel * visApprox * ndl) * uSpecStrength;
+                    float ggxSpec = min(3.2, dGgx * fresnel * visApprox * ndl) * uSpecStrength;
 
-                    vec3 studioLit = baseAlbedo * (skyDome + 0.24 * wrapFill * vec3(0.78, 0.85, 0.96) + shadowVis * wrapKey * vec3(1.12, 1.08, 1.02));
-                    studioLit += shadowVis * vec3(ggxSpec) * vec3(1.0, 0.98, 0.95);
-                    studioLit += rim * 0.14 * uSpecStrength * vec3(0.75, 0.84, 1.0);
+                    vec3 studioRigLin = baseAlbedo * (skyDome + 0.24 * wrapFill * vec3(0.78, 0.85, 0.96) + shadowVis * wrapKey * vec3(1.12, 1.08, 1.02));
+                    studioRigLin += shadowVis * vec3(ggxSpec) * vec3(1.0, 0.98, 0.95);
+                    studioRigLin += rim * 0.14 * uSpecStrength * vec3(0.75, 0.84, 1.0);
 
-                    // Blend crisp view-space MatCap sheen in hybrid mode without double-darkening
                     if (uMode > 1.5) {
-                        vec3 matcapLin = pow(matcapSrgb, vec3(2.2)) * mix(0.56, 1.04, shadowVis);
-                        studioLit = mix(studioLit, matcapLin + shadowVis * vec3(ggxSpec * 0.35), 0.52 * uMatcapBlend);
+                        // Preserve 100% of the Engineering MatCap's studio softboxes, dark horizon & Zebra bands,
+                        // grounded by real 9-tap PCF cast shadows + directional GGX key glint + geometric bevel cavity!
+                        float shadowEnv = mix(0.54, 1.03, shadowVis * (0.38 + 0.62 * wrapKey));
+                        vec3 engMatcapSrgb = clamp(matcapSrgb * shadowEnv + shadowVis * ggxSpec * 0.14, 0.0, 1.0);
+                        vec3 xRig = max(vec3(0.0), studioRigLin * cavity);
+                        vec3 rigSrgb = pow(clamp((xRig * (2.15 * xRig + 0.06)) / (xRig * (2.05 * xRig + 0.52) + 0.09), 0.0, 1.0), vec3(1.0 / 2.2));
+                        gl_FragColor = vec4(clamp(mix(rigSrgb, engMatcapSrgb * cavity, uMatcapBlend), 0.0, 1.0), 1.0);
+                        return;
                     }
 
-                    studioLit *= cavity;
-
-                    // Clean punchy filmic studio curve
-                    vec3 x = max(vec3(0.0), studioLit);
+                    studioRigLin *= cavity;
+                    vec3 x = max(vec3(0.0), studioRigLin);
                     vec3 mapped = (x * (2.15 * x + 0.06)) / (x * (2.05 * x + 0.52) + 0.09);
                     gl_FragColor = vec4(pow(clamp(mapped, 0.0, 1.0), vec3(1.0 / 2.2)), 1.0);
                 }
@@ -727,14 +678,14 @@ export class UVViewport3D
 
                 vec3 FlatSlotPalette(float slot) {
                     int s = int(slot + 0.5);
-                    if (s == 1) return vec3(0.86, 0.88, 0.92);
-                    if (s == 2) return vec3(0.88, 0.34, 0.30);
-                    if (s == 3) return vec3(0.32, 0.78, 0.60);
-                    if (s == 4) return vec3(0.92, 0.74, 0.34);
-                    if (s == 5) return vec3(0.36, 0.62, 0.95);
-                    if (s == 6) return vec3(0.36, 0.39, 0.45);
-                    if (s == 7) return vec3(0.95, 0.50, 0.24);
-                    return vec3(0.75, 0.71, 0.67);
+                    if (s == 1) return vec3(0.68, 0.67, 0.65); // Grade-5 Titanium
+                    if (s == 2) return vec3(0.76, 0.74, 0.70); // CAD Clay
+                    if (s == 3) return vec3(0.86, 0.91, 0.97); // Class-A Chrome
+                    if (s == 4) return vec3(0.32, 0.36, 0.43); // Gunmetal Ano
+                    if (s == 5) return vec3(0.30, 0.52, 0.78); // Steel Blue
+                    if (s == 6) return vec3(0.80, 0.67, 0.40); // Turned Brass
+                    if (s == 7) return vec3(0.55, 0.82, 0.76); // Zebra CAD indicator
+                    return vec3(0.74, 0.78, 0.84);             // CNC Aluminum
                 }
 
                 void main() {

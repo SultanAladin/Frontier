@@ -136,16 +136,18 @@ export class TopologySurface
     _DefaultMatcapForPart(PartLabel, FallbackIndex = 0)
     {
         const S = String(PartLabel || '').toLowerCase();
-        if (!S || S === 'surface' || S === 'default') return 0;
-        if (S.includes('tyre') || S.includes('tire') || S.includes('rubber') || S.includes('grip')) return 0; // Clay
-        if (S.includes('rim') || S.includes('trim') || S.includes('metal') || S.includes('exhaust') || S.includes('latch')) return 1; // Satin Titanium
-        if (S.includes('glass') || S.includes('visor') || S.includes('chrome') || S.includes('lens')) return 3; // Obsidian Chrome
-        if (S.includes('body') || S.includes('hood') || S.includes('roof') || S.includes('door') || S.includes('fender')) return 7; // Solar Carpaint
-        if (S.includes('arch') || S.includes('stone') || S.includes('pillar') || S.includes('ceramic')) return 4; // Warm Ceramic
-        if (S.includes('bust') || S.includes('head') || S.includes('sculpt') || S.includes('wax')) return 2; // Red Sculpt Wax
+        if (!S || S === 'surface' || S === 'default') return 0; // CNC Aluminum
+        if (S.includes('tyre') || S.includes('tire') || S.includes('rubber') || S.includes('grip') || S.includes('seal')) return 4; // Gunmetal Ano
+        if (S.includes('rim') || S.includes('trim') || S.includes('spoke') || S.includes('exhaust') || S.includes('frame')) return 1; // Grade-5 Titanium
+        if (S.includes('glass') || S.includes('visor') || S.includes('chrome') || S.includes('lens') || S.includes('mirror')) return 3; // Class-A Chrome
+        if (S.includes('latch') || S.includes('strap') || S.includes('bolt') || S.includes('brass') || S.includes('gold')) return 6; // Turned Brass
+        if (S.includes('caliper') || S.includes('brake') || S.includes('accent') || S.includes('badge') || S.includes('crest')) return 5; // Steel Blue
+        if (S.includes('arch') || S.includes('stone') || S.includes('pillar') || S.includes('wall') || S.includes('clay')) return 2; // CAD Clay
+        if (S.includes('body') || S.includes('hood') || S.includes('roof') || S.includes('door') || S.includes('fender') || S.includes('chest') || S.includes('helm') || S.includes('hull')) return 0; // CNC Aluminum
+        const EngMetals = [0, 1, 4, 5, 6, 2];
         let Hash = 0;
         for (let i = 0; i < S.length; i++) Hash = ((Hash * 31) + S.charCodeAt(i)) | 0;
-        return Math.abs(Hash || FallbackIndex) & 7;
+        return EngMetals[Math.abs(Hash || FallbackIndex) % EngMetals.length];
     }
 
     AssignMatcapToFaces(FaceIndices, Slot)
@@ -189,12 +191,18 @@ export class TopologySurface
 
     AutoAssignMatcapsByPart(Islands = [])
     {
+        const EngSet = [0, 1, 4, 5, 6, 2, 3];
         if (Islands && Islands.length)
         {
+            const DistinctLabels = new Set(Islands.map(I => `${I.displayName || ''}:${I.materialName || ''}`));
             for (let i = 0; i < Islands.length; i++)
             {
-                const Slot = i & 7;
-                for (const Fi of Islands[i].faceIndices) this.faces[Fi].matcapSlot = Slot;
+                const Isl = Islands[i];
+                const Tag = `${Isl.displayName || ''} ${Isl.materialName || ''}`.trim();
+                const Slot = DistinctLabels.size > 2
+                    ? this._DefaultMatcapForPart(Tag, i)
+                    : EngSet[i % EngSet.length];
+                for (const Fi of Isl.faceIndices) this.faces[Fi].matcapSlot = Slot;
             }
             return this.faces.length;
         }
