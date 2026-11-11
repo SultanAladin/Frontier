@@ -499,8 +499,11 @@ export class UVViewport3D
         this.gpuSelectionTex.generateMipmaps = false;
         this.gpuSelectionTex.needsUpdate = true;
 
-        // Fast Lit (EON Rough Diffuse + Energy-Conserving Blinn-Phong Specular + PCF Shadows) + Per-Face Multi-MatCap Shader
+        // 1. Fast Simplified Studio Preview + Per-Face Multi-MatCap Shader
+        //    (3-Point Studio Hemisphere + Trowbridge-Reitz GGX Microfacet + Geometric Curvature Cavity + Soft 9-Tap PCF Shadows)
+        this.cavityStrength = 0.45;
         this.fastLitMat = new THREE.ShaderMaterial({
+            derivatives: true,
             uniforms: {
                 uFaceStateTex: { value: this.gpuSelectionTex },
                 uFaceTexSize: { value: new THREE.Vector2(this.gpuSelTexW, this.gpuSelTexH) },
@@ -508,11 +511,12 @@ export class UVViewport3D
                 uShadowMap: { value: this.shadowRT.texture },
                 uShadowMatrix: { value: this.shadowMatrix },
                 uKeyLightDir: { value: new THREE.Vector3(0.48, 0.76, 0.44).normalize() },
-                uMode: { value: 2.0 }, // 0 = Fast Lit (EON + Blinn), 1 = Multi-MatCap Only, 2 = Hybrid Lit + Multi-MatCap
+                uMode: { value: 2.0 }, // 0 = Studio Preview Rig, 1 = Multi-MatCap Studio, 2 = Studio Preview + Multi-MatCap
                 uRoughness: { value: this.eonRoughness },
                 uShininess: { value: this.blinnShininess },
                 uSpecStrength: { value: this.specularStrength },
                 uMatcapBlend: { value: this.matcapCoatBlend },
+                uCavityStrength: { value: this.cavityStrength },
                 uShadowsEnabled: { value: 1.0 },
                 uEonEnergyComp: { value: 1.0 }
             },
@@ -547,6 +551,7 @@ export class UVViewport3D
                 uniform float uShininess;
                 uniform float uSpecStrength;
                 uniform float uMatcapBlend;
+                uniform float uCavityStrength;
                 uniform float uShadowsEnabled;
                 uniform float uEonEnergyComp;
                 varying float vFaceId;
@@ -557,8 +562,6 @@ export class UVViewport3D
                 varying vec4 vShadowCoord;
 
                 const float PI = 3.14159265359;
-                const float CONST_FON_A = 0.5 - 2.0 / (3.0 * PI);
-                const float CONST_FON_B = 2.0 / 3.0 - 28.0 / (15.0 * PI);
 
                 float DecodeShadowDepth(vec4 rgba) {
                     return dot(rgba, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0));
@@ -570,8 +573,8 @@ export class UVViewport3D
                     vec2 suv = sc.xy * 0.5 + 0.5;
                     float refZ = sc.z * 0.5 + 0.5;
                     if (suv.x <= 0.005 || suv.x >= 0.995 || suv.y <= 0.005 || suv.y >= 0.995 || refZ >= 0.998) return 1.0;
-                    float bias = max(0.0014, 0.0038 * (1.0 - ndl));
-                    float texel = 1.35 / 2048.0;
+                    float bias = max(0.0014, 0.0036 * (1.0 - ndl));
+                    float texel = 1.4 / 2048.0;
                     float lit = 0.0;
                     for (int dy = -1; dy <= 1; dy++) {
                         for (int dx = -1; dx <= 1; dx++) {
@@ -579,33 +582,7 @@ export class UVViewport3D
                             lit += (refZ - bias <= stored) ? 1.0 : 0.0;
                         }
                     }
-                    return mix(0.22, 1.0, lit / 9.0);
-                }
-
-                // Portsmouth, Kutz & Hill (2024) directional albedo E_FON(mu, r) for Energy-Preserving Oren-Nayar (EON)
-                float EonDirectionalAlbedo(float mu, float r) {
-                    float af = 1.0 / (1.0 + r * CONST_FON_A);
-                    float bf = r * af;
-                    float si = sqrt(max(0.0, 1.0 - mu * mu));
-                    float g = si * (acos(clamp(mu, -1.0, 1.0)) - si * mu) + (2.0 / 3.0) * ((si / max(1e-4, mu)) * (1.0 - si * si * si) - si);
-                    return af + (bf / PI) * g;
-                }
-
-                vec3 EvaluateEonDiffuse(vec3 albedo, float r, vec3 N, vec3 V, vec3 L) {
-                    float muI = max(1e-4, dot(N, L));
-                    float muO = max(1e-4, dot(N, V));
-                    float s = dot(L, V) - muI * muO;
-                    float stinv = s > 0.0 ? s / max(1e-4, max(muI, muO)) : s;
-                    float af = 1.0 / (1.0 + r * CONST_FON_A);
-                    vec3 fSingle = (albedo / PI) * af * (1.0 + r * stinv);
-                    if (uEonEnergyComp < 0.5) return fSingle * PI * muI;
-
-                    float efO = EonDirectionalAlbedo(muO, r);
-                    float efI = EonDirectionalAlbedo(muI, r);
-                    float avgEf = af * (1.0 + r * CONST_FON_B);
-                    vec3 rhoMs = (albedo * albedo * avgEf) / max(vec3(1e-4), vec3(1.0) - albedo * max(0.0, 1.0 - avgEf));
-                    vec3 fMulti = (rhoMs / PI) * max(0.0, 1.0 - efO) * max(0.0, 1.0 - efI) / max(1e-4, 1.0 - avgEf);
-                    return (fSingle + fMulti) * PI * muI;
+                    return mix(0.38, 1.0, lit / 9.0);
                 }
 
                 vec3 SamplePerFaceMatcap(float slot, vec3 viewN) {
@@ -614,6 +591,29 @@ export class UVViewport3D
                     vec2 localUv = clamp(viewN.xy * 0.485 + 0.5, 0.012, 0.988);
                     vec2 sheetUv = vec2((col + localUv.x) * 0.25, ((1.0 - row) + localUv.y) * 0.5);
                     return texture2D(uMatcapSheet, sheetUv).rgb;
+                }
+
+                // Studio base albedo per MatCap slot so Studio Preview Rig tints parts cleanly without double-darkening
+                vec3 StudioSlotTint(float slot) {
+                    int s = int(slot + 0.5);
+                    if (s == 1) return vec3(0.84, 0.85, 0.89); // Satin Pearl
+                    if (s == 2) return vec3(0.76, 0.26, 0.22); // Red Sculpt Wax
+                    if (s == 3) return vec3(0.30, 0.68, 0.54); // Celadon Jade
+                    if (s == 4) return vec3(0.84, 0.66, 0.30); // Brushed Gold
+                    if (s == 5) return vec3(0.28, 0.50, 0.86); // Anodized Cobalt
+                    if (s == 6) return vec3(0.24, 0.26, 0.30); // Obsidian Rim
+                    if (s == 7) return vec3(0.86, 0.40, 0.16); // Solar Carpaint
+                    return vec3(0.68, 0.65, 0.62);             // Sculpt Clay
+                }
+
+                // Fast geometric screen-space curvature ridge & cavity accent (Workbench Studio style)
+                float EvaluateStudioCavity(vec3 viewN) {
+                    vec3 dnx = dFdx(viewN);
+                    vec3 dny = dFdy(viewN);
+                    float edgeMetric = clamp((length(dnx) + length(dny)) * 1.45, 0.0, 1.0);
+                    float signedCurv = clamp((dnx.x + dny.y) * 0.9, -0.35, 0.35);
+                    float factor = 1.0 + signedCurv * 0.55 - edgeMetric * 0.24;
+                    return mix(1.0, clamp(factor, 0.62, 1.24), uCavityStrength * uEonEnergyComp);
                 }
 
                 void main() {
@@ -628,41 +628,133 @@ export class UVViewport3D
                     vec3 V = normalize(cameraPosition - vWorldPos);
                     vec3 L = normalize(uKeyLightDir);
 
-                    vec3 matcapRgb = pow(SamplePerFaceMatcap(matcapSlot, Vn), vec3(2.2));
+                    float cavity = EvaluateStudioCavity(Vn);
+                    vec3 matcapSrgb = SamplePerFaceMatcap(matcapSlot, Vn);
+
+                    // Pure Multi-MatCap Studio (crisp 1:1 MatCap spheres + geometric cavity)
                     if (abs(uMode - 1.0) < 0.25) {
-                        gl_FragColor = vec4(pow(matcapRgb, vec3(1.0 / 2.2)), 1.0);
+                        gl_FragColor = vec4(clamp(matcapSrgb * cavity, 0.0, 1.0), 1.0);
                         return;
                     }
 
-                    vec3 baseAlbedo = uMode > 1.5 ? mix(vec3(0.58, 0.60, 0.64), matcapRgb, uMatcapBlend) : pow(clamp(vColor, 0.04, 1.0), vec3(2.2));
+                    // Fast Simplified 3-Point Studio Rig + Trowbridge-Reitz GGX Microfacet Highlight
+                    vec3 slotAlbedo = pow(StudioSlotTint(matcapSlot), vec3(2.2));
+                    vec3 neutralAlbedo = pow(vec3(0.72, 0.73, 0.76), vec3(2.2));
+                    vec3 baseAlbedo = uMode > 1.5 ? mix(neutralAlbedo, slotAlbedo, uMatcapBlend) : neutralAlbedo;
+
                     float ndl = max(0.0, dot(N, L));
+                    float wrapKey = clamp((dot(N, L) + 0.32) / 1.32, 0.0, 1.0);
                     float shadowVis = SampleShadowPCF(vShadowCoord, ndl);
 
-                    // Energy-conserving normalized Blinn-Phong + EON rough diffuse
+                    // Cool studio sky/ground hemisphere + counter-fill + silhouette Fresnel rim
+                    vec3 skyDome = mix(vec3(0.11, 0.115, 0.13), vec3(0.34, 0.36, 0.41), N.y * 0.5 + 0.5);
+                    vec3 fillDir = normalize(vec3(-L.x, 0.35, -L.z));
+                    float wrapFill = clamp((dot(N, fillDir) + 0.4) / 1.4, 0.0, 1.0);
+                    float ndv = max(0.02, dot(N, V));
+                    float rim = pow(1.0 - ndv, 3.6) * (0.35 + 0.65 * clamp(N.y * 0.5 + 0.5, 0.0, 1.0));
+
+                    // Clean Trowbridge-Reitz GGX microfacet specular (no plastic Blinn-Phong blob)
+                    float alpha = max(0.045, uRoughness * uRoughness);
+                    float a2 = alpha * alpha;
                     vec3 H = normalize(L + V);
                     float ndh = max(0.0, dot(N, H));
                     float vdh = max(0.0, dot(V, H));
-                    float f0 = 0.045 * uSpecStrength;
-                    float fresnel = f0 + (max(f0, 0.65 * uSpecStrength) - f0) * pow(1.0 - vdh, 5.0);
-                    float normBlinn = ((uShininess + 8.0) / (8.0 * PI)) * pow(ndh, uShininess);
-                    float specLobe = fresnel * normBlinn * PI * ndl;
+                    float denom = ndh * ndh * (a2 - 1.0) + 1.0;
+                    float dGgx = a2 / max(1e-4, PI * denom * denom);
+                    float f0 = mix(0.04, 0.14, uMatcapBlend);
+                    float fresnel = f0 + (1.0 - f0) * pow(1.0 - vdh, 5.0);
+                    float visApprox = 1.0 / max(0.18, 4.0 * mix(ndv, 1.0, alpha * 0.5));
+                    float ggxSpec = min(3.5, dGgx * fresnel * visApprox * ndl) * uSpecStrength;
 
-                    // Directional-hemispherical energy conservation factor (1 - E_spec) scales EON diffuse
-                    float muO = max(0.0, dot(N, V));
-                    float specDirAlbedo = clamp(f0 + (max(f0, 0.55 * uSpecStrength) - f0) * pow(1.0 - muO, 5.0), 0.0, 0.85);
-                    vec3 eonKey = (1.0 - specDirAlbedo) * EvaluateEonDiffuse(baseAlbedo, uRoughness, N, V, L);
+                    vec3 studioLit = baseAlbedo * (skyDome + 0.24 * wrapFill * vec3(0.78, 0.85, 0.96) + shadowVis * wrapKey * vec3(1.12, 1.08, 1.02));
+                    studioLit += shadowVis * vec3(ggxSpec) * vec3(1.0, 0.98, 0.95);
+                    studioLit += rim * 0.14 * uSpecStrength * vec3(0.75, 0.84, 1.0);
 
-                    // Fill + Sky Hemisphere + Rim
-                    vec3 fillDir = normalize(vec3(-0.62, 0.42, -0.52));
-                    vec3 eonFill = 0.28 * (1.0 - specDirAlbedo) * EvaluateEonDiffuse(baseAlbedo, min(1.0, uRoughness + 0.15), N, V, fillDir);
-                    vec3 hemi = baseAlbedo * mix(vec3(0.075, 0.078, 0.092), vec3(0.22, 0.24, 0.28), N.y * 0.5 + 0.5);
-
-                    vec3 radiance = hemi + eonFill + shadowVis * (eonKey * vec3(1.55, 1.48, 1.38) + vec3(specLobe * 1.35));
+                    // Blend crisp view-space MatCap sheen in hybrid mode without double-darkening
                     if (uMode > 1.5) {
-                        radiance = mix(radiance, matcapRgb * (0.45 + 0.68 * shadowVis), 0.34 * uMatcapBlend);
+                        vec3 matcapLin = pow(matcapSrgb, vec3(2.2)) * mix(0.56, 1.04, shadowVis);
+                        studioLit = mix(studioLit, matcapLin + shadowVis * vec3(ggxSpec * 0.35), 0.52 * uMatcapBlend);
                     }
-                    vec3 mapped = radiance / (radiance + vec3(0.82));
-                    gl_FragColor = vec4(pow(clamp(mapped * 1.35, 0.0, 1.0), vec3(1.0 / 2.2)), 1.0);
+
+                    studioLit *= cavity;
+
+                    // Clean punchy filmic studio curve
+                    vec3 x = max(vec3(0.0), studioLit);
+                    vec3 mapped = (x * (2.15 * x + 0.06)) / (x * (2.05 * x + 0.52) + 0.09);
+                    gl_FragColor = vec4(pow(clamp(mapped, 0.0, 1.0), vec3(1.0 / 2.2)), 1.0);
+                }
+            `,
+            vertexColors: true,
+            toneMapped: false,
+            side: THREE.DoubleSide
+        });
+
+        // 2. True Unlit Flat Color / Debug Visualization Shader
+        //    (Zero shadows, zero lighting distortion — pure 1:1 color debug for Chart IDs, MatCap Slots, Checker, Stretch, Density & Overlaps!)
+        this.flatDebugMat = new THREE.ShaderMaterial({
+            derivatives: true,
+            uniforms: {
+                uFaceStateTex: { value: this.gpuSelectionTex },
+                uFaceTexSize: { value: new THREE.Vector2(this.gpuSelTexW, this.gpuSelTexH) },
+                uCheckerTex: { value: this.checkerTex },
+                uFlatMode: { value: 0.0 }, // 0 = Vertex Color (Charts / Stretch / Density / Priority / Overlaps), 1 = Per-Face MatCap Slot Swatch, 2 = Unlit UV Checker
+                uOutlineInk: { value: 0.16 }
+            },
+            vertexShader: `
+                attribute float aFaceId;
+                varying float vFaceId;
+                varying vec3 vColor;
+                varying vec2 vUv;
+                varying vec3 vViewNormal;
+                void main() {
+                    vFaceId = aFaceId;
+                    vColor = color;
+                    vUv = uv;
+                    vViewNormal = normalize(normalMatrix * normal);
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D uFaceStateTex;
+                uniform vec2 uFaceTexSize;
+                uniform sampler2D uCheckerTex;
+                uniform float uFlatMode;
+                uniform float uOutlineInk;
+                varying float vFaceId;
+                varying vec3 vColor;
+                varying vec2 vUv;
+                varying vec3 vViewNormal;
+
+                vec3 FlatSlotPalette(float slot) {
+                    int s = int(slot + 0.5);
+                    if (s == 1) return vec3(0.86, 0.88, 0.92);
+                    if (s == 2) return vec3(0.88, 0.34, 0.30);
+                    if (s == 3) return vec3(0.32, 0.78, 0.60);
+                    if (s == 4) return vec3(0.92, 0.74, 0.34);
+                    if (s == 5) return vec3(0.36, 0.62, 0.95);
+                    if (s == 6) return vec3(0.36, 0.39, 0.45);
+                    if (s == 7) return vec3(0.95, 0.50, 0.24);
+                    return vec3(0.75, 0.71, 0.67);
+                }
+
+                void main() {
+                    vec3 col = vColor;
+                    if (abs(uFlatMode - 1.0) < 0.25) {
+                        float fid = floor(vFaceId + 0.5);
+                        float tx = mod(fid, uFaceTexSize.x);
+                        float ty = floor(fid / uFaceTexSize.x);
+                        vec4 st = texture2D(uFaceStateTex, (vec2(tx, ty) + 0.5) / uFaceTexSize);
+                        float slot = clamp(floor(st.b * 255.0 / 16.0 + 0.5), 0.0, 7.0);
+                        col = FlatSlotPalette(slot);
+                    } else if (uFlatMode > 1.5) {
+                        vec3 chk = texture2D(uCheckerTex, vUv).rgb;
+                        col = chk * vColor;
+                    }
+                    // Subtle optional crease ink so 3D silhouette/creases stay readable without distorting flat debug colors
+                    vec3 Vn = normalize(gl_FrontFacing ? vViewNormal : -vViewNormal);
+                    float crease = clamp((length(dFdx(Vn)) + length(dFdy(Vn))) * 1.1, 0.0, 1.0);
+                    col *= (1.0 - crease * uOutlineInk);
+                    gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
                 }
             `,
             vertexColors: true,
@@ -1402,6 +1494,11 @@ export class UVViewport3D
                 this.fastLitMat.uniforms.uFaceStateTex.value = this.gpuSelectionTex;
                 this.fastLitMat.uniforms.uFaceTexSize.value.set(W, NeedH);
             }
+            if (this.flatDebugMat)
+            {
+                this.flatDebugMat.uniforms.uFaceStateTex.value = this.gpuSelectionTex;
+                this.flatDebugMat.uniforms.uFaceTexSize.value.set(W, NeedH);
+            }
         }
         const Data = this.gpuSelectionTex.image.data;
         Data.fill(0);
@@ -2060,7 +2157,10 @@ export class UVViewport3D
 
         const IsFastLit = this.shadingMode === 'lit-eon' || this.shadingMode === 'multi-matcap' || this.shadingMode === 'lit-matcap';
         const IsMatcap = this.shadingMode === 'matcap' || this.shadingMode === 'matcap-satin';
-        const IsFlat = this.shadingMode === 'flat';
+        const IsUnlitFlat = this.shadingMode === 'flat' || this.shadingMode === 'flat-charts' || this.shadingMode === 'flat-slots' ||
+            this.shadingMode === 'checker' || this.shadingMode === 'importance' || this.shadingMode === 'texel' ||
+            this.shadingMode === 'stretch' || this.shadingMode === 'overlap';
+
         if (IsFastLit)
         {
             this.fastLitMat.uniforms.uMode.value = this.shadingMode === 'lit-eon' ? 0.0 : this.shadingMode === 'multi-matcap' ? 1.0 : 2.0;
@@ -2073,10 +2173,18 @@ export class UVViewport3D
             this.matcapMat.needsUpdate = true;
             this.mesh.material = this.matcapMat;
         }
+        else if (IsUnlitFlat && this.flatDebugMat)
+        {
+            this.flatDebugMat.uniforms.uFlatMode.value =
+                this.shadingMode === 'flat-slots' ? 1.0 :
+                this.shadingMode === 'checker' ? 2.0 : 0.0;
+            this.flatDebugMat.uniforms.uOutlineInk.value = this.eonEnergyComp ? 0.16 : 0.0;
+            this.mesh.material = this.flatDebugMat;
+        }
         else
         {
-            this.meshMat.map = this.shadingMode === 'checker' ? this.checkerTex : null;
-            this.meshMat.flatShading = IsFlat;
+            this.meshMat.map = null;
+            this.meshMat.flatShading = true;
             this.meshMat.needsUpdate = true;
             this.mesh.material = this.meshMat;
         }
@@ -2146,9 +2254,24 @@ export class UVViewport3D
                 const TileIdx = Math.max(0, (Isl?.udimTile || 1001) - 1001) % UdimTints.length;
                 [R, G, B] = UdimTints[TileIdx];
             }
-            else if (this.shadingMode === 'flat')
+            else if (this.shadingMode === 'flat' || this.shadingMode === 'flat-charts')
             {
-                R = 0.76; G = 0.78; B = 0.80;
+                // Distinct golden-angle studio chart palette for crisp unlit UV island visualization
+                const Hue = (((Isl?.id ?? fi) * 0.61803398875) % 1 + 1) % 1;
+                const H6 = Hue * 6.0;
+                const C = 0.42, X = C * (1.0 - Math.abs((H6 % 2.0) - 1.0)), M = 0.36;
+                if (H6 < 1)      { R = C + M; G = X + M; B = M; }
+                else if (H6 < 2) { R = X + M; G = C + M; B = M; }
+                else if (H6 < 3) { R = M;     G = C + M; B = X + M; }
+                else if (H6 < 4) { R = M;     G = X + M; B = C + M; }
+                else if (H6 < 5) { R = X + M; G = M;     B = C + M; }
+                else             { R = C + M; G = M;     B = X + M; }
+            }
+            else if (this.shadingMode === 'overlap')
+            {
+                const Cached = typeof Surface.GetCachedAnalysis === 'function' ? Surface.GetCachedAnalysis() : null;
+                const Bad = Cached?.diagnostics?.OverlappingFaces?.has(fi) || Cached?.diagnostics?.FlippedFaces?.has(fi);
+                [R, G, B] = Bad ? [0.95, 0.24, 0.24] : [0.22, 0.72, 0.46];
             }
             else if (this.shadingMode === 'importance')
             {

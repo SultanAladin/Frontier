@@ -1745,16 +1745,18 @@ function RenderShadingTab(Body, Doc)
 
     const CurMode = Viewport3D ? Viewport3D.shadingMode : 'lit-matcap';
     const ModePretty = {
-        'lit-matcap': 'Lit + Multi-MatCap',
-        'lit-eon': 'Fast Lit · EON',
+        'lit-matcap': 'Studio + Multi-MatCap',
+        'lit-eon': 'Studio Preview',
         'multi-matcap': 'Multi-MatCap Studio',
-        checker: 'UV Checker',
-        flat: 'Flat Shaded',
+        flat: 'Flat · UV Charts',
+        'flat-slots': 'Flat · Face Slots',
+        checker: 'Flat · UV Checker',
         matcap: 'Sculpt Clay',
         'matcap-satin': 'Satin Pearl',
-        importance: 'Priority Shares',
-        texel: 'Texel Density',
-        stretch: 'UV Angle Stretch'
+        importance: 'Flat · Priority',
+        texel: 'Flat · Density',
+        stretch: 'Flat · Stretch',
+        overlap: 'Flat · Overlaps'
     }[CurMode] || CurMode;
 
     // 1A. Visual Studio Hero Banner (0bab...jpg + Project-Zero "Low sun" style)
@@ -1795,8 +1797,8 @@ function RenderShadingTab(Body, Doc)
         ]),
         Construct('div', 'pz-hero-bar', BarSpans),
         Construct('div', 'pz-hero-foot', [
-            Construct('span', null, `EON Roughness σ ${(Viewport3D?.eonRoughness ?? 0.42).toFixed(2)}`),
-            Construct('span', null, Viewport3D?.shadowsEnabled !== false ? 'PCF 2048² Shadows' : 'Shadows Off')
+            Construct('span', null, `Roughness α ${(Viewport3D?.eonRoughness ?? 0.42).toFixed(2)} · Cavity`),
+            Construct('span', null, Viewport3D?.shadowsEnabled !== false ? 'Studio GGX · PCF Shadows' : 'Unlit / Shadows Off')
         ])
     ]);
     Body.append(HeroBanner);
@@ -1804,7 +1806,7 @@ function RenderShadingTab(Body, Doc)
     // 1B. Asymmetric Coloured-Icon & Large Thin-Number Bento Tiles (0bab...jpg style)
     const TotalIssues = (Doc.diagnostics?.overlapCount || 0) + (Doc.diagnostics?.flippedCount || 0);
     const RoughPct = Math.round((Viewport3D?.eonRoughness ?? 0.42) * 100);
-    const ShinVal = Math.round(Viewport3D?.blinnShininess ?? 48);
+    const SpecPct = Math.round((Viewport3D?.specularStrength ?? 0.65) * 100);
     const TargetCount = SelFacesCount > 0 ? SelFacesCount : Doc.surface.faces.length;
 
     const BentoGrid = Construct('div', 'pz-bento-grid', [
@@ -1817,8 +1819,8 @@ function RenderShadingTab(Body, Doc)
             ])
         ]),
         Construct('div', 'pz-bento-tile', [
-            Construct('span', 'pz-bento-icon amber', 'σ'),
-            Construct('span', 'pz-bento-label', 'EON Diffuse'),
+            Construct('span', 'pz-bento-icon amber', 'α'),
+            Construct('span', 'pz-bento-label', 'Roughness'),
             Construct('div', 'pz-bento-num', [
                 document.createTextNode(String(RoughPct)),
                 Construct('small', null, '%')
@@ -1826,10 +1828,10 @@ function RenderShadingTab(Body, Doc)
         ]),
         Construct('div', 'pz-bento-tile', [
             Construct('span', 'pz-bento-icon cobalt', '✦'),
-            Construct('span', 'pz-bento-label', 'Blinn Specular'),
+            Construct('span', 'pz-bento-label', 'GGX Highlight'),
             Construct('div', 'pz-bento-num', [
-                document.createTextNode(String(ShinVal)),
-                Construct('small', null, 'n')
+                document.createTextNode(String(SpecPct)),
+                Construct('small', null, '%')
             ])
         ]),
         Construct('div', 'pz-bento-tile', [
@@ -1912,53 +1914,46 @@ function RenderShadingTab(Body, Doc)
         }
     ]);
 
-    // 3. Fast Lit (EON + Blinn-Phong + Basic Shadows) Parameters
+    // 3. Studio Preview + True Unlit Flat Color / Debug Renderer Controls
     const LitSec = SectionCard(Body, {
-        Id: 'fast-lit-eon',
-        Title: 'Fast Lit · EON + Blinn-Phong',
+        Id: 'studio-flat-render',
+        Title: 'Studio Preview & Flat Debug',
         Glyph: 'Sliders',
-        Badge: 'SHADOWS',
-        Hint: 'Energy-Preserving Oren-Nayar rough diffuse + normalized Blinn-Phong specular + 9-tap PCF directional shadows.'
+        Badge: 'GGX · FLAT',
+        Hint: 'Fast 3-point Studio hemisphere + GGX microfacet + geometric curvature cavity, plus true unlit Flat Color visualization.'
     });
 
     SelectRow(LitSec.Inner, {
         Label: 'Shading Mode',
         Options: [
-            ['Lit + Per-Face Multi-MatCap', 'lit-matcap'],
-            ['Fast Lit · EON + Blinn-Phong', 'lit-eon'],
-            ['Per-Face Multi-MatCap Only', 'multi-matcap'],
-            ['UV Checker', 'checker'],
-            ['UV Angle Stretch', 'stretch'],
-            ['Texel Density', 'texel']
+            ['Studio + Multi-MatCap', 'lit-matcap'],
+            ['Studio Preview (Clay)', 'lit-eon'],
+            ['Multi-MatCap Studio', 'multi-matcap'],
+            ['Flat · UV Charts', 'flat'],
+            ['Flat · Face Slots', 'flat-slots'],
+            ['Flat · UV Checker', 'checker'],
+            ['Flat · Priority Shares', 'importance'],
+            ['Flat · UV Stretch', 'stretch'],
+            ['Flat · Texel Density', 'texel'],
+            ['Flat · Overlaps', 'overlap']
         ],
         Read: () => Viewport3D?.shadingMode || 'lit-matcap',
         Write: Val => Set3DShadingMode(Val)
     });
 
     SliderRow(LitSec.Inner, {
-        Label: 'EON Roughness',
-        Minimum: 0.0,
+        Label: 'GGX Roughness',
+        Minimum: 0.05,
         Maximum: 1.0,
         Step: 0.01,
         Digits: 2,
-        Unit: 'σ',
+        Unit: 'α',
         Read: () => Viewport3D?.eonRoughness ?? 0.42,
         Write: Val => Viewport3D?.UpdateLightingConfig({ eonRoughness: Val })
     });
 
     SliderRow(LitSec.Inner, {
-        Label: 'Blinn Shininess',
-        Minimum: 4,
-        Maximum: 256,
-        Step: 2,
-        Digits: 0,
-        Unit: 'n',
-        Read: () => Viewport3D?.blinnShininess ?? 48,
-        Write: Val => Viewport3D?.UpdateLightingConfig({ blinnShininess: Val })
-    });
-
-    SliderRow(LitSec.Inner, {
-        Label: 'Specular Gain',
+        Label: 'Highlight Gain',
         Minimum: 0,
         Maximum: 150,
         Step: 2,
@@ -1969,7 +1964,7 @@ function RenderShadingTab(Body, Doc)
     });
 
     SliderRow(LitSec.Inner, {
-        Label: 'MatCap Coat',
+        Label: 'MatCap Blend',
         Minimum: 0,
         Maximum: 100,
         Step: 2,
@@ -1977,6 +1972,23 @@ function RenderShadingTab(Body, Doc)
         Unit: '%',
         Read: () => Math.round((Viewport3D?.matcapCoatBlend ?? 0.68) * 100),
         Write: Val => Viewport3D?.UpdateLightingConfig({ matcapCoatBlend: Val / 100 })
+    });
+
+    SliderRow(LitSec.Inner, {
+        Label: 'Cavity & Ridge',
+        Minimum: 0,
+        Maximum: 100,
+        Step: 2,
+        Digits: 0,
+        Unit: '%',
+        Read: () => Math.round((Viewport3D?.cavityStrength ?? 0.45) * 100),
+        Write: Val =>
+        {
+            if (!Viewport3D) return;
+            Viewport3D.cavityStrength = Val / 100;
+            if (Viewport3D.fastLitMat) Viewport3D.fastLitMat.uniforms.uCavityStrength.value = Viewport3D.cavityStrength;
+            if (Viewport3D.flatDebugMat) Viewport3D.flatDebugMat.uniforms.uOutlineInk.value = (Val / 100) * 0.34;
+        }
     });
 
     SliderRow(LitSec.Inner, {
@@ -2010,10 +2022,18 @@ function RenderShadingTab(Body, Doc)
             flip: () => { if (Viewport3D) Viewport3D.UpdateLightingConfig({ shadowsEnabled: !Viewport3D.shadowsEnabled }); RebuildInspector(); }
         },
         {
-            title: 'EON Energy Comp',
+            title: 'Cavity & Outline',
             glyph: 'Sparkles',
             isOn: () => Viewport3D?.eonEnergyComp !== false,
-            flip: () => { if (Viewport3D) Viewport3D.UpdateLightingConfig({ eonEnergyComp: !Viewport3D.eonEnergyComp }); RebuildInspector(); }
+            flip: () =>
+            {
+                if (Viewport3D)
+                {
+                    Viewport3D.UpdateLightingConfig({ eonEnergyComp: !Viewport3D.eonEnergyComp });
+                    if (Viewport3D.flatDebugMat) Viewport3D.flatDebugMat.uniforms.uOutlineInk.value = Viewport3D.eonEnergyComp ? 0.16 : 0.0;
+                }
+                RebuildInspector();
+            }
         },
         {
             title: 'Seam Overlay',
@@ -3811,16 +3831,18 @@ function SetupKeyboardShortcuts()
         if (!Mod && K === 'z')
         {
             E.preventDefault();
-            const Order = ['lit-matcap', 'lit-eon', 'multi-matcap', 'checker', 'stretch', 'texel'];
+            const Order = ['lit-matcap', 'lit-eon', 'multi-matcap', 'flat', 'flat-slots', 'checker', 'stretch', 'texel'];
             const Next = Order[(Order.indexOf(Viewport3D.shadingMode) + 1) % Order.length];
             Set3DShadingMode(Next);
             const Names = {
-                'lit-matcap': 'Lit + Multi-MatCap',
-                'lit-eon': 'Fast Lit · EON + Blinn-Phong',
-                'multi-matcap': 'Per-Face Multi-MatCap',
-                checker: 'UV Checker',
-                stretch: 'UV Stretch',
-                texel: 'Texel Density'
+                'lit-matcap': 'Studio + Multi-MatCap',
+                'lit-eon': 'Studio Preview',
+                'multi-matcap': 'Multi-MatCap Studio',
+                flat: 'Flat · UV Charts',
+                'flat-slots': 'Flat · Face Slots',
+                checker: 'Flat · UV Checker',
+                stretch: 'Flat · UV Stretch',
+                texel: 'Flat · Texel Density'
             };
             Toast(`3D Shading: ${Names[Next] || Next}`);
             return;
