@@ -44,12 +44,13 @@ All banned terms (`RasterPasses` → `Rasterization`, `Pipeline` → `ExecutionS
 
 ```text
 Engine/
-├── Constants/                                     // Shared compile-time physical, mathematical & optical constants
-│   ├── MathematicalConstants.h                    // Pi, Tau, Sqrt2, GoldenRatio, radian/degree factors & IEEE-754 bounds
-│   ├── PhysicsConstants.h                         // Standard gravity, gas constant, atmospheric pressure & reference densities
-│   ├── OpticalConstants.h                         // Vacuum light speed, Planck constant, CIE white points & IOR baselines
-│   ├── AcousticConstants.h                        // Reference 20 uPa sound pressure, dry-air sound speed & octave bands
-│   └── UnitConversionConstants.h                  // SI metric scale factors, Kelvin/Celsius offsets & angular conversions
+├── Constants/                                     // Shared compile-time physical, mathematical, engine & time constants
+│   ├── MathConstants.h                            // Pi, Tau, Epsilon, DegToRad, RadToDeg & IEEE-754 bounds
+│   ├── PhysicsConstants.h                         // Gravity, AirDensity, WaterDensity & FrictionLimits
+│   ├── EngineConstants.h                          // MaxPlayers, DefaultTickRate, BufferCapacities & Limits
+│   ├── TimeConstants.h                            // FixedDeltaTime, MicrosecondsPerSecond & WatchdogThresholds
+│   ├── OpticalConstants.h                         // VacuumLightSpeed, PlanckConstant, CIEWhitePoints & IOR
+│   └── AcousticConstants.h                        // ReferenceSoundPressure, DryAirSoundSpeed & OctaveBands
 │
 ├── Mathematics/                                   // Shared algebraic, polynomial, sparse-linear & deterministic math
 │   ├── ScalarFunctions.h                          // Branchless clamp, saturate, smoothstep, remap & fast reciprocal/rsqrt
@@ -186,7 +187,7 @@ Engine/
 │   ├── UV/                                        // Headless UV workspace runtime (Non-UI)
 │   │   ├── UVWorkspaceLifecycle.{h,cpp}           // Headless lifecycle: Initialize → Tick → Finalize
 │   │   ├── UVWorkspaceDocument.{h,cpp}            // Editable UV layers, UDIM sets & UVTiles
-│   │   ├── UVRevisionReplay.{h,cpp}               // Parametric UV operation replay & baseline folding
+│   │   ├── RevisionTracker.{h,cpp}                // Selected revision tracker: cursor tracking & parametric replay
 │   │   └── Operations/                            // Procedural non-UI execution logic
 │   │       ├── UVUnwrapOperations.{h,cpp}         // Conformal unwrap, planar, box & spherical projections
 │   │       ├── UVPackOperations.{h,cpp}           // Island packing, rotation alignment & border margins

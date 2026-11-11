@@ -52,6 +52,7 @@ Frontier/
 │   ├── Plans/                                     // Architectural & domain implementation plans + Markdown Studio
 │   │   ├── DocumentFormatsAndInstancePlan.md      // Two-Tier Hybrid .Space format registry & Instance concepts
 │   │   ├── DocumentSpacesAndRevisionPlan.md       // Confirmed .Space codecs, 215/750 MiB revision & workspace tree
+│   │   ├── ThreadingArchitecturePlan.md           // Priority-budgeted ExecutionCluster, domain threads & DebugThread watchdog
 │   │   ├── SessionNotes.md                        // Live Markdown Studio workspace notepad
 │   │   └── MarkdownStudioViewer.html              // Standalone/live Frontier-styled Markdown Studio bundle
 │   ├── FolderStructure.md                         // Canonical repository folder and source layout
@@ -122,17 +123,51 @@ Frontier/
     │   ├── BuildConfiguration.h                   // Compile-time Editor / Development / Shipping policy
     │   ├── InputSettings.{h,cpp}                  // Shortcut chords, conflict validator & pointer sensitivity
     │   ├── ProjectSpaceRepository.{h,cpp}         // Atomic PascalCase .ProjectSpace / .projectspace serializer
-    │   ├── EngineConfiguration.{h,cpp}            // Startup and hardware thread group allocation
+    │   ├── EngineConfiguration.{h,cpp}            // Startup and hardware ExecutionCluster allocation
     │   ├── RenderConfiguration.{h,cpp}            // Resolution, swapchain, and multi-sample targets
     │   ├── ProjectConfiguration.{h,cpp}           // Project root, dependency manifests, and toggles
     │   └── WorkspaceConfiguration.{h,cpp}         // Document session preferences and layout defaults
     │
-    ├── Constants/                                 // Shared compile-time physical, mathematical & optical constants
-    │   ├── MathematicalConstants.h                // Pi, Tau, Sqrt2, GoldenRatio, radian/degree factors & IEEE-754 bounds
-    │   ├── PhysicsConstants.h                     // Standard gravity, gas constant, atmospheric pressure & reference densities
-    │   ├── OpticalConstants.h                     // Vacuum light speed, Planck constant, CIE white points & IOR baselines
-    │   ├── AcousticConstants.h                    // Reference 20 uPa sound pressure, dry-air sound speed & octave bands
-    │   └── UnitConversionConstants.h              // SI metric scale factors, Kelvin/Celsius offsets & angular conversions
+    ├── Constants/                                 // Shared compile-time physical, mathematical, engine & time constants
+    │   ├── MathConstants.h                        // Pi, Tau, Epsilon, DegToRad, RadToDeg & IEEE-754 bounds
+    │   ├── PhysicsConstants.h                     // Gravity, AirDensity, WaterDensity & FrictionLimits
+    │   ├── EngineConstants.h                      // MaxPlayers, DefaultTickRate, BufferCapacities & Limits
+    │   ├── TimeConstants.h                        // FixedDeltaTime, MicrosecondsPerSecond & WatchdogThresholds
+    │   ├── OpticalConstants.h                     // VacuumLightSpeed, PlanckConstant, CIEWhitePoints & IOR
+    │   └── AcousticConstants.h                    // ReferenceSoundPressure, DryAirSoundSpeed & OctaveBands
+    │
+    ├── Threading/                                 // Priority-budgeted execution, lock-free sync & domain threads
+    │   ├── Tasks/                                 // Non-blocking task routing, priority channels & cluster
+    │   │   ├── TaskScheduler.{h,cpp}              // 4-tier priority & remaining-slice tick budget scheduler
+    │   │   ├── TaskQueue.h                        // Cache-aligned lock-free work-stealing task deque
+    │   │   ├── TaskChannel.{h,cpp}                // Typed priority intake & continuation routing channel
+    │   │   └── ExecutionCluster.{h,cpp}           // Hardware-pinned parallel task execution cluster
+    │   ├── Sync/                                  // Lock-free and leaf synchronization primitives
+    │   │   ├── SpinLock.h                         // Leaf-only exponential-backoff atomic spin lock
+    │   │   ├── AtomicQueue.h                      // Bounded lock-free MPMC / SPSC ring queue
+    │   │   ├── CriticalSection.h                  // OS adaptive sleep-capable mutual exclusion primitive
+    │   │   ├── CompletionCounter.h                // Wait-free atomic countdown & continuation trigger
+    │   │   └── HeartbeatMonitor.{h,cpp}           // Cache-line-isolated thread liveness & stall detector
+    │   └── Threads/                               // Dedicated domain & diagnostic thread loops
+    │       ├── Game/
+    │       │   └── GameThread.{h,cpp}             // Deterministic world ticks, instance logic & gameplay rules
+    │       ├── Workspace/
+    │       │   └── WorkspaceThread.{h,cpp}        // Async .Space authoring, RevisionTracker & solver execution
+    │       ├── Physics/
+    │       │   └── PhysicsThread.{h,cpp}          // Fixed-step rigid dynamics, constraint solver & collisions
+    │       ├── Render/
+    │       │   └── RenderThread.{h,cpp}           // GPU command encoding, stream upload & VulkanInterchange
+    │       ├── Audio/
+    │       │   └── AudioThread.{h,cpp}            // Real-time lock-free AudioBusAccumulator & ring streaming
+    │       ├── Editor/
+    │       │   └── EditorThread.{h,cpp}           // Responsive UI docking, viewport input & tool triggers
+    │       ├── Debug/
+    │       │   ├── DebugThread.{h,cpp}            // Dedicated crash/hang watchdog, async log sink & terminal
+    │       │   └── ProfilerThread.{h,cpp}         // Lock-free cycle metrics, telemetry & memory region tracking
+    │       ├── Network/
+    │       │   └── NetworkThread.{h,cpp}          // Non-blocking socket poll, replication & packet transport
+    │       └── Streaming/
+    │           └── AssetStreamThread.{h,cpp}      // Asynchronous disk reads & .Space container decoding
     │
     ├── Mathematics/                               // Shared algebraic, polynomial, sparse-linear & deterministic math
     │   ├── ScalarFunctions.h                      // Branchless clamp, saturate, smoothstep, remap & fast reciprocal/rsqrt
@@ -346,7 +381,7 @@ Frontier/
     │   ├── UV/                                    // Headless UV workspace runtime (Non-UI)
     │   │   ├── UVWorkspaceLifecycle.{h,cpp}       // Headless lifecycle: Initialize → Tick → Finalize
     │   │   ├── UVWorkspaceDocument.{h,cpp}        // Editable UV layers, UDIM sets & UVTiles
-    │   │   ├── UVRevisionReplay.{h,cpp}           // Parametric UV operation replay & baseline folding
+    │   │   ├── RevisionTracker.{h,cpp}            // Selected revision tracker: cursor tracking & parametric replay
     │   │   └── Operations/                        // Procedural non-UI execution logic
     │   │       ├── UVUnwrapOperations.{h,cpp}     // Conformal unwrap, planar, box & spherical projections
     │   │       ├── UVPackOperations.{h,cpp}       // Island packing, rotation alignment & border margins
@@ -424,10 +459,10 @@ Frontier/
     │   ├── Notch/                                 // Top-edge pull-down tab
     │   │   └── PanelExpansionTab.{h,cpp}          // Trapezoidal "Frontier" pull-down notch with flick physics
     │   ├── Docking/                               // Sharp unrounded trapezoidal docking & multi-window host
-    │   │   ├── WorkspaceTab.{h,cpp}               // Sharp 0 px unrounded trapezoidal tab & notch geometry
+    │   │   ├── WorkspaceTabStrip.{h,cpp}          // Sharp 0 px unrounded trapezoidal tab strip & notch geometry
     │   │   └── WorkspaceDockContainer.{h,cpp}     // Intra-app multi-window docking & OS window tear-off
     │   ├── Panes/                                 // Reusable workspace Outliner/LayerStack, Inspector & Viewport panes
-    │   │   ├── WorkspacePaneAppearance.{h,cpp}    // Shared studio colours, VisualToken, VectorGraphic, icons, signs & symbols
+    │   │   ├── WorkspaceAppearance.{h,cpp}        // Shared studio colours, VisualToken, VectorGraphic, icons, signs & symbols
     │   │   ├── OutlinerPanel.{h,cpp}              // Generic Outliner/LayerStack tree, folders, filters & drag-reorder
     │   │   ├── InspectorPanel.{h,cpp}             // Showcase Folder Inspector, Add Notes editor & capability tiles
     │   │   └── ViewportPanel.{h,cpp}              // Edit/Simulate/Play-Pause strip, Construct, Split, Diagnostics & Settings
