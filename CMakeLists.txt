@@ -168,12 +168,85 @@ set(FRONTIER_UI_COMPONENT_SOURCES
     Engine/Components/Panes/InspectorPanel.cpp
     Engine/Components/Panes/ViewportPanel.cpp
     Engine/Components/ControlCentre/ControlCentrePanel.cpp
+    Engine/Workspaces/UV/UVOutlinerPanel.cpp
+    Engine/Workspaces/UV/UVInspectorPanel.cpp
+    Engine/Workspaces/UV/UVViewportHost.cpp
+    Engine/Workspaces/UV/UVWorkspaceHost.cpp
     Engine/Configuration/InputSettings.cpp
     Engine/Configuration/ProjectSpaceRepository.cpp
     Engine/Lifecycle/WorkspaceLifecycle.cpp
 )
 
+#------------------------------------------------------------------------------------------------------------------------
+#                                      SLANG -> SPIR-V SHADER COMPILATION PIPELINE
+#------------------------------------------------------------------------------------------------------------------------
+
+set(FRONTIER_SLANGC_BIN "${CMAKE_SOURCE_DIR}/ExternalPackages/VulkanCompute/Slang/slangtorch/bin/slangc")
+if(NOT EXISTS "${FRONTIER_SLANGC_BIN}")
+    execute_process(
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Automation/PrepareShaderToolchain.py"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        RESULT_VARIABLE FRONTIER_SHADER_TOOLCHAIN_STATUS
+    )
+endif()
+
+set(FRONTIER_COMPILED_SHADER_DIR "${CMAKE_BINARY_DIR}/CompiledShaders")
+file(MAKE_DIRECTORY "${FRONTIER_COMPILED_SHADER_DIR}")
+set(FRONTIER_SHADER_SRC_DIR "${CMAKE_SOURCE_DIR}/Engine/GeometricRaster/Shaders")
+set(FRONTIER_SPV_OUTPUTS "")
+
+function(frontier_compile_slang_stage SLANG_FILE ENTRY_NAME STAGE_NAME OUT_SPV_NAME)
+    set(OUT_SPV "${FRONTIER_COMPILED_SHADER_DIR}/${OUT_SPV_NAME}")
+    add_custom_command(
+        OUTPUT "${OUT_SPV}"
+        COMMAND "${FRONTIER_SLANGC_BIN}"
+            "${FRONTIER_SHADER_SRC_DIR}/${SLANG_FILE}"
+            -I "${FRONTIER_SHADER_SRC_DIR}"
+            -target spirv
+            -profile spirv_1_3
+            -emit-spirv-directly
+            -fvk-use-entrypoint-name
+            -matrix-layout-row-major
+            -O0
+            -entry "${ENTRY_NAME}"
+            -stage "${STAGE_NAME}"
+            -o "${OUT_SPV}"
+        DEPENDS
+            "${FRONTIER_SHADER_SRC_DIR}/${SLANG_FILE}"
+            "${FRONTIER_SHADER_SRC_DIR}/MatCapEvaluation.slang"
+        COMMENT "[Slang] Compiling ${SLANG_FILE} (${STAGE_NAME}) -> ${OUT_SPV_NAME}"
+        VERBATIM
+    )
+    set(FRONTIER_SPV_OUTPUTS ${FRONTIER_SPV_OUTPUTS} "${OUT_SPV}" PARENT_SCOPE)
+endfunction()
+
+frontier_compile_slang_stage(SurfaceShading.slang           VertexEntry   vertex   SurfaceShading.vert.spv)
+frontier_compile_slang_stage(SurfaceShading.slang           FragmentEntry fragment SurfaceShading.frag.spv)
+frontier_compile_slang_stage(UVTileRasterization.slang      VertexEntry   vertex   UVTileRasterization.vert.spv)
+frontier_compile_slang_stage(UVTileRasterization.slang      FragmentEntry fragment UVTileRasterization.frag.spv)
+frontier_compile_slang_stage(GizmoRasterization.slang       VertexEntry   vertex   GizmoRasterization.vert.spv)
+frontier_compile_slang_stage(GizmoRasterization.slang       FragmentEntry fragment GizmoRasterization.frag.spv)
+frontier_compile_slang_stage(SelectionMaskCompute.slang     ComputeEntry  compute  SelectionMaskCompute.comp.spv)
+frontier_compile_slang_stage(ViewportPickReduction.slang    ComputeEntry  compute  ViewportPickReduction.comp.spv)
+frontier_compile_slang_stage(StretchAndOverlapCompute.slang ComputeEntry  compute  StretchAndOverlapCompute.comp.spv)
+frontier_compile_slang_stage(StretchRelaxCompute.slang      ComputeEntry  compute  StretchRelaxCompute.comp.spv)
+frontier_compile_slang_stage(ConcaveHorizonCompute.slang    ComputeEntry  compute  ConcaveHorizonCompute.comp.spv)
+
+add_custom_target(FrontierShaders DEPENDS ${FRONTIER_SPV_OUTPUTS})
+
 set(FRONTIER_ENGINE_SOURCES
+    Engine/Configuration/EngineConfiguration.cpp
+    Engine/Configuration/WorkspaceConfiguration.cpp
+    Engine/GeometrySpace/Network/PolygonNetwork.cpp
+    Engine/GeometrySpace/Network/GeometryInstance.cpp
+    Engine/GeometrySpace/Network/FaceGroupReference.cpp
+    Engine/GeometrySpace/Primitives/AnalyticPrimitives.cpp
+    Engine/Editor/Viewports/TransformGizmo.cpp
+    Engine/GeometricRaster/Backend/VulkanDeviceContext.cpp
+    Engine/GeometricRaster/Compute/AsyncReadbackRing.cpp
+    Engine/GeometricRaster/Compute/ComputeDispatchEncoder.cpp
+    Engine/GeometricRaster/Picking/ViewportPickQuery.cpp
+    Engine/GeometricRaster/UV/UVWorkspaceRasterizer.cpp
     Engine/Input/InputExchange.cpp
     Engine/Input/InputExtension.cpp
     Engine/Lifecycle/RuntimeLifecycle.cpp
@@ -203,6 +276,12 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/Workspaces/WorkspaceRegistry.cpp
     Engine/Workspaces/WorkspaceExchange.cpp
     Engine/Workspaces/WorkspaceExtension.cpp
+    Engine/Workspaces/UV/Solvers/SeamCutGenerator.cpp
+    Engine/Workspaces/UV/Solvers/ConformalUnwrapSolver.cpp
+    Engine/Workspaces/UV/Solvers/ProgressiveStretchRelaxer.cpp
+    Engine/Workspaces/UV/Solvers/ConcaveHorizonPacker.cpp
+    Engine/Workspaces/UV/Solvers/TexelDensityAndUDIMSolver.cpp
+    Engine/Workspaces/UV/UVWorkspaceSession.cpp
 )
 if(NOT ANDROID)
     list(APPEND FRONTIER_ENGINE_SOURCES Engine/Windowing/PlatformWindowDesktop.cpp)
@@ -215,6 +294,7 @@ if(NOT FRONTIER_PROFILE STREQUAL "Shipping")
 endif()
 
 add_library(FrontierEngine STATIC ${FRONTIER_ENGINE_SOURCES})
+add_dependencies(FrontierEngine FrontierShaders)
 
 target_include_directories(FrontierEngine PUBLIC
     "${CMAKE_SOURCE_DIR}"
@@ -222,7 +302,10 @@ target_include_directories(FrontierEngine PUBLIC
     "${CMAKE_SOURCE_DIR}/ExternalPackages/volk"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include"
 )
-target_link_libraries(FrontierEngine PUBLIC FrontierCompileSettings Threads::Threads)
+target_compile_definitions(FrontierEngine PUBLIC
+    "FRONTIER_COMPILED_SHADER_DIR=\"${FRONTIER_COMPILED_SHADER_DIR}\""
+)
+target_link_libraries(FrontierEngine PUBLIC FrontierCompileSettings Threads::Threads ${CMAKE_DL_LIBS})
 if(NOT FRONTIER_PROFILE STREQUAL "Shipping")
     target_link_libraries(FrontierEngine PUBLIC FrontierImGui)
 endif()
@@ -259,6 +342,10 @@ if(BUILD_TESTING)
     frontier_register_exhibit(DockingValidation           Exhibits/DockingValidation.cpp)
     frontier_register_exhibit(ControlCentreValidation     Exhibits/ControlCentreValidation.cpp)
     frontier_register_exhibit(WorkspacePanesValidation    Exhibits/WorkspacePanesValidation.cpp)
-    frontier_register_exhibit(LifecycleValidation         Exhibits/LifecycleValidation.cpp)
-    frontier_register_exhibit(WorkspaceRevisionValidation Exhibits/WorkspaceRevisionValidation.cpp)
+    frontier_register_exhibit(LifecycleValidation            Exhibits/LifecycleValidation.cpp)
+    frontier_register_exhibit(WorkspaceRevisionValidation    Exhibits/WorkspaceRevisionValidation.cpp)
+    frontier_register_exhibit(GeometryNetworkValidation      Exhibits/GeometryNetworkValidation.cpp)
+    frontier_register_exhibit(UVRasterPickingGizmoValidation Exhibits/UVRasterPickingGizmoValidation.cpp)
+    frontier_register_exhibit(UVWorkspaceUIValidation        Exhibits/UVWorkspaceUIValidation.cpp)
+    frontier_register_exhibit(UVSolversAndCodecValidation    Exhibits/UVSolversAndCodecValidation.cpp)
 endif()

@@ -12,9 +12,9 @@ Deferred items live in [Backlog.md](Backlog.md); architectural invariants live i
 | ----- | --------- | ------ | --------------- |
 | **Phase 0** | Governance, Pinned Dependencies, ImGui Patch Stack & CMake Profiles | 🟢 Complete | `Documentation/` · `Automation/` · `ExternalPackages/` · `Engine/Configuration/` |
 | **Phase 1** | **Input Foundation & Cross-Platform Windowing** | 🟢 Complete | `Engine/Input/` · `Engine/Windowing/` · `Exhibits/` |
-| **Phase 2** | **Shared UI Components & Multi-Document Workspace Groundwork** | 🟢 Active | `Engine/Components/` · `Engine/Workspaces/` · `Engine/Editor/` |
-| **Phase 3** | **`.slang` Shader Compiler, GPU Device Interface & GPU Viewport Overlays** | 🏳️ Planned | `Engine/GeometricRaster/` · `Engine/Shaders/` · `Engine/Annotation/` · `Engine/Editor/Viewports/` |
-| **Phase 4** | **Geometry Processing, UV Space, Color Space & Asset Interchange** | 🏳️ Planned | `Engine/MetricSpace/` · `Engine/GeometryProcessing/` · `Engine/UVSpace/` · `Engine/ColorSpace/` · `Engine/Interchange/` |
+| **Phase 2** | **Shared UI Components & Multi-Document Workspace Groundwork** | 🟢 Complete | `Engine/Components/` · `Engine/Workspaces/` · `Engine/Codecs/` |
+| **Phase 3** | **`.slang` Shader Compiler, Vulkan 1.2 Timeline Backend, GPU Picking & `TransformGizmo`** | 🟢 Complete | `Engine/GeometricRaster/` · `Engine/Editor/Viewports/` |
+| **Phase 4** | **`GeometrySpace::PolygonNetwork` & Native UV Workspace (`FrontierUV` + `FeatureSet`)** | 🟢 Complete | `Engine/GeometrySpace/` · `Engine/Workspaces/UV/` · `Exhibits/` |
 | **Phase 5** | **Simulation, Audio & Networking Spaces** | 🏳️ Planned | `Engine/SimulationSpace/` · `Engine/AudioSpace/` · `Engine/NetworkingSpace/` |
 
 ---
@@ -69,6 +69,11 @@ Starting focus agreed with user: **`Input/` + `Editor/` groundwork**.
 4. **`Engine/Workspaces/` (`215 MiB` / `750 MiB` Resolution-Independent Revision & Session Coordination)**:
    - ✔️ `Revision/`: `ContentRegion.{h,cpp}`, `NonLinearHistory.{h,cpp}` (`EnclosingIndex`, `FirstNestedIndex`, `NextPeerIndex`), `OperationRecorder.{h,cpp}` (`Redo Purge -> Prefix Fold`), `CursorResolution.{h,cpp}` (arbitrary-resolution replay), `RevisionTracker.{h,cpp}`, and `RevisionExtension.{h,cpp}` (`750 MiB` global ceiling & cross-tab sequence undo/redo).
    - ✔️ Session & Exchange: `WorkspaceToken.h`, `WorkspaceDocument.{h,cpp}`, `WorkspaceRegistry.{h,cpp}`, `WorkspaceExchange.{h,cpp}`, and `WorkspaceExtension.{h,cpp}` wired to `WorkspaceThread` and verified across `Editor`, `Development`, and `Shipping` profiles (`7/7` CTest suites passing).
-5. **`Engine/Editor/` & Remaining Domain Threads (🚩 Next)**:
+5. **Phase 3 & Phase 4 — `PolygonNetwork`, Vulkan `.slang` Compute/Raster, Slate `TransformGizmo` & Native UV Workspace (🟢 Complete)**:
+   - ✔️ `Engine/Configuration/{EngineConfiguration,WorkspaceConfiguration}.{h,cpp}` & `Engine/Mathematics/AxisCoordinates.h` (`HostLaunchMode::FeatureSet` / `StandaloneWorkspace` / `HeadlessBatch`, `--standalone=uv`, `Axis3D`/`Axis2D`, `Scalar3D`/`Scalar2D` aliases, separate `UVAxes`, default-off `SeamOverlayEnabled = false`).
+   - ✔️ `Engine/GeometrySpace/`: Half-edge `PolygonNetwork` (`Vertex`, `DirectedEdge`, `Face`), non-kinship `GeometryInstanceRegistry`, O(1) `PriorityLayerRegistry` (`FaceGroupReference` cached look-up in `0.005 us`), and 5 multi-part studio presets (`ControlledIntegrator`, `AeroCoupeGT`, `TacticalCrate`, `ArmoredBust`, `UDIMArchKit`).
+   - ✔️ `Engine/GeometricRaster/` & `Engine/Editor/Viewports/TransformGizmo.{h,cpp}`: 9 `.slang` graphics & compute shaders compiled to SPIR-V (`-fvk-use-entrypoint-name`), Vulkan 1.2 Timeline Semaphore `VulkanDeviceContext` + `AsyncReadbackRing` (zero `VkFence` stalls), `ViewportPickQuery` (`R32G32B32A32_UINT` 1x1 + GPU marquee/brush reduction), 16-slot procedural MatCap + Cook-Torrance `UVWorkspaceRasterizer`, and 3D/2D Slate `TransformGizmo` (`Ctrl` snap, constant scale handle length).
+   - ✔️ `Engine/Workspaces/UV/`: `UVWorkspaceSession`, `UVOutlinerPanel`, 5-tab `UVInspectorPanel` (strictly zero `'hero-card'` / `'allocation-spectrum'`), `UVViewportHost` (live Vulkan 2D `UVTileCanvas` & 3D `ProjectionViewport` composited into `PixelSpace`), `UVWorkspaceHost` (`StandaloneWorkspace` `FrontierUV` & `FeatureSet`), and parallel/GPU solvers (`SeamCutGenerator`, `ConformalUnwrapSolver` across `ExecutionChannels`, `ProgressiveStretchRelaxer` on `StretchRelaxCompute.comp.spv`, `ConcaveHorizonPacker` on `ConcaveHorizonCompute.comp.spv`, `TexelDensityAndUDIMSolver`, `.UVSpace` + `215 MiB` `RevisionTracker` round-trip) — verified by `11/11` CTest suites across `Editor`, `Development`, and `Shipping` profiles (`Exhibits/Images/Geometry/01-*` & `Exhibits/Images/UV/01..04-*.png`).
+6. **Remaining Domain Threads & Simulation Spaces (🚩 Next)**:
    - Design `GameThread` and remaining Option A domain threads before implementation.
-   - `FrontierEditor` static library target strictly excluded from `Shipping` builds (`ProjectionViewport`, `TransformGizmo`, `NavigationOverlay`).
+   - Convert remaining `Experimental/` domain studios (`TextureStudio`, `FluidEditor`, `FractureEditor`, `ParticleEditor`, `VehicleLab`) onto the shared `PolygonNetwork` + Vulkan `.slang` + `TransformGizmo` infrastructure.

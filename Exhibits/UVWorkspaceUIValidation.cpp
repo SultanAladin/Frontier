@@ -1,0 +1,224 @@
+/*============================================================================================================================================
+                                                      UVWORKSPACEUIVALIDATION.CPP
+============================================================================================================================================*/
+// 🧩 Phase 3 validation suite for UVOutlinerPanel, UVInspectorPanel, UVViewportHost, StandaloneWorkspace (FrontierUV) & FeatureSet UI
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                        INCLUDES
+//------------------------------------------------------------------------------------------------------------------------
+
+#include "Engine/Components/Appearance/ThemeRepository.h"
+#include "Engine/Components/Appearance/TypographyRepository.h"
+#include "Engine/Components/ControlCentre/ControlCentrePanel.h"
+#include "Engine/Components/Docking/WorkspaceDockContainer.h"
+#include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/Configuration/EngineConfiguration.h"
+#include "Engine/GeometricRaster/Backend/VulkanDeviceContext.h"
+#include "Engine/GeometricRaster/UV/UVWorkspaceRasterizer.h"
+#include "Engine/Workspaces/UV/UVWorkspaceHost.h"
+#include "Exhibits/SoftwareCanvasRasterizer.h"
+
+#include <imgui.h>
+
+#include <cmath>
+#include <cstdio>
+#include <filesystem>
+#include <string>
+
+namespace
+{
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                VERIFICATION ASSERTIONS
+//------------------------------------------------------------------------------------------------------------------------
+
+[[nodiscard]] bool VerifyCondition(bool ConditionMet, const char* Description) noexcept
+{
+    if (!ConditionMet)
+    {
+        std::fprintf(stderr, "[UVWorkspaceUIValidation] FAILED: %s\n", Description);
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool CaptureDockedWorkspacePng(
+    ImGuiIO&                                              Io,
+    Frontier::Components::HeadlessWorkspaceDockContainer& Container,
+    Frontier::ControlCentrePanel&                         ControlCentre,
+    const std::filesystem::path&                          TargetPngPath)
+{
+    for (int FrameIdx = 0; FrameIdx < 3; ++FrameIdx)
+    {
+        Io.DisplaySize = ImVec2(1840.0f, 980.0f);
+        Io.DeltaTime   = 1.0f / 60.0f;
+        ImGui::NewFrame();
+        Container.PresentWindowImGuiPanes(Frontier::Components::HostWindowToken{ 0u });
+        ControlCentre.Render({ 0.0f, 0.0f, 1840.0f, 980.0f }, 1.0 / 60.0, 60.0f);
+        ImGui::Render();
+    }
+
+    Frontier::Exhibits::SoftwareRasterCanvas Canvas(1840u, 980u, { 14, 14, 16, 255 });
+    Canvas.RasterizeImGuiBatches(ImGui::GetDrawData());
+    return VerifyCondition(Canvas.WritePngFile(TargetPngPath), TargetPngPath.filename().string().c_str());
+}
+
+} // namespace
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                      ENTRY POINT
+//------------------------------------------------------------------------------------------------------------------------
+
+int main()
+{
+    using namespace Frontier;
+    using namespace Frontier::Configuration;
+    using namespace Frontier::GeometricRaster;
+    using namespace Frontier::Workspaces;
+
+    const std::filesystem::path RepoRoot  = Exhibits::ResolveRepositoryRootPath();
+    const std::filesystem::path ShaderDir = std::filesystem::path(FRONTIER_COMPILED_SHADER_DIR);
+    const std::filesystem::path ImageDir  = RepoRoot / "Exhibits/Images/UV";
+    std::filesystem::create_directories(ImageDir);
+
+    VulkanDeviceContext VkCtx {};
+    std::string         VkDiag;
+    if (!VerifyCondition(VkCtx.InitializeContext(RepoRoot, &VkDiag), VkDiag.c_str()))
+    {
+        return 1;
+    }
+
+    UVWorkspaceRasterizer Rasterizer {};
+    if (!VerifyCondition(Rasterizer.InitializeRasterizer(&VkCtx, ShaderDir), "Initialized UVWorkspaceRasterizer"))
+    {
+        return 1;
+    }
+
+    IMGUI_CHECKVERSION();
+    ImGuiContext* GuiCtx = ImGui::CreateContext();
+    ImGui::SetCurrentContext(GuiCtx);
+    ImGuiIO& Io    = ImGui::GetIO();
+    Io.IniFilename = nullptr;
+    Io.LogFilename = nullptr;
+    Io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+
+    TypographyRepository Typefaces {};
+    (void)Typefaces.LoadRepository(RepoRoot / "EngineContent/FontsArchives");
+    TypographyRepository::AssignCurrent(&Typefaces);
+    if (ImFont* TabFont = Typefaces.QueryTabStripFont())
+    {
+        Io.FontDefault = TabFont;
+    }
+    unsigned char* AtlasPixels = nullptr;
+    int            AtlasW      = 0;
+    int            AtlasH      = 0;
+    Io.Fonts->GetTexDataAsRGBA32(&AtlasPixels, &AtlasW, &AtlasH);
+
+    // 1. Validate StandaloneWorkspace (FrontierUV) Layout & Share Clamping Semantics
+    {
+        EngineConfiguration StandaloneCfg(EngineConfiguration::ConstructStandaloneUVDefault());
+        UVWorkspaceHost     StandaloneHost {};
+        StandaloneHost.ConfigureLaunchPolicy(StandaloneCfg);
+        if (!VerifyCondition(StandaloneHost.AttachVulkanRasterizer(&Rasterizer), "Attached Vulkan rasterizer to StandaloneHost"))
+        {
+            return 1;
+        }
+
+        // Verify share ceiling clamp (Layer 1 + Layer 2 <= 100%)
+        StandaloneHost.AccessSession().SelectPriorityLayer(1u);
+        StandaloneHost.AccessSession().AdjustSelectedLayerShare(95.0f); // Layer 2 has 25%, so Layer 1 must clamp to 75%
+        const auto* Layer1 = StandaloneHost.InspectSession().Asset.Layers.InspectLayer(1u);
+        if (!VerifyCondition(Layer1 != nullptr && std::abs(Layer1->TargetSharePercent - 75.0f) < 1.0e-3f, "Layer share slider clamps cleanly at 100% ceiling"))
+        {
+            return 1;
+        }
+        StandaloneHost.AccessSession().AdjustSelectedLayerShare(55.0f);
+
+        Components::HeadlessWorkspaceDockContainer StandaloneDock {};
+        const auto WinDesc = Windowing::WindowConfigurationDescriptor::ConstructApplicationWindow("Frontier UV", 1840, 980);
+        if (!VerifyCondition(StandaloneDock.Initialize(WinDesc), "Initialized StandaloneDock"))
+        {
+            return 1;
+        }
+
+        StandaloneHost.RegisterDockPanes(StandaloneDock);
+        if constexpr (BuildConfiguration::EditorIncluded)
+        {
+            if (!VerifyCondition(StandaloneHost.QueryRegisteredTabCount() == 1u, "StandaloneWorkspace registers exactly 1 central UV tab"))
+            {
+                return 1;
+            }
+        }
+
+        ThemeRepository Theme {};
+        Theme.ConfigureTheme(ThemePreset::Dark);
+        Components::ConfigureImGuiWorkspaceTheme(StandaloneDock.ActiveTabMetrics(), Theme);
+
+        ControlCentrePanel ControlCentre {};
+        ControlCentre.AttachTypefaces(&Typefaces);
+        ControlCentre.AccessDraftAppearance().Theme = ThemePreset::Dark;
+        ControlCentre.ApplyDraftAppearanceImmediate();
+        ControlCentre.AccessNotificationStream().ClearPending();
+
+        if (!CaptureDockedWorkspacePng(Io, StandaloneDock, ControlCentre, ImageDir / "02-StandaloneUVWorkspaceUI.png"))
+        {
+            return 1;
+        }
+        StandaloneDock.Finalize();
+    }
+
+    // 2. Validate FeatureSet Multi-Workspace Docked Layout + UDIMArchKit + 16-MatCap Shading Tab
+    {
+        EngineConfiguration FeatureSetCfg(EngineConfiguration::ConstructFeatureSetDefault());
+        UVWorkspaceHost     SuiteHost {};
+        SuiteHost.ConfigureLaunchPolicy(FeatureSetCfg);
+        if (!VerifyCondition(SuiteHost.AttachVulkanRasterizer(&Rasterizer), "Attached Vulkan rasterizer to SuiteHost"))
+        {
+            return 1;
+        }
+
+        SuiteHost.AccessSession().LoadSamplePreset(GeometrySpace::SampleAssetPreset::UDIMArchKit);
+        SuiteHost.AccessSession().ActiveInspectorTab = UVInspectorTab::Shading;
+        SuiteHost.AccessSession().ApplyMatCapToActiveSelection(3u);
+
+        Components::HeadlessWorkspaceDockContainer SuiteDock {};
+        const auto WinDesc = Windowing::WindowConfigurationDescriptor::ConstructApplicationWindow("Frontier", 1840, 980);
+        if (!VerifyCondition(SuiteDock.Initialize(WinDesc), "Initialized SuiteDock"))
+        {
+            return 1;
+        }
+
+        SuiteHost.RegisterDockPanes(SuiteDock);
+        if constexpr (BuildConfiguration::EditorIncluded)
+        {
+            if (!VerifyCondition(SuiteHost.QueryRegisteredTabCount() == 5u, "FeatureSet registers UV Viewport alongside 4 peer domain tabs"))
+            {
+                return 1;
+            }
+        }
+
+        ThemeRepository Theme {};
+        Theme.ConfigureTheme(ThemePreset::Dark);
+        Components::ConfigureImGuiWorkspaceTheme(SuiteDock.ActiveTabMetrics(), Theme);
+
+        ControlCentrePanel ControlCentre {};
+        ControlCentre.AttachTypefaces(&Typefaces);
+        ControlCentre.AccessDraftAppearance().Theme = ThemePreset::Dark;
+        ControlCentre.ApplyDraftAppearanceImmediate();
+        ControlCentre.AccessNotificationStream().ClearPending();
+
+        if (!CaptureDockedWorkspacePng(Io, SuiteDock, ControlCentre, ImageDir / "03-FeatureSetUVWorkspaceUI.png"))
+        {
+            return 1;
+        }
+        SuiteDock.Finalize();
+    }
+
+    TypographyRepository::AssignCurrent(nullptr);
+    ImGui::DestroyContext(GuiCtx);
+    Rasterizer.TeardownRasterizer();
+    VkCtx.TeardownContext();
+
+    std::printf("[UVWorkspaceUIValidation] Phase 3 passed: StandaloneWorkspace (FrontierUV) & FeatureSet docked UI snapshots verified.\n");
+    return 0;
+}

@@ -17,6 +17,7 @@ Related governance documents: [FolderStructure.md](FolderStructure.md) · [Codin
 - `affinity`
 - `archive` / `archives` *(use `Repository` or `Registry`; narrow directory exemption for `EngineContent/FontsArchives/`)*
 - `arena`
+- `assembly`
 - `badge`
 - `binding`
 - `bloom`
@@ -25,6 +26,7 @@ Related governance documents: [FolderStructure.md](FolderStructure.md) · [Codin
 - `carousel`
 - `catalog` / `catalogue` *(use `Repository` or `Registry`)*
 - `classification`
+- `complex`
 - `concurrency` / `concurrence` / `concurrent`
 - `context`
 - `continuum`
@@ -37,6 +39,7 @@ Related governance documents: [FolderStructure.md](FolderStructure.md) · [Codin
 - `emitter`
 - `evaluator`
 - `extension` *(strictly restricted: permitted **only** for designated lifecycle coordinators)*
+- `facet` / `facets` *(barred: use `Face` / `Faces`)*
 - `fence`
 - `floating`
 - `flow`
@@ -71,6 +74,7 @@ Related governance documents: [FolderStructure.md](FolderStructure.md) · [Codin
 - `store`
 - `submission`
 - `table`
+- `topology`
 - `vacancy`
 
 ### 1.2 Thematic & Structural Trope Categories
@@ -87,7 +91,7 @@ Related governance documents: [FolderStructure.md](FolderStructure.md) · [Codin
 | **Boolean & bitmask prefixes** | `Is*`, `Has*`, `Was*`, `Can*`, `Should*`, `On*`, `*On*` *(e.g. `CenteredOnMonitor`, `FocusOnShow`)* | Name bitmask options with imperative directives **`Enable*`**, **`Toggle*`**, or **`Assign*`** (`EnableBorderDecoration`, `AssignMonitorCenter`, `AssignInitialFocus`, `TogglePanelVisibility`). Name booleans directly (`VisibilityEnabled`, `Minimized`, `Maximized`). |
 | **Banned variable words** | `flag`, `flags`, `state`, `value` | Describe what the variable actually holds (`WindowAttributeMask`, `AttributeMask`, `PresentationMode`, `ScalarReading`). |
 
-*\* `Traversal` is exempt **only** at `Topology/Selection/SelectionTraversal.{h,cpp}` (explicit user direction).*
+*\* `Traversal` is exempt **only** at `GeometrySpace/Selection/SelectionTraversal.{h,cpp}` (explicit user direction).*
 *† Bare `Record` is banned; composite `RecordEntry` and `RecordToken` are approved (`RecordStore` is barred because `store` is banned).*
 
 ---
@@ -135,7 +139,7 @@ Use the following distinct visual nouns according to their exact structural role
 1. **`Extension` (Strictly Restricted)**:
    Permitted **exclusively** for designated lifecycle coordinators (`RenderExtension`, `PhysicsExtension`, `InputExtension`, `AnnotationExtension`, `WorkspaceExtension`, `RevisionExtension`, `NetworkingExtension`, `AudioExtension`). Barred for general plugins, helpers, or feature add-ons.
 2. **`Traversal` (Single-File Exemption)**:
-   Exempt **only** at `Topology/Selection/SelectionTraversal.{h,cpp}` per explicit user direction. Barred everywhere else.
+   Exempt **only** at `GeometrySpace/Selection/SelectionTraversal.{h,cpp}` per explicit user direction. Barred everywhere else.
 3. **`Record` (Composite-Only Exemption)**:
    Bare `Record` is banned. Only `RecordEntry` and `RecordToken` are approved (`RecordStore` is barred).
 4. **Named Design Patterns (`Observer`, etc.)**:
@@ -164,6 +168,7 @@ Use the following distinct visual nouns according to their exact structural role
 - **2026-11-10**:
   - Barred `bloom` (→ optical glare / luminance scatter such as `VeilingGlareFilter`, `LuminanceGlareDownsample`) and re-affirmed `Hub` barred (`AnnotationHub` → `AnnotationExtension`).
   - Barred `coverage`, `submission`, `adjacency`, `vacancy`, `store` (revoking `RecordStore`), `reclamation`, `predicate`, and `interpolant`.
+  - Barred `facet` / `facets` (use `Face` / `Faces`), `complex`, `topology`, and `assembly` (use `PolygonNetwork` for connected polygon structures).
   - Marked `substrate`, `atlas`, and `slice` as **discouraged (avoid)**.
 
 ---
@@ -172,12 +177,12 @@ Use the following distinct visual nouns according to their exact structural role
 
 Use this combined index to audit identifiers, filenames, directory names, and comments prior to finalizing changes:
 
-- **A**: `action`, `adjacency`, `Aether`, `affinity`, `Ancestor`, `Apex`, `archive` / `archives`, `arena` *(avoid: `atlas`)*
+- **A**: `action`, `adjacency`, `Aether`, `affinity`, `Ancestor`, `Apex`, `archive` / `archives`, `arena`, `Assembly` / `assembly` *(avoid: `atlas`)*
 - **B**: `backend`, `badge`, `Base`, `binding`, `bloom`, `BooleanSwitch` *(renamed to `ExclusiveSelector`)*
-- **C**: `cadence`, `card`, `carousel`, `catalog` / `catalogue`, `Catalyst`, `Child`, `Children`, `classification`, `Commit`, `Common`, `Compose` / `compose`, `concurrence` / `concurrency` / `concurrent`, `Conductor`, `context`, `continuum`, `contract`, `Controller`, `Core`, `coverage`
+- **C**: `cadence`, `card`, `carousel`, `catalog` / `catalogue`, `Catalyst`, `Child`, `Children`, `classification`, `Commit`, `Common`, `Complex` / `complex`, `Compose` / `compose`, `concurrence` / `concurrency` / `concurrent`, `Conductor`, `context`, `continuum`, `contract`, `Controller`, `Core`, `coverage`
 - **D**: `Data`, `Descendant`, `Designation`, `dev`, `Dispatcher`, `Draw` / `draw`
 - **E**: `Element` / `element`, `emblem` / `Emblem`, `Emission` / `Emit` / `emitter`, `Entity`, `evaluator`, `extension` *(restricted — §3.1)*
-- **F**: `family`, `fence`, `flag`, `floating`, `flow`, `Frame` / `frame`
+- **F**: `Facet` / `facet` / `Facets` / `facets`, `family`, `fence`, `flag`, `floating`, `flow`, `Frame` / `frame`
 - **G**: `Genesis`, `glide`, `glyph`, `Goliath`, `Graph` / `graph`
 - **H**: `Handler`, `harness`, `Helios`, `Helper`, `Hierarchy`, `hook`, `Horizon`, `Hub` / `hub`
 - **I**: `Info`, `Inscription` / `inscription`, `interpolant`, `Item` / `item`
@@ -189,7 +194,7 @@ Use this combined index to audit identifiers, filenames, directory names, and co
 - **P**: `palette`, `Parent`, `Pass` / `pass`, `pill`, `pipeline`, `pool`, `popover`, `popup` / `popups`, `predicate`, `probe`, `Processor`, `proof`, `Provider`
 - **R**: `reclamation`, `Record` *(bare & `RecordStore` barred — §3.1)*, `Representation`, `reservoir`, `Role`
 - **S**: `Sentinel`, `Service`, `shell`, `Sibling`, `stage`, `state`, `store`, `Stuff`, `submission`, `Subsystem`, `system` *(avoid: `slice`, `substrate`)*
-- **T**: `table`, `Thing`, `Titan`, `Traversal` *(exempt only at `SelectionTraversal` — §3.1)*, `Trial` / `Trials`, `Tween`
+- **T**: `table`, `Thing`, `Titan`, `Topology` / `topology`, `Traversal` *(exempt only at `SelectionTraversal` — §3.1)*, `Trial` / `Trials`, `Tween`
 - **U**: `Utility`
 - **V**: `vacancy`, `value`, `Vanguard`, `Vortex`
 - **W**: `Worker`

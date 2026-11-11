@@ -75,6 +75,41 @@ public:
         };
     }
 
+    void BlitRgbaRegion(
+        uint32_t       DestinationX,
+        uint32_t       DestinationY,
+        uint32_t       SourceWidthPx,
+        uint32_t       SourceHeightPx,
+        const uint8_t* SourceRgbaBytes) noexcept
+    {
+        if (SourceRgbaBytes == nullptr)
+        {
+            return;
+        }
+        for (uint32_t Row = 0u; Row < SourceHeightPx; ++Row)
+        {
+            const uint32_t TargetY = DestinationY + Row;
+            if (TargetY >= HeightPx)
+            {
+                break;
+            }
+            for (uint32_t Col = 0u; Col < SourceWidthPx; ++Col)
+            {
+                const uint32_t TargetX = DestinationX + Col;
+                if (TargetX >= WidthPx)
+                {
+                    break;
+                }
+                const std::size_t SrcOff = (static_cast<std::size_t>(Row) * SourceWidthPx + Col) * 4u;
+                const std::size_t DstOff = (static_cast<std::size_t>(TargetY) * WidthPx + TargetX) * 4u;
+                PixelBuffer[DstOff + 0u] = SourceRgbaBytes[SrcOff + 0u];
+                PixelBuffer[DstOff + 1u] = SourceRgbaBytes[SrcOff + 1u];
+                PixelBuffer[DstOff + 2u] = SourceRgbaBytes[SrcOff + 2u];
+                PixelBuffer[DstOff + 3u] = 255u;
+            }
+        }
+    }
+
     void RasterizeImGuiBatches(
         const ImDrawData* RenderedBatches,
         int               DestinationOriginX = 0,

@@ -3,10 +3,9 @@
 The **single authoritative naming construction procedure** for **Frontier**: C++20 types, templates,
 concepts, functions, variables, `.slang` shaders, UI controls, and file/folder names.
 **Zero-Tolerance:** eradicate generic programming placeholders, AI clichés, and anthropomorphic
-(kinship / job-title) terms. Names must be **concrete, technical, and domain-specific** — grounded in
-contiguous memory, geometry, topology, radiometry, acoustics, and hardware execution.
-All identifiers use **PascalCase** (with the sole mathematical Greek/Unicode scalar exception in
-`SKILL-Formatting.md` §4).
+(kinship / job-title) terms. All identifiers use **PascalCase** (with the sole mathematical Greek/Unicode scalar exception in
+`SKILL-Formatting.md` §4). Names must be **concrete, technical, and domain-specific** — grounded in
+contiguous memory, geometry, boundary connectivity, radiometry, acoustics, and hardware execution.
 
 🔴 **Companion Blacklist:** Always audit candidate names against `Documentation/BannedWordsVocabulary.md`
 before writing code or documentation.
@@ -22,7 +21,7 @@ then run the 6-gate rejection check.
 1. **State the mechanism in one plain sentence** — what it physically does in memory, math, or GPU silicon.
    *"Recycles preallocated indexed instance slots." "Encodes batched indirect draw arguments."*
 2. **Extract the technical verb/operation + concrete domain noun and fuse them** — e.g.
-   `RegionAllocator`, `IndexedSlotRecycler`, `TokenIssuer`, `HalfEdgeComplex`, `IndirectDrawEncoder`,
+   `RegionAllocator`, `IndexedSlotRecycler`, `TokenIssuer`, `PolygonNetwork`, `IndirectDrawEncoder`,
    `PacketSerializer`.
 3. **Avoid discouraged words** even though they are not hard-banned: avoid `Substrate`, `Atlas`, and
    `Slice` whenever a direct mechanical name (`DeviceInterface`, `HardwareOutput`, `ChartPacker`,
@@ -43,19 +42,19 @@ then run the 6-gate rejection check.
 `Documentation/BannedWordsVocabulary.md` is the canonical blacklist enforced across all identifiers,
 `.h`/`.cpp`/`.slang` files, folders, and comments:
 
-- **Hard-Banned Highlights:** `action`, `adjacency`, `affinity`, `arena`, `backend`, `badge`, `Base`,
+- **Hard-Banned Highlights:** `action`, `adjacency`, `affinity`, `arena`, `Assembly`, `backend`, `badge`, `Base`,
   `binding`, `bloom` (→ `VeilingGlareFilter` / `LuminanceGlareDownsample`), `Cache`, `card`, `carousel`,
-  `classification`, `Commit` (→ `Finalize`/`Enforce`/`Align`/`Resolve`), `Common`, `Compose`/`Composite`
+  `classification`, `Commit` (→ `Finalize`/`Enforce`/`Align`/`Resolve`), `Common`, `Complex`, `Compose`/`Composite`
   (→ `Stack`/`Order`), `concurrency`/`concurrent`, `context`, `continuum`, `contract`, `Core`,
   `coverage`, `Data`, `Designation` (→ `…Token`), `dev`, `Element`, `Emission`/`Emit`/`emitter`,
-  `Entity`, `evaluator`, `fence`, `flag`, `floating`, `flow`, `Frame`, `glyph`, `Graph`,
+  `Entity`, `evaluator`, `Facet`/`Facets` (→ `Face`/`Faces`), `fence`, `flag`, `floating`, `flow`, `Frame`, `glyph`, `Graph`,
   `harness`/`Trial` (→ `…Validation`), `Hierarchy`, `hook`, `Hub`, `Info`, `Inscription`
   (→ `…Rasterization`), `interpolant`, `Item`, `Kernel`, `Kind` (→ `…Category`), `Listener`, `map`,
-  `Matrix`, `member`, `menu`, `mesh` (→ `PolygonComplex`/`PolygonSurface`), `Model`, `Module`,
+  `Matrix`, `member`, `menu`, `mesh` (→ `PolygonNetwork`), `Model`, `Module`,
   `mutation`, `Nexus`, `Node`, `Object`, `occupant`, `palette`, `Pass`, `pill`, `pipeline`, `pool`,
   `popup`/`popover`, `predicate`, `probe`, `reclamation`, `Record` *(bare & `RecordStore` barred; only `RecordEntry`/`RecordToken` approved)*,
   `reservoir`, `Role`, `shell`, `stage`, `state`, `store`, `submission`, `Subsystem`/`system`, `table`,
-  `Traversal` *(exempt only at `Topology/Selection/SelectionTraversal.{h,cpp}`)*, `Tween`, `Utility`,
+  `Topology`, `Traversal` *(exempt only at `GeometrySpace/Selection/SelectionTraversal.{h,cpp}`)*, `Tween`, `Utility`,
   `vacancy`, `value`, `Widget`.
 - **Discouraged (Avoid):** `atlas`, `slice`, `substrate`.
 - **Restricted Lifecycle Suffix (`Extension`):** Permitted **solely** on designated domain lifecycle
