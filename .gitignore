@@ -1,44 +1,31 @@
-# Scratchpad (disposable agent logs, builds, and temp probes)
-_AgentScratch/
+# Third-party fetched archives & toolchains (reproduced via Automation/)
+ExternalPackages/
+EngineContent/FontsArchives/
+
+# Local transient scratchpad
 _ClaudeScratch/
 
-# Build & binary outputs
+# Build & packaged output directories
 Build/
-**/Build/Output/
-Binaries/
 build/
-dist/
+Binaries/
 out/
-*.obj
-*.o
-*.pdb
-*.ilk
-*.exp
-*.exe
-*.dll
-*.so
-*.dylib
-*.lib
-*.a
-*.spv
+dist/
 
-# Third-party trees & Node modules
-ExternalPackages/*
-!ExternalPackages/.gitkeep
-!ExternalPackages/Dependencies.lock.json
-!ExternalPackages/README.md
-**/node_modules
-**/.swiftshader/
+# User project local caches/saves
+Projects/*/Saved/
 
-# Downloaded font archives (restored via Automation/PrepareFonts.py)
-EngineContent/FontArchives/*
-!EngineContent/FontArchives/.gitkeep
-
-# Python & editor caches
+# Editor / OS / Python / Node transient artifacts
+imgui.ini
 __pycache__/
 *.pyc
-.cache/
-.vscode/
-.idea/
-*.local.*
+node_modules/
+**/node_modules/
+*.log
+.DS_Store
+Thumbs.db
+*.swp
 .env
+.env.local
+_Build/
+Experimental/FrontierEditor/dist/

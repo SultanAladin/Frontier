@@ -129,7 +129,7 @@ export function WindCanvas({
           }
           const Length = Math.hypot(VX, VZ);
           if (Length < 0.01) continue;
-          // Reference-style fading flow strokes, evaluated through the combined field.
+          // Reference-style fading flow strokes, evaluated through the composite field.
           // Keep the existing blue/green/gold speed palette rather than the reference teal.
           const StrokeLength = 7 + Math.min(1, Length / 30) * 34;
           const Trail = [[X, Y]];
@@ -185,7 +185,7 @@ export function WindCanvas({
         <span>30+ m/s</span>
       </div>
       <small>
-        Fading flow lines · combined speed colours · 8× time · horizontal XZ
+        Fading flow lines · composite speed colours · 8× time · horizontal XZ
         slice
       </small>
     </div>
@@ -199,7 +199,7 @@ export function WindInspector({ Values, Change, Open, Hidden }) {
     <section className="property-card wind-inspector" data-card="Wind field">
       <div className="wind-section-head">
         <div>
-          <span className="eyebrow">COMBINED FLOW</span>
+          <span className="eyebrow">COMPOSITE FLOW</span>
           <h2>Wind field</h2>
         </div>
         <button

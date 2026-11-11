@@ -31,8 +31,6 @@ import {
   ConsolidateAtmosphereFlags,
 } from "./ScenePolicy.js";
 import WindEditor from "./WindPanel.jsx";
-import GasEditor, { ParticleEditor } from "./GasPanel.jsx";
-import { GasEmitterRowSummary, GasRowSummary, NewGasEmitter } from "./GasSpecification.js";
 import AssetPanel from "./AssetPanel.jsx";
 import { RestoreAssets } from "./AssetDepot.js";
 import MaterialPanel from "./MaterialPanel.jsx";
@@ -59,22 +57,6 @@ const InitialRows = [
   ],
   ["torus", "Torus", "geometry", "editor-torus", "showcase", "Geometry"],
   ["cone", "Cone", "geometry", "editor-cone", "showcase", "Geometry"],
-  [
-    "gas-domain",
-    "Gas Domain",
-    "gas",
-    "local-fog",
-    "showcase",
-    "Volumetric fire and smoke · dormant until fired",
-  ],
-  [
-    "gas-flame",
-    "Flame Source",
-    "gas-emitter",
-    "editor-particle-emitter",
-    "gas-domain",
-    "Emitter · a child of the domain, with its own transform in domain space",
-  ],
   ["cameras", "Cameras", "group", "camera", null, "Camera collection"],
   [
     "camera",
@@ -304,8 +286,6 @@ function OutlinerMetadata(Row, Record = {}, Rows = []) {
       CompactNumber(V("Brightness")) +
       "×"
     );
-  if (Row.Panel === "gas") return GasRowSummary(Record);
-  if (Row.Panel === "gas-emitter") return GasEmitterRowSummary(Record);
   if (Row.Panel === "wind")
     return (
       CompactNumber(V("Speed")) +
@@ -582,36 +562,6 @@ function App() {
     (Row) => Row.Id === WindTarget && Row.Panel === "wind",
   );
   const WindFields = Rows.filter((Row) => Row.Panel === "wind");
-  const [GasTarget, EditGas] = useState(null);
-  const GasOpener = useRef(null);
-  const CloseGas = () => {
-    EditGas(null);
-    requestAnimationFrame(() => {
-      const Target = GasOpener.current?.isConnected
-        ? GasOpener.current
-        : document.querySelector('[aria-label="Expand FluidEditor"]');
-      Target?.focus({ preventScroll: true });
-    });
-  };
-  const GasSubject = Rows.find(
-    (Row) => Row.Id === GasTarget && Row.Panel === "gas",
-  );
-  const GasDomains = Rows.filter((Row) => Row.Panel === "gas");
-  // The emitter's own expanded editor. Same shape as the domain's, a different page behind it.
-  const [ParticleTarget, EditParticles] = useState(null);
-  const ParticleOpener = useRef(null);
-  const CloseParticles = () => {
-    EditParticles(null);
-    requestAnimationFrame(() => {
-      const Target = ParticleOpener.current?.isConnected
-        ? ParticleOpener.current
-        : document.querySelector('[aria-label="Expand ParticleEditor"]');
-      Target?.focus({ preventScroll: true });
-    });
-  };
-  const ParticleSubject = Rows.find(
-    (Row) => Row.Id === ParticleTarget && Row.Panel === "gas-emitter",
-  );
   const [ShaderTarget, SelectShaderTarget] = useState(null),
     [ShaderFloating, FloatShader] = useState(false);
   const ShaderAsset = AssetRecords.find(
@@ -1120,7 +1070,7 @@ function App() {
       [Id]: {
         ...Properties,
         ...(Properties.Fracture
-          ? { Fracture: { ...Properties.Fracture, Precomputed: undefined } }
+          ? { Fracture: { ...Properties.Fracture, Baked: undefined } }
           : {}),
       },
     }));
@@ -1845,38 +1795,6 @@ function App() {
                   );
                 }
               }}
-              OpenParticles={() => {
-                ParticleOpener.current = document.activeElement;
-                EditParticles(Selected);
-              }}
-              OpenGas={() => {
-                GasOpener.current = document.activeElement;
-                EditGas(Selected);
-              }}
-              GasChildren={Rows.filter(
-                (Row) => Row.Parent === Selected && Row.Panel === "gas-emitter",
-              ).map((Row) => ({ ...Row, Values: Values[Row.Id] || {} }))}
-              GasParent={(() => {
-                const Owner = Rows.find(
-                  (Row) => Row.Id === Subject.Parent && Row.Panel === "gas",
-                );
-                return Owner ? { ...Owner, Values: Values[Owner.Id] || {} } : null;
-              })()}
-              SelectRow={SelectRow}
-              AddEmitter={() =>
-                AddRow(
-                  {
-                    Id: "gas-flame",
-                    Name: "Emitter",
-                    Panel: "gas-emitter",
-                    Icon: "editor-particle-emitter",
-                    Parent: Selected,
-                    Description:
-                      "Emitter · a child of the domain, with its own transform in domain space",
-                  },
-                  NewGasEmitter(),
-                )
-              }
               OpenWind={() => {
                 WindOpener.current = document.activeElement;
                 EditWind(Selected);
@@ -2250,51 +2168,6 @@ function App() {
             )}
           </div>
         </>
-      )}
-      {GasSubject && (
-        <GasEditor
-          key={GasSubject.Id}
-          Subject={GasSubject}
-          Values={Values[GasSubject.Id] || {}}
-          Domains={GasDomains}
-          Hidden={Hidden[GasSubject.Id]}
-          SelectDomain={EditGas}
-          Rename={(Name) =>
-            AssignRows((Previous) =>
-              Previous.map((Row) =>
-                Row.Id === GasSubject.Id ? { ...Row, Name } : Row,
-              ),
-            )
-          }
-          Change={(Key, Value) =>
-            AssignValues((Previous) => ({
-              ...Previous,
-              [GasSubject.Id]: { ...Previous[GasSubject.Id], [Key]: Value },
-            }))
-          }
-          Close={CloseGas}
-        />
-      )}
-      {ParticleSubject && (
-        <ParticleEditor
-          key={ParticleSubject.Id}
-          Subject={ParticleSubject}
-          Values={Values[ParticleSubject.Id] || {}}
-          Rename={(Name) =>
-            AssignRows((Previous) =>
-              Previous.map((Row) =>
-                Row.Id === ParticleSubject.Id ? { ...Row, Name } : Row,
-              ),
-            )
-          }
-          Change={(Key, Value) =>
-            AssignValues((Previous) => ({
-              ...Previous,
-              [ParticleSubject.Id]: { ...Previous[ParticleSubject.Id], [Key]: Value },
-            }))
-          }
-          Close={CloseParticles}
-        />
       )}
       {WindSubject && (
         <WindEditor

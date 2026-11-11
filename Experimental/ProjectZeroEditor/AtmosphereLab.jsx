@@ -667,7 +667,7 @@ function Space({ V, Change, Expand, Turn, Orbit }) {
       <p className="graph-note">
         Drag / arrow keys to orbit. Exaggerated shell thickness is a view aid,
         not planet scale. Procedural surface, simplified absorption and single
-        scattering; no native precompute, measured planet imagery or multiple
+        scattering; no native bake, measured planet imagery or multiple
         scattering.
       </p>
     </section>

@@ -8,23 +8,18 @@ const root = fileURLToPath(new URL('.', import.meta.url));
 export default defineConfig({
   root,
   base: './',
-  server: { host: '0.0.0.0', allowedHosts: true },
+  server: { host: '0.0.0.0', allowedHosts: true, proxy: { '/api/construct': 'http://127.0.0.1:5191' } },
   build: {
     rollupOptions: {
       input: {
-        main: resolve(root, 'index.html'),
-        'road-editor': resolve(root, 'road-editor.html'),
+        editor: resolve(root, 'index.html'),
+        cad: resolve(root, 'cad.html'),
       },
     },
   },
   plugins: [{
     name: 'standalone-experimental-pages',
     configureServer(server) {
-      server.middlewares.use('/api/construct', (_req, res) => {
-        res.statusCode = 503;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ ok: false, error: 'Start the native authoring bridge to create engine entities.' }));
-      });
       // Optional dedicated lab landing page; normal editor startup is unchanged.
       if (process.env.FRONTIER_LOD_DEMO === '1') server.middlewares.use((req, _res, next) => {
         if (req.url === '/') req.url = '/cluster-lod.html';

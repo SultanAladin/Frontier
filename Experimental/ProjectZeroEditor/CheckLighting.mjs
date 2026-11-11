@@ -437,7 +437,7 @@ try {
   await Fracture.locator("#bake").click();
   await Fracture.waitForFunction(
     () =>
-      window.FrontierFracture.snapshot().Precomputed &&
+      window.FrontierFracture.snapshot().Baked &&
       !window.FrontierFracture.snapshot().Busy,
   );
   assert(
@@ -456,7 +456,7 @@ try {
     BeforeSignature,
   );
   assert(
-    await Fracture.evaluate(() => window.FrontierFracture.snapshot().Precomputed),
+    await Fracture.evaluate(() => window.FrontierFracture.snapshot().Baked),
   );
   const Export = await Fracture.evaluate(() =>
     window.FrontierFracture.export(),

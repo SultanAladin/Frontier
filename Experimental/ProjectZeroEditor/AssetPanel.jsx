@@ -545,7 +545,7 @@ export default function AssetPanel({
             {Message ||
               "Drag the header or page grip to close · scroll the catalogue independently"}
           </span>
-          <span>HTML LIBRARY · NO NATIVE ASSET CHAIN</span>
+          <span>HTML LIBRARY · NO NATIVE ASSET PIPELINE</span>
         </footer>
       </div>
     </DrawerPanel>

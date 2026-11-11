@@ -7,7 +7,7 @@ export function QuickSymbol(Label, Context = "", Fallback = "visible") {
     Visible: "visible",
     "Star field": "stars",
     Twinkle: "twinkle",
-    Precompute: "bake",
+    Bake: "bake",
     "Use baked": "image",
     "Use baked image": "image",
     Sunlight: "sunlight",

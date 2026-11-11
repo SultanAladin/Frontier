@@ -1,7 +1,7 @@
 //============================================================================================================================================
 //                                                           CHECKINSPECTORORDER.MJS
 //============================================================================================================================================
-// 📦 Cross-inspector section ordering, precomputing placement and live light-response regressions.
+// 📦 Cross-inspector section ordering, baking placement and live light-response regressions.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -170,7 +170,7 @@ const Sections = {
     Card("Bake / image"),
   ],
 };
-const PrecomputeCards = {
+const BakeCards = {
   sun: ["Sun lighting bake", "Sun disk bake"],
   atmosphere: ["Atmosphere bake", "Baked atmosphere"],
   flare: ["Lens flare image"],
@@ -226,16 +226,16 @@ try {
             [Row.ReferenceOnly ? null : "details", ".lp-transform"],
           ]);
       } else await Sequence(Row.Id, Sections[Row.Panel]);
-      if (PrecomputeCards[Row.Panel]) {
+      if (BakeCards[Row.Panel]) {
         const Names = await Page.locator(
           ".inspector-scroll [data-card]",
         ).evaluateAll((Nodes) => Nodes.map((Node) => Node.dataset.card));
         assert.deepEqual(
           Names.slice(-BakeCards[Row.Panel].length),
-          PrecomputeCards[Row.Panel],
+          BakeCards[Row.Panel],
           Row.Id + " baking must be last",
         );
-        const Last = Page.locator(Card(PrecomputeCards[Row.Panel].at(-1)));
+        const Last = Page.locator(Card(BakeCards[Row.Panel].at(-1)));
         assert(
           await Last.evaluate((Node) => {
             const Root = Node.closest("[data-panel]");

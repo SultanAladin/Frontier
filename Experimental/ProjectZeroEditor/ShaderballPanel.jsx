@@ -7,7 +7,7 @@ import {
 } from "./MaterialSpecification.js";
 
 let Mesh;
-function ReadGeometry() {
+function ReadMesh() {
   if (Mesh) return Mesh;
   const Raw = Uint8Array.from(atob(window.NativeAssets.ShaderBall), (Byte) =>
     Byte.charCodeAt(0),
@@ -23,7 +23,7 @@ function ReadGeometry() {
   return Mesh;
 }
 function Rasterize(Size, Angle) {
-  const { Vertices, Indices, Count } = ReadGeometry();
+  const { Vertices, Indices, Count } = ReadMesh();
   const Projected = new Float32Array(Count * 8),
     Depth = new Float32Array(Size * Size).fill(-Infinity),
     Surface = new Float32Array(Size * Size * 6);

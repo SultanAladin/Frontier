@@ -1,95 +1,58 @@
-# Frontier — Agent Instructions
+# Claude & Agent Instructions for Frontier
 
-Frontier is a cross-platform native C++20 engine and general-purpose editor built on Vulkan and Slang,
-accompanied by retained validation exhibits under `Exhibits/`.
-
----
-
-## 🔴 Mandatory Skill Reading — Before Writing Code or Engine Docs
-
-Read these authoritative skill files before producing any C, C++, shader, UI, or engine Markdown in a session.
-Do not load them for chat-only questions or file searches; once loaded, they override all agent defaults:
-
-- `AgenticInstructions/SKILL-Naming.md` — `<Subject><Role>` module naming (19 closed roles) and banned words.
-- `AgenticInstructions/SKILL-Formatting.md` — 142/122-column banners, `[unit]` alignment, Unicode math, Allman style.
-- `AgenticInstructions/SKILL-Emoji.md` — closed emoji whitelist and decision-table rating glyphs.
-- `AgenticInstructions/SKILL-CompactOutputProtocol.md` — skimmer-first output; mandatory comparison table first.
-- `AgenticInstructions/SKILL-SymbolIndex.md` — read `<Folder>/<Folder>.symbolindex` first; inspect narrow line spans.
-
-Report any missing skill file before affected work. Never invent silent exceptions.
+Read this file and the mandatory documents in **§1** at the start of every session before writing
+code, shaders, build scripts, or documentation.
 
 ---
 
-## Folder Ownership
+## 1. Mandatory Session Startup Reading
 
-Follow `Documentation/FolderStructure.md`. Never invent unapproved top-level directories or empty placeholder trees.
-
-| Location               | Responsibility                                                                              |
-|------------------------|---------------------------------------------------------------------------------------------|
-| `Engine/`              | Reusable native C++20 engine subsystems (`<Subject><Role>` units, L0–L6 layered).           |
-| `UI/`                  | Reusable presentation (`CardPanel/`, `ControlPanel/`, `MenuPanel/`) and `EditorPanel/`.     |
-| `Projects/`            | Standalone executable targets (`Project-Zero/`, etc.) consuming `Engine/` and `UI/`.        |
-| `EngineContent/`       | Runtime content (`Icons/`, `FontArchives/`, `MaterialArchives/`, `EnvironmentArchives/`).   |
-| `Exhibits/`            | Retained validation exhibits (`Exhibits/FrontierEngine/`), benchmarks, and proof images.    |
-| `Experimental/`        | Isolated prototypes and research experiments. Never linked into `Engine/`.                  |
-| `Automation/`          | PowerShell and Python build, shader, font, and dependency orchestration scripts.            |
-| `ExternalPackages/`    | Git-ignored third-party trees pinned via `Dependencies.lock.json` (never edit directly).    |
-| `Documentation/`       | `FolderStructure.md`, `Tracker.md`, `Rules/`, and `Plans/{Ongoing,Completed}/`.             |
-| `AgenticInstructions/` | Authoritative `SKILL-*.md` files only — never place plans, reports, or notes here.          |
-| `_AgentScratch/`       | Git-ignored disposable workspace (`logs/`, `build/`, `tmp/`). Never commit deliverables.    |
-
-- Write plans, summaries, and reports in chat unless explicitly instructed to create a file.
-- Maintain a single `Documentation/Tracker.md` when tracking milestones — never create competing per-agent logs.
+| Order | Document | Scope |
+| ----- | -------- | ----- |
+| ① | `Documentation/AgenticInstructions/SKILL-CompactOutputProtocol.md` | Skimmer-first output, mandatory decision tables before choices |
+| ② | `Documentation/AgenticInstructions/SKILL-Emoji.md` | Sole authority on permitted emojis (`🌟`/`✨` forbidden) |
+| ③ | `Documentation/AgenticInstructions/SKILL-Naming.md` | Mechanism-first PascalCase construction & 6-gate test |
+| ④ | `Documentation/AgenticInstructions/SKILL-Formatting.md` | 140-col file banners, 120-col sections, Allman braces, unit tags |
+| ⑤ | `Documentation/BannedWordsVocabulary.md` | Canonical blacklisted terminology across code, files, folders, comments |
+| ⑥ | `Documentation/CodingStandards.md` | ISO C++20 baseline, explicit function prototypes, `concept` templates |
+| ⑦ | `Documentation/FolderStructure.md` | Authoritative repository & `Engine/` module layout |
+| ⑧ | `Documentation/ImportantNotes.md` · `Tracker.md` · `Backlog.md` | Hard invariants, active milestones, and deferred work |
 
 ---
 
-## C++20, Rendering & Runtime Architecture Rules
+## 2. Non-Negotiable Architectural Mandates
 
-- **Language & ABI:** C++20, `/MD` across Windows configurations, `FRONTIER_DEBUG` for debug builds (`_DEBUG` never).
-- **Rendering & Windowing:** **Vulkan** is the primary rendering API; **Slang (`.slang`)** is the primary shader
-  language; **GLFW** (no-OpenGL context) owns platform windows and input; **ThorVG** rasterizes vector icons.
-- **ImGui Multi-Band Composition:** Preserve `ImGui_ImplVulkan_RenderDrawDataBand(draw_data, cmd, band_mode, pipeline)`
-  (`0` = all, `1` = beneath/window grounds, `2` = above/drawers, popups, context menus) so 3D viewport CAD/gizmo passes
-  composite cleanly between window grounds and foreground chrome without vertex reallocation.
-- **Typed Identities:** Every identity uses `Identity<Subject>` with distinct subject tags — no implicit conversions.
-- **Fallible Calls:** Absence or rejection carries a reason via `Deliver<Content>` with a `Refusal` — never
-  `std::optional` where a failure reason exists, and never exceptions across unit seams.
-- **Iterative Solvers:** Convergent computations return `ConvergentResult<T>`, never a bare iterate masking failure.
-- **Precision & Compile-Time Gates:** Prefer `constexpr` and `static_assert` wherever a contract is static. Exported
-  numerical kernels declare their precision guarantees explicitly (`FRONTIER_DECLARES_PRECISION`).
-- **Memory Ownership:** No raw `new`/`delete` outside dedicated extent allocators (`ByteSpace` / `Slot` spaces).
-- **Content & Serialization:** Use `ContentDirectory` and `EngineContent/` (never `AssetDirectory` or `UI/Assets/`).
-  Resolve bundled content relative to the executable path first. All engine-authored configuration and asset descriptors
-  use **TOML (`toml++`)**; JSON is restricted to dependency lockfiles and automation interchange.
-- **Vendor Spellings:** External SDK identifiers remain verbatim (`VkBuffer`, `VkPipeline`, `ImDrawData`); internal code
-  enforces `SKILL-Naming.md` strictly.
+### 🔴 2.1 All Debug Visuals & Viewport Overlays Render on the GPU via `.slang`
+- **Every** viewport overlay — reference grids (`NavigationOverlay`), transform manipulators (`TransformGizmo`), wireframe debug lines/boxes/spheres/rays (`DiagnosticPrimitives`, `SpatialAnnotation`, `VectorAnnotation`), and world/screen text callouts (`TextAnnotation`) — **MUST be drawn directly on the GPU** via dedicated **Slang (`.slang`)** `…Rasterization` units.
+- **NEVER** draw grids, gizmos, or debug overlays on the CPU.
+- **NEVER** draw viewport grids, 3D gizmos, or debug geometry through ImGui (`ImDrawList`). ImGui is strictly restricted to docked UI panels, inspectors, tool ribbons, and chrome controls.
+- **NEVER** scatter inline raw Vulkan draw state across feature/editor code; route all GPU execution through `Engine/GeometricRaster/` (`RenderDeviceInterface`, `IndirectDrawEncoder`) and `.slang` shaders.
 
----
+### 🔴 2.2 Slang (`.slang`) Shader Standard
+- All raster, compute, and image-operation shaders in `Engine/Shaders/` are written in **`.slang`** and compiled via `slangc` (`Automation/PrepareShaderToolchain.py`). Do not add `.glsl` or `.hlsl` files to `Engine/Shaders/`.
 
-## Platforms, Tooling & Dependencies
+### 🔴 2.3 Cross-Platform Portability (Any Device: Windows · Linux · Android)
+- Frontier is strictly cross-platform and must work cleanly on **Windows** (Win32 / x64 / ARM64), **Linux** (X11 & Wayland), **Android** (NDK / `ANativeWindow` / ARM64), and **Headless validation** (`PlatformWindowStub`).
+- Confine OS-specific headers to `PlatformWindow{Win32,X11,Wayland,Android,Stub}.cpp` and platform device implementation `.cpp` files.
+- Always provide portable scalar + ARM64 NEON + x86_64 SSE4.2 paths — never lock math or physics to x86-only intrinsics.
 
-- **Primary Deliverable:** Windows x64 binaries are the default binary target while preserving Windows, Linux, and macOS
-  source portability. Never substitute a Linux binary when a Windows binary is requested.
-- **Shell Discipline:** Execute `.bat` and `.ps1` build/shader drivers through **PowerShell** on Windows (`$env:VAR`,
-  `$null`), never Bash path translation. Never hard-code developer machine paths.
-- **Dependency Integrity:** Restore third-party libraries into `ExternalPackages/` from SHA-256-pinned archives. Never
-  vendor duplicate copies, never delete all of `ExternalPackages/` to fix one package, and **never disable TLS**.
-- **GitHub Actions & Remote Operations:** Never trigger GitHub Actions workflows, pushes, or pull requests without
-  explicit user approval for that operation.
+### 🔴 2.4 Three-Profile Build Architecture (`Editor` · `Development` · `Shipping`)
+- **`Editor` (`-DFRONTIER_PROFILE=Editor` → `FRONTIER_PROFILE_EDITOR=1`)**: Full authoring editor (`Engine/Editor/` compiled & linked), multi-document workspaces, GPU overlays, and diagnostics. Runs in-place without packaging.
+- **`Development` (`-DFRONTIER_PROFILE=Development` → `FRONTIER_PROFILE_DEVELOPMENT=1`)**: Standalone project runtime with developer flags, assertions, profiler, and GPU debug annotations active; `Engine/Editor/` excluded; runs directly from build output **without binary packaging or CI workflows**.
+- **`Shipping` (`-DFRONTIER_PROFILE=Shipping` → `FRONTIER_PROFILE_SHIPPING=1`)**: Production release binary (`Engine/Editor/` excluded at CMake target level, assertions/diagnostics/annotations stripped, release optimizations enabled). Requires **standalone binary packaging** (`Automation/`) and gates release GitHub Actions (run GitHub Actions **only** with explicit user approval).
+
+### 🔴 2.5 ImGui 8-Patch Stack, `Experimental/` HTML Reference & Visual Proofs in `Exhibits/`
+- Third-party packages live in `ExternalPackages/` (git-ignored) and are fetched + SHA-256 verified via `python3 Automation/PrepareDependencies.py`.
+- `ExternalPackages/imgui` (`3bae66c`) **requires all 8 stacked patches (`PatchA`–`PatchH`)** applied in order via `Automation/ApplyImGuiPatches.py` and compiled with `ImDrawIdx=unsigned int`.
+- **`Experimental/` Prototypes Are HTML/JS Only (No C++)**: All reference studios and editor UIs under `Experimental/` (`ProjectZeroEditor`, `FrontierEditor`, `FluidEditor`, `FractureEditor`, `ParticleEditor`, `PhotometricEditor`, `ForceFieldEditor`, `VehicleLab`, `UVEditor`, `TextureStudio`) are strictly HTML/JS/CSS prototypes. **`Experimental/ProjectZeroEditor/`** is the primary UI design reference for shared C++20 components (`Engine/Components/`, `Engine/Workspaces/`, `Engine/Editor/`).
+- **Mandatory Visual Proofs for Every `Exhibits/` Target (`Exhibits/Images/<Domain>/`)**:
+  - Every validation executable in `Exhibits/` **MUST** render deterministic `.png` visual proof images into `Exhibits/Images/<Domain>/` via a CPU software rasterizer, SwiftShader offscreen Vulkan, or rendered diagnostic/comparison charts showing what the user would see when running the feature.
+  - **Zero Excuses Rule**: Never claim a visual proof cannot be shown because the sandbox runs Linux instead of Windows or lacks a physical GPU — always synthesize and present the CPU/offscreen `.png` visual proof!
 
 ---
 
-## Verification & Honest Evidence
+## 3. Initial C++ Bringup Order
 
-Never present untested code as complete. Compilation alone is not runtime verification.
-
-| Work Scope             | Minimum Required Verification                                                         |
-|------------------------|---------------------------------------------------------------------------------------|
-| Native C++ / Shaders   | Clean build + unit/validation execution exercising the changed path.                  |
-| Editor UI / Exhibits   | Automated layout/interaction checks + actual rendered capture when visuals change.    |
-| Defect Repairs         | Reproduce failure first, then prove the repaired behaviour passes.                    |
-| Performance Claims     | Reproducible before/after measurements with hardware, resolution, and scene stated.   |
-
-- Retain permanent validation exhibits and actual captures together under `Exhibits/<ExhibitName>/`.
-- Never use mockups or fabricated numbers as proof. Report unrun or environment-blocked checks explicitly as
-  **blocked / not run**, never passing.
+1. **Dependencies & Build Profiles** (`Automation/`, `ExternalPackages/`, `Engine/Configuration/BuildConfiguration.h`, `CMakeLists.txt`).
+2. **Input & Cross-Platform Windowing** (`Engine/Input/{InputExchange,InputExtension}.{h,cpp}`, `Engine/Windowing/PlatformWindow*`).
+3. **Editor & Workspace Groundwork** (`Engine/Workspaces/`, `Engine/Editor/` target gated off `FRONTIER_EDITOR_ENABLED`, patched ImGui docking host, GPU `.slang` viewport overlay hooks).

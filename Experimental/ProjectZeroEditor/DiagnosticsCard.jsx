@@ -310,7 +310,7 @@ export default function DiagnosticsCard({
         </div>
         <p className="debug-source">
           {Numeric
-            ? "Measured requestAnimationFrame cadence · not engine FPS or GPU execution time"
+            ? "Measured requestAnimationFrame rate · not engine FPS or GPU execution time"
             : Prefs.Metric === "GPU"
               ? "Unavailable · HTML preview has no GPU telemetry or debug rendering."
               : "Current scene records · not draw calls, triangles or memory usage."}

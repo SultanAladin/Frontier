@@ -19,7 +19,7 @@ export default function FracturePanel({ Subject, Values, Change, Expand }) {
     Supported = ["cube", "sphere", "cylinder", "cone"].includes(
       Owner.Primitive,
     ),
-    Ready = Settings.Precomputed?.Signature === Signature(Owner, Settings);
+    Ready = Settings.Baked?.Signature === Signature(Owner, Settings);
   const Assign = (Key, Value) =>
     Change("Fracture", { ...Settings, [Key]: Value });
   return (
@@ -57,7 +57,7 @@ export default function FracturePanel({ Subject, Values, Change, Expand }) {
             className="fracture-diagram"
             dangerouslySetInnerHTML={{ __html: FractureArtwork }}
           />
-          <h4>PRECOMPUTE</h4>
+          <h4>BAKE</h4>
           <div
             className="fracture-mode"
             role="group"
@@ -88,7 +88,7 @@ export default function FracturePanel({ Subject, Values, Change, Expand }) {
           {Settings.Mode === "baked" && (
             <div className="fracture-sdf">
               <label className="switch-row">
-                <span>Precompute SDF per piece</span>
+                <span>Bake SDF per piece</span>
                 <button
                   className={"toggle " + (Settings.PieceSdf ? "on" : "")}
                   role="switch"

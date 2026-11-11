@@ -1,6 +1,9 @@
-# Frontier — Universal Agent Entry Point
+# Frontier — Agent Entry Point
 
-Read `CLAUDE.md` and the five skill files in `AgenticInstructions/` before generating code or documentation.
-These rules bind every coding agent equally (Claude, Arena, Codex, Cursor, etc.) — never maintain a second ruleset.
-Follow `Documentation/FolderStructure.md` for file placement; keep disposable artifacts inside `_AgentScratch/`.
-Never push, open pull requests, or trigger GitHub Actions without explicit user approval.
+Read `CLAUDE.md` and all mandatory governance and skill documents listed in `CLAUDE.md` §1 at the
+start of every session.
+
+These instructions apply identically to every coding agent — never maintain a second divergent
+ruleset here. Follow `Documentation/FolderStructure.md`, `Documentation/BannedWordsVocabulary.md`,
+`Documentation/CodingStandards.md`, `Documentation/ImportantNotes.md`, and `Documentation/Tracker.md`.
+GitHub Actions always require explicit user approval.

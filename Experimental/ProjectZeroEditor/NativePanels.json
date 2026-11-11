@@ -1330,18 +1330,18 @@
         "Default": "#796e60"
       },
       {
-        "Label": "Fetch Precomputed Dome",
+        "Label": "Fetch Baked Dome",
         "Control": "Switch",
-        "Group": "Precomputed Dome",
+        "Group": "Baked Dome",
         "NativeArguments": [
-          "SkyDomePrecomputed"
+          "SkyDomeBaked"
         ],
         "Default": false
       },
       {
         "Label": "Dome Path",
         "Control": "Readout",
-        "Group": "Precomputed Dome",
+        "Group": "Baked Dome",
         "NativeArguments": [
           "QuerySkyDomeLive() ? \"fetch (256^2 RGBA16F)\" : \"march (analytic)\""
         ],
@@ -1350,7 +1350,7 @@
       {
         "Label": "Sheet",
         "Control": "Readout",
-        "Group": "Precomputed Dome",
+        "Group": "Baked Dome",
         "NativeArguments": [
           "SkyDomeSlot == kNoSkyDomeSlot ? \"none resident\"\n                                        : (SkyDomeSeated ? \"resident, staged\" : \"slot only\")"
         ],

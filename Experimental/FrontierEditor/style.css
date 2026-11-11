@@ -55,6 +55,8 @@ input[type=range]{cursor:pointer}
 .inspector-top>div{display:flex;align-items:center;gap:13px;color:#bfbfbf}
 .inspector-top>div span,.inspector-top>div svg{color:#717171}
 .save-status{display:flex;align-items:center;gap:7px;font-size:10px;color:#b4b4b4}
+.cad-launch{margin-left:auto;margin-right:22px;display:flex;align-items:center;gap:7px;color:#92999b;text-decoration:none;font-size:10px;border:1px solid #34383a;background:#222526;padding:7px 10px;border-radius:5px;transition:.18s}
+.cad-launch:hover{color:#e1e4e3;background:#2b2e30;border-color:#44494b}
 .save-status.saved{color:#7c7c7c}
 .unsaved-dot{height:5px;width:5px;background:#b3b3b3;border-radius:50%}
 .inspector-content{max-width:1140px;margin:auto;padding:35px 40px 20px}
