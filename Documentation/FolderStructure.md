@@ -70,7 +70,9 @@ Frontier/
 │   ├── DockingValidation.cpp                      // Trapezoidal multi-window & intra-app docking verification
 │   ├── ControlCentreValidation.cpp                // Control Centre, Controls, Tooltips & .ProjectSpace verification
 │   ├── WorkspacePanesValidation.cpp               // Outliner/LayerStack, Showcase Folder/Entry Inspector & Viewport
-│   └── LifecycleValidation.cpp                    // LifecycleSequence, RuntimeLifecycle, WorkspaceLifecycle & EditorLifecycle
+│   ├── LifecycleValidation.cpp                    // LifecycleSequence, RuntimeLifecycle, WorkspaceLifecycle & EditorLifecycle
+│   ├── WorkspaceRevisionValidation.cpp            // .Space codecs, 215/750 MiB revision & priority ExecutionChannels
+│   └── ContentBrowserValidation.cpp               // ContentBrowser, ColourCodex, Colour Filters & Vertical/Horizontal strips
 │
 ├── Experimental/                                  // HTML/JS reference UIs & studios for C++20 conversion
 │   ├── FrontierEditor/                            // Initial HTML/Vite scene inspector, CAD & icon lab UI
@@ -468,6 +470,9 @@ Frontier/
     │   │   └── ViewportPanel.{h,cpp}              // Edit/Simulate/Play-Pause strip, Construct, Split, Diagnostics & Settings
     │   ├── ControlCentre/                         // Pull-down Control Centre & settings pages
     │   │   └── ControlCentrePanel.{h,cpp}         // Quick Controls, Appearance, Input, Notifications & Workspace
+    │   ├── ContentBrowser/                        // Pull-up ContentBrowser drawer & ColourCodex repository
+    │   │   ├── ColourCodex.{h,cpp}                // Named colour aliases, Colour Filters, contrast ink & TOML persistence
+    │   │   └── ContentBrowserPanel.{h,cpp}        // Bottom-edge ContentBrowser, Grid/Vertical/Horizontal views & colour slots
     │   ├── Controls/                              // Reusable studio UI control primitives
     │   │   ├── ControlAppearance.{h,cpp}          // Shared colour set, OptionalTooltip, smoothstep & section containers
     │   │   ├── ControlTooltip.{h,cpp}             // Light/dark, 4-direction speech tails & diagnostic SplitHeader tooltips

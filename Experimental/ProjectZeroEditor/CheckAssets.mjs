@@ -64,10 +64,10 @@ async function OpenAssets() {
   }
 }
 async function Filter(Origin, Kind) {
-  await Assets.getByRole("group", { name: "Asset origin" })
+  await Assets.getByRole("group", { name: "Content origin" })
     .getByRole("button", { name: Origin, exact: true })
     .click();
-  await Assets.getByRole("navigation", { name: "Asset categories" })
+  await Assets.getByRole("navigation", { name: "Content categories" })
     .getByRole("button", { name: new RegExp("^" + Kind + "\\b") })
     .click();
 }
@@ -262,7 +262,7 @@ try {
     (await Saved()).Values.cube.Material.Channels.colour.Fill,
     "#65ac99",
   );
-  await Assets.getByLabel("Asset name", { exact: true }).fill(
+  await Assets.getByLabel("Content name", { exact: true }).fill(
     "Library jade revised",
   );
   await Assets.getByRole("button", { name: "Rename", exact: true }).click();
@@ -370,7 +370,7 @@ try {
   await Page.setViewportSize({ width: 1440, height: 900 });
   await Settled();
   await Assets.getByRole("button", {
-    name: "Close Asset Browser",
+    name: "Close ContentBrowser",
     exact: true,
   }).click();
   await Settled();

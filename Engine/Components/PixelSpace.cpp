@@ -210,6 +210,34 @@ void PixelSpace::Text(Point2D Position, float PixelSize, ColorRgba Ink, const ch
     CanvasBuffer->AddText(Font, PixelSize * Scale, ImVec2(Phys.X, Phys.Y), PackColor(Ink), Utf8, Utf8End);
 }
 
+void PixelSpace::TextVerticalUp(
+    Point2D     BottomLeftAnchor,
+    float       PixelSize,
+    ColorRgba   Ink,
+    const char* Utf8,
+    const char* Utf8End) noexcept
+{
+    if (!CanvasBuffer || !Utf8 || Ink.Alpha == 0 || PixelSize <= 0.0f)
+    {
+        return;
+    }
+    ImFont* Font = ActiveTypeface ? ActiveTypeface : ImGui::GetFont();
+    if (!Font)
+    {
+        return;
+    }
+    const Point2D Phys        = ToPhysical(BottomLeftAnchor);
+    const int     StartVertex = CanvasBuffer->VtxBuffer.Size;
+    CanvasBuffer->AddText(Font, PixelSize * Scale, ImVec2(Phys.X, Phys.Y), PackColor(Ink), Utf8, Utf8End);
+    for (int Index = StartVertex; Index < CanvasBuffer->VtxBuffer.Size; ++Index)
+    {
+        const float Dx = CanvasBuffer->VtxBuffer[Index].pos.x - Phys.X;
+        const float Dy = CanvasBuffer->VtxBuffer[Index].pos.y - Phys.Y;
+        CanvasBuffer->VtxBuffer[Index].pos.x = Phys.X + Dy;
+        CanvasBuffer->VtxBuffer[Index].pos.y = Phys.Y - Dx;
+    }
+}
+
 void PixelSpace::TextCentered(Rectangle2D Bounds, float PixelSize, ColorRgba Ink, const char *Utf8) noexcept
 {
     if (!Utf8)

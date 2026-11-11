@@ -168,6 +168,8 @@ set(FRONTIER_UI_COMPONENT_SOURCES
     Engine/Components/Panes/InspectorPanel.cpp
     Engine/Components/Panes/ViewportPanel.cpp
     Engine/Components/ControlCentre/ControlCentrePanel.cpp
+    Engine/Components/ContentBrowser/ColourCodex.cpp
+    Engine/Components/ContentBrowser/ContentBrowserPanel.cpp
     Engine/Configuration/InputSettings.cpp
     Engine/Configuration/ProjectSpaceRepository.cpp
     Engine/Lifecycle/WorkspaceLifecycle.cpp
@@ -208,7 +210,10 @@ if(NOT ANDROID)
     list(APPEND FRONTIER_ENGINE_SOURCES Engine/Windowing/PlatformWindowDesktop.cpp)
 endif()
 if(FRONTIER_PROFILE STREQUAL "Editor")
-    list(APPEND FRONTIER_ENGINE_SOURCES Engine/Lifecycle/EditorLifecycle.cpp)
+    list(APPEND FRONTIER_ENGINE_SOURCES
+        Engine/Editor/Explorer/ContentBrowser.cpp
+        Engine/Lifecycle/EditorLifecycle.cpp
+    )
 endif()
 if(NOT FRONTIER_PROFILE STREQUAL "Shipping")
     list(APPEND FRONTIER_ENGINE_SOURCES ${FRONTIER_UI_COMPONENT_SOURCES})
@@ -261,4 +266,5 @@ if(BUILD_TESTING)
     frontier_register_exhibit(WorkspacePanesValidation    Exhibits/WorkspacePanesValidation.cpp)
     frontier_register_exhibit(LifecycleValidation         Exhibits/LifecycleValidation.cpp)
     frontier_register_exhibit(WorkspaceRevisionValidation Exhibits/WorkspaceRevisionValidation.cpp)
+    frontier_register_exhibit(ContentBrowserValidation    Exhibits/ContentBrowserValidation.cpp)
 endif()

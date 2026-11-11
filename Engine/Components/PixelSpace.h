@@ -115,6 +115,7 @@ public:
     [[nodiscard]] ImFont* QueryTypeface() const noexcept;
 
     void Text(Point2D Position, float PixelSize, ColorRgba Ink, const char* Utf8, const char* Utf8End = nullptr) noexcept;
+    void TextVerticalUp(Point2D BottomLeftAnchor, float PixelSize, ColorRgba Ink, const char* Utf8, const char* Utf8End = nullptr) noexcept;
     void TextCentered(Rectangle2D Bounds, float PixelSize, ColorRgba Ink, const char* Utf8) noexcept;
     void TextRightAligned(Rectangle2D Bounds, float PixelSize, ColorRgba Ink, const char* Utf8) noexcept;
     [[nodiscard]] float   MeasureTextWidth(float PixelSize, const char* Utf8, const char* Utf8End = nullptr) const noexcept;

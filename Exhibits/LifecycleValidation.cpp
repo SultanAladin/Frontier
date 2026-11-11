@@ -413,7 +413,16 @@ static_assert(
     const bool WroteExhibit = Canvas.WritePngFile(OutputDirectory / "01-EditorLifecycleWorkspace.png");
     if (!VerifyCondition(WroteExhibit, "01-EditorLifecycleWorkspace.png written") ||
         !VerifyCondition(GpuOverlayHook.TickTotal == 3u, "GPU .slang viewport overlay participant ticked 3 times") ||
-        !VerifyCondition(Editor.InspectReading().RegisteredPaneCount == 3u, "RegisteredPaneCount == 3 (Outliner, Viewport, Inspector)"))
+        !VerifyCondition(Editor.InspectReading().RegisteredPaneCount == 3u, "RegisteredPaneCount == 3 (Outliner, Viewport, Inspector)") ||
+        !VerifyCondition(!Editor.InspectReading().ContentBrowserOpen, "ContentBrowser starts closed behind bottom notch"))
+    {
+        Editor.Finalize();
+        ImGui::DestroyContext(Context);
+        return false;
+    }
+
+    Editor.AccessContentBrowser().AccessPanel().ConfigureShelfExtent(Frontier::ContentShelfExtent::SplitHalf, true);
+    if (!VerifyCondition(Editor.InspectReading().ContentBrowserOpen, "EditorLifecycle reports ContentBrowserOpen when SplitHalf"))
     {
         Editor.Finalize();
         ImGui::DestroyContext(Context);

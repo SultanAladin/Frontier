@@ -2123,7 +2123,7 @@ function App() {
                     ToggleAssets(true);
                   }}
                 >
-                  Asset Browser
+                  ContentBrowser
                 </button>
                 <button
                   onClick={() => {
