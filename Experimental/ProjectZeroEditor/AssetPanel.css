@@ -750,3 +750,123 @@
 .asset-browser .primary:hover {
   background: #ede0cb !important;
 }
+
+/* ColourCodex flat circle swatch + reference-style Asset Details swatch card */
+.asset-colour-circle {
+  display: block;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 1px solid #ffffff26;
+  box-shadow: 0 4px 10px #00000055;
+  transition: transform 0.14s ease;
+}
+.asset-cell:hover .asset-colour-circle {
+  transform: scale(1.06);
+}
+.asset-catalogue.list .asset-colour-circle {
+  width: 37px;
+  height: 37px;
+}
+.colour-asset-cell {
+  cursor: grab;
+}
+.colour-asset-cell:active {
+  cursor: grabbing;
+}
+
+.codex-swatch-card {
+  margin: 14px 0 14px;
+  padding: 24px 22px 22px;
+  min-height: 278px;
+  border-radius: 22px;
+  border: 1px solid #ffffff1c;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 14px 30px #00000048;
+  cursor: grab;
+  user-select: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.codex-swatch-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 34px #00000060;
+}
+.codex-swatch-card:active {
+  cursor: grabbing;
+}
+.codex-card-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 27px;
+  font-weight: 800;
+  line-height: 1.03;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.codex-card-specs {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 32px;
+  font-size: 13px;
+  line-height: 1.38;
+  font-variant-numeric: tabular-nums;
+}
+.codex-card-specs b {
+  font-weight: 700;
+}
+.codex-hex-edit {
+  margin: 8px 0 12px;
+}
+.codex-hex-edit > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 9px;
+  color: #9b9b9b;
+}
+.codex-hex-controls {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.codex-hex-controls input[type="color"] {
+  width: 34px;
+  height: 30px;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid #ffffff1a;
+  background: #1b1b1b;
+  cursor: pointer;
+  flex: none;
+}
+.codex-hex-controls input:not([type="color"]) {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 4px 9px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.asset-split-toggle[aria-pressed="true"] {
+  border-color: #d3c5b270;
+  color: #ece2d1;
+  background: #332e27;
+}
+
+/* Colour slot drop-target highlights across Inspector, ShaderEditor & Outliner */
+body.dragging-codex-colour [data-colour-slot] {
+  outline: 1px dashed #e2c89b99;
+  outline-offset: 2px;
+  border-radius: 8px;
+  transition: outline-color 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+[data-colour-slot][data-colour-drop-over="true"] {
+  outline: 2px solid #f0c97d !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px #f0c97d33 !important;
+}

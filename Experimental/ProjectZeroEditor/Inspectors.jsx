@@ -18,6 +18,7 @@ import { IsEditorCamera } from "./ScenePolicy.js";
 import { WindInspector, WindBinding } from "./WindPanel.jsx";
 import TransformPanel from "./TransformPanel.jsx";
 import MaterialPanel from "./MaterialPanel.jsx";
+import { ColourSlotDropProps } from "./ColourCodex.js";
 import ActionIcon, { QuickSymbol } from "./ActionIcon.jsx";
 import React, { useState, useEffect, useRef } from "react";
 import { SunGizmo } from "../FrontierEditor/environment-graphics.jsx";
@@ -188,6 +189,8 @@ export function Control({
   Disabled = false,
   Compact = false,
 }) {
+  const LatestChange = useRef(Change);
+  LatestChange.current = Change;
   if (!Field) return null;
   const ReadOnly = Disabled || Field.ReadOnly;
   const Label = Field.Label;
@@ -234,14 +237,22 @@ export function Control({
     );
   if (Field.Control === "Colour")
     return (
-      <label className="colour-field">
+      <label
+        className="colour-field"
+        {...(!ReadOnly
+          ? ColourSlotDropProps({
+              Label,
+              AssignHex: (Hex) => LatestChange.current(Hex),
+            })
+          : {})}
+      >
         <span>{Label}</span>
         <input
           aria-label={Label}
           type="color"
           value={Value || "#ffffff"}
           disabled={ReadOnly}
-          onChange={(Event) => Change(Event.target.value)}
+          onChange={(Event) => LatestChange.current(Event.target.value)}
         />
         <output>{(Value || "#ffffff").toUpperCase()}</output>
       </label>

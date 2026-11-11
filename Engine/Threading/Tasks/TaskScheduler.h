@@ -10,7 +10,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Constants/TimeConstants.h"
-#include "Engine/Threading/Tasks/ExecutionCluster.h"
+#include "Engine/Threading/Tasks/ExecutionChannels.h"
 #include "Engine/Threading/Tasks/TaskChannel.h"
 
 #include <cstdint>
@@ -46,8 +46,8 @@ public:
     [[nodiscard]] BudgetWindowReport ExecuteBudgetedWindow(
         uint64_t          TickBudgetMicroseconds   = Constants::DefaultTickBudgetMicroseconds,
         uint64_t          SafetyMarginMicroseconds = Constants::TickSafetyMarginMicroseconds,
-        HeartbeatMonitor* Monitor                  = nullptr,
-        uint32_t          HeartbeatSlot            = 0u) noexcept;
+        ThreadProgressionTracker* Monitor                  = nullptr,
+        uint32_t          ProgressionSlot            = 0u) noexcept;
 
 private:
     TaskChannel& BoundChannel; // [-] - Priority-stratified channel driven by this scheduler

@@ -33,8 +33,8 @@ WorkspaceThread::~WorkspaceThread() noexcept
 }
 
 bool WorkspaceThread::Initialize(
-    HeartbeatMonitor* Monitor,
-    ExecutionCluster* SharedCluster,
+    ThreadProgressionTracker* Monitor,
+    ExecutionChannels* SharedChannels,
     uint64_t          WindowBudgetUs)
 {
     if (RunningMarker.load(std::memory_order_acquire))
@@ -43,11 +43,11 @@ bool WorkspaceThread::Initialize(
     }
 
     BoundMonitor             = Monitor;
-    AttachedCluster          = SharedCluster;
+    AttachedChannels          = SharedChannels;
     ConfiguredWindowBudgetUs = WindowBudgetUs == 0ull ? Constants::DefaultTickBudgetMicroseconds : WindowBudgetUs;
     if (BoundMonitor != nullptr)
     {
-        HeartbeatSlot = BoundMonitor->RegisterThreadSlot("WorkspaceThread");
+        ProgressionSlot = BoundMonitor->RegisterThreadSlot("WorkspaceThread");
     }
 
     PublishSnapshot(0u, 0u, Constants::DefaultGlobalRevisionBudgetBytes, "WorkspaceThread Ready");
@@ -73,15 +73,15 @@ void WorkspaceThread::Finalize() noexcept
         Constants::MicrosecondsPerSecond,
         0ull,
         BoundMonitor,
-        HeartbeatSlot);
+        ProgressionSlot);
     ImmediateCounter.fetch_add(DrainReport.ImmediateExecuted, std::memory_order_relaxed);
     AuthoringCounter.fetch_add(DrainReport.AuthoringExecuted, std::memory_order_relaxed);
     OpportunisticCounter.fetch_add(DrainReport.OpportunisticExecuted, std::memory_order_relaxed);
 
-    if (BoundMonitor != nullptr && HeartbeatSlot != 0u)
+    if (BoundMonitor != nullptr && ProgressionSlot != 0u)
     {
-        BoundMonitor->UnregisterThreadSlot(HeartbeatSlot);
-        HeartbeatSlot = 0u;
+        BoundMonitor->UnregisterThreadSlot(ProgressionSlot);
+        ProgressionSlot = 0u;
     }
 }
 
@@ -226,7 +226,7 @@ void WorkspaceThread::AssistUntilComplete(CompletionCounter& Counter) noexcept
             }
         }
 
-        if (AttachedCluster != nullptr && AttachedCluster->ExecuteOneAvailableTask())
+        if (AttachedChannels != nullptr && AttachedChannels->ExecuteOneAvailableTask())
         {
             continue;
         }
@@ -239,9 +239,9 @@ void WorkspaceThread::RunThreadLoop() noexcept
 {
     while (RunningMarker.load(std::memory_order_acquire))
     {
-        if (BoundMonitor != nullptr && HeartbeatSlot != 0u)
+        if (BoundMonitor != nullptr && ProgressionSlot != 0u)
         {
-            BoundMonitor->RegisterPulse(HeartbeatSlot, 0u);
+            BoundMonitor->RegisterPulse(ProgressionSlot, 0u);
         }
 
         if (Channel.TotalPendingCount() > 0u)
@@ -250,7 +250,7 @@ void WorkspaceThread::RunThreadLoop() noexcept
                 ConfiguredWindowBudgetUs,
                 Constants::TickSafetyMarginMicroseconds,
                 BoundMonitor,
-                HeartbeatSlot);
+                ProgressionSlot);
             ImmediateCounter.fetch_add(Report.ImmediateExecuted, std::memory_order_relaxed);
             AuthoringCounter.fetch_add(Report.AuthoringExecuted + Report.DeterministicExecuted, std::memory_order_relaxed);
             OpportunisticCounter.fetch_add(Report.OpportunisticExecuted, std::memory_order_relaxed);

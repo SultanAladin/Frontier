@@ -6,9 +6,18 @@ import {
   AssetFile,
   AssetKinds,
   DownloadAsset,
+  DownloadColourCodexToml,
   EngineAssets,
   ImportAsset,
+  ImportColourCodexToml,
 } from "./AssetDepot.js";
+import {
+  ChooseCardInk,
+  NormalizeHex,
+  PackColourDragData,
+  ResolveColourEntry,
+  SplitCardHeading,
+} from "./ColourCodex.js";
 
 function FilePreview({ Asset }) {
   const [Source, Show] = useState(Asset.Data || ""),
@@ -81,6 +90,7 @@ function FilePreview({ Asset }) {
     </div>
   );
 }
+
 export default function AssetPanel({
   Open,
   Toggle,
@@ -92,9 +102,17 @@ export default function AssetPanel({
   Apply,
   EditMaterial,
   Targets = [],
+  ApplyColour,
+  ActiveColourTargetLabel,
+  StageChange,
+  OnColourDragChange,
 }) {
   const BuiltIn = useMemo(() => EngineAssets(), []),
     Library = [...Assets, ...BuiltIn];
+  const AllColours = useMemo(
+    () => Library.filter((Item) => Item.Kind === "Colours"),
+    [Library],
+  );
   const [Origin, ChooseOrigin] = useState("All"),
     [Kind, ChooseKind] = useState("Materials"),
     [Query, Search] = useState(""),
@@ -102,14 +120,40 @@ export default function AssetPanel({
     [Selection, Select] = useState("engine-material-0"),
     [Message, Report] = useState(""),
     [Busy, Work] = useState(false),
-    [Rename, RenameDraft] = useState("");
+    [Rename, RenameDraft] = useState(""),
+    [HexDraft, EditHexDraft] = useState("#3B1F3A"),
+    [DrawerStage, SetDrawerStage] = useState("closed"),
+    [RequestedRest, RequestRest] = useState(null);
   const Input = useRef(null),
-    Locked = useRef(false);
+    Locked = useRef(false),
+    RestToken = useRef(0);
+
+  const SnapDrawerTo = (Value) => {
+    RestToken.current += 1;
+    RequestRest({ Value, Token: RestToken.current });
+  };
+
+  useEffect(() => {
+    const OnColourApplied = (Event) => {
+      const Detail = Event.detail;
+      if (Detail?.Colour && Detail?.TargetLabel) {
+        Report(
+          `Applied ${Detail.Colour.Name} (${Detail.Colour.Hex}) → ${Detail.TargetLabel}`,
+        );
+      }
+    };
+    window.addEventListener("frontier:colour-applied", OnColourApplied);
+    return () =>
+      window.removeEventListener("frontier:colour-applied", OnColourApplied);
+  }, []);
+
   const Visible = Library.filter(
     (Asset) =>
       (Origin === "All" || Asset.Origin === Origin) &&
       (Kind === "All" || Asset.Kind === Kind) &&
-      Asset.Name.toLowerCase().includes(Query.toLowerCase()),
+      (Asset.Name + " " + (Asset.Colour?.Hex || ""))
+        .toLowerCase()
+        .includes(Query.toLowerCase()),
   );
   const Current = Library.find((Asset) => Asset.Id === Selection);
   const Bound = Subject?.Panel === "geometry";
@@ -117,7 +161,13 @@ export default function AssetPanel({
   useEffect(() => {
     if (Subject?.Panel === "geometry") ChooseTarget(Subject.Id);
   }, [Subject?.Id]);
+  useEffect(() => {
+    if (Current?.Kind === "Colours" && Current?.Colour?.Hex) {
+      EditHexDraft(Current.Colour.Hex);
+    }
+  }, [Current?.Id, Current?.Colour?.Hex]);
   const Target = Targets.find((Item) => Item.Id === TargetId);
+
   const Create = (
     Material = ResolveMaterial({}),
     Name = "Untitled material",
@@ -149,6 +199,86 @@ export default function AssetPanel({
     Report("Created " + Unique);
     return Asset;
   };
+
+  const CreateColour = (InitialHex = null, BaseName = "Untitled colour") => {
+    if (Assets.length >= 256) {
+      Report(
+        "Library limit reached (256 project/imported assets). Remove an asset first.",
+      );
+      return null;
+    }
+    const Presets = ["#3B1F3A", "#F6B800", "#2454FF", "#E63956", "#10B981"];
+    const Names = new Set(Library.map((Asset) => Asset.Name));
+    let Unique = BaseName,
+      Index = 2;
+    while (Names.has(Unique)) Unique = BaseName + " " + Index++;
+    const ColourCount = Assets.filter((Item) => Item.Kind === "Colours").length;
+    const Colour = ResolveColourEntry({
+      Name: Unique,
+      Hex: InitialHex || Presets[ColourCount % Presets.length],
+      Family: "Project",
+    });
+    const Asset = {
+      Id: "asset-" + crypto.randomUUID(),
+      Name: Unique,
+      Kind: "Colours",
+      Origin: "Project",
+      Colour,
+      Detail:
+        "Browser-authored ColourCodex alias · drag onto any colour slot or double-click to apply.",
+    };
+    Store((Previous) => [...Previous, Asset]);
+    ChooseOrigin("Project");
+    ChooseKind("Colours");
+    Search("");
+    Select(Asset.Id);
+    Report(`Created ${Unique} (${Colour.Hex})`);
+    return Asset;
+  };
+
+  const BeginColourDrag = (Event, ColourEntry) => {
+    PackColourDragData(Event, ColourEntry);
+    document.body.classList.add("dragging-codex-colour");
+    OnColourDragChange?.(true);
+    if (DrawerStage === "full") {
+      SnapDrawerTo(0.46);
+    }
+  };
+
+  const EndColourDrag = () => {
+    document.body.classList.remove("dragging-codex-colour");
+    OnColourDragChange?.(false);
+  };
+
+  const TriggerDoubleClickColour = (Asset) => {
+    if (!Asset?.Colour) return;
+    const AppliedLabel = ApplyColour?.(Asset.Colour);
+    if (AppliedLabel) {
+      Report(
+        `Applied ${Asset.Colour.Name} (${Asset.Colour.Hex}) → ${AppliedLabel}`,
+      );
+    } else {
+      Report("Select an object or focus a colour slot first to apply a colour.");
+    }
+  };
+
+  const UpdateSelectedColourHex = (RawHex) => {
+    if (!Current || Current.Origin === "Engine" || Current.Kind !== "Colours")
+      return;
+    const CleanHex = NormalizeHex(RawHex, Current.Colour.Hex);
+    const NextColour = ResolveColourEntry({
+      ...Current.Colour,
+      Name: Current.Name,
+      Hex: CleanHex,
+    });
+    Store((Previous) =>
+      Previous.map((Asset) =>
+        Asset.Id === Current.Id ? { ...Asset, Colour: NextColour } : Asset,
+      ),
+    );
+    EditHexDraft(CleanHex);
+  };
+
   const Import = async (Event) => {
     if (Locked.current) return;
     const Files = [...Event.target.files];
@@ -160,7 +290,17 @@ export default function AssetPanel({
       Errors = [];
     for (const File of Files.slice(0, Math.min(32, 256 - Assets.length))) {
       try {
-        Added.push(await ImportAsset(File));
+        if (File.name.toLowerCase().endsWith(".toml")) {
+          const ParsedColours = await ImportColourCodexToml(File);
+          Added.push(
+            ...ParsedColours.slice(
+              0,
+              Math.max(0, 256 - Assets.length - Added.length),
+            ),
+          );
+        } else {
+          Added.push(await ImportAsset(File));
+        }
       } catch (Error) {
         Errors.push(Error.message);
       }
@@ -168,7 +308,11 @@ export default function AssetPanel({
     if (Added.length) {
       Store((Previous) => [...Previous, ...Added]);
       ChooseOrigin("Imported");
-      ChooseKind("All");
+      ChooseKind(
+        Added.every((Item) => Item.Kind === Added[0].Kind)
+          ? Added[0].Kind
+          : "All",
+      );
       Search("");
       Select(Added[0].Id);
     }
@@ -178,6 +322,7 @@ export default function AssetPanel({
     Work(false);
     Locked.current = false;
   };
+
   const Remove = async () => {
     if (!Current || Current.Origin === "Engine") return;
     try {
@@ -191,6 +336,12 @@ export default function AssetPanel({
       Report(Error.message);
     }
   };
+
+  const CardInk =
+    Current?.Kind === "Colours" && Current?.Colour
+      ? ChooseCardInk(Current.Colour.Hex)
+      : null;
+
   return (
     <DrawerPanel
       Edge="bottom"
@@ -200,6 +351,11 @@ export default function AssetPanel({
       Label="Asset Browser"
       Name="Asset Browser notch"
       ClassName="asset-drawer"
+      RequestedRest={RequestedRest}
+      StageChange={(NextStage) => {
+        SetDrawerStage(NextStage);
+        StageChange?.(NextStage);
+      }}
     >
       <div className="asset-browser">
         <header className="asset-browser-header drawer-drag-zone">
@@ -217,6 +373,12 @@ export default function AssetPanel({
               + Material
             </button>
             <button
+              disabled={Busy || Assets.length >= 256}
+              onClick={() => CreateColour()}
+            >
+              + Colour
+            </button>
+            <button
               disabled={!Bound || Busy || Assets.length >= 256}
               title={
                 Bound
@@ -229,6 +391,18 @@ export default function AssetPanel({
             >
               Save selected material
             </button>
+            {Kind === "Colours" && (
+              <button
+                onClick={() => {
+                  DownloadColourCodexToml(AllColours, "ColourCodex.toml");
+                  Report(
+                    `Exported ${AllColours.length} colours to ColourCodex.toml`,
+                  );
+                }}
+              >
+                Export .toml
+              </button>
+            )}
             <button
               className="primary"
               disabled={Busy || Assets.length >= 256}
@@ -244,6 +418,17 @@ export default function AssetPanel({
               aria-label="Import assets"
               onChange={Import}
             />
+            <button
+              className="asset-split-toggle"
+              aria-label="Toggle split asset shelf"
+              aria-pressed={DrawerStage === "half"}
+              title="Dock Asset Browser to bottom half so scene colour slots stay visible above"
+              onClick={() =>
+                SnapDrawerTo(DrawerStage === "half" ? 1 : 0.46)
+              }
+            >
+              {DrawerStage === "half" ? "⬜ Full" : "⬒ Split"}
+            </button>
             <button
               aria-label="Close Asset Browser"
               onClick={() => Toggle(false)}
@@ -327,12 +512,23 @@ export default function AssetPanel({
               {Visible.map((Asset) => (
                 <button
                   className={
-                    "asset-cell " + (Asset.Id === Selection ? "selected" : "")
+                    "asset-cell " +
+                    (Asset.Id === Selection ? "selected " : "") +
+                    (Asset.Kind === "Colours" ? "colour-asset-cell" : "")
                   }
                   key={Asset.Id}
                   data-asset-id={Asset.Id}
                   aria-label={"Select asset " + Asset.Name}
                   aria-pressed={Asset.Id === Selection}
+                  draggable={Asset.Kind === "Colours"}
+                  onDragStart={
+                    Asset.Kind === "Colours"
+                      ? (Event) => BeginColourDrag(Event, Asset.Colour)
+                      : undefined
+                  }
+                  onDragEnd={
+                    Asset.Kind === "Colours" ? EndColourDrag : undefined
+                  }
                   onClick={() => {
                     Select(Asset.Id);
                     RenameDraft("");
@@ -341,6 +537,8 @@ export default function AssetPanel({
                     Select(Asset.Id);
                     if (Asset.Kind === "Materials" && Asset.Origin !== "Engine")
                       EditMaterial(Asset.Id);
+                    else if (Asset.Kind === "Colours")
+                      TriggerDoubleClickColour(Asset);
                   }}
                 >
                   <span className="asset-thumbnail">
@@ -348,6 +546,11 @@ export default function AssetPanel({
                       <span
                         className="asset-material-orb"
                         style={{ "--orb": Asset.Material.Channels.colour.Fill }}
+                      />
+                    ) : Asset.Kind === "Colours" ? (
+                      <span
+                        className="asset-colour-circle"
+                        style={{ backgroundColor: Asset.Colour.Hex }}
                       />
                     ) : Asset.Kind === "Fonts" ? (
                       <span className="asset-font-icon">Aa</span>
@@ -371,7 +574,9 @@ export default function AssetPanel({
                   <span className="asset-cell-name">
                     {Asset.Name}
                     <small>
-                      {Asset.Kind} · {Asset.Origin}
+                      {Asset.Kind === "Colours"
+                        ? `${Asset.Colour.Hex} · ${Asset.Origin}`
+                        : `${Asset.Kind} · ${Asset.Origin}`}
                     </small>
                   </span>
                 </button>
@@ -379,7 +584,10 @@ export default function AssetPanel({
               {!Visible.length && (
                 <div className="asset-empty">
                   <h3>No assets found</h3>
-                  <p>Change the filters, import files or create a material.</p>
+                  <p>
+                    Change the filters, import files or create a material or
+                    colour.
+                  </p>
                   <button
                     onClick={() => {
                       Search("");
@@ -400,103 +608,249 @@ export default function AssetPanel({
                   <span className="asset-eyebrow">ASSET DETAILS</span>
                   <span className="asset-origin-label">{Current.Origin}</span>
                 </div>
-                <h2>{Current.Name}</h2>
-                {Current.Kind === "Materials" ? (
-                  <ShaderballPanel
-                    key={Current.Id}
-                    Material={Current.Material}
-                    Compact
-                  />
-                ) : Current.Id === "engine-shaderball" ? (
-                  <ShaderballPanel Material={ResolveMaterial({})} Compact />
-                ) : (
-                  <FilePreview key={Current.Id} Asset={Current} />
-                )}
-                <p>{Current.Detail}</p>
-                <dl>
-                  <dt>Type</dt>
-                  <dd>{Current.Kind}</dd>
-                  <dt>Owner</dt>
-                  <dd>
-                    {Current.Origin === "Engine"
-                      ? "Engine library"
-                      : "Browser project"}
-                  </dd>
-                  {Current.Size !== undefined && (
-                    <>
-                      <dt>File size</dt>
-                      <dd>{(Current.Size / 1024).toFixed(1)} KiB</dd>
-                    </>
-                  )}
-                </dl>
-                {Current.Kind === "Materials" && (
-                  <div className="asset-material-actions">
-                    <label className="asset-assign-target">
-                      Apply to
-                      <select
-                        aria-label="Material assignment target"
-                        value={Target?.Id || ""}
-                        onChange={(Event) => ChooseTarget(Event.target.value)}
-                      >
-                        <option value="" disabled>
-                          Select an object
-                        </option>
-                        {Targets.map((Item) => (
-                          <option key={Item.Id} value={Item.Id}>
-                            {Item.Name}
-                          </option>
+                {Current.Kind === "Colours" && Current.Colour && CardInk ? (
+                  <>
+                    <div
+                      className="codex-swatch-card"
+                      data-contrast={CardInk.contrastLabel}
+                      draggable
+                      onDragStart={(Event) =>
+                        BeginColourDrag(Event, Current.Colour)
+                      }
+                      onDragEnd={EndColourDrag}
+                      onDoubleClick={() => TriggerDoubleClickColour(Current)}
+                      style={{
+                        backgroundColor: Current.Colour.Hex,
+                        color: CardInk.text,
+                        borderColor: CardInk.border,
+                      }}
+                      title="Drag onto any colour slot or double-click to apply"
+                    >
+                      <div className="codex-card-title">
+                        {SplitCardHeading(Current.Name).map((Line, Index) => (
+                          <span key={Index}>{Line}</span>
                         ))}
-                      </select>
-                    </label>
-                    <button
-                      className="primary"
-                      disabled={!Target}
-                      onClick={() => {
-                        Apply(structuredClone(Current.Material), Target.Id);
-                        Report(
-                          "Applied an independent material copy to " +
-                            Target.Name,
-                        );
-                      }}
-                    >
-                      Apply copy to {Target ? Target.Name : "selected object"}
-                    </button>
-                    <button
-                      disabled={
-                        Busy ||
-                        (Current.Origin === "Engine" && Assets.length >= 256)
-                      }
-                      onClick={() => {
-                        if (Current.Origin === "Engine") {
-                          const Copy = Create(Current.Material, Current.Name);
-                          if (Copy) EditMaterial(Copy.Id);
-                        } else EditMaterial(Current.Id);
-                      }}
-                    >
-                      {Current.Origin === "Engine"
-                        ? "Copy & edit in ShaderEditor"
-                        : "Edit in ShaderEditor"}
-                    </button>
-                  </div>
+                      </div>
+                      <div
+                        className="codex-card-specs"
+                        style={{ color: CardInk.muted }}
+                      >
+                        <div>
+                          <b style={{ color: CardInk.text }}>HEX:</b>{" "}
+                          {Current.Colour.Hex}
+                        </div>
+                        <div>
+                          <b style={{ color: CardInk.text }}>RGB:</b>{" "}
+                          {Current.Colour.RGB.join(", ")}
+                        </div>
+                        <div>
+                          <b style={{ color: CardInk.text }}>CMYK:</b>{" "}
+                          {Current.Colour.CMYK.join(", ")}
+                        </div>
+                      </div>
+                    </div>
+                    <p>{Current.Detail}</p>
+                    <dl>
+                      <dt>Type</dt>
+                      <dd>ColourCodex</dd>
+                      <dt>Family</dt>
+                      <dd>{Current.Colour.Family}</dd>
+                      <dt>Target slot</dt>
+                      <dd>{ActiveColourTargetLabel || "Selected item"}</dd>
+                    </dl>
+                    {Current.Origin !== "Engine" && (
+                      <div className="codex-hex-edit">
+                        <label>
+                          Edit colour
+                          <div className="codex-hex-controls">
+                            <input
+                              type="color"
+                              aria-label="Edit codex colour picker"
+                              value={Current.Colour.Hex.toLowerCase()}
+                              onChange={(Event) =>
+                                UpdateSelectedColourHex(Event.target.value)
+                              }
+                            />
+                            <input
+                              aria-label="Edit codex colour hex"
+                              value={HexDraft}
+                              maxLength={7}
+                              onChange={(Event) =>
+                                EditHexDraft(Event.target.value)
+                              }
+                              onBlur={() => UpdateSelectedColourHex(HexDraft)}
+                              onKeyDown={(Event) => {
+                                if (Event.key === "Enter")
+                                  Event.currentTarget.blur();
+                              }}
+                            />
+                          </div>
+                        </label>
+                      </div>
+                    )}
+                    <div className="asset-material-actions">
+                      <button
+                        className="primary"
+                        aria-label="Apply colour to active slot"
+                        onClick={() => TriggerDoubleClickColour(Current)}
+                      >
+                        Apply to {ActiveColourTargetLabel || "colour slot"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          DownloadColourCodexToml(
+                            AllColours,
+                            "ColourCodex.toml",
+                          );
+                          Report(
+                            `Exported ${AllColours.length} colours to ColourCodex.toml`,
+                          );
+                        }}
+                      >
+                        Export ColourCodex.toml
+                      </button>
+                    </div>
+                    <div className="asset-file-actions">
+                      <button
+                        onClick={async () => {
+                          try {
+                            await DownloadAsset(Current);
+                            Report("Downloaded " + Current.Name + ".toml");
+                          } catch (Error) {
+                            Report(Error.message);
+                          }
+                        }}
+                      >
+                        Download .toml
+                      </button>
+                      {Current.Origin === "Engine" ? (
+                        <button
+                          disabled={Busy || Assets.length >= 256}
+                          onClick={() =>
+                            CreateColour(
+                              Current.Colour.Hex,
+                              Current.Name + " copy",
+                            )
+                          }
+                        >
+                          Copy to Project
+                        </button>
+                      ) : (
+                        <button onClick={Remove}>Remove asset</button>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <h2>{Current.Name}</h2>
+                    {Current.Kind === "Materials" ? (
+                      <ShaderballPanel
+                        key={Current.Id}
+                        Material={Current.Material}
+                        Compact
+                      />
+                    ) : Current.Id === "engine-shaderball" ? (
+                      <ShaderballPanel Material={ResolveMaterial({})} Compact />
+                    ) : (
+                      <FilePreview key={Current.Id} Asset={Current} />
+                    )}
+                    <p>{Current.Detail}</p>
+                    <dl>
+                      <dt>Type</dt>
+                      <dd>{Current.Kind}</dd>
+                      <dt>Owner</dt>
+                      <dd>
+                        {Current.Origin === "Engine"
+                          ? "Engine library"
+                          : "Browser project"}
+                      </dd>
+                      {Current.Size !== undefined && (
+                        <>
+                          <dt>File size</dt>
+                          <dd>{(Current.Size / 1024).toFixed(1)} KiB</dd>
+                        </>
+                      )}
+                    </dl>
+                    {Current.Kind === "Materials" && (
+                      <div className="asset-material-actions">
+                        <label className="asset-assign-target">
+                          Apply to
+                          <select
+                            aria-label="Material assignment target"
+                            value={Target?.Id || ""}
+                            onChange={(Event) =>
+                              ChooseTarget(Event.target.value)
+                            }
+                          >
+                            <option value="" disabled>
+                              Select an object
+                            </option>
+                            {Targets.map((Item) => (
+                              <option key={Item.Id} value={Item.Id}>
+                                {Item.Name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          className="primary"
+                          disabled={!Target}
+                          onClick={() => {
+                            Apply(
+                              structuredClone(Current.Material),
+                              Target.Id,
+                            );
+                            Report(
+                              "Applied an independent material copy to " +
+                                Target.Name,
+                            );
+                          }}
+                        >
+                          Apply copy to{" "}
+                          {Target ? Target.Name : "selected object"}
+                        </button>
+                        <button
+                          disabled={
+                            Busy ||
+                            (Current.Origin === "Engine" &&
+                              Assets.length >= 256)
+                          }
+                          onClick={() => {
+                            if (Current.Origin === "Engine") {
+                              const Copy = Create(
+                                Current.Material,
+                                Current.Name,
+                              );
+                              if (Copy) EditMaterial(Copy.Id);
+                            } else EditMaterial(Current.Id);
+                          }}
+                        >
+                          {Current.Origin === "Engine"
+                            ? "Copy & edit in ShaderEditor"
+                            : "Edit in ShaderEditor"}
+                        </button>
+                      </div>
+                    )}
+                    <div className="asset-file-actions">
+                      <button
+                        onClick={async () => {
+                          try {
+                            await DownloadAsset(Current);
+                            Report("Downloaded " + Current.Name);
+                          } catch (Error) {
+                            Report(Error.message);
+                          }
+                        }}
+                      >
+                        Download
+                        {Current.Kind === "Materials" ? " material" : " file"}
+                      </button>
+                      {Current.Origin !== "Engine" && (
+                        <button onClick={Remove}>Remove asset</button>
+                      )}
+                    </div>
+                  </>
                 )}
-                <div className="asset-file-actions">
-                  <button
-                    onClick={async () => {
-                      try {
-                        await DownloadAsset(Current);
-                        Report("Downloaded " + Current.Name);
-                      } catch (Error) {
-                        Report(Error.message);
-                      }
-                    }}
-                  >
-                    Download
-                    {Current.Kind === "Materials" ? " material" : " file"}
-                  </button>
-                  {Current.Origin !== "Engine" && (
-                    <button onClick={Remove}>Remove asset</button>
-                  )}
-                </div>
                 {Current.Origin !== "Engine" && (
                   <form
                     className="asset-rename"
@@ -512,6 +866,14 @@ export default function AssetPanel({
                                 Name,
                                 ...(Asset.Material
                                   ? { Material: { ...Asset.Material, Name } }
+                                  : {}),
+                                ...(Asset.Colour
+                                  ? {
+                                      Colour: ResolveColourEntry({
+                                        ...Asset.Colour,
+                                        Name,
+                                      }),
+                                    }
                                   : {}),
                               }
                             : Asset,
@@ -543,7 +905,9 @@ export default function AssetPanel({
         <footer className="asset-browser-footer">
           <span role="status">
             {Message ||
-              "Drag the header or page grip to close · scroll the catalogue independently"}
+              (Kind === "Colours"
+                ? "Drag any colour circle onto a colour slot or double-click to apply"
+                : "Drag the header or page grip to close · scroll the catalogue independently")}
           </span>
           <span>HTML LIBRARY · NO NATIVE ASSET PIPELINE</span>
         </footer>

@@ -52,7 +52,7 @@ Frontier/
 │   ├── Plans/                                     // Architectural & domain implementation plans + Markdown Studio
 │   │   ├── DocumentFormatsAndInstancePlan.md      // Two-Tier Hybrid .Space format registry & Instance concepts
 │   │   ├── DocumentSpacesAndRevisionPlan.md       // Confirmed .Space codecs, 215/750 MiB revision & workspace tree
-│   │   ├── ThreadingArchitecturePlan.md           // Priority-budgeted ExecutionCluster, domain threads & DebugThread watchdog
+│   │   ├── ThreadingArchitecturePlan.md           // Priority-budgeted ExecutionChannels, domain threads & DebugThread watchdog
 │   │   ├── SessionNotes.md                        // Live Markdown Studio workspace notepad
 │   │   └── MarkdownStudioViewer.html              // Standalone/live Frontier-styled Markdown Studio bundle
 │   ├── FolderStructure.md                         // Canonical repository folder and source layout
@@ -123,7 +123,7 @@ Frontier/
     │   ├── BuildConfiguration.h                   // Compile-time Editor / Development / Shipping policy
     │   ├── InputSettings.{h,cpp}                  // Shortcut chords, conflict validator & pointer sensitivity
     │   ├── ProjectSpaceRepository.{h,cpp}         // Atomic PascalCase .ProjectSpace / .projectspace serializer
-    │   ├── EngineConfiguration.{h,cpp}            // Startup and hardware ExecutionCluster allocation
+    │   ├── EngineConfiguration.{h,cpp}            // Startup and hardware ExecutionChannels allocation
     │   ├── RenderConfiguration.{h,cpp}            // Resolution, swapchain, and multi-sample targets
     │   ├── ProjectConfiguration.{h,cpp}           // Project root, dependency manifests, and toggles
     │   └── WorkspaceConfiguration.{h,cpp}         // Document session preferences and layout defaults
@@ -141,13 +141,13 @@ Frontier/
     │   │   ├── TaskScheduler.{h,cpp}              // 4-tier priority & remaining-slice tick budget scheduler
     │   │   ├── TaskQueue.h                        // Cache-aligned lock-free work-stealing task deque
     │   │   ├── TaskChannel.{h,cpp}                // Typed priority intake & continuation routing channel
-    │   │   └── ExecutionCluster.{h,cpp}           // Hardware-pinned parallel task execution cluster
+    │   │   └── ExecutionChannels.{h,cpp}           // Hardware-pinned parallel task execution cluster
     │   ├── Sync/                                  // Lock-free and leaf synchronization primitives
     │   │   ├── SpinLock.h                         // Leaf-only exponential-backoff atomic spin lock
     │   │   ├── AtomicQueue.h                      // Bounded lock-free MPMC / SPSC ring queue
     │   │   ├── CriticalSection.h                  // OS adaptive sleep-capable mutual exclusion primitive
     │   │   ├── CompletionCounter.h                // Wait-free atomic countdown & continuation trigger
-    │   │   └── HeartbeatMonitor.{h,cpp}           // Cache-line-isolated thread liveness & stall detector
+    │   │   └── ThreadProgressionTracker.{h,cpp}           // Cache-line-isolated thread liveness & stall detector
     │   └── Threads/                               // Dedicated domain & diagnostic thread loops
     │       ├── Game/
     │       │   └── GameThread.{h,cpp}             // Deterministic world ticks, instance logic & gameplay rules

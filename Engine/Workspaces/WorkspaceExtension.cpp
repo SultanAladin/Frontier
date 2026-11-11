@@ -19,8 +19,8 @@ namespace Frontier::Workspaces
 
 WorkspaceExtension::WorkspaceExtension(
     std::size_t GlobalRevisionBudgetBytes,
-    uint32_t    ClusterLaneCount)
-    : RequestedClusterLanes(ClusterLaneCount == 0u ? 1u : ClusterLaneCount)
+    uint32_t    ChannelLaneCount)
+    : RequestedChannelLanes(ChannelLaneCount == 0u ? 1u : ChannelLaneCount)
     , GlobalRevisions(GlobalRevisionBudgetBytes)
 {
 }
@@ -41,7 +41,7 @@ bool WorkspaceExtension::Initialize() noexcept
     {
         return false;
     }
-    if (!Cluster.Initialize(RequestedClusterLanes, &Monitor))
+    if (!Cluster.Initialize(RequestedChannelLanes, &Monitor))
     {
         GlobalRevisions.Finalize();
         return false;

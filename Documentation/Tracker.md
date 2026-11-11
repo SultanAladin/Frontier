@@ -60,9 +60,9 @@ Starting focus agreed with user: **`Input/` + `Editor/` groundwork**.
 
 1. **`Engine/Constants/`**:
    - ✔️ `MathConstants.h`, `PhysicsConstants.h`, `EngineConstants.h` (`64B` container alignment, `215 MiB` per-document revision cap, `750 MiB` global revision cap), and `TimeConstants.h`.
-2. **`Engine/Threading/` (Option A — Priority-Budgeted `ExecutionCluster` + `WorkspaceThread` Only)**:
-   - ✔️ `Sync/`: `SpinLock.h`, `AtomicQueue.h` (bounded Vyukov MPMC ring), `CriticalSection.h`, `CompletionCounter.h` (non-blocking continuation trigger), and `HeartbeatMonitor.{h,cpp}` (`64B` cache-isolated liveness slots).
-   - ✔️ `Tasks/`: `TaskQueue.h`, `TaskChannel.{h,cpp}`, `ExecutionCluster.{h,cpp}` (cooperative `AssistUntilComplete` preventing dependent-task sleep hangs), and `TaskScheduler.{h,cpp}` (`ImmediateCritical` -> `DeterministicTick` -> `WorkspaceAuthoring` -> remaining-budget `OpportunisticSlack`).
+2. **`Engine/Threading/` (Option A — Priority-Budgeted `ExecutionChannels` + `WorkspaceThread` Only)**:
+   - ✔️ `Sync/`: `SpinLock.h`, `AtomicQueue.h` (bounded Vyukov MPMC ring), `CriticalSection.h`, `CompletionCounter.h` (non-blocking continuation trigger), and `ThreadProgressionTracker.{h,cpp}` (`64B` cache-isolated liveness slots).
+   - ✔️ `Tasks/`: `TaskQueue.h`, `TaskChannel.{h,cpp}`, `ExecutionChannels.{h,cpp}` (cooperative `AssistUntilComplete` preventing dependent-task sleep hangs), and `TaskScheduler.{h,cpp}` (`ImmediateCritical` -> `DeterministicTick` -> `WorkspaceAuthoring` -> remaining-budget `OpportunisticSlack`).
    - ✔️ `Threads/Workspace/WorkspaceThread.{h,cpp}`: Dedicated asynchronous workspace authoring & `.Space` codec thread publishing lock-free triple-buffered snapshots (`GameThread` and other domain threads deferred for dedicated design).
 3. **`Engine/Codecs/` (Two-Tier Hybrid `.Space` Containers — Option 1A + Option 2A)**:
    - ✔️ `SpaceContainerCodec.{h,cpp}` (`SpaceContainerEncoder` + `SpaceContainerDecoder`: canonical PascalCase `toml++` Tier 1 manifest + `64B`-aligned Tier 2 binary sections + 64-bit FNV-1a checksums; rejects `.toml`, `.UVChart`, and `.Surface`), `RevisionCodec.{h,cpp}`, `ProjectCodec.{h,cpp}`, `ColourCodec.{h,cpp}`, `FontCodec.{h,cpp}`, `UVCodec.{h,cpp}` (`.UDIM` + `.UVTile`), `ImageCodec.{h,cpp}`, `TextureCodec.{h,cpp}`, `MaterialCodec.{h,cpp}` (`DirectionalLitShading.slang`), and `VectorCodec.{h,cpp}` (geometry codec deferred).

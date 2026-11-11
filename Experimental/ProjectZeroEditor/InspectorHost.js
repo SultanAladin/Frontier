@@ -331,8 +331,74 @@ function Synchronize(Data) {
     Measure();
   });
 }
+let FocusedColorInput = null;
+Mount.addEventListener("focusin", (Event) => {
+  const ColorInput =
+    Event.target?.type === "color"
+      ? Event.target
+      : Event.target?.closest?.("label,.lp-colour,.f-row")?.querySelector?.('input[type="color"]');
+  if (ColorInput) {
+    FocusedColorInput = ColorInput;
+    const SlotName =
+      ColorInput.getAttribute("aria-label") ||
+      ColorInput.closest("label,.f-row")?.textContent?.trim()?.slice(0, 48) ||
+      "Inspector colour";
+    Send("colour-slot-focus", { Label: (Active?.name || "Item") + " · " + SlotName });
+  }
+});
+Mount.addEventListener("dragover", (Event) => {
+  if (!Array.from(Event.dataTransfer?.types || []).includes("application/x-frontier-colour"))
+    return;
+  const Target =
+    Event.target?.type === "color"
+      ? Event.target
+      : Event.target?.closest?.("label,.lp-colour,.f-row")?.querySelector?.('input[type="color"]');
+  if (!Target || Target.disabled) return;
+  Event.preventDefault();
+  Event.dataTransfer.dropEffect = "copy";
+});
+Mount.addEventListener("drop", (Event) => {
+  const Raw = Event.dataTransfer?.getData("application/x-frontier-colour");
+  if (!Raw) return;
+  const Target =
+    Event.target?.type === "color"
+      ? Event.target
+      : Event.target?.closest?.("label,.lp-colour,.f-row")?.querySelector?.('input[type="color"]');
+  if (!Target || Target.disabled) return;
+  Event.preventDefault();
+  try {
+    const Parsed = JSON.parse(Raw);
+    const Hex = String(Parsed.Hex || "").toLowerCase();
+    if (/^#[0-9a-f]{6}$/.test(Hex)) {
+      Target.value = Hex;
+      Target.dispatchEvent(new Event("input", { bubbles: true }));
+      Target.dispatchEvent(new Event("change", { bubbles: true }));
+      FocusedColorInput = Target;
+      Send("colour-applied", {
+        Colour: Parsed,
+        TargetLabel:
+          (Active?.name || "Item") +
+          " · " +
+          (Target.getAttribute("aria-label") || "Colour"),
+      });
+    }
+  } catch {}
+});
 addEventListener("message", (Event) => {
-  if (Event.source !== parent || !Event.data?.ReferenceHost) return;
+  if (Event.source !== parent) return;
+  if (Event.data?.ReferenceApplyColour) {
+    const Target =
+      (FocusedColorInput?.isConnected ? FocusedColorInput : null) ||
+      Mount.querySelector('input[type="color"]:not(:disabled)');
+    const Hex = String(Event.data.Hex || "").toLowerCase();
+    if (Target && /^#[0-9a-f]{6}$/.test(Hex)) {
+      Target.value = Hex;
+      Target.dispatchEvent(new Event("input", { bubbles: true }));
+      Target.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    return;
+  }
+  if (!Event.data?.ReferenceHost) return;
   Synchronize(Event.data);
 });
 const Observer = new ResizeObserver(Measure);

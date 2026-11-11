@@ -12,8 +12,8 @@
 #include "Engine/Constants/EngineConstants.h"
 #include "Engine/Constants/TimeConstants.h"
 #include "Engine/Threading/Sync/CompletionCounter.h"
-#include "Engine/Threading/Sync/HeartbeatMonitor.h"
-#include "Engine/Threading/Tasks/ExecutionCluster.h"
+#include "Engine/Threading/Sync/ThreadProgressionTracker.h"
+#include "Engine/Threading/Tasks/ExecutionChannels.h"
 #include "Engine/Threading/Tasks/TaskChannel.h"
 #include "Engine/Threading/Tasks/TaskScheduler.h"
 
@@ -57,8 +57,8 @@ public:
     WorkspaceThread& operator=(const WorkspaceThread&) = delete;
 
     bool Initialize(
-        HeartbeatMonitor* Monitor        = nullptr,
-        ExecutionCluster* SharedCluster  = nullptr,
+        ThreadProgressionTracker* Monitor        = nullptr,
+        ExecutionChannels* SharedChannels  = nullptr,
         uint64_t          WindowBudgetUs = Constants::DefaultTickBudgetMicroseconds);
 
     void Finalize() noexcept;
@@ -93,8 +93,8 @@ public:
     void AssistUntilComplete(CompletionCounter& Counter) noexcept;
 
     [[nodiscard]] bool              QueryRunning() const noexcept { return RunningMarker.load(std::memory_order_acquire); }
-    [[nodiscard]] uint32_t          QueryHeartbeatSlot() const noexcept { return HeartbeatSlot; }
-    [[nodiscard]] ExecutionCluster* AccessSharedCluster() const noexcept { return AttachedCluster; }
+    [[nodiscard]] uint32_t          QueryProgressionSlot() const noexcept { return ProgressionSlot; }
+    [[nodiscard]] ExecutionChannels* AccessSharedChannels() const noexcept { return AttachedChannels; }
     [[nodiscard]] std::size_t       QueryPendingTaskCount() const noexcept { return Channel.TotalPendingCount(); }
 
 private:
@@ -102,9 +102,9 @@ private:
 
     TaskChannel                                Channel;                            // [-]     - Dedicated workspace priority channel
     TaskScheduler                              Scheduler;                          // [-]     - Window-budgeted task scheduler
-    HeartbeatMonitor*                          BoundMonitor            = nullptr;  // [-]     - Optional watchdog monitor
-    ExecutionCluster*                          AttachedCluster         = nullptr;  // [-]     - Optional parallel execution cluster
-    uint32_t                                   HeartbeatSlot           = 0u;       // [idx]   - Registered watchdog slot
+    ThreadProgressionTracker*                          BoundMonitor            = nullptr;  // [-]     - Optional watchdog monitor
+    ExecutionChannels*                          AttachedChannels         = nullptr;  // [-]     - Optional parallel execution cluster
+    uint32_t                                   ProgressionSlot           = 0u;       // [idx]   - Registered watchdog slot
     uint64_t                                   ConfiguredWindowBudgetUs = Constants::DefaultTickBudgetMicroseconds; // [us] - Window budget
     std::atomic<bool>                          RunningMarker           { false };  // [-]     - Dedicated OS loop indicator
     std::atomic<uint64_t>                      CancellationEpoch       { 1ull };   // [count] - Cooperative cancellation epoch

@@ -3,6 +3,13 @@ import {
   MaterialTypes,
   ResolveMaterial,
 } from "./MaterialSpecification.js";
+import {
+  BuiltInColourCodex,
+  ParseColourCodexToml,
+  ResolveColourEntry,
+  SerializeColourCodexToml,
+} from "./ColourCodex.js";
+
 export async function AssetFile(Id, Value, Remove = false) {
   return new Promise((Resolve, Reject) => {
     const Request = indexedDB.open("Frontier.ProjectZero.Assets", 1);
@@ -33,6 +40,7 @@ export async function AssetFile(Id, Value, Remove = false) {
     };
   });
 }
+
 export function EngineAssets() {
   return [
     ...MaterialTypes.map((Type, Index) => ({
@@ -45,6 +53,15 @@ export function EngineAssets() {
         Name: Type + " surface",
       },
       Detail: "Built-in HTML authoring preset. Not a resolved native slab.",
+    })),
+    ...BuiltInColourCodex.map((Colour, Index) => ({
+      Id: "engine-colour-" + Index,
+      Name: Colour.Name,
+      Kind: "Colours",
+      Origin: "Engine",
+      Colour,
+      Detail:
+        "ColourCodex alias · drag onto any colour slot or double-click to apply.",
     })),
     ...["Luna", "Ember", "Glacier", "Sulfur", "Shroud", "Shard"].map(
       (Name, Index) => ({
@@ -84,9 +101,11 @@ export function EngineAssets() {
     },
   ];
 }
+
 export const AssetKinds = [
   "All",
   "Materials",
+  "Colours",
   "Images",
   "Fonts",
   "Models",
@@ -94,21 +113,49 @@ export const AssetKinds = [
   "Code",
   "Other",
 ];
+
 export function FileKind(Name) {
   const Extension = Name.split(".").at(-1).toLowerCase();
   return ["png", "jpg", "jpeg", "webp", "gif"].includes(Extension)
     ? "Images"
-    : ["ttf", "otf", "woff", "woff2"].includes(Extension)
-      ? "Fonts"
-      : ["obj", "gltf", "glb", "fbx", "mesh"].includes(Extension)
-        ? "Models"
-        : ["slang", "glsl", "hlsl", "cpp", "h", "wgsl"].includes(Extension)
-          ? "Code"
-          : "Other";
+    : Extension === "toml"
+      ? "Colours"
+      : ["ttf", "otf", "woff", "woff2"].includes(Extension)
+        ? "Fonts"
+        : ["obj", "gltf", "glb", "fbx", "mesh"].includes(Extension)
+          ? "Models"
+          : ["slang", "glsl", "hlsl", "cpp", "h", "wgsl"].includes(Extension)
+            ? "Code"
+            : "Other";
 }
+
+export async function ImportColourCodexToml(File) {
+  if (File.size > 2 * 1024 * 1024)
+    throw Error("ColourCodex TOML must be below 2 MB.");
+  const Entries = ParseColourCodexToml(await File.text());
+  if (!Entries.length)
+    throw Error(File.name + ": no valid ColourCodex entries found in TOML.");
+  return Entries.map((Colour) => ({
+    Id: "asset-" + crypto.randomUUID(),
+    Name: Colour.Name,
+    Kind: "Colours",
+    Origin: "Imported",
+    Size: File.size,
+    Colour,
+    Detail:
+      "Imported from " +
+      File.name +
+      " · drag onto any colour slot or double-click to apply.",
+  }));
+}
+
 export async function ImportAsset(File) {
   if (File.size > 16 * 1024 * 1024)
     throw Error(File.name + ": maximum file size is 16 MB.");
+  if (File.name.toLowerCase().endsWith(".toml")) {
+    const ImportedColours = await ImportColourCodexToml(File);
+    return ImportedColours[0];
+  }
   const Asset = {
     Id: "asset-" + crypto.randomUUID(),
     Name: File.name,
@@ -156,9 +203,25 @@ export async function ImportAsset(File) {
   await AssetFile(Asset.Id, File);
   return Asset;
 }
+
+export function DownloadColourCodexToml(ColourAssets, Filename = "ColourCodex.toml") {
+  const TomlText = SerializeColourCodexToml(ColourAssets);
+  const BlobData = new Blob([TomlText], { type: "application/toml;charset=utf-8" });
+  const Link = document.createElement("a"),
+    Url = URL.createObjectURL(BlobData);
+  Link.href = Url;
+  Link.download = Filename;
+  Link.click();
+  setTimeout(() => URL.revokeObjectURL(Url), 1000);
+}
+
 export async function DownloadAsset(Asset) {
   let BlobData;
-  if (Asset.Kind === "Materials")
+  if (Asset.Kind === "Colours") {
+    BlobData = new Blob([SerializeColourCodexToml([Asset])], {
+      type: "application/toml;charset=utf-8",
+    });
+  } else if (Asset.Kind === "Materials")
     BlobData = new Blob(
       [
         JSON.stringify(
@@ -188,21 +251,24 @@ export async function DownloadAsset(Asset) {
     Url = URL.createObjectURL(BlobData);
   Link.href = Url;
   Link.download =
-    Asset.Kind === "Materials"
-      ? Asset.Name + ".material.json"
-      : Asset.Id === "engine-shaderball"
-        ? "ShaderBall.mesh"
-        : Asset.Origin === "Engine"
-          ? Asset.Name +
-            (Asset.Kind === "Images"
-              ? ".jpg"
-              : Asset.Kind === "Fonts"
-                ? ".ttf"
-                : ".svg")
-          : Asset.Name;
+    Asset.Kind === "Colours"
+      ? Asset.Name.replace(/\s+/g, "") + ".toml"
+      : Asset.Kind === "Materials"
+        ? Asset.Name + ".material.json"
+        : Asset.Id === "engine-shaderball"
+          ? "ShaderBall.mesh"
+          : Asset.Origin === "Engine"
+            ? Asset.Name +
+              (Asset.Kind === "Images"
+                ? ".jpg"
+                : Asset.Kind === "Fonts"
+                  ? ".ttf"
+                  : ".svg")
+            : Asset.Name;
   Link.click();
   setTimeout(() => URL.revokeObjectURL(Url), 1000);
 }
+
 export function RestoreAssets(Records) {
   const Seen = new Set();
   return (Array.isArray(Records) ? Records : [])
@@ -235,6 +301,14 @@ export function RestoreAssets(Records) {
           : "Restored browser asset",
       ...(Asset.Kind === "Materials"
         ? { Material: ResolveMaterial({ Material: Asset.Material }) }
+        : {}),
+      ...(Asset.Kind === "Colours"
+        ? {
+            Colour: ResolveColourEntry({
+              ...Asset.Colour,
+              Name: Asset.Name || Asset.Colour?.Name,
+            }),
+          }
         : {}),
       ...(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(
         Asset.Thumbnail,
