@@ -191,9 +191,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .workspace-grid {
     display: grid;
     grid-template-columns: var(--left-w) minmax(0, 1fr) var(--right-w);
+    grid-template-rows: minmax(0, 1fr);
     gap: 2px;
     width: 100vw;
     height: 100vh;
+    max-height: 100vh;
     background: var(--fr-root-gap);
     transition: grid-template-columns 0.24s cubic-bezier(0.22, 1, 0.36, 1);
   }
@@ -218,6 +220,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     background: var(--fr-dock);
     display: flex;
     flex-direction: column;
+    height: 100%;
+    max-height: 100vh;
     min-width: 0;
     min-height: 0;
     overflow: hidden;
@@ -557,8 +561,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   }
 
   .tree-scroll {
-    flex: 1;
+    flex: 1 1 0;
+    min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 10px 10px 16px;
     display: flex;
     flex-direction: column;
@@ -940,20 +946,27 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   }
 
   .document-stage {
-    flex: 1;
+    flex: 1 1 0;
     min-height: 0;
+    height: 100%;
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     background: var(--fr-canvas);
     overflow: hidden;
   }
 
   .document-stage.mode-split {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
   }
 
   .raw-editor-pane {
-    overflow: auto;
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: auto;
+    overscroll-behavior: contain;
     background: #0b0c0f;
     border-right: 1px solid var(--fr-well-border);
     font-family: var(--font-mono);
@@ -987,7 +1000,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   }
 
   .rendered-pane {
+    height: 100%;
+    min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
     background: var(--fr-canvas);
     padding: 28px 34px 72px;
   }
@@ -1260,9 +1277,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   }
 
   .notepad-textarea {
-    flex: 1;
+    flex: 1 1 0;
     width: 100%;
+    height: 100%;
     min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     border: none;
     outline: none;
     resize: none;
@@ -1308,8 +1328,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   }
 
   .inspector-scroll {
-    flex: 1;
+    flex: 1 1 0;
+    min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 14px;
     display: flex;
     flex-direction: column;
@@ -1532,7 +1554,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <!-- =======================================================================
        CENTER PANE: MARKDOWN VIEWPORT (CLEAN TAB STRIP — NO TOP NOTCH)
        ======================================================================= -->
-  <main class="dock-pane">
+  <main class="dock-pane" id="centerPane">
     <div class="tab-strip" id="tabsStrip"></div>
 
     <div class="viewport-top-strip">
@@ -1659,7 +1681,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         </div>
       </div>
 
-      <div class="inspector-card" style="flex:1;min-height:180px;">
+      <div class="inspector-card">
         <div class="inspector-card-header">
           <span class="inspector-card-title">Section Outline</span>
           <span class="inspector-pill" id="outlineCountPill">0</span>
@@ -1702,8 +1724,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   let noteSaveTimer = null;
   let noteDirty = false;
 
-  // Pre-open Plan docs in center tabs (excluding SessionNotes.md so center starts on the active Plan)
-  DOCS.filter(d => String(d.group).startsWith('Plans') && d.name !== 'SessionNotes.md').forEach(d => openTabs.push(d.path));
+  // Pre-open Plan docs in center tabs (excluding SessionNotes.md / Note-*.md so center starts on the active Plan)
+  DOCS.filter(d => String(d.group).startsWith('Plans') && d.name !== 'SessionNotes.md' && !d.name.startsWith('Note-')).forEach(d => openTabs.push(d.path));
   if (openTabs.length === 0 && DOCS.length > 0) {
     openTabs.push(DOCS[0].path);
   }
@@ -1741,47 +1763,88 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     wheelFrames.set(el, requestAnimationFrame(step));
   }
 
-  function attachSmoothWheelScroll(el) {
-    if (!el) return;
-    el.addEventListener('wheel', e => {
-      if (e.ctrlKey || e.metaKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
-      const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
-      if (maxTop <= 0) return;
+  function glideWheelDelta(el, rawDeltaY, deltaMode) {
+    if (!el || !rawDeltaY) return false;
+    const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+    if (maxTop <= 0) return false;
 
-      // Convert line/page wheel units to pixels and glide smoothly at 60fps
-      let dy = e.deltaY;
-      if (e.deltaMode === 1) dy *= 32;
-      else if (e.deltaMode === 2) dy *= el.clientHeight * 0.85;
+    let dy = rawDeltaY;
+    if (deltaMode === 1) dy *= 36;
+    else if (deltaMode === 2) dy *= el.clientHeight * 0.85;
 
-      // Smooth discrete wheel steps & medium trackpad flicks smoothly
-      e.preventDefault();
-      const base = wheelTargets.has(el) ? wheelTargets.get(el) : el.scrollTop;
-      const next = Math.min(maxTop, Math.max(0, base + dy));
-      wheelTargets.set(el, next);
+    const base = wheelTargets.has(el) ? wheelTargets.get(el) : el.scrollTop;
+    const next = Math.min(maxTop, Math.max(0, base + dy));
+    wheelTargets.set(el, next);
 
-      if (!wheelFrames.has(el)) {
-        const tick = () => {
-          const target = wheelTargets.get(el);
-          if (target === undefined) {
-            wheelFrames.delete(el);
-            return;
-          }
-          const diff = target - el.scrollTop;
-          if (Math.abs(diff) < 0.6) {
-            el.scrollTop = target;
-            wheelTargets.delete(el);
-            wheelFrames.delete(el);
-            return;
-          }
-          el.scrollTop += diff * 0.24;
-          wheelFrames.set(el, requestAnimationFrame(tick));
-        };
+    // Immediate first-step response + 60fps cubic glide
+    const initialDiff = next - el.scrollTop;
+    if (Math.abs(initialDiff) >= 0.5) {
+      el.scrollTop += initialDiff * 0.26;
+    }
+
+    if (!wheelFrames.has(el)) {
+      const tick = () => {
+        const target = wheelTargets.get(el);
+        if (target === undefined) {
+          wheelFrames.delete(el);
+          return;
+        }
+        const diff = target - el.scrollTop;
+        if (Math.abs(diff) < 0.6) {
+          el.scrollTop = target;
+          wheelTargets.delete(el);
+          wheelFrames.delete(el);
+          return;
+        }
+        el.scrollTop += diff * 0.26;
         wheelFrames.set(el, requestAnimationFrame(tick));
-      }
-    }, { passive: false });
+      };
+      wheelFrames.set(el, requestAnimationFrame(tick));
+    }
+    return true;
   }
 
-  document.querySelectorAll('.smooth-scroll-surface').forEach(attachSmoothWheelScroll);
+  window.addEventListener('wheel', e => {
+    if (e.ctrlKey || e.metaKey || !e.deltaY || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+
+    let scrollEl = e.target.closest('.smooth-scroll-surface');
+    if (!scrollEl) {
+      if (e.target.closest('#centerPane')) {
+        scrollEl = viewMode === 'source'
+          ? document.getElementById('sourcePane')
+          : document.getElementById('previewPane');
+      } else if (e.target.closest('#leftPane')) {
+        scrollEl = document.getElementById('treeContainer');
+      } else if (e.target.closest('#rightPane')) {
+        scrollEl = activeRightTab === 'notepad'
+          ? document.getElementById('notepadTextarea')
+          : document.getElementById('inspectorView');
+      } else {
+        scrollEl = viewMode === 'source'
+          ? document.getElementById('sourcePane')
+          : document.getElementById('previewPane');
+      }
+    }
+
+    if (glideWheelDelta(scrollEl, e.deltaY, e.deltaMode)) {
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  window.addEventListener('keydown', e => {
+    const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea') return;
+    const scrollEl = viewMode === 'source'
+      ? document.getElementById('sourcePane')
+      : document.getElementById('previewPane');
+    if (!scrollEl) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); glideWheelDelta(scrollEl, 96, 0); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); glideWheelDelta(scrollEl, -96, 0); }
+    else if (e.key === 'PageDown') { e.preventDefault(); glideWheelDelta(scrollEl, scrollEl.clientHeight * 0.82, 0); }
+    else if (e.key === 'PageUp') { e.preventDefault(); glideWheelDelta(scrollEl, -scrollEl.clientHeight * 0.82, 0); }
+    else if (e.key === 'Home') { e.preventDefault(); animateScrollTo(scrollEl, 0, 320); }
+    else if (e.key === 'End') { e.preventDefault(); animateScrollTo(scrollEl, scrollEl.scrollHeight, 320); }
+  });
 
   // =========================================================================
   // PANE OPEN / CLOSE WITH X + REOPEN PILLS
