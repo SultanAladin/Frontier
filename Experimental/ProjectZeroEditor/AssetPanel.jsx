@@ -95,6 +95,28 @@ function FilePreview({ Asset }) {
   );
 }
 
+const BrowserThemes = {
+  OLED: { Panel: "#080809", Section: "#121214", Inset: "#0d0d10", Raised: "#1e1e22", Selected: "#1b2434", Border: "rgba(255,255,255,0.08)", Text: "#f2f2f5", Muted: "#8d9099" },
+  Dark: { Panel: "#121214", Section: "#1b1b1f", Inset: "#151518", Raised: "#27272c", Selected: "#232d40", Border: "rgba(255,255,255,0.09)", Text: "#ededf0", Muted: "#9497a1" },
+  Light: { Panel: "#f4f5f7", Section: "#ffffff", Inset: "#eaecf0", Raised: "#e2e5eb", Selected: "#dbe7ff", Border: "rgba(18,22,30,0.12)", Text: "#15171c", Muted: "#5e6470" },
+  Sepia: { Panel: "#f2eadb", Section: "#fbf6ec", Inset: "#e7decb", Raised: "#dfd3bc", Selected: "#e5d5b5", Border: "rgba(56,42,20,0.14)", Text: "#2b2216", Muted: "#726149" },
+  Dracula: { Panel: "#1e1f29", Section: "#282a36", Inset: "#191a23", Raised: "#343746", Selected: "#383c56", Border: "rgba(255,255,255,0.10)", Text: "#f8f8f2", Muted: "#9ea4c2" },
+  Nord: { Panel: "#242933", Section: "#2e3440", Inset: "#1f242d", Raised: "#3b4252", Selected: "#3b4b5e", Border: "rgba(216,222,233,0.11)", Text: "#eceff4", Muted: "#9aa5b8" },
+  GitHub: { Panel: "#0d1117", Section: "#161b22", Inset: "#090d12", Raised: "#21262d", Selected: "#1f2d42", Border: "rgba(240,246,252,0.10)", Text: "#e6edf3", Muted: "#8b949e" },
+};
+
+function BrowserSvgIcon({ Name }) {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {Name === "search" && <><circle cx="11" cy="11" r="7" /><path d="m21 21-4.35-4.35" /></>}
+      {Name === "grid" && <><rect x="3" y="3" width="7" height="7" rx="1.4" /><rect x="14" y="3" width="7" height="7" rx="1.4" /><rect x="3" y="14" width="7" height="7" rx="1.4" /><rect x="14" y="14" width="7" height="7" rx="1.4" /></>}
+      {Name === "list" && <><path d="M4 6h.01M9 6h11M4 12h.01M9 12h11M4 18h.01M9 18h11" /></>}
+      {Name === "vertical" && <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9.5 4v16M14.5 4v16" /></>}
+      {Name === "horizontal" && <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9.5h18M3 14.5h18" /></>}
+    </svg>
+  );
+}
+
 export default function AssetPanel({
   Open,
   Toggle,
@@ -110,6 +132,7 @@ export default function AssetPanel({
   ActiveColourTargetLabel,
   StageChange,
   OnColourDragChange,
+  Appearance = {},
 }) {
   const BuiltIn = useMemo(() => EngineAssets(), []),
     Library = [...Assets, ...BuiltIn];
@@ -406,6 +429,20 @@ export default function AssetPanel({
       ? ChooseCardInk(Visible[0].Colour.Hex)
       : null;
 
+  const ThemeSpec = BrowserThemes[Appearance?.Theme] || BrowserThemes.Dark;
+  const BrowserThemeVars = {
+    "--cb-panel": ThemeSpec.Panel,
+    "--cb-section": ThemeSpec.Section,
+    "--cb-inset": ThemeSpec.Inset,
+    "--cb-raised": ThemeSpec.Raised,
+    "--cb-selected": ThemeSpec.Selected,
+    "--cb-border": ThemeSpec.Border,
+    "--cb-text": ThemeSpec.Text,
+    "--cb-muted": ThemeSpec.Muted,
+    "--cb-accent": Appearance?.Accent || "#3b82f6",
+    "--cb-radius": (Appearance?.["Corner radius"] ?? 16) + "px",
+  };
+
   return (
     <DrawerPanel
       Edge="bottom"
@@ -421,7 +458,7 @@ export default function AssetPanel({
         StageChange?.(NextStage);
       }}
     >
-      <div className="asset-browser" aria-label="ContentBrowser">
+      <div className="asset-browser" aria-label="ContentBrowser" style={BrowserThemeVars}>
         <header className="asset-browser-header drawer-drag-zone">
           <div>
             <span className="asset-eyebrow">CONTENT / LIBRARY</span>
@@ -515,13 +552,26 @@ export default function AssetPanel({
               </button>
             ))}
           </div>
-          <input
-            type="search"
-            aria-label="Search assets"
-            placeholder="Search ContentBrowser…"
-            value={Query}
-            onChange={(Event) => Search(Event.target.value)}
-          />
+          <div className="asset-search-wrap">
+            <BrowserSvgIcon Name="search" />
+            <input
+              type="search"
+              aria-label="Search assets"
+              placeholder="Search ContentBrowser…"
+              value={Query}
+              onChange={(Event) => Search(Event.target.value)}
+            />
+            {Query && (
+              <button
+                type="button"
+                className="asset-search-clear"
+                aria-label="Clear search"
+                onClick={() => Search("")}
+              >
+                ×
+              </button>
+            )}
+          </div>
           {Kind === "Colours" ? (
             <div
               className="asset-view-switch colour-view-switch"
@@ -534,7 +584,8 @@ export default function AssetPanel({
                 aria-pressed={ColourView === "grid"}
                 onClick={() => SetColourView("grid")}
               >
-                ▦
+                <BrowserSvgIcon Name="grid" />
+                <span>Grid</span>
               </button>
               <button
                 aria-label="vertical list colour view"
@@ -542,7 +593,8 @@ export default function AssetPanel({
                 aria-pressed={ColourView === "list-vertical"}
                 onClick={() => SetColourView("list-vertical")}
               >
-                ▥
+                <BrowserSvgIcon Name="vertical" />
+                <span>Vertical</span>
               </button>
               <button
                 aria-label="horizontal list colour view"
@@ -550,7 +602,8 @@ export default function AssetPanel({
                 aria-pressed={ColourView === "list-horizontal"}
                 onClick={() => SetColourView("list-horizontal")}
               >
-                ▤
+                <BrowserSvgIcon Name="horizontal" />
+                <span>Horizontal</span>
               </button>
             </div>
           ) : (
@@ -566,7 +619,8 @@ export default function AssetPanel({
                   aria-pressed={View === Name}
                   onClick={() => Layout(Name)}
                 >
-                  {Name === "grid" ? "▦" : "☷"}
+                  <BrowserSvgIcon Name={Name} />
+                  <span>{Name === "grid" ? "Grid" : "List"}</span>
                 </button>
               ))}
             </div>

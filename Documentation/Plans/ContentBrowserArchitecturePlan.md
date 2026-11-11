@@ -80,5 +80,23 @@
 | **Dual-Path Streaming Thread** | `Engine/Threading/Threads/Streaming/AssetStreamThread.{h,cpp}` | 🟢 Complete (SSD `FlashStorageRandomIo` + HDD `RotationalSequentialIo` `0` backward seeks) |
 | **Pre-Baked `ThumbnailSheet` & `64 B` Index** | `Engine/Components/ContentBrowser/ThumbnailSheetRepository.{h,cpp}` | 🟢 Complete (`1024×1024` RGBA32 pages, quarantine intake, scratch migration, workspace masks) |
 | **Singular `.ColourSwatch` + `ColourCodex`** | `Engine/Components/ContentBrowser/ColourCodex.{h,cpp}` | 🟢 Complete (`.ColourSwatch` + `.toml` round-trip, 38 built-ins, `August Beige & Brown` ramp) |
-| **`ContentBrowser` Drawer & Coordinator** | `Engine/Components/ContentBrowser/ContentBrowserPanel.{h,cpp}` · `Engine/Editor/Explorer/ContentBrowser.{h,cpp}` | 🟢 Complete (`I/O: SSD/HDD`, `Import: Project/Temp`, `Scene/UV/Material/Simulation/Audio` masks) |
-| **Multi-Profile CTest & Visual Exhibits** | `Exhibits/ContentBrowserValidation.cpp` · `Exhibits/Images/ContentBrowser/01..08-*.png` | 🟢 `8/8` CTests green across `Editor`, `Development`, `Shipping` (`0` warnings, `0` banned words) |
+| **Vector Icons & `ThemeRepository` Styling** | `Engine/Components/VectorIcons/VectorIconRepository.{h,cpp}` · `Engine/Components/ContentBrowser/ContentBrowserPanel.{h,cpp}` · `Experimental/ProjectZeroEditor/AssetPanel.{jsx,css}` | 🟢 Complete (`SearchGlass`, `LayoutGrid`, `LayoutList`, `LayoutColumns`, `LayoutRows`, `PlusAdd`, `LayoutSplit`, `CloseCross`; live `ThemeRepository` / `ControlColorSet` across all 8 themes & 10 accents) |
+| **`ContentBrowser` Drawer & Coordinator** | `Engine/Components/ContentBrowser/ContentBrowserPanel.{h,cpp}` · `Engine/Editor/Explorer/ContentBrowser.{h,cpp}` · `Engine/Lifecycle/EditorLifecycle.cpp` | 🟢 Complete (`Ctrl+F` UTF-8 Search capsule, `I/O: SSD/HDD`, `Import: Project/Temp`, `Scene/UV/Material/Simulation/Audio` masks) |
+| **Multi-Profile CTest & Visual Exhibits** | `Exhibits/ContentBrowserValidation.cpp` · `Exhibits/Images/ContentBrowser/01..10-*.png` | 🟢 `8/8` CTests green across `Editor`, `Development`, `Shipping` (`0` warnings, `0` banned words) |
+
+---
+
+## 5. 🧩 Visual Proof Inventory (`Exhibits/Images/ContentBrowser/`)
+
+| Snapshot | Validated Capability |
+| :--- | :--- |
+| `01-ClosedBottomNotch.png` | Theme-styled bottom trapezoidal notch handle with directional chevron |
+| `02-ColoursGridFigPurple.png` | `ThemePreset::Dark` + `AccentPreset::Blue`, Search capsule + `SearchGlass`, `LayoutGrid` / `LayoutColumns` / `LayoutRows` icons |
+| `03-ColoursGridPineappleYellow.png` | Automatic dark contrast ink (`#141414`) on bright `.ColourSwatch` |
+| `04-ColoursVerticalStripsAugustBeigeAndBrown.png` | Vertical `August Beige & Brown` spectrum columns (`-90 deg` HEX labels) |
+| `05-ColoursHorizontalStrips.png` | Horizontal stacked `.ColourSwatch` bands |
+| `06-SplitShelfColourSlotAssignment.png` | Split-shelf drag-and-drop & double-click colour slot assignment |
+| `07-SceneWorkspacePrebakedThumbnailSheet.png` | `Scene` workspace pre-baked `1024×1024` `ThumbnailSheet` + Search & `Grid`/`List` vector icons |
+| `08-UVWorkspaceStrictCategoryMaskAndImported.png` | Strict `UV` 6-category mask (`Particles`/`Simulations` blocked) + quarantined `.gltf` import |
+| `09-LightThemeSearchAndListIcons.png` | `ThemePreset::Light` + `AccentPreset::Emerald` + active `"Standard"` search query + `CloseCross` clear + `LayoutList` view |
+| `10-NordThemeGridAndSearchIcons.png` | `ThemePreset::Nord` + `AccentPreset::Cyan` full Appearance surface/accent adaptation |

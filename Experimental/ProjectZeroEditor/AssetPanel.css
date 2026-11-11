@@ -154,7 +154,8 @@
   flex-direction: column;
   height: 100%;
   padding: 26px 28px 0;
-  background: #111;
+  background: var(--cb-panel, #111);
+  color: var(--cb-text, #ededf0);
   min-height: 0;
 }
 .asset-browser-header {
@@ -167,7 +168,7 @@
 }
 .asset-eyebrow {
   font-size: 8px;
-  color: #797979;
+  color: var(--cb-muted, #797979);
   letter-spacing: 1.3px;
 }
 .asset-browser-header h1 {
@@ -175,11 +176,11 @@
   font-weight: 300;
   letter-spacing: -0.6px;
   margin: 7px 0 0;
-  color: #e7e7e7;
+  color: var(--cb-text, #e7e7e7);
 }
 .asset-browser-header h1 small {
   font-size: 10px;
-  color: #727272;
+  color: var(--cb-muted, #727272);
   margin-left: 13px;
   letter-spacing: 0;
 }
@@ -192,6 +193,14 @@
   padding: 8px 12px;
   font-size: 10px;
   border-radius: 18px;
+  background: var(--cb-section, #222);
+  border-color: var(--cb-border, #ffffff14);
+  color: var(--cb-text, #ededf0);
+}
+.asset-header-actions button.primary {
+  background: var(--cb-accent, #3b82f6);
+  border-color: var(--cb-accent, #3b82f6);
+  color: #fff;
 }
 .asset-header-actions > button:last-of-type {
   font-size: 20px;
@@ -204,15 +213,15 @@
   align-items: center;
   gap: 15px;
   padding: 0 0 16px;
-  border-bottom: 1px solid #ffffff0b;
+  border-bottom: 1px solid var(--cb-border, #ffffff0b);
   flex: none;
 }
 .asset-origin-tabs {
   display: flex;
   gap: 3px;
   padding: 3px;
-  border: 1px solid #ffffff09;
-  background: #0c0c0c;
+  border: 1px solid var(--cb-border, #ffffff09);
+  background: var(--cb-inset, #0c0c0c);
   border-radius: 20px;
 }
 .asset-origin-tabs button {
@@ -221,39 +230,74 @@
   padding: 6px 14px;
   font-size: 10px;
   border-radius: 17px;
-  color: #828282;
+  color: var(--cb-muted, #828282);
 }
 .asset-origin-tabs button[aria-pressed="true"] {
-  background: #303030;
-  color: #ddd;
+  background: var(--cb-selected, #303030);
+  color: var(--cb-text, #ddd);
 }
-.asset-browser-tools > input {
+.asset-search-wrap {
   height: 32px;
   flex: 1;
   max-width: 420px;
   margin-left: auto;
-  padding: 4px 15px;
-  font-size: 11px;
+  padding: 0 12px;
   border-radius: 18px;
-  background: #1c1c1c;
-  border: 1px solid #ffffff0e;
-  min-width: 70px;
+  background: var(--cb-inset, #1c1c1c);
+  border: 1px solid var(--cb-border, #ffffff18);
+  min-width: 110px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--cb-muted, #8d9099);
+}
+.asset-search-wrap:focus-within {
+  border-color: var(--cb-accent, #3b82f6);
+  color: var(--cb-accent, #3b82f6);
+}
+.asset-search-wrap > input {
+  flex: 1;
+  height: 100%;
+  background: transparent;
+  border: 0;
+  outline: none;
+  font-size: 11px;
+  color: var(--cb-text, #ededf0);
+}
+.asset-search-clear {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--cb-raised, #2a2a2e);
+  color: var(--cb-text, #ededf0);
+  font-size: 12px;
 }
 .asset-view-switch {
   display: flex;
-  gap: 3px;
+  gap: 5px;
 }
 .asset-view-switch button {
-  width: 30px;
   height: 30px;
-  padding: 0;
-  font-size: 19px;
-  background: none;
-  color: #777;
+  padding: 0 11px;
+  font-size: 10px;
+  border-radius: 15px;
+  background: var(--cb-inset, #161618);
+  border: 1px solid var(--cb-border, #ffffff14);
+  color: var(--cb-muted, #888);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .asset-view-switch button[aria-pressed="true"] {
-  background: #2b2b2b;
-  color: #ddd;
+  background: var(--cb-selected, #2b2b2b);
+  border-color: var(--cb-accent, #3b82f6);
+  color: var(--cb-text, #eee);
+}
+.asset-view-switch button[aria-pressed="true"] svg {
+  color: var(--cb-accent, #3b82f6);
 }
 .asset-browser-body {
   display: grid;
@@ -264,7 +308,7 @@
 }
 .asset-category-rail {
   padding: 20px 15px 20px 0;
-  border-right: 1px solid #ffffff0b;
+  border-right: 1px solid var(--cb-border, #ffffff0b);
   overflow: auto;
 }
 .asset-category-rail button {
@@ -277,13 +321,13 @@
   background: none;
   border: 1px solid transparent;
   font-size: 11px;
-  color: #888;
+  color: var(--cb-muted, #888);
   border-radius: 10px;
 }
 .asset-category-rail button[aria-pressed="true"] {
-  background: #292929;
-  border-color: #ffffff0b;
-  color: #e1d7c8;
+  background: var(--cb-selected, #292929);
+  border-color: var(--cb-accent, #3b82f6);
+  color: var(--cb-text, #ededf0);
 }
 .asset-category-rail small {
   font-size: 8px;

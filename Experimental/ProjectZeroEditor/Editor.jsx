@@ -2092,6 +2092,7 @@ function App() {
           ActiveColourTargetLabel={ActiveColourTargetLabel}
           StageChange={SetAssetsStage}
           OnColourDragChange={SetDraggingColour}
+          Appearance={Settings}
         />
         {Wide && (
           <button

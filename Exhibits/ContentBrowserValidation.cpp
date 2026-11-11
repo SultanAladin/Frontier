@@ -382,7 +382,11 @@ bool ValidateAndRenderContentBrowserSnapshots()
     (void)Dock.RegisterPane(WorkspaceDockPaneDescriptor{ "Inspector", DockPlacementDirection::SplitRight, 0.25f, PaneDirectiveMask::StandardPaneDirectives, {} });
 
     ThemeRepository     Theme{};
+    Theme.ConfigureTheme(Frontier::ThemePreset::Dark);
+    Theme.ConfigureAccent(Frontier::AccentPreset::Blue);
+
     ContentBrowserPanel Browser{};
+    Browser.AttachThemeRepository(&Theme);
 
     ColorRgba         SurfaceAlbedoColour = { 196u, 178u, 160u, 255u };
     ColorRgba         EmissionTintColour  = { 56u,  72u,  96u,  255u };
@@ -600,7 +604,37 @@ bool ValidateAndRenderContentBrowserSnapshots()
     Browser.ConfigureOriginFilter(ContentOriginFilter::All);
     (void)Browser.ActivateCategory(ContentCategoryKind::All);
     StepPresentation(IdleInput);
-    if (!WriteCurrentSnapshot("08-UVWorkspaceStrictCategoryMaskAndImported.png"))
+    if (!VerifyAssertion(Browser.QuerySearchFieldBounds().Width >= 140.0f, "Search capsule bounds rendered in ContentBrowser toolbar") ||
+        !WriteCurrentSnapshot("08-UVWorkspaceStrictCategoryMaskAndImported.png"))
+    {
+        std::filesystem::remove_all(TempDropDir, DropErr);
+        ImGui::DestroyContext(GuiSession);
+        return false;
+    }
+
+    // Snapshot 09: Daylight Light Theme + Emerald Accent + Active Search Query + List View Icons
+    Theme.ConfigureTheme(Frontier::ThemePreset::Light);
+    Theme.ConfigureAccent(Frontier::AccentPreset::Emerald);
+    Browser.ConfigureWorkspaceDomain(WorkspaceDomainKind::SceneWorld);
+    (void)Browser.ActivateCategory(ContentCategoryKind::All);
+    Browser.ConfigureStandardLayout(Frontier::StandardRepositoryLayout::List);
+    Browser.ConfigureSearchQuery("Standard");
+    StepPresentation(IdleInput);
+    if (!VerifyAssertion(Browser.InspectReading().VisibleEntryCount >= 1u, "Search query 'Standard' filters ContentBrowser list") ||
+        !WriteCurrentSnapshot("09-LightThemeSearchAndListIcons.png"))
+    {
+        std::filesystem::remove_all(TempDropDir, DropErr);
+        ImGui::DestroyContext(GuiSession);
+        return false;
+    }
+
+    // Snapshot 10: Arctic Nord Theme + Cyan Accent + Grid View Icons
+    Theme.ConfigureTheme(Frontier::ThemePreset::Nord);
+    Theme.ConfigureAccent(Frontier::AccentPreset::Cyan);
+    Browser.ConfigureSearchQuery({});
+    Browser.ConfigureStandardLayout(Frontier::StandardRepositoryLayout::Grid);
+    StepPresentation(IdleInput);
+    if (!WriteCurrentSnapshot("10-NordThemeGridAndSearchIcons.png"))
     {
         std::filesystem::remove_all(TempDropDir, DropErr);
         ImGui::DestroyContext(GuiSession);

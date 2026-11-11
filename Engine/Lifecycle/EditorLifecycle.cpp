@@ -207,6 +207,7 @@ void EditorLifecycle::PresentPrimaryEditorImGui(double Δt)
     CurrentStepSeconds    = SafeStep;
 
     Components::ConfigureImGuiWorkspaceTheme(DockContainer.ActiveTabMetrics(), ControlCentre.QueryThemeRepository());
+    ContentBrowserDrawer.AttachThemeRepository(&ControlCentre.QueryThemeRepository());
     DockContainer.PresentWindowImGuiPanes(Components::HostWindowToken{ 0u });
 
     if (WorkspaceSessionPanes* ActivePanes = Workspaces.AccessActivePanes())

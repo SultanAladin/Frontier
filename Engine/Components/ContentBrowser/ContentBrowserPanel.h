@@ -12,6 +12,8 @@
 #include "Engine/Components/Appearance/ThemeRepository.h"
 #include "Engine/Components/ContentBrowser/ColourCodex.h"
 #include "Engine/Components/ContentBrowser/ThumbnailSheetRepository.h"
+#include "Engine/Components/Controls/ControlAppearance.h"
+#include "Engine/Components/Controls/TextInputField.h"
 #include "Engine/Components/Motion/SpringIntegrator.h"
 #include "Engine/Components/Panes/OutlinerPanel.h"
 #include "Engine/Components/PixelSpace.h"
@@ -123,6 +125,7 @@ public:
     void RegisterColourSlot(const ColourSlotRegistration& Registration);
     void FocusColourSlot(std::string_view SlotIdentifier) noexcept;
     void AttachOutlinerFallback(OutlinerPanel* TargetOutliner) noexcept;
+    void AttachThemeRepository(const ThemeRepository* SourceTheme) noexcept;
 
     bool ApplySelectedColourToActiveSlot();
     bool ApplyColourIndexToSlot(std::size_t ColourIndex, std::string_view TargetSlotIdentifier = {});
@@ -135,16 +138,17 @@ public:
 
     void Render(Rectangle2D HostBoundsPhysical, double DeltaSeconds, float ScaleFactor = 1.0f);
 
-    [[nodiscard]] ContentBrowserReading             InspectReading() const noexcept;
-    [[nodiscard]] bool                              QueryOpen() const noexcept;
-    [[nodiscard]] bool                              QueryBlocksUnderlyingWorkspace() const noexcept;
-    [[nodiscard]] Rectangle2D                       QueryNotchTabBounds(Rectangle2D ViewportLogicalBounds) const noexcept;
-    [[nodiscard]] Rectangle2D                       QueryRenderedColourCellBounds(std::size_t ColourIndex) const noexcept;
-    [[nodiscard]] ColourCodex&                      AccessColourCodex() noexcept;
-    [[nodiscard]] const ColourCodex&                QueryColourCodex() const noexcept;
-    [[nodiscard]] ThumbnailSheetRepository&         AccessThumbnailRepository() noexcept;
-    [[nodiscard]] const ThumbnailSheetRepository&   QueryThumbnailRepository() const noexcept;
-    [[nodiscard]] Threading::AssetStreamThread&     AccessStreamThread() noexcept;
+    [[nodiscard]] ContentBrowserReading               InspectReading() const noexcept;
+    [[nodiscard]] bool                                QueryOpen() const noexcept;
+    [[nodiscard]] bool                                QueryBlocksUnderlyingWorkspace() const noexcept;
+    [[nodiscard]] Rectangle2D                         QueryNotchTabBounds(Rectangle2D ViewportLogicalBounds) const noexcept;
+    [[nodiscard]] Rectangle2D                         QuerySearchFieldBounds() const noexcept;
+    [[nodiscard]] Rectangle2D                         QueryRenderedColourCellBounds(std::size_t ColourIndex) const noexcept;
+    [[nodiscard]] ColourCodex&                        AccessColourCodex() noexcept;
+    [[nodiscard]] const ColourCodex&                  QueryColourCodex() const noexcept;
+    [[nodiscard]] ThumbnailSheetRepository&           AccessThumbnailRepository() noexcept;
+    [[nodiscard]] const ThumbnailSheetRepository&     QueryThumbnailRepository() const noexcept;
+    [[nodiscard]] Threading::AssetStreamThread&       AccessStreamThread() noexcept;
     [[nodiscard]] const Threading::AssetStreamThread& QueryStreamThread() const noexcept;
 
 private:
@@ -154,24 +158,33 @@ private:
         Rectangle2D Bounds     {};   // [px]  - Last rendered logical cell or strip rectangle
     };
 
-    void RenderColourSlotHighlights(PixelSpace& Canvas, Point2D Cursor) const noexcept;
-    void RenderBottomNotchHandle(PixelSpace& Canvas, Rectangle2D NotchBounds, bool Hovered) const noexcept;
+    [[nodiscard]] ControlColorSet ResolveActiveColorSet() const noexcept;
+    [[nodiscard]] float           ResolveCornerRadius() const noexcept;
+
+    void RenderColourSlotHighlights(PixelSpace& Canvas, Point2D Cursor, const ControlColorSet& AppearanceColors) const noexcept;
+    void RenderBottomNotchHandle(PixelSpace& Canvas, Rectangle2D NotchBounds, bool Hovered, const ControlColorSet& AppearanceColors) const noexcept;
     void RenderColoursRepository(
         PixelSpace&                       Canvas,
         Rectangle2D                       RepositoryArea,
-        const ContentBrowserPointerInput& PointerInput);
+        const ContentBrowserPointerInput& PointerInput,
+        const ControlColorSet&            AppearanceColors,
+        float                             SectionRadius);
     void RenderNonColoursRepository(
         PixelSpace&                       Canvas,
         Rectangle2D                       RepositoryArea,
-        const ContentBrowserPointerInput& PointerInput);
+        const ContentBrowserPointerInput& PointerInput,
+        const ControlColorSet&            AppearanceColors,
+        float                             SectionRadius);
     void RenderContentDetailsSidebar(
         PixelSpace&                       Canvas,
         Rectangle2D                       SidebarArea,
-        const ContentBrowserPointerInput& PointerInput);
+        const ContentBrowserPointerInput& PointerInput,
+        const ControlColorSet&            AppearanceColors,
+        float                             SectionRadius);
 
     ColourCodex                         CodexLibrary          {};                                       // [-]   - Built-in + custom ColourCodex (.ColourSwatch)
     ThumbnailSheetRepository            ThumbnailRepository   {};                                       // [-]   - Pre-baked 1024x1024 ThumbnailSheet + 64B index
-    Threading::AssetStreamThread        StreamChannelThread          {};                                       // [-]   - Dual-path SSD/HDD streaming thread
+    Threading::AssetStreamThread        StreamChannelThread   {};                                       // [-]   - Dual-path SSD/HDD streaming thread
     SpringIntegrator                    ShelfSpring           {};                                       // [-]   - Smooth bottom-drawer spring
     uint32_t                            ShelfAxis             = 0u;                                     // [idx] - Vertical shelf spring axis
     ContentShelfExtent                  TargetExtent          = ContentShelfExtent::Closed;             // [-]   - Target stop (Closed/SplitHalf/Full)
@@ -183,6 +196,8 @@ private:
     ColourFilterGroup                   ColourFilter          = ColourFilterGroup::All;                 // [-]   - Dedicated Colour Filters selection
     ColourSortOrder                     ColourSort            = ColourSortOrder::Spectrum;              // [-]   - Colour sort order
     std::string                         SearchBuffer          {};                                       // [-]   - Active search filter text
+    TextEditBuffer                      SearchEditor          {};                                       // [-]   - Interactive UTF-8 search edit buffer
+    Rectangle2D                         LastSearchBounds      {};                                       // [px]  - Last rendered search input bounds
     std::size_t                         SelectedColourIndex   = 0u;                                     // [idx] - Selected ColourCodex index
     std::size_t                         SelectedContentIndex  = 0u;                                     // [idx] - Selected ThumbnailSheetRepository index
     float                               RepositoryScrollY     = 0.0f;                                   // [px]  - Vertical scroll offset
@@ -192,6 +207,7 @@ private:
     std::vector<ColourSlotRegistration> RegisteredSlots       {};                                       // [-]   - Bound editor colour slots
     std::string                         FocusedSlotId         {};                                       // [-]   - Active target slot key
     OutlinerPanel*                      FallbackOutliner      = nullptr;                                // [-]   - Optional Outliner fallback
+    const ThemeRepository*              AttachedTheme         = nullptr;                                // [-]   - Optional live ThemeRepository source
     std::vector<RecordedCellHitbox>     LastColourHitboxes    {};                                       // [-]   - Hitboxes for testing & drag
 
     bool                                PotentialColourDrag   = false;                                  // [-]   - Pointer pressed on colour swatch

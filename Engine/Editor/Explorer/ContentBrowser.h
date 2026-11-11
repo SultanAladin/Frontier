@@ -35,6 +35,7 @@ public:
     void SynchronizeWorkspaceTargets(
         OutlinerPanel*  ActiveOutliner,
         InspectorPanel* ActiveInspector) noexcept;
+    void AttachThemeRepository(const ThemeRepository* SourceTheme) noexcept;
 
     void ConfigureWorkspaceDomain(WorkspaceDomainKind ActiveDomain) noexcept;
     void ConfigureImportPolicy(const ImportIntakeConfiguration& Policy);

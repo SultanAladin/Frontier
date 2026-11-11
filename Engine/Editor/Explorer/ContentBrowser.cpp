@@ -23,6 +23,11 @@ void ContentBrowser::SynchronizeWorkspaceTargets(
     Panel.AttachOutlinerFallback(ActiveOutliner);
 }
 
+void ContentBrowser::AttachThemeRepository(const ThemeRepository* SourceTheme) noexcept
+{
+    Panel.AttachThemeRepository(SourceTheme);
+}
+
 void ContentBrowser::ConfigureWorkspaceDomain(WorkspaceDomainKind ActiveDomain) noexcept
 {
     Panel.ConfigureWorkspaceDomain(ActiveDomain);
