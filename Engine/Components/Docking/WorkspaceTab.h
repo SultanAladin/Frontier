@@ -44,14 +44,14 @@ struct WorkspaceTabMetrics
 
 struct WorkspaceThemeSet
 {
-    RgbaColor8 WorkspaceBackdrop {  0,   0,   0, 255};
-    RgbaColor8 PanelSurface      { 10,  10,  10, 255};
-    RgbaColor8 ElevatedSection   { 20,  20,  21, 255};
-    RgbaColor8 InactiveTabFill   {  6,   6,   7, 255};
+    RgbaColor8 WorkspaceBackdrop { 10,  10,  10, 255};
+    RgbaColor8 PanelSurface      { 18,  18,  18, 255};
+    RgbaColor8 ElevatedSection   { 25,  25,  25, 255};
+    RgbaColor8 InactiveTabFill   { 18,  18,  18, 255};
     RgbaColor8 HoveredTabFill    { 28,  28,  30, 255};
-    RgbaColor8 HairlineBorder    { 26,  26,  28, 255};
-    RgbaColor8 PrimaryLabel      {242, 242, 245, 255};
-    RgbaColor8 MutedLabel        {128, 128, 136, 255};
+    RgbaColor8 HairlineBorder    { 38,  38,  38, 255};
+    RgbaColor8 PrimaryLabel      {235, 235, 235, 255};
+    RgbaColor8 MutedLabel        {138, 138, 138, 255};
     RgbaColor8 EmeraldIndicator  { 34, 197,  94, 255};
     RgbaColor8 AmberAccent       {245, 158,  11, 255};
     RgbaColor8 RejectionCrimson  {239,  68,  68, 255};

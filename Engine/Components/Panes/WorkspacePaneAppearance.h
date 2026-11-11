@@ -195,6 +195,7 @@ void ConstructRightAlignedText(
     bool             Monospace = false) noexcept;
 
 // VisualToken & VectorGraphic primitives
+[[nodiscard]] ColorRgba   QueryDockedPaneBackground() noexcept;
 [[nodiscard]] ColorRgba   QueryCategoryAccent(
     ConstructSlotCategory Category,
     ColorRgba             FolderTint = WorkspaceSurfaceColors::SageCollection) noexcept;

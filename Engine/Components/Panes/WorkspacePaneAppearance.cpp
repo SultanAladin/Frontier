@@ -356,6 +356,21 @@ void ConstructRightAlignedText(
 //                                         VISUALTOKEN & VECTORGRAPHIC PRIMITIVES
 //------------------------------------------------------------------------------------------------------------------------
 
+ColorRgba QueryDockedPaneBackground() noexcept
+{
+    if (ImGui::GetCurrentContext() != nullptr)
+    {
+        const ImVec4 WinBg = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+        return ColorRgba{
+            static_cast<uint8_t>(std::clamp(std::lround(WinBg.x * 255.0f), 0L, 255L)),
+            static_cast<uint8_t>(std::clamp(std::lround(WinBg.y * 255.0f), 0L, 255L)),
+            static_cast<uint8_t>(std::clamp(std::lround(WinBg.z * 255.0f), 0L, 255L)),
+            static_cast<uint8_t>(std::clamp(std::lround(WinBg.w * 255.0f), 0L, 255L)),
+        };
+    }
+    return WorkspaceSurfaceColors::DockBackground;
+}
+
 ColorRgba QueryCategoryAccent(ConstructSlotCategory Category, ColorRgba FolderTint) noexcept
 {
     switch (Category)

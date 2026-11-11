@@ -865,8 +865,9 @@ void OutlinerPanel::Render(
         DragActive = false;
     }
 
+    const ColorRgba DockFill = WorkspacePaneAppearance::QueryDockedPaneBackground();
     Surface.PushClip(Bounds);
-    Surface.FillRectangle(Bounds, WorkspaceSurfaceColors::DockBackground);
+    Surface.FillRectangle(Bounds, DockFill);
 
     // 1. Heading row (.outliner-heading: 63px height, 14px 22px 12px padding)
     const Rectangle2D HeadingBounds{ Bounds.X, Bounds.Y, Bounds.Width, 63.0f };
@@ -938,7 +939,7 @@ void OutlinerPanel::Render(
         const bool Hovered  = SettingsButton.Contains(Cursor);
         const ColorRgba BtnBg = (Hovered || SettingsDropdownOpen)
                                     ? (SettingsDropdownOpen ? ColorRgba{ 56, 56, 56, 255 } : ColorRgba{ 38, 38, 38, 255 })
-                                    : WorkspaceSurfaceColors::DockBackground;
+                                    : DockFill;
         if (Hovered || SettingsDropdownOpen)
         {
             Surface.FillCircle(SettingsButton.Center(), 14.5f, BtnBg);

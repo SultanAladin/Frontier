@@ -869,7 +869,7 @@ void ViewportPanel::Render(
     const uint32_t VisibleCount     = (AttachedOutliner != nullptr) ? AttachedOutliner->QueryVisibleCount() : 0u;
 
     Surface.PushClip(Bounds);
-    Surface.FillRectangle(Bounds, WorkspaceSurfaceColors::DockBackground);
+    Surface.FillRectangle(Bounds, WorkspacePaneAppearance::QueryDockedPaneBackground());
 
     // 1. Viewport Toolbar (.viewport-toolbar: 51px heading row + 40px secondary toolbar row)
     const float ToolbarLeft  = Bounds.X + 12.0f;

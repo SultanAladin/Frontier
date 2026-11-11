@@ -191,7 +191,9 @@ bool RenderDockingSnapshotExhibits(const std::filesystem::path &OutputDir)
         ThemeRepository Theme{};
         Theme.ConfigureTheme(ThemePreset::Dark);
         ConfigureImGuiWorkspaceTheme(Container.ActiveTabMetrics(), Theme);
-        if (!VerifyAssertion(ImGui::GetStyle().TabRounding == 0.0f, "ImGuiStyle::TabRounding == 0.0f"))
+        if (!VerifyAssertion(
+                ImGui::GetStyle().TabRounding == 0.0f && ImGui::GetStyle().TabBorderSize == 0.0f,
+                "ImGuiStyle::TabRounding == 0.0f and TabBorderSize == 0.0f (unrounded, unoutlined trapezoidal tabs)"))
         {
             ImGui::DestroyContext(GuiSession);
             return false;

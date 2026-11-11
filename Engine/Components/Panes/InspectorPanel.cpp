@@ -1587,7 +1587,7 @@ void InspectorPanel::Render(
     }
 
     Surface.PushClip(Bounds);
-    Surface.FillRectangle(Bounds, WorkspaceSurfaceColors::DockBackground);
+    Surface.FillRectangle(Bounds, WorkspacePaneAppearance::QueryDockedPaneBackground());
 
     const std::span<const OutlinerSlotToken> Selected =
         (AttachedOutliner != nullptr) ? AttachedOutliner->QuerySelectedTokens() : std::span<const OutlinerSlotToken>{};
