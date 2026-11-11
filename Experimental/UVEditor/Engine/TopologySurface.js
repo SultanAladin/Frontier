@@ -96,9 +96,10 @@ function TrianglesOverlap2D(T1, T2)
 
 export class TopologySurface
 {
-    constructor({ name = 'Surface', positions = [], faces = [], uvCoords = [], seams = [], pinned = [] } = {})
+    constructor({ name = 'Surface', objectId = null, positions = [], faces = [], uvCoords = [], seams = [], pinned = [], importanceByFace = null } = {})
     {
         this.name = name;
+        this.objectId = objectId || name || 'surface-0';
         this.positions = positions.map(P => [Number(P[0]) || 0, Number(P[1]) || 0, Number(P[2]) || 0]);
         this.uvCoords = uvCoords.map(Uv => [Number(Uv[0]) || 0, Number(Uv[1]) || 0]);
         this.faces = faces.map((F, Index) =>
@@ -130,7 +131,9 @@ export class TopologySurface
         this.activeIsland = null;
         this.activeEdge3D = null;
         this.activeEdgeUV = null;
-        this.importanceByFace = new Map(); // faceIndex -> groupId | null
+        this.importanceByFace = importanceByFace instanceof Map
+            ? new Map(importanceByFace)
+            : new Map(importanceByFace || []); // faceIndex -> groupId | null
         this.lockedIslands = new Set();    // key = canonical face signature or lowest face index
         this.hiddenIslands = new Set();
         this.undoStack = [];
@@ -140,6 +143,8 @@ export class TopologySurface
         this._distortionCache = null;
         this._spatialGridCache = null;
         this._adjCache = null;
+        this._layerFaceRefCache = null;
+        this._layerRefVersion = 1;
         this._matVersion = 1;
         this.RecomputeNormals();
     }
@@ -329,7 +334,7 @@ export class TopologySurface
                 if (++Cnt >= 16) break;
             }
         }
-        return `${N}:${ULen}:${this.seams.size}:${this.pinned.size}:${this.hiddenIslands.size}:${this.lockedIslands.size}:${ImpHash}:${ImpSum}:${UvHash.toFixed(4)}:${ExtraSalt}`;
+        return `${N}:${ULen}:${this.seams.size}:${this.pinned.size}:${this.hiddenIslands.size}:${this.lockedIslands.size}:${ImpHash}:${ImpSum}:${this._layerRefVersion || 1}:${UvHash.toFixed(4)}:${ExtraSalt}`;
     }
 
     GetFaceDistortionFast(FaceIndex)
@@ -593,6 +598,8 @@ export class TopologySurface
         this.lockedIslands = new Set(Snap.lockedIslands || []);
         this.hiddenIslands = new Set(Snap.hiddenIslands || []);
         this._analysisCache = null;
+        this._layerFaceRefCache = null;
+        this._layerRefVersion = (this._layerRefVersion || 0) + 1;
         this._matVersion = (this._matVersion || 0) + 1;
     }
 
@@ -3490,9 +3497,212 @@ export class TopologySurface
         return { surface: Surface, hadUVs: HadUVs };
     }
 
+    _ResolveIslandsFast(Islands = null)
+    {
+        return Islands || (this._analysisCache ? this._analysisCache.islands : null) || this.ExtractIslands();
+    }
+
+    EnsureLayerFaceRefs(Islands = null)
+    {
+        const Sig = this.ComputeDataSignature('layerFaceRefs');
+        if (this._layerFaceRefCache && this._layerFaceRefCache.sig === Sig)
+        {
+            return this._layerFaceRefCache;
+        }
+
+        const List = this._ResolveIslandsFast(Islands);
+        const RawByLayer = new Map();
+        const UdimTotals = new Map();
+        let TotalUvArea = 0;
+
+        const GetBucket = LayerKey =>
+        {
+            let B = RawByLayer.get(LayerKey);
+            if (!B)
+            {
+                B = {
+                    faces: [],
+                    uvSet: new Set(),
+                    islandSet: new Set(),
+                    udimSet: new Set(),
+                    uvArea: 0,
+                    byUdim: new Map()
+                };
+                RawByLayer.set(LayerKey, B);
+            }
+            return B;
+        };
+
+        const GetSubBucket = (B, TileId) =>
+        {
+            let Sub = B.byUdim.get(TileId);
+            if (!Sub)
+            {
+                Sub = { faces: [], uvSet: new Set(), islandSet: new Set(), uvArea: 0 };
+                B.byUdim.set(TileId, Sub);
+            }
+            return Sub;
+        };
+
+        for (let i = 0; i < List.length; i++)
+        {
+            const Isl = List[i];
+            const TileId = Isl.udimTile || 1001;
+            const AreaUv = Isl.areaUV || 0;
+            TotalUvArea += AreaUv;
+
+            let T = UdimTotals.get(TileId);
+            if (!T) { T = { islands: 0, uvArea: 0 }; UdimTotals.set(TileId, T); }
+            T.islands++;
+            T.uvArea += AreaUv;
+
+            const FIdx = Isl.faceIndices;
+            const FaceAreaShare = FIdx.length > 0 ? (AreaUv / FIdx.length) : 0;
+            for (let f = 0; f < FIdx.length; f++)
+            {
+                const Fi = FIdx[f];
+                const FaceLayerKey = this.importanceByFace.get(Fi) || '__unassigned__';
+                const FB = GetBucket(FaceLayerKey);
+                const FSub = GetSubBucket(FB, TileId);
+                FB.faces.push(Fi);
+                FB.islandSet.add(Isl.id);
+                FB.udimSet.add(TileId);
+                FB.uvArea += FaceAreaShare;
+                FSub.faces.push(Fi);
+                FSub.islandSet.add(Isl.id);
+                FSub.uvArea += FaceAreaShare;
+                const Cr = this.faces[Fi]?.corners || [];
+                for (let c = 0; c < Cr.length; c++)
+                {
+                    FB.uvSet.add(Cr[c].uv);
+                    FSub.uvSet.add(Cr[c].uv);
+                }
+            }
+        }
+
+        const FreezeSlice = (ObjId, LayerKey, Src, UdimsArr) =>
+        {
+            const FaceArr = new Uint32Array(Src.faces);
+            return {
+                objectId: ObjId,
+                layerId: LayerKey,
+                faceIndices: FaceArr,
+                uvIndices: new Uint32Array(Src.uvSet),
+                islandIds: new Int32Array(Src.islandSet),
+                faceSet: new Set(FaceArr),
+                faceCount: FaceArr.length,
+                islandCount: Src.islandSet.size,
+                uvArea: Src.uvArea,
+                udims: UdimsArr
+            };
+        };
+
+        const ByLayer = new Map();
+        for (const [LayerKey, B] of RawByLayer)
+        {
+            const UdimsArr = [...B.udimSet].sort((A, C) => A - C);
+            const Frozen = FreezeSlice(this.objectId, LayerKey, B, UdimsArr);
+            const FrozenByUdim = new Map();
+            for (const [TileId, Sub] of B.byUdim)
+            {
+                FrozenByUdim.set(TileId, FreezeSlice(this.objectId, LayerKey, Sub, [TileId]));
+            }
+            Frozen.byUdim = FrozenByUdim;
+            ByLayer.set(LayerKey, Frozen);
+        }
+
+        const EmptyRef = {
+            objectId: this.objectId,
+            layerId: '',
+            faceIndices: new Uint32Array(0),
+            uvIndices: new Uint32Array(0),
+            islandIds: new Int32Array(0),
+            faceSet: new Set(),
+            faceCount: 0,
+            islandCount: 0,
+            uvArea: 0,
+            udims: [],
+            byUdim: new Map()
+        };
+
+        this._layerFaceRefCache = {
+            sig: Sig,
+            byLayer: ByLayer,
+            emptyRef: EmptyRef,
+            totalIslands: List.length,
+            totalUvArea: Math.max(1e-6, TotalUvArea),
+            udimTotals: UdimTotals
+        };
+        return this._layerFaceRefCache;
+    }
+
+    GetLayerFaceRef(LayerId, Islands = null, FilterUdim = null)
+    {
+        const Cache = this.EnsureLayerFaceRefs(Islands);
+        const Key = LayerId || '__unassigned__';
+        const Base = Cache.byLayer.get(Key);
+        if (!Base) return Cache.emptyRef;
+        if (FilterUdim === null || FilterUdim === undefined) return Base;
+        return Base.byUdim.get(FilterUdim) || Cache.emptyRef;
+    }
+
+    SelectFaceGroupRef(FaceRef, Additive = false)
+    {
+        if (!Additive) this.ClearSelection();
+        if (!FaceRef || FaceRef.faceCount === 0) return 0;
+
+        const Faces = FaceRef.faceIndices;
+        const Uvs = FaceRef.uvIndices;
+        const Isls = FaceRef.islandIds;
+
+        // Toggle off when Shift/Ctrl-clicking an already-selected FaceGroupRef
+        if (Additive && Faces.length > 0 && this.selectedFaces.has(Faces[0]))
+        {
+            let AllPresent = true;
+            for (let i = 0; i < Faces.length; i++)
+            {
+                if (!this.selectedFaces.has(Faces[i])) { AllPresent = false; break; }
+            }
+            if (AllPresent)
+            {
+                for (let i = 0; i < Faces.length; i++) this.selectedFaces.delete(Faces[i]);
+                for (let i = 0; i < Uvs.length; i++) this.selectedUVs.delete(Uvs[i]);
+                for (let i = 0; i < Isls.length; i++) this.selectedIslands.delete(Isls[i]);
+                return this.selectedFaces.size;
+            }
+        }
+
+        for (let i = 0; i < Faces.length; i++) this.selectedFaces.add(Faces[i]);
+        for (let i = 0; i < Uvs.length; i++) this.selectedUVs.add(Uvs[i]);
+        for (let i = 0; i < Isls.length; i++) this.selectedIslands.add(Isls[i]);
+        if (Faces.length > 0) this.activeFace = Faces[0];
+        if (Isls.length > 0) this.activeIsland = Isls[0];
+        return Faces.length;
+    }
+
+    AssignFacesToLayer(FaceIndices, LayerId = null)
+    {
+        let Updated = 0;
+        const Limit = this.faces.length;
+        for (const Fi of FaceIndices)
+        {
+            if (Fi < 0 || Fi >= Limit) continue;
+            if (LayerId) this.importanceByFace.set(Fi, LayerId);
+            else this.importanceByFace.delete(Fi);
+            Updated++;
+        }
+        if (Updated > 0)
+        {
+            this._layerRefVersion = (this._layerRefVersion || 0) + 1;
+            this._layerFaceRefCache = null;
+            this._analysisCache = null;
+        }
+        return Updated;
+    }
+
     SelectIsland(IslandId, Additive = false, Islands = null)
     {
-        const List = Islands || this.ExtractIslands();
+        const List = this._ResolveIslandsFast(Islands);
         if (!Additive) this.ClearSelection();
         const Target = List.find(I => I.id === IslandId || I.stableKey === IslandId);
         if (!Target) return 0;
@@ -3505,12 +3715,17 @@ export class TopologySurface
 
     SelectIslands(IslandIds, Additive = false, Islands = null)
     {
-        const List = Islands || this.ExtractIslands();
+        const List = this._ResolveIslandsFast(Islands);
         if (!Additive) this.ClearSelection();
-        for (const Id of IslandIds)
+        const IdSet = IslandIds instanceof Set ? IslandIds : new Set(IslandIds);
+        for (let i = 0; i < List.length; i++)
         {
-            const Target = List.find(I => I.id === Id || I.stableKey === Id);
-            if (Target) this.selectedIslands.add(Target.id);
+            const Isl = List[i];
+            if (IdSet.has(Isl.id) || IdSet.has(Isl.stableKey))
+            {
+                this.selectedIslands.add(Isl.id);
+                this.activeIsland = Isl.id;
+            }
         }
         this.SyncSelectionsFromMode('island', List);
         return this.selectedIslands.size;
@@ -3518,7 +3733,7 @@ export class TopologySurface
 
     SelectFace(FaceIndex, Additive = false, Islands = null)
     {
-        const List = Islands || this.ExtractIslands();
+        const List = this._ResolveIslandsFast(Islands);
         if (!Additive) this.ClearSelection();
         if (Additive && this.selectedFaces.has(FaceIndex)) this.selectedFaces.delete(FaceIndex);
         else
@@ -3532,7 +3747,7 @@ export class TopologySurface
 
     SelectLinked(Islands = null)
     {
-        const List = Islands || this.ExtractIslands();
+        const List = this._ResolveIslandsFast(Islands);
         for (const Isl of List)
         {
             if (Isl.uvIndices.some(U => this.selectedUVs.has(U)) || Isl.faceIndices.some(F => this.selectedFaces.has(F)))
@@ -3546,7 +3761,7 @@ export class TopologySurface
 
     SyncDerivedSelectionFromFaces(Islands = null)
     {
-        this.SyncSelectionsFromMode('face', Islands || this.ExtractIslands());
+        this.SyncSelectionsFromMode('face', this._ResolveIslandsFast(Islands));
     }
 
     PinSelected(Pin = true)
@@ -3562,7 +3777,7 @@ export class TopologySurface
 
     PinIslandBoundaries(Islands = null)
     {
-        const List = Islands || this.ExtractIslands();
+        const List = this._ResolveIslandsFast(Islands);
         const TargetIslands = this.selectedIslands.size
             ? List.filter(I => this.selectedIslands.has(I.id))
             : List;
@@ -3592,7 +3807,7 @@ export class TopologySurface
 
     AssignImportanceGroup(IslandIds, GroupId, Islands = null)
     {
-        const List = Islands || this.ExtractIslands();
+        const List = this._ResolveIslandsFast(Islands);
         const IdSet = new Set(IslandIds);
         let Updated = 0;
         for (const Isl of List)
@@ -3605,12 +3820,18 @@ export class TopologySurface
             }
             Updated++;
         }
+        if (Updated > 0)
+        {
+            this._layerRefVersion = (this._layerRefVersion || 0) + 1;
+            this._layerFaceRefCache = null;
+            this._analysisCache = null;
+        }
         return Updated;
     }
 
     SetIslandLocked(IslandIdOrKey, Locked, Islands = null)
     {
-        const List = Islands || this.ExtractIslands();
+        const List = this._ResolveIslandsFast(Islands);
         const Target = List.find(I => I.id === IslandIdOrKey || I.stableKey === IslandIdOrKey);
         const Key = Target ? Target.stableKey : IslandIdOrKey;
         if (Locked) this.lockedIslands.add(Key);
@@ -3619,7 +3840,7 @@ export class TopologySurface
 
     SetIslandHidden(IslandIdOrKey, Hidden, Islands = null)
     {
-        const List = Islands || this.ExtractIslands();
+        const List = this._ResolveIslandsFast(Islands);
         const Target = List.find(I => I.id === IslandIdOrKey || I.stableKey === IslandIdOrKey);
         const Key = Target ? Target.stableKey : IslandIdOrKey;
         if (Hidden) this.hiddenIslands.add(Key);

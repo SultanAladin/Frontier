@@ -689,10 +689,50 @@ console.log('11. Testing Multi-Surface Engineering MatCaps, Stack Similar UVs, F
         'UDIM Space Budget must live in UV Space left panel and be removed from Pack');
 
     assert.ok(OutlinerSlice.includes('Importance Space Allocation') && OutlinerSlice.includes('pz-layer-stack') &&
-              OutlinerSlice.includes('pz-uv-layer-card') && OutlinerSlice.includes('pz-layer-bottom-slider') &&
-              OutlinerSlice.includes('pz-part-square-block') && !OutlinerSlice.includes('pz-chart-row') &&
-              !PackSlice.includes('pz-layer-stack'),
-        'Importance Space Allocation must use Layer Stack with bottom-of-layer slider & square Surface Part blocks');
+              OutlinerSlice.includes('pz-uv-layer-card') && OutlinerSlice.includes('pz-layer-color-native') &&
+              OutlinerSlice.includes('pz-layer-title-input') && OutlinerSlice.includes('pz-layer-udim-select') &&
+              OutlinerSlice.includes('pz-layer-bottom-slider') && OutlinerSlice.includes('SelectFaceGroupRef') &&
+              OutlinerSlice.includes('FastSyncSelectionViews') &&
+              !OutlinerSlice.includes('Surface Parts') && !OutlinerSlice.includes('pz-part-square') &&
+              !OutlinerSlice.includes('pz-chart-row') && !PackSlice.includes('pz-layer-stack'),
+        'UV Space must use Layers ONLY (Colour, Name, UDIM, Share + saved FaceGroupRef, zero folders/Surface Parts)');
+
+    // Benchmark & verify saved FaceGroupRef (zero ExtractIslands re-iteration + cross-object face references!)
+    {
+        const { surface: SurfA, importanceGroups: GrpsA } = SampleAssetCatalog[0].create();
+        SurfA.objectId = 'obj-integrator-a';
+        const { surface: SurfB, importanceGroups: GrpsB } = SampleAssetCatalog[1].create();
+        SurfB.objectId = 'obj-coupe-b';
+        SurfA.GetCachedAnalysis();
+        SurfB.GetCachedAnalysis();
+        SurfA.EnsureLayerFaceRefs();
+        SurfB.EnsureLayerFaceRefs();
+
+        let ReExtractCount = 0;
+        const OrigExtract = SurfA.ExtractIslands.bind(SurfA);
+        SurfA.ExtractIslands = (...Args) => { ReExtractCount++; return OrigExtract(...Args); };
+
+        const T0 = performance.now();
+        for (let iter = 0; iter < 100; iter++)
+        {
+            const HeroRefA = SurfA.GetLayerFaceRef(GrpsA[0].id);
+            const HeroRefB = SurfB.GetLayerFaceRef(GrpsB[0].id);
+            SurfA.SelectFaceGroupRef(HeroRefA, false);
+            SurfB.SelectFaceGroupRef(HeroRefB, false);
+        }
+        const ElapsedMs = performance.now() - T0;
+        SurfA.ExtractIslands = OrigExtract;
+
+        assert.strictEqual(ReExtractCount, 0, 'Selecting saved FaceGroupRef must NEVER re-run ExtractIslands()');
+        assert.ok(SurfA.selectedFaces.size > 0 && SurfB.selectedFaces.size > 0,
+            'Cross-object saved FaceGroupRef must select bound faces across independent objects');
+        assert.ok(ElapsedMs < 50, `100x cross-object FaceGroupRef selections must stay sub-millisecond per click (got ${ElapsedMs.toFixed(2)}ms)`);
+
+        // Verify direct face-level AssignFacesToLayer updates saved FaceGroupRef cleanly
+        SurfA.AssignFacesToLayer([0, 1, 2], 'custom-layer-x');
+        const CustomRef = SurfA.GetLayerFaceRef('custom-layer-x');
+        assert.strictEqual(CustomRef.faceCount, 3, 'AssignFacesToLayer must persist direct face references');
+    }
 
     assert.ok(EditorJs.includes('function RenderUdimFilterBar') && IndexHtml.includes('data-udim="all"') &&
               !IndexHtml.includes('data-filter="selected"') && !IndexHtml.includes('data-filter="issues"'),
