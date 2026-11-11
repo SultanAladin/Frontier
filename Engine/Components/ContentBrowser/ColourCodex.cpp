@@ -797,4 +797,142 @@ bool ColourCodex::LoadFromTomlFile(const std::filesystem::path& FilePath, std::s
     return DecodeFromTomlString(Buffer.str(), OutDiagnostic, AppendAsImported);
 }
 
+bool ColourCodex::MatchesSwatchExtension(const std::filesystem::path& FilePath) noexcept
+{
+    std::string Ext = FilePath.extension().string();
+    std::transform(Ext.begin(), Ext.end(), Ext.begin(), [](unsigned char Ch) {
+        return static_cast<char>(std::tolower(Ch));
+    });
+    return Ext == ".colourswatch";
+}
+
+std::string ColourCodex::EncodeSingleSwatchString(std::size_t EntryIndex) const
+{
+    const ColourCodexEntry* Entry = QueryEntryAt(EntryIndex);
+    if (Entry == nullptr)
+    {
+        return {};
+    }
+
+    std::ostringstream Stream;
+    Stream << "# Frontier Singular Colour Swatch (.ColourSwatch)\n";
+    Stream << "Format = \"FrontierColourSwatch.v1\"\n\n";
+    Stream << "[ColourSwatch]\n";
+    Stream << "Name = \"" << Entry->AliasName << "\"\n";
+    Stream << "Hex = \"" << Entry->HexUpper << "\"\n";
+    Stream << "RGB = [" << static_cast<unsigned>(Entry->FillColour.Red) << ", "
+           << static_cast<unsigned>(Entry->FillColour.Green) << ", "
+           << static_cast<unsigned>(Entry->FillColour.Blue) << "]\n";
+    Stream << "CMYK = [" << static_cast<unsigned>(Entry->CmykPercent[0]) << ", "
+           << static_cast<unsigned>(Entry->CmykPercent[1]) << ", "
+           << static_cast<unsigned>(Entry->CmykPercent[2]) << ", "
+           << static_cast<unsigned>(Entry->CmykPercent[3]) << "]\n";
+    Stream << "Series = \"" << Entry->SeriesTitle << "\"\n";
+    Stream << "FilterGroup = \"" << QueryFilterGroupTitle(Entry->FilterCategory) << "\"\n";
+    return Stream.str();
+}
+
+bool ColourCodex::DecodeSingleSwatchString(
+    std::string_view SwatchDocument,
+    std::string&     OutDiagnostic,
+    std::size_t*     OutAddedIndex)
+{
+    toml::table Root{};
+    try
+    {
+        Root = toml::parse(SwatchDocument);
+    }
+    catch (const toml::parse_error& Failure)
+    {
+        OutDiagnostic = std::string(".ColourSwatch parse error: ") + std::string(Failure.description());
+        return false;
+    }
+
+    const toml::table* SwatchSection = Root["ColourSwatch"].as_table();
+    if (SwatchSection == nullptr)
+    {
+        OutDiagnostic = ".ColourSwatch document missing [ColourSwatch] section.";
+        return false;
+    }
+
+    const std::string NameStr   = SwatchSection->get("Name") ? SwatchSection->get("Name")->value_or(std::string("Imported Swatch")) : std::string("Imported Swatch");
+    const std::string HexStr    = SwatchSection->get("Hex") ? SwatchSection->get("Hex")->value_or(std::string("#3B1F3A")) : std::string("#3B1F3A");
+    const std::string SeriesStr = SwatchSection->get("Series") ? SwatchSection->get("Series")->value_or(std::string("Imported")) : std::string("Imported");
+    const std::string GroupStr  = SwatchSection->get("FilterGroup") ? SwatchSection->get("FilterGroup")->value_or(std::string("")) : std::string("");
+
+    RepositoryEntries.push_back(
+        ConstructEntryFromHex(NameStr, HexStr, SeriesStr, ParseFilterGroupByName(GroupStr), false));
+    if (OutAddedIndex != nullptr)
+    {
+        *OutAddedIndex = RepositoryEntries.size() - 1u;
+    }
+    OutDiagnostic.clear();
+    return true;
+}
+
+bool ColourCodex::SaveSingleSwatchFile(
+    std::size_t                  EntryIndex,
+    const std::filesystem::path& FilePath,
+    std::string&                 OutDiagnostic) const
+{
+    const std::string Encoded = EncodeSingleSwatchString(EntryIndex);
+    if (Encoded.empty())
+    {
+        OutDiagnostic = "Invalid ColourCodex entry index for .ColourSwatch save.";
+        return false;
+    }
+
+    std::filesystem::path CanonicalPath = FilePath;
+    if (!MatchesSwatchExtension(CanonicalPath))
+    {
+        CanonicalPath.replace_extension(CanonicalSwatchExtension);
+    }
+    else
+    {
+        CanonicalPath.replace_extension(CanonicalSwatchExtension);
+    }
+
+    std::error_code FsErr{};
+    if (CanonicalPath.has_parent_path())
+    {
+        std::filesystem::create_directories(CanonicalPath.parent_path(), FsErr);
+    }
+
+    std::ofstream Output(CanonicalPath, std::ios::binary | std::ios::trunc);
+    if (!Output.is_open())
+    {
+        OutDiagnostic = "Unable to open .ColourSwatch path for writing: " + CanonicalPath.string();
+        return false;
+    }
+    Output.write(Encoded.data(), static_cast<std::streamsize>(Encoded.size()));
+    if (!Output.good())
+    {
+        OutDiagnostic = "Write failure while saving .ColourSwatch: " + CanonicalPath.string();
+        return false;
+    }
+    OutDiagnostic.clear();
+    return true;
+}
+
+bool ColourCodex::LoadSingleSwatchFile(
+    const std::filesystem::path& FilePath,
+    std::string&                 OutDiagnostic,
+    std::size_t*                 OutAddedIndex)
+{
+    if (!MatchesSwatchExtension(FilePath))
+    {
+        OutDiagnostic = "Expected .ColourSwatch extension: " + FilePath.string();
+        return false;
+    }
+    std::ifstream Input(FilePath, std::ios::binary);
+    if (!Input.is_open())
+    {
+        OutDiagnostic = "Unable to open .ColourSwatch file: " + FilePath.string();
+        return false;
+    }
+    std::ostringstream Buffer;
+    Buffer << Input.rdbuf();
+    return DecodeSingleSwatchString(Buffer.str(), OutDiagnostic, OutAddedIndex);
+}
+
 } // namespace Frontier

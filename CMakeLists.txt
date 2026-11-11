@@ -169,6 +169,7 @@ set(FRONTIER_UI_COMPONENT_SOURCES
     Engine/Components/Panes/ViewportPanel.cpp
     Engine/Components/ControlCentre/ControlCentrePanel.cpp
     Engine/Components/ContentBrowser/ColourCodex.cpp
+    Engine/Components/ContentBrowser/ThumbnailSheetRepository.cpp
     Engine/Components/ContentBrowser/ContentBrowserPanel.cpp
     Engine/Configuration/InputSettings.cpp
     Engine/Configuration/ProjectSpaceRepository.cpp
@@ -185,6 +186,7 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/Threading/Tasks/ExecutionChannels.cpp
     Engine/Threading/Tasks/TaskScheduler.cpp
     Engine/Threading/Threads/Workspace/WorkspaceThread.cpp
+    Engine/Threading/Threads/Streaming/AssetStreamThread.cpp
     Engine/Codecs/SpaceContainerCodec.cpp
     Engine/Codecs/RevisionCodec.cpp
     Engine/Codecs/ProjectCodec.cpp

@@ -49,6 +49,11 @@ code, shaders, build scripts, or documentation.
   - Every validation executable in `Exhibits/` **MUST** render deterministic `.png` visual proof images into `Exhibits/Images/<Domain>/` via a CPU software rasterizer, SwiftShader offscreen Vulkan, or rendered diagnostic/comparison charts showing what the user would see when running the feature.
   - **Zero Excuses Rule**: Never claim a visual proof cannot be shown because the sandbox runs Linux instead of Windows or lacks a physical GPU — always synthesize and present the CPU/offscreen `.png` visual proof!
 
+### 🔴 2.6 Never Write Plans, Reports, or Architecture Summaries in Chat — Use Markdown Studio
+- **NEVER** dump architectural plans, decision tables, implementation reports, or multi-section explanations into chat messages.
+- Write all plans, architectural decisions, and turn reports into **`Documentation/Plans/*.md`** (and/or **`Documentation/Plans/SessionNotes.md`**), rebuild **`Documentation/Plans/MarkdownStudioViewer.html`** via `python3 Automation/BuildMarkdownViewer.py`, keep `Automation/ServeMarkdownStudio.py` live on `0.0.0.0:8080`, and open the primary deliverable `.md` or `.png` file in the viewer.
+- Keep chat replies strictly to **1–3 short lines** pointing to the updated Markdown Studio document path and verification status.
+
 ---
 
 ## 3. Initial C++ Bringup Order

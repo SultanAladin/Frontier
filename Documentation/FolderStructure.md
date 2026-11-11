@@ -53,6 +53,7 @@ Frontier/
 │   │   ├── DocumentFormatsAndInstancePlan.md      // Two-Tier Hybrid .Space format registry & Instance concepts
 │   │   ├── DocumentSpacesAndRevisionPlan.md       // Confirmed .Space codecs, 215/750 MiB revision & workspace tree
 │   │   ├── ThreadingArchitecturePlan.md           // Priority-budgeted ExecutionChannels, domain threads & DebugThread watchdog
+│   │   ├── ContentBrowserArchitecturePlan.md      // Pre-baked ThumbnailSheet, SSD/HDD streaming, quarantine import & UV masks
 │   │   ├── SessionNotes.md                        // Live Markdown Studio workspace notepad
 │   │   └── MarkdownStudioViewer.html              // Standalone/live Frontier-styled Markdown Studio bundle
 │   ├── FolderStructure.md                         // Canonical repository folder and source layout
@@ -471,7 +472,8 @@ Frontier/
     │   ├── ControlCentre/                         // Pull-down Control Centre & settings pages
     │   │   └── ControlCentrePanel.{h,cpp}         // Quick Controls, Appearance, Input, Notifications & Workspace
     │   ├── ContentBrowser/                        // Pull-up ContentBrowser drawer & ColourCodex repository
-    │   │   ├── ColourCodex.{h,cpp}                // Named colour aliases, Colour Filters, contrast ink & TOML persistence
+    │   │   ├── ColourCodex.{h,cpp}                // Named colour aliases, .ColourSwatch, Colour Filters & TOML persistence
+    │   │   ├── ThumbnailSheetRepository.{h,cpp}   // Pre-baked 1024x1024 ThumbnailSheet, 64B index, quarantine & workspace masks
     │   │   └── ContentBrowserPanel.{h,cpp}        // Bottom-edge ContentBrowser, Grid/Vertical/Horizontal views & colour slots
     │   ├── Controls/                              // Reusable studio UI control primitives
     │   │   ├── ControlAppearance.{h,cpp}          // Shared colour set, OptionalTooltip, smoothstep & section containers

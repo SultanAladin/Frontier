@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                           CONTENTBROWSERPANEL.CPP
 ============================================================================================================================================*/
-// 🗂️ Implementation of bottom-edge ContentBrowser drawer, ColourCodex Grid/Vertical/Horizontal views, Colour Filters, and colour-slot drops
+// 🧩 Implementation of ContentBrowser drawer, pre-baked ThumbnailSheet rendering, SSD/HDD streaming, workspace masks & ColourCodex
 
 #include "Engine/Components/ContentBrowser/ContentBrowserPanel.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
@@ -20,62 +20,15 @@ namespace Frontier
 namespace
 {
 
-struct BuiltInMaterialPreset
-{
-    const char* Title;
-    ColorRgba   OrbColour;
-};
-
-constexpr std::array<BuiltInMaterialPreset, 9> MaterialPresets = {{
-    { "Standard Preset",   { 199u, 173u, 160u, 255u } },
-    { "Screen Reflection", { 164u, 182u, 204u, 255u } },
-    { "Dielectric Glass",  { 196u, 224u, 238u, 255u } },
-    { "Woven Fabric",      { 148u, 112u, 134u, 255u } },
-    { "Brushed Metal",     { 188u, 192u, 198u, 255u } },
-    { "Automotive Coat",   { 184u, 48u,  58u,  255u } },
-    { "Translucent Wax",   { 218u, 186u, 152u, 255u } },
-    { "Emissive Lamp",     { 246u, 196u, 92u,  255u } },
-    { "Unlit Flat",        { 152u, 162u, 156u, 255u } },
-}};
-
 [[nodiscard]] float TargetRatioForExtent(ContentShelfExtent Extent) noexcept
 {
     switch (Extent)
     {
-        case ContentShelfExtent::Closed:
-            return 0.0f;
-        case ContentShelfExtent::SplitHalf:
-            return 0.48f;
-        case ContentShelfExtent::FullHeight:
-            return 0.94f;
+        case ContentShelfExtent::Closed:     return 0.0f;
+        case ContentShelfExtent::SplitHalf:  return 0.48f;
+        case ContentShelfExtent::FullHeight: return 0.94f;
     }
     return 0.0f;
-}
-
-[[nodiscard]] const char* CategoryCaption(ContentCategoryKind Category) noexcept
-{
-    switch (Category)
-    {
-        case ContentCategoryKind::All:
-            return "All";
-        case ContentCategoryKind::Materials:
-            return "Materials";
-        case ContentCategoryKind::Colours:
-            return "Colours";
-        case ContentCategoryKind::Images:
-            return "Images";
-        case ContentCategoryKind::Fonts:
-            return "Fonts";
-        case ContentCategoryKind::Models:
-            return "Models";
-        case ContentCategoryKind::Icons:
-            return "Icons";
-        case ContentCategoryKind::Code:
-            return "Code";
-        case ContentCategoryKind::Other:
-            return "Other";
-    }
-    return "All";
 }
 
 [[nodiscard]] std::pair<std::string, std::string> SplitUppercaseTileHeading(std::string_view Name)
@@ -100,7 +53,7 @@ bool ConstructCapsuleControl(
     const char*                       Label,
     bool                              Selected,
     const ContentBrowserPointerInput& Input,
-    float                             FontSize = 10.0f,
+    float                             FontSize      = 10.0f,
     bool                              AccentPrimary = false)
 {
     const Point2D Cursor{ Input.CursorX, Input.CursorY };
@@ -136,6 +89,24 @@ bool ConstructCapsuleControl(
     return Hovered && Input.Pressed;
 }
 
+constexpr std::array<ContentCategoryKind, 15> OrderedRailCategories = {{
+    ContentCategoryKind::All,
+    ContentCategoryKind::Materials,
+    ContentCategoryKind::Colours,
+    ContentCategoryKind::Geometry,
+    ContentCategoryKind::UVLayouts,
+    ContentCategoryKind::Textures,
+    ContentCategoryKind::Images,
+    ContentCategoryKind::Vectors,
+    ContentCategoryKind::Fonts,
+    ContentCategoryKind::Simulations,
+    ContentCategoryKind::Volumetrics,
+    ContentCategoryKind::Particles,
+    ContentCategoryKind::Photometry,
+    ContentCategoryKind::Audio,
+    ContentCategoryKind::Shaders,
+}};
+
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -145,6 +116,12 @@ bool ConstructCapsuleControl(
 ContentBrowserPanel::ContentBrowserPanel()
     : ShelfAxis(ShelfSpring.RegisterAxis(0.0, 240.0, 26.0))
 {
+    (void)StreamChannelThread.Initialize({}, Threading::StorageHardwareTier::AutoDetect, nullptr);
+}
+
+ContentBrowserPanel::~ContentBrowserPanel() noexcept
+{
+    StreamChannelThread.Finalize();
 }
 
 void ContentBrowserPanel::ConfigureShelfExtent(ContentShelfExtent RequestedExtent, bool Immediate) noexcept
@@ -161,15 +138,45 @@ void ContentBrowserPanel::ConfigureShelfExtent(ContentShelfExtent RequestedExten
     }
 }
 
-void ContentBrowserPanel::ActivateCategory(ContentCategoryKind NextCategory) noexcept
+void ContentBrowserPanel::ConfigureWorkspaceDomain(WorkspaceDomainKind Workspace) noexcept
 {
-    Category         = NextCategory;
+    ActiveWorkspace   = Workspace;
     RepositoryScrollY = 0.0f;
+
+    // 🔴 Snap active category if newly entered workspace blocks previous selection
+    if (!ThumbnailSheetRepository::QueryCategoryPermitted(ActiveWorkspace, Category))
+    {
+        Category = ContentCategoryKind::All;
+    }
+
+    const auto ValidEntries = ThumbnailRepository.QueryFilteredEntries(ActiveWorkspace, ContentCategoryKind::All, OriginScope, SearchBuffer);
+    if (!ValidEntries.empty() && std::find(ValidEntries.begin(), ValidEntries.end(), SelectedContentIndex) == ValidEntries.end())
+    {
+        SelectedContentIndex = ValidEntries.front();
+    }
+}
+
+bool ContentBrowserPanel::ActivateCategory(ContentCategoryKind NextCategory) noexcept
+{
+    if (!ThumbnailSheetRepository::QueryCategoryPermitted(ActiveWorkspace, NextCategory))
+    {
+        StatusMessage = std::string("Blocked in ") + ThumbnailSheetRepository::QueryWorkspaceTitle(ActiveWorkspace) +
+                        " workspace: " + ThumbnailSheetRepository::QueryCategoryTitle(NextCategory);
+        return false;
+    }
+    Category          = NextCategory;
+    RepositoryScrollY = 0.0f;
+    const auto ValidEntries = ThumbnailRepository.QueryFilteredEntries(ActiveWorkspace, Category, OriginScope, SearchBuffer);
+    if (!ValidEntries.empty())
+    {
+        SelectedContentIndex = ValidEntries.front();
+    }
+    return true;
 }
 
 void ContentBrowserPanel::ConfigureOriginFilter(ContentOriginFilter NextOrigin) noexcept
 {
-    OriginScope      = NextOrigin;
+    OriginScope       = NextOrigin;
     RepositoryScrollY = 0.0f;
 }
 
@@ -180,13 +187,13 @@ void ContentBrowserPanel::ConfigureStandardLayout(StandardRepositoryLayout NextL
 
 void ContentBrowserPanel::ConfigureColourLayout(ColourRepositoryLayout NextLayout) noexcept
 {
-    ColourLayout     = NextLayout;
+    ColourLayout      = NextLayout;
     RepositoryScrollY = 0.0f;
 }
 
 void ContentBrowserPanel::ConfigureColourFilter(ColourFilterGroup NextFilter) noexcept
 {
-    ColourFilter     = NextFilter;
+    ColourFilter      = NextFilter;
     RepositoryScrollY = 0.0f;
     const auto Filtered = CodexLibrary.QueryFilteredIndices(ColourFilter, ColourSort, SearchBuffer);
     if (!Filtered.empty() && std::find(Filtered.begin(), Filtered.end(), SelectedColourIndex) == Filtered.end())
@@ -202,8 +209,20 @@ void ContentBrowserPanel::ConfigureColourSort(ColourSortOrder NextOrder) noexcep
 
 void ContentBrowserPanel::ConfigureSearchQuery(std::string_view SearchText)
 {
-    SearchBuffer     = std::string(SearchText);
+    SearchBuffer      = std::string(SearchText);
     RepositoryScrollY = 0.0f;
+}
+
+void ContentBrowserPanel::ConfigureStorageHardwareTier(
+    Threading::StorageHardwareTier RequestedTier,
+    const std::filesystem::path&   MountTarget) noexcept
+{
+    StreamChannelThread.ConfigureHardwareTierOverride(RequestedTier, MountTarget);
+}
+
+void ContentBrowserPanel::ConfigureImportDestination(const ImportIntakeConfiguration& Policy)
+{
+    ThumbnailRepository.ConfigureImportPolicy(Policy);
 }
 
 bool ContentBrowserPanel::SelectColourByName(std::string_view AliasName) noexcept
@@ -215,6 +234,38 @@ bool ContentBrowserPanel::SelectColourByName(std::string_view AliasName) noexcep
     }
     SelectedColourIndex = Found;
     return true;
+}
+
+ImportIntakeResult ContentBrowserPanel::IntakeExternalAssetDrop(const std::filesystem::path& DroppedSourceFile)
+{
+    ImportIntakeResult Result = ThumbnailRepository.IntakeExternalAssetDrop(DroppedSourceFile, ActiveWorkspace);
+    StatusMessage             = Result.DiagnosticMessage;
+    if (!Result.Accepted)
+    {
+        return Result;
+    }
+
+    if (Result.DetectedCategory == ContentCategoryKind::Colours)
+    {
+        std::string Diagnostic{};
+        std::size_t AddedColourIdx = 0u;
+        if (ColourCodex::MatchesSwatchExtension(DroppedSourceFile))
+        {
+            if (CodexLibrary.LoadSingleSwatchFile(DroppedSourceFile, Diagnostic, &AddedColourIdx))
+            {
+                SelectedColourIndex = AddedColourIdx;
+            }
+        }
+        else
+        {
+            (void)CodexLibrary.LoadFromTomlFile(DroppedSourceFile, Diagnostic, true);
+        }
+    }
+
+    OriginScope          = ContentOriginFilter::Imported;
+    Category             = Result.DetectedCategory;
+    SelectedContentIndex = Result.RepositoryIndex;
+    return Result;
 }
 
 void ContentBrowserPanel::ClearColourSlots() noexcept
@@ -313,7 +364,7 @@ bool ContentBrowserPanel::ApplyColourIndexToSlot(std::size_t ColourIndex, std::s
             if (OutlinerRecordEntry* OutlinerEntry = FallbackOutliner->AccessEntry(SelectedTokens.front()))
             {
                 OutlinerEntry->FolderTint = Entry->FillColour;
-                StatusMessage = "Applied " + Entry->AliasName + " (" + Entry->HexUpper + ") -> " + OutlinerEntry->Title;
+                StatusMessage             = "Applied " + Entry->AliasName + " (" + Entry->HexUpper + ") -> " + OutlinerEntry->Title;
                 return true;
             }
         }
@@ -323,17 +374,32 @@ bool ContentBrowserPanel::ApplyColourIndexToSlot(std::size_t ColourIndex, std::s
 
 ContentBrowserReading ContentBrowserPanel::InspectReading() const noexcept
 {
+    uint32_t PermittedCount = 0u;
+    for (const ContentCategoryKind Candidate : OrderedRailCategories)
+    {
+        if (Candidate != ContentCategoryKind::All &&
+            ThumbnailSheetRepository::QueryCategoryPermitted(ActiveWorkspace, Candidate))
+        {
+            ++PermittedCount;
+        }
+    }
+
     ContentBrowserReading Reading{};
-    Reading.ShelfExtent          = TargetExtent;
-    Reading.ShelfProgress        = std::clamp(static_cast<float>(ShelfSpring.Axis(ShelfAxis).Current), 0.0f, 1.0f);
-    Reading.ActiveCategory       = Category;
-    Reading.ActiveColourLayout   = ColourLayout;
-    Reading.ActiveStandardLayout = StandardLayout;
-    Reading.ActiveColourFilter   = ColourFilter;
-    Reading.ActiveColourSort     = ColourSort;
-    Reading.VisibleEntryCount    = LastVisibleCount;
-    Reading.ColourFiltersVisible = (Category == ContentCategoryKind::Colours);
-    Reading.DraggingColourActive = DraggingColour;
+    Reading.ShelfExtent            = TargetExtent;
+    Reading.ShelfProgress          = std::clamp(static_cast<float>(ShelfSpring.Axis(ShelfAxis).Current), 0.0f, 1.0f);
+    Reading.ActiveWorkspace        = ActiveWorkspace;
+    Reading.ActiveCategory         = Category;
+    Reading.ActiveOrigin           = OriginScope;
+    Reading.ActiveColourLayout     = ColourLayout;
+    Reading.ActiveStandardLayout   = StandardLayout;
+    Reading.ActiveColourFilter     = ColourFilter;
+    Reading.ActiveColourSort       = ColourSort;
+    Reading.ActiveStorageTier      = StreamChannelThread.QueryResolvedTier();
+    Reading.ActiveImportMode       = ThumbnailRepository.QueryImportPolicy().Mode;
+    Reading.PermittedCategoryCount = PermittedCount;
+    Reading.VisibleEntryCount      = LastVisibleCount;
+    Reading.ColourFiltersVisible   = (Category == ContentCategoryKind::Colours);
+    Reading.DraggingColourActive   = DraggingColour;
     if (const ColourCodexEntry* Selected = CodexLibrary.QueryEntryAt(SelectedColourIndex))
     {
         Reading.SelectedColourAlias = Selected->AliasName;
@@ -387,6 +453,26 @@ ColourCodex& ContentBrowserPanel::AccessColourCodex() noexcept
 const ColourCodex& ContentBrowserPanel::QueryColourCodex() const noexcept
 {
     return CodexLibrary;
+}
+
+ThumbnailSheetRepository& ContentBrowserPanel::AccessThumbnailRepository() noexcept
+{
+    return ThumbnailRepository;
+}
+
+const ThumbnailSheetRepository& ContentBrowserPanel::QueryThumbnailRepository() const noexcept
+{
+    return ThumbnailRepository;
+}
+
+Threading::AssetStreamThread& ContentBrowserPanel::AccessStreamThread() noexcept
+{
+    return StreamChannelThread;
+}
+
+const Threading::AssetStreamThread& ContentBrowserPanel::QueryStreamThread() const noexcept
+{
+    return StreamChannelThread;
 }
 
 void ContentBrowserPanel::RenderBottomNotchHandle(PixelSpace& Canvas, Rectangle2D NotchBounds, bool Hovered) const noexcept
@@ -445,10 +531,7 @@ void ContentBrowserPanel::RenderColoursRepository(
         {
             continue;
         }
-        if (OriginScope == ContentOriginFilter::Project && Entry.ReadOnlyEngineEntry)
-        {
-            continue;
-        }
+        // 📝 Project origin searches both Project colours AND EngineContent stock colours
         if (OriginScope == ContentOriginFilter::Imported && Entry.ReadOnlyEngineEntry)
         {
             continue;
@@ -459,13 +542,12 @@ void ContentBrowserPanel::RenderColoursRepository(
 
     if (FilteredIndices.empty())
     {
-        Canvas.TextCentered(RepositoryArea, 13.0f, ColorRgba{ 142u, 142u, 146u, 255u }, "No colours match active Colour Filter");
+        Canvas.TextCentered(RepositoryArea, 13.0f, ColorRgba{ 142u, 142u, 146u, 255u }, "No .ColourSwatch entries match active filter");
         return;
     }
 
     if (ColourLayout == ColourRepositoryLayout::VerticalStrips)
     {
-        // Flush edge-to-edge vertical spectrum strips (0 px gap) with rotated -90 deg HEX codes
         Canvas.FillRectangle(RepositoryArea, ColorRgba{ 20u, 20u, 22u, 255u }, 14.0f);
         Canvas.PushClip(RepositoryArea);
 
@@ -516,7 +598,6 @@ void ContentBrowserPanel::RenderColoursRepository(
             }
         }
 
-        // Top-left spectrum group overlay label (matching "August Beige & Brown" reference banner)
         const ColourContrastInk FirstInk = ColourCodex::QueryContrastInk(AllEntries[FilteredIndices.front()].FillColour);
         const char* BannerTitle =
             (ColourFilter == ColourFilterGroup::All) ? "ColourCodex Spectrum" : ColourCodex::QueryFilterGroupTitle(ColourFilter);
@@ -529,7 +610,6 @@ void ContentBrowserPanel::RenderColoursRepository(
 
     if (ColourLayout == ColourRepositoryLayout::HorizontalStrips)
     {
-        // Flush edge-to-edge horizontal spectrum bands stacked top-to-bottom (0 px gap)
         Canvas.FillRectangle(RepositoryArea, ColorRgba{ 20u, 20u, 22u, 255u }, 14.0f);
         Canvas.PushClip(RepositoryArea);
 
@@ -538,9 +618,9 @@ void ContentBrowserPanel::RenderColoursRepository(
             RepositoryScrollY = std::max(0.0f, RepositoryScrollY - PointerInput.WheelDeltaY * 36.0f);
         }
 
-        const float BandH = std::max(40.0f, RepositoryArea.Height / std::min<float>(10.0f, static_cast<float>(FilteredIndices.size())));
+        const float BandH     = std::max(40.0f, RepositoryArea.Height / std::min<float>(10.0f, static_cast<float>(FilteredIndices.size())));
         const float MaxScroll = std::max(0.0f, BandH * static_cast<float>(FilteredIndices.size()) - RepositoryArea.Height);
-        RepositoryScrollY = std::min(RepositoryScrollY, MaxScroll);
+        RepositoryScrollY     = std::min(RepositoryScrollY, MaxScroll);
 
         for (std::size_t OrderIdx = 0u; OrderIdx < FilteredIndices.size(); ++OrderIdx)
         {
@@ -598,7 +678,7 @@ void ContentBrowserPanel::RenderColoursRepository(
         return;
     }
 
-    // GridCircles: Multi-column flat circular colour swatches
+    // GridCircles: Multi-column flat circular .ColourSwatch cells
     Canvas.PushClip(RepositoryArea);
     if (RepositoryArea.Contains(Cursor) && std::fabs(PointerInput.WheelDeltaY) > 1.0e-4f)
     {
@@ -611,7 +691,7 @@ void ContentBrowserPanel::RenderColoursRepository(
     const float     CellW    = (RepositoryArea.Width - CellGap * static_cast<float>(Columns - 1u)) / static_cast<float>(Columns);
     const uint32_t  RowCount = static_cast<uint32_t>((FilteredIndices.size() + Columns - 1u) / Columns);
     const float     TotalH   = static_cast<float>(RowCount) * (CellH + CellGap);
-    RepositoryScrollY         = std::min(RepositoryScrollY, std::max(0.0f, TotalH - RepositoryArea.Height));
+    RepositoryScrollY        = std::min(RepositoryScrollY, std::max(0.0f, TotalH - RepositoryArea.Height));
 
     for (std::size_t OrderIdx = 0u; OrderIdx < FilteredIndices.size(); ++OrderIdx)
     {
@@ -642,7 +722,6 @@ void ContentBrowserPanel::RenderColoursRepository(
             15.0f,
             1.0f);
 
-        // Flat circular colour fill (no gradient/photo)
         const Point2D CircleCenter{ CellRect.Center().X, CellRect.Y + 46.0f };
         Canvas.FillCircle(CircleCenter, 26.0f, Entry.FillColour);
         Canvas.StrokeCircle(CircleCenter, 26.0f, ColorRgba{ 255u, 255u, 255u, 38u }, 1.0f);
@@ -677,46 +756,125 @@ void ContentBrowserPanel::RenderNonColoursRepository(
     const ContentBrowserPointerInput& PointerInput)
 {
     LastColourHitboxes.clear();
-    LastVisibleCount = static_cast<uint32_t>(MaterialPresets.size());
+
+    const std::vector<std::size_t> Filtered =
+        ThumbnailRepository.QueryFilteredEntries(ActiveWorkspace, Category, OriginScope, SearchBuffer);
+    LastVisibleCount = static_cast<uint32_t>(Filtered.size());
+
+    if (Filtered.empty())
+    {
+        Canvas.TextCentered(RepositoryArea, 12.5f, ColorRgba{ 142u, 142u, 146u, 255u }, "No compatible entries in active origin/workspace");
+        return;
+    }
+
+    // Stream any non-resident ThumbnailSheet tiles via SSD/HDD AssetStreamThread
+    ThumbnailRepository.RequestVisibleTileStreaming(Filtered, StreamChannelThread);
 
     const Point2D Cursor{ PointerInput.CursorX, PointerInput.CursorY };
     Canvas.PushClip(RepositoryArea);
+    if (RepositoryArea.Contains(Cursor) && std::fabs(PointerInput.WheelDeltaY) > 1.0e-4f)
+    {
+        RepositoryScrollY = std::max(0.0f, RepositoryScrollY - PointerInput.WheelDeltaY * 38.0f);
+    }
 
     if (StandardLayout == StandardRepositoryLayout::List)
     {
-        for (std::size_t Idx = 0u; Idx < MaterialPresets.size(); ++Idx)
+        const float MaxScroll = std::max(0.0f, static_cast<float>(Filtered.size()) * 54.0f - RepositoryArea.Height);
+        RepositoryScrollY     = std::min(RepositoryScrollY, MaxScroll);
+
+        for (std::size_t OrderIdx = 0u; OrderIdx < Filtered.size(); ++OrderIdx)
         {
-            const Rectangle2D RowRect{ RepositoryArea.X, RepositoryArea.Y + static_cast<float>(Idx) * 52.0f, RepositoryArea.Width, 46.0f };
-            const bool        Selected = (SelectedMaterialIndex == Idx);
-            Canvas.FillRectangle(RowRect, Selected ? ColorRgba{ 48u, 44u, 38u, 255u } : ColorRgba{ 31u, 31u, 34u, 255u }, 12.0f);
-            Canvas.FillCircle({ RowRect.X + 26.0f, RowRect.Center().Y }, 15.0f, MaterialPresets[Idx].OrbColour);
-            Canvas.Text({ RowRect.X + 54.0f, RowRect.Y + 15.0f }, 11.5f, ColorRgba{ 222u, 222u, 224u, 255u }, MaterialPresets[Idx].Title);
-            if (RowRect.Contains(Cursor) && PointerInput.Pressed)
+            const std::size_t             EntryIdx = Filtered[OrderIdx];
+            const ContentRepositoryEntry* Entry    = ThumbnailRepository.QueryEntryAt(EntryIdx);
+            if (Entry == nullptr)
             {
-                SelectedMaterialIndex = static_cast<uint32_t>(Idx);
+                continue;
+            }
+            const Rectangle2D RowRect{ RepositoryArea.X, RepositoryArea.Y + static_cast<float>(OrderIdx) * 54.0f - RepositoryScrollY, RepositoryArea.Width, 48.0f };
+            if (RowRect.Bottom() < RepositoryArea.Y || RowRect.Y > RepositoryArea.Bottom())
+            {
+                continue;
+            }
+            const bool Selected = (SelectedContentIndex == EntryIdx);
+            Canvas.FillRectangle(RowRect, Selected ? ColorRgba{ 48u, 44u, 38u, 255u } : ColorRgba{ 31u, 31u, 34u, 255u }, 12.0f);
+
+            const ThumbnailUvQuad TileUv = ThumbnailRepository.QueryTileUv(EntryIdx);
+            const Rectangle2D     IconBox{ RowRect.X + 8.0f, RowRect.Y + 6.0f, 36.0f, 36.0f };
+            if (TileUv.Valid)
+            {
+                Canvas.FillTexturedRectangle(IconBox, TileUv.TexturePointer, TileUv.UvMin, TileUv.UvMax, 8.0f);
+            }
+
+            Canvas.Text({ RowRect.X + 54.0f, RowRect.Y + 11.0f }, 11.5f, ColorRgba{ 226u, 226u, 228u, 255u }, Entry->DisplayTitle.c_str());
+            Canvas.Text({ RowRect.X + 54.0f, RowRect.Y + 27.0f }, 9.0f, ColorRgba{ 138u, 138u, 142u, 255u }, Entry->ContainerFormat.c_str());
+
+            if (RepositoryArea.Contains(Cursor) && RowRect.Contains(Cursor) && PointerInput.Pressed)
+            {
+                SelectedContentIndex = EntryIdx;
             }
         }
     }
     else
     {
-        const uint32_t Columns = std::max(1u, static_cast<uint32_t>((RepositoryArea.Width + 10.0f) / 132.0f));
-        const float    CellW   = (RepositoryArea.Width - 10.0f * static_cast<float>(Columns - 1u)) / static_cast<float>(Columns);
-        for (std::size_t Idx = 0u; Idx < MaterialPresets.size(); ++Idx)
+        constexpr float CellGap  = 10.0f;
+        constexpr float CellH    = 134.0f;
+        const uint32_t  Columns  = std::max(1u, static_cast<uint32_t>((RepositoryArea.Width + CellGap) / 136.0f));
+        const float     CellW    = (RepositoryArea.Width - CellGap * static_cast<float>(Columns - 1u)) / static_cast<float>(Columns);
+        const uint32_t  RowCount = static_cast<uint32_t>((Filtered.size() + Columns - 1u) / Columns);
+        RepositoryScrollY        = std::min(RepositoryScrollY, std::max(0.0f, static_cast<float>(RowCount) * (CellH + CellGap) - RepositoryArea.Height));
+
+        for (std::size_t OrderIdx = 0u; OrderIdx < Filtered.size(); ++OrderIdx)
         {
-            const uint32_t    Col = static_cast<uint32_t>(Idx) % Columns;
-            const uint32_t    Row = static_cast<uint32_t>(Idx) / Columns;
-            const Rectangle2D CellRect{ RepositoryArea.X + static_cast<float>(Col) * (CellW + 10.0f), RepositoryArea.Y + static_cast<float>(Row) * 136.0f, CellW, 126.0f };
-            const bool        Selected = (SelectedMaterialIndex == Idx);
-            Canvas.FillRectangle(CellRect, Selected ? ColorRgba{ 48u, 44u, 38u, 255u } : ColorRgba{ 31u, 31u, 34u, 255u }, 15.0f);
-            Canvas.StrokeRectangle(CellRect, ColorRgba{ 255u, 255u, 255u, 20u }, 15.0f, 1.0f);
-            const Point2D OrbCenter{ CellRect.Center().X, CellRect.Y + 46.0f };
-            Canvas.FillCircle(OrbCenter, 26.0f, MaterialPresets[Idx].OrbColour);
-            Canvas.FillCircle({ OrbCenter.X - 8.0f, OrbCenter.Y - 9.0f }, 6.0f, ColorRgba{ 255u, 255u, 255u, 90u });
-            Canvas.TextCentered({ CellRect.X + 4.0f, CellRect.Y + 86.0f, CellRect.Width - 8.0f, 16.0f }, 10.5f, ColorRgba{ 222u, 222u, 224u, 255u }, MaterialPresets[Idx].Title);
-            Canvas.TextCentered({ CellRect.X + 4.0f, CellRect.Y + 104.0f, CellRect.Width - 8.0f, 14.0f }, 9.0f, ColorRgba{ 126u, 126u, 130u, 255u }, "Materials · Engine");
-            if (CellRect.Contains(Cursor) && PointerInput.Pressed)
+            const std::size_t             EntryIdx = Filtered[OrderIdx];
+            const ContentRepositoryEntry* Entry    = ThumbnailRepository.QueryEntryAt(EntryIdx);
+            if (Entry == nullptr)
             {
-                SelectedMaterialIndex = static_cast<uint32_t>(Idx);
+                continue;
+            }
+            const uint32_t    Col = static_cast<uint32_t>(OrderIdx) % Columns;
+            const uint32_t    Row = static_cast<uint32_t>(OrderIdx) / Columns;
+            const Rectangle2D CellRect{
+                RepositoryArea.X + static_cast<float>(Col) * (CellW + CellGap),
+                RepositoryArea.Y + static_cast<float>(Row) * (CellH + CellGap) - RepositoryScrollY,
+                CellW,
+                CellH,
+            };
+            if (CellRect.Bottom() < RepositoryArea.Y || CellRect.Y > RepositoryArea.Bottom())
+            {
+                continue;
+            }
+
+            const bool Selected = (SelectedContentIndex == EntryIdx);
+            const bool Hovered  = RepositoryArea.Contains(Cursor) && CellRect.Contains(Cursor);
+            Canvas.FillRectangle(
+                CellRect,
+                Selected ? ColorRgba{ 48u, 44u, 38u, 255u } : (Hovered ? ColorRgba{ 38u, 38u, 42u, 255u } : ColorRgba{ 31u, 31u, 34u, 255u }),
+                15.0f);
+            Canvas.StrokeRectangle(
+                CellRect,
+                Selected ? ColorRgba{ 214u, 192u, 148u, 150u } : ColorRgba{ 255u, 255u, 255u, 20u },
+                15.0f,
+                1.0f);
+
+            // Single textured quad sampled directly from pre-baked 1024x1024 ThumbnailSheet page
+            const ThumbnailUvQuad TileUv = ThumbnailRepository.QueryTileUv(EntryIdx);
+            const Rectangle2D     ThumbRect{ CellRect.Center().X - 31.0f, CellRect.Y + 12.0f, 62.0f, 62.0f };
+            if (TileUv.Valid)
+            {
+                Canvas.FillTexturedRectangle(ThumbRect, TileUv.TexturePointer, TileUv.UvMin, TileUv.UvMax, 12.0f);
+            }
+
+            Canvas.TextCentered({ CellRect.X + 5.0f, CellRect.Y + 82.0f, CellRect.Width - 10.0f, 16.0f }, 10.0f, ColorRgba{ 226u, 226u, 228u, 255u }, Entry->DisplayTitle.c_str());
+
+            const auto EntryCat    = static_cast<ContentCategoryKind>(Entry->IndexHeader.CategoryCode);
+            const auto EntryOrigin = static_cast<ContentOriginFilter>(Entry->IndexHeader.OriginCode);
+            const char* OriginTag  = (EntryOrigin == ContentOriginFilter::Engine) ? "Engine" : ((EntryOrigin == ContentOriginFilter::Imported) ? "Imported" : "Project");
+            const std::string Sub  = std::string(ThumbnailSheetRepository::QueryCategoryTitle(EntryCat)) + " · " + OriginTag;
+            Canvas.TextCentered({ CellRect.X + 5.0f, CellRect.Y + 102.0f, CellRect.Width - 10.0f, 14.0f }, 8.8f, ColorRgba{ 132u, 132u, 136u, 255u }, Sub.c_str());
+
+            if (Hovered && PointerInput.Pressed)
+            {
+                SelectedContentIndex = EntryIdx;
             }
         }
     }
@@ -738,11 +896,10 @@ void ContentBrowserPanel::RenderContentDetailsSidebar(
     {
         if (const ColourCodexEntry* Entry = CodexLibrary.QueryEntryAt(SelectedColourIndex))
         {
-            const float             TileH = std::clamp(Inner.Height - 126.0f, 178.0f, 274.0f);
+            const float             TileH = std::clamp(Inner.Height - 134.0f, 174.0f, 268.0f);
             const Rectangle2D       TileRect{ Inner.X, Inner.Y + 22.0f, Inner.Width, TileH };
             const ColourContrastInk Ink = ColourCodex::QueryContrastInk(Entry->FillColour);
 
-            // Flat colour-filled swatch tile (zero photo background, contrasting black or white ink)
             Canvas.FillRectangle(TileRect, Entry->FillColour, 20.0f);
             Canvas.StrokeRectangle(TileRect, Ink.BorderInk, 20.0f, 1.0f);
 
@@ -790,8 +947,8 @@ void ContentBrowserPanel::RenderContentDetailsSidebar(
                 TargetLabel = RegisteredSlots.front().DisplayTitle;
             }
 
-            const std::string TargetSummary = "Target: " + TargetLabel;
-            Canvas.Text({ Inner.X, TileRect.Bottom() + 12.0f }, 10.0f, ColorRgba{ 156u, 156u, 160u, 255u }, TargetSummary.c_str());
+            const std::string TargetSummary = "Target: " + TargetLabel + "  ·  .ColourSwatch";
+            Canvas.Text({ Inner.X, TileRect.Bottom() + 12.0f }, 9.8f, ColorRgba{ 156u, 156u, 160u, 255u }, TargetSummary.c_str());
 
             const std::string ApplyBtnText = "Apply to " + TargetLabel;
             if (ConstructCapsuleControl(
@@ -809,12 +966,35 @@ void ContentBrowserPanel::RenderContentDetailsSidebar(
     }
     else
     {
-        const BuiltInMaterialPreset& Mat = MaterialPresets[SelectedMaterialIndex % MaterialPresets.size()];
-        Canvas.Text({ Inner.X, Inner.Y + 26.0f }, 18.0f, ColorRgba{ 226u, 226u, 228u, 255u }, Mat.Title);
-        const Rectangle2D PreviewBox{ Inner.X, Inner.Y + 58.0f, Inner.Width, 150.0f };
-        Canvas.FillRectangle(PreviewBox, ColorRgba{ 26u, 26u, 29u, 255u }, 16.0f);
-        Canvas.FillCircle(PreviewBox.Center(), 44.0f, Mat.OrbColour);
-        Canvas.Text({ Inner.X, PreviewBox.Bottom() + 14.0f }, 10.0f, ColorRgba{ 148u, 148u, 152u, 255u }, "Built-in material preset · switch to Colours for ColourCodex.");
+        if (const ContentRepositoryEntry* Entry = ThumbnailRepository.QueryEntryAt(SelectedContentIndex))
+        {
+            Canvas.Text({ Inner.X, Inner.Y + 24.0f }, 16.0f, ColorRgba{ 230u, 230u, 232u, 255u }, Entry->DisplayTitle.c_str());
+
+            const Rectangle2D PreviewBox{ Inner.X, Inner.Y + 52.0f, Inner.Width, 148.0f };
+            Canvas.FillRectangle(PreviewBox, ColorRgba{ 26u, 26u, 29u, 255u }, 16.0f);
+            Canvas.StrokeRectangle(PreviewBox, ColorRgba{ 255u, 255u, 255u, 20u }, 16.0f, 1.0f);
+
+            const ThumbnailUvQuad TileUv = ThumbnailRepository.QueryTileUv(SelectedContentIndex);
+            if (TileUv.Valid)
+            {
+                const Rectangle2D BigThumb{ PreviewBox.Center().X - 54.0f, PreviewBox.Center().Y - 54.0f, 108.0f, 108.0f };
+                Canvas.FillTexturedRectangle(BigThumb, TileUv.TexturePointer, TileUv.UvMin, TileUv.UvMax, 16.0f);
+            }
+
+            const auto EntryCat    = static_cast<ContentCategoryKind>(Entry->IndexHeader.CategoryCode);
+            const auto EntryOrigin = static_cast<ContentOriginFilter>(Entry->IndexHeader.OriginCode);
+            const char* OriginName = (EntryOrigin == ContentOriginFilter::Engine) ? "EngineContent (Read-Only)" : ((EntryOrigin == ContentOriginFilter::Imported) ? "Imported (.Space)" : "Project Content");
+
+            const std::string FormatLine = "Container: " + Entry->ContainerFormat + "  (" + ThumbnailSheetRepository::QueryCategoryTitle(EntryCat) + ")";
+            const std::string OriginLine = std::string("Origin: ") + OriginName;
+            const std::string SheetLine  = "Sheet Page #" + std::to_string(Entry->IndexHeader.SheetPageOrdinal) +
+                                           " · Tile (" + std::to_string(Entry->IndexHeader.TileColumn) + ", " +
+                                           std::to_string(Entry->IndexHeader.TileRow) + ") · 64B Index";
+
+            Canvas.Text({ Inner.X, PreviewBox.Bottom() + 14.0f }, 10.0f, ColorRgba{ 204u, 194u, 178u, 255u }, FormatLine.c_str());
+            Canvas.Text({ Inner.X, PreviewBox.Bottom() + 32.0f }, 9.5f, ColorRgba{ 152u, 152u, 156u, 255u }, OriginLine.c_str());
+            Canvas.Text({ Inner.X, PreviewBox.Bottom() + 49.0f }, 9.2f, ColorRgba{ 132u, 132u, 138u, 255u }, SheetLine.c_str());
+        }
     }
 
     Canvas.PopClip();
@@ -830,7 +1010,6 @@ void ContentBrowserPanel::RenderWithInput(
 
     const Point2D Cursor{ PointerInput.CursorX, PointerInput.CursorY };
 
-    // Handle active colour drag threshold, auto-split reveal, and colour-slot drop
     if (PotentialColourDrag && PointerInput.HeldDown && !DraggingColour)
     {
         const float Dx = Cursor.X - DragPressOrigin.X;
@@ -862,7 +1041,6 @@ void ContentBrowserPanel::RenderWithInput(
         DraggingColour      = false;
     }
 
-    // Track clicks on registered workspace colour slots when visible above the shelf
     if (PointerInput.Pressed && !QueryBlocksUnderlyingWorkspace())
     {
         for (const ColourSlotRegistration& Slot : RegisteredSlots)
@@ -918,9 +1096,30 @@ void ContentBrowserPanel::RenderWithInput(
     const float PadX = 24.0f;
     float       CurY = DrawerRect.Y + 14.0f;
 
-    // 1. Header Bar ("CONTENT / LIBRARY" + "ContentBrowser")
-    Canvas.Text({ DrawerRect.X + PadX, CurY }, 8.5f, ColorRgba{ 162u, 150u, 132u, 255u }, "CONTENT / LIBRARY");
+    // 1. Header Bar + Workspace Domain Switcher + SSD/HDD Tier & Import Destination Toggles
+    const std::string Eyebrow = std::string("CONTENT / LIBRARY  ·  ") +
+                                ThumbnailSheetRepository::QueryWorkspaceTitle(ActiveWorkspace) + " WORKSPACE";
+    Canvas.Text({ DrawerRect.X + PadX, CurY }, 8.5f, ColorRgba{ 162u, 150u, 132u, 255u }, Eyebrow.c_str());
     Canvas.Text({ DrawerRect.X + PadX, CurY + 12.0f }, 21.0f, ColorRgba{ 234u, 234u, 236u, 255u }, "ContentBrowser");
+
+    // Workspace Domain Filter Pills (demonstrates strict per-workspace category blocking)
+    constexpr std::array<std::pair<WorkspaceDomainKind, const char*>, 5> QuickWorkspaces = {{
+        { WorkspaceDomainKind::SceneWorld, "Scene"      },
+        { WorkspaceDomainKind::UV,         "UV"         },
+        { WorkspaceDomainKind::Material,   "Material"   },
+        { WorkspaceDomainKind::Simulation, "Simulation" },
+        { WorkspaceDomainKind::Audio,      "Audio"      },
+    }};
+    float WsX = DrawerRect.X + 240.0f;
+    for (const auto& [WsKind, WsLabel] : QuickWorkspaces)
+    {
+        const float CapsuleW = std::max(52.0f, Canvas.MeasureTextWidth(9.2f, WsLabel) + 20.0f);
+        if (ConstructCapsuleControl(Canvas, { WsX, CurY + 6.0f, CapsuleW, 25.0f }, WsLabel, ActiveWorkspace == WsKind, PointerInput, 9.2f))
+        {
+            ConfigureWorkspaceDomain(WsKind);
+        }
+        WsX += CapsuleW + 5.0f;
+    }
 
     float RightBtnX = DrawerRect.Right() - PadX;
     RightBtnX -= 32.0f;
@@ -929,40 +1128,64 @@ void ContentBrowserPanel::RenderWithInput(
         ConfigureShelfExtent(ContentShelfExtent::Closed, false);
     }
 
-    RightBtnX -= 78.0f;
+    RightBtnX -= 68.0f;
     const bool InSplit = (TargetExtent == ContentShelfExtent::SplitHalf);
-    if (ConstructCapsuleControl(
-            Canvas,
-            { RightBtnX, CurY + 4.0f, 72.0f, 28.0f },
-            InSplit ? "Full" : "Split",
-            InSplit,
-            PointerInput))
+    if (ConstructCapsuleControl(Canvas, { RightBtnX, CurY + 4.0f, 62.0f, 28.0f }, InSplit ? "Full" : "Split", InSplit, PointerInput))
     {
         ConfigureShelfExtent(InSplit ? ContentShelfExtent::FullHeight : ContentShelfExtent::SplitHalf, false);
     }
 
-    RightBtnX -= 94.0f;
-    if (ConstructCapsuleControl(Canvas, { RightBtnX, CurY + 4.0f, 88.0f, 28.0f }, "+ Colour", false, PointerInput))
+    RightBtnX -= 88.0f;
+    if (ConstructCapsuleControl(Canvas, { RightBtnX, CurY + 4.0f, 82.0f, 28.0f }, "+ Colour", false, PointerInput))
     {
-        const std::size_t Added = CodexLibrary.AddProjectColour("Project Colour", "#2454FF", "Project");
-        ActivateCategory(ContentCategoryKind::Colours);
-        ConfigureColourFilter(ColourFilterGroup::All);
-        SelectedColourIndex = Added;
-        StatusMessage       = "Created custom Project Colour (#2454FF)";
+        if (ThumbnailSheetRepository::QueryCategoryPermitted(ActiveWorkspace, ContentCategoryKind::Colours))
+        {
+            const std::size_t Added = CodexLibrary.AddProjectColour("Project Swatch", "#2454FF", "Project");
+            (void)ActivateCategory(ContentCategoryKind::Colours);
+            ConfigureColourFilter(ColourFilterGroup::All);
+            SelectedColourIndex = Added;
+            StatusMessage       = "Created Project Swatch (.ColourSwatch #2454FF)";
+        }
     }
 
-    RightBtnX -= 98.0f;
-    if (ConstructCapsuleControl(Canvas, { RightBtnX, CurY + 4.0f, 92.0f, 28.0f }, "+ Material", false, PointerInput))
+    RightBtnX -= 106.0f;
+    const bool ScratchMode = (ThumbnailRepository.QueryImportPolicy().Mode == ImportDestinationMode::ScratchTempFolder);
+    if (ConstructCapsuleControl(
+            Canvas,
+            { RightBtnX, CurY + 4.0f, 100.0f, 28.0f },
+            ScratchMode ? "Import: Temp" : "Import: Project",
+            ScratchMode,
+            PointerInput,
+            9.0f))
     {
-        ActivateCategory(ContentCategoryKind::Materials);
-        StatusMessage = "Selected Materials repository";
+        ImportIntakeConfiguration NextPolicy = ThumbnailRepository.QueryImportPolicy();
+        NextPolicy.Mode = ScratchMode ? ImportDestinationMode::ProjectImportedFolder : ImportDestinationMode::ScratchTempFolder;
+        ThumbnailRepository.ConfigureImportPolicy(NextPolicy);
+        StatusMessage = ScratchMode
+                            ? "Import destination -> Projects/<Project>/Content/Imported/"
+                            : "Import destination -> Scratch Temp (Projects/_Scratch/Saved/Imported/)";
+    }
+
+    RightBtnX -= 84.0f;
+    const bool RotationalActive = (StreamChannelThread.QueryResolvedTier() == Threading::StorageHardwareTier::RotationalSequentialIo);
+    if (ConstructCapsuleControl(
+            Canvas,
+            { RightBtnX, CurY + 4.0f, 78.0f, 28.0f },
+            RotationalActive ? "I/O: HDD" : "I/O: SSD",
+            RotationalActive,
+            PointerInput,
+            9.0f))
+    {
+        ConfigureStorageHardwareTier(
+            RotationalActive ? Threading::StorageHardwareTier::FlashStorageRandomIo
+                  : Threading::StorageHardwareTier::RotationalSequentialIo);
     }
 
     CurY += 44.0f;
     Canvas.StrokeLine({ DrawerRect.X + PadX, CurY }, { DrawerRect.Right() - PadX, CurY }, ColorRgba{ 255u, 255u, 255u, 16u }, 1.0f);
     CurY += 10.0f;
 
-    // 2. Origin Tabs + Search + Layout Switcher (Colours gets Grid / Vertical / Horizontal; others get Grid / List)
+    // 2. Origin Scope Tabs + Layout Switcher
     constexpr std::array<std::pair<ContentOriginFilter, const char*>, 4> Origins = {{
         { ContentOriginFilter::All,      "All"      },
         { ContentOriginFilter::Project,  "Project"  },
@@ -972,11 +1195,11 @@ void ContentBrowserPanel::RenderWithInput(
     float OriginX = DrawerRect.X + PadX;
     for (const auto& [ScopeEnum, Label] : Origins)
     {
-        if (ConstructCapsuleControl(Canvas, { OriginX, CurY, 68.0f, 26.0f }, Label, OriginScope == ScopeEnum, PointerInput, 9.5f))
+        if (ConstructCapsuleControl(Canvas, { OriginX, CurY, 72.0f, 26.0f }, Label, OriginScope == ScopeEnum, PointerInput, 9.5f))
         {
             ConfigureOriginFilter(ScopeEnum);
         }
-        OriginX += 74.0f;
+        OriginX += 78.0f;
     }
 
     if (Category == ContentCategoryKind::Colours)
@@ -1064,10 +1287,10 @@ void ContentBrowserPanel::RenderWithInput(
     Canvas.StrokeLine({ DrawerRect.X + PadX, CurY }, { DrawerRect.Right() - PadX, CurY }, ColorRgba{ 255u, 255u, 255u, 14u }, 1.0f);
     CurY += 10.0f;
 
-    // 4. Three-Column Body: Left Category Rail | Centre Repository / Strips | Right Content Details Tile
+    // 4. Three-Column Body: Left Permitted-Only Category Rail | Centre Repository | Right Content Details Tile
     constexpr float FooterH  = 32.0f;
     const float     BodyH    = std::max(60.0f, DrawerRect.Bottom() - FooterH - CurY);
-    const float     RailW    = 144.0f;
+    const float     RailW    = 148.0f;
     const float     DetailsW = 286.0f;
     const float     CentreW  = std::max(160.0f, DrawerRect.Width - PadX * 2.0f - RailW - DetailsW - 32.0f);
 
@@ -1075,26 +1298,21 @@ void ContentBrowserPanel::RenderWithInput(
     const Rectangle2D CentreArea{ RailArea.Right() + 16.0f, CurY, CentreW, BodyH };
     const Rectangle2D DetailsArea{ CentreArea.Right() + 16.0f, CurY, DetailsW, BodyH };
 
-    constexpr std::array<ContentCategoryKind, 9> AllCategories = {{
-        ContentCategoryKind::All,
-        ContentCategoryKind::Materials,
-        ContentCategoryKind::Colours,
-        ContentCategoryKind::Images,
-        ContentCategoryKind::Fonts,
-        ContentCategoryKind::Models,
-        ContentCategoryKind::Icons,
-        ContentCategoryKind::Code,
-        ContentCategoryKind::Other,
-    }};
-
+    Canvas.PushClip(RailArea);
     float RailY = RailArea.Y + 2.0f;
-    for (const ContentCategoryKind CategoryOption : AllCategories)
+    for (const ContentCategoryKind CategoryOption : OrderedRailCategories)
     {
-        if (RailY + 28.0f > RailArea.Bottom())
+        // 🔴 Completely exclude blocked categories in specialized workspaces (e.g. Particles/Simulations/Audio in UV)
+        if (!ThumbnailSheetRepository::QueryCategoryPermitted(ActiveWorkspace, CategoryOption))
+        {
+            continue;
+        }
+        if (RailY + 26.0f > RailArea.Bottom())
         {
             break;
         }
-        const Rectangle2D CatBtn{ RailArea.X, RailY, RailArea.Width - 10.0f, 27.0f };
+
+        const Rectangle2D CatBtn{ RailArea.X, RailY, RailArea.Width - 10.0f, 25.0f };
         const bool        ActiveCat = (Category == CategoryOption);
         const bool        Hovered   = CatBtn.Contains(Cursor);
         if (ActiveCat || Hovered)
@@ -1105,17 +1323,18 @@ void ContentBrowserPanel::RenderWithInput(
                 8.0f);
         }
         Canvas.Text(
-            { CatBtn.X + 10.0f, CatBtn.Y + 7.0f },
-            10.5f,
+            { CatBtn.X + 10.0f, CatBtn.Y + 6.0f },
+            10.2f,
             ActiveCat ? ColorRgba{ 234u, 224u, 206u, 255u } : ColorRgba{ 148u, 148u, 152u, 255u },
-            CategoryCaption(CategoryOption));
+            ThumbnailSheetRepository::QueryCategoryTitle(CategoryOption));
 
         if (Hovered && PointerInput.Pressed)
         {
-            ActivateCategory(CategoryOption);
+            (void)ActivateCategory(CategoryOption);
         }
-        RailY += 30.0f;
+        RailY += 27.0f;
     }
+    Canvas.PopClip();
     Canvas.StrokeLine({ RailArea.Right(), RailArea.Y }, { RailArea.Right(), RailArea.Bottom() }, ColorRgba{ 255u, 255u, 255u, 18u }, 1.0f);
 
     if (Category == ContentCategoryKind::Colours)
@@ -1132,16 +1351,20 @@ void ContentBrowserPanel::RenderWithInput(
     // 5. Footer Status Bar
     const Rectangle2D FooterRect{ DrawerRect.X + PadX, DrawerRect.Bottom() - FooterH, DrawerRect.Width - PadX * 2.0f, FooterH };
     Canvas.StrokeLine({ FooterRect.X, FooterRect.Y }, { FooterRect.Right(), FooterRect.Y }, ColorRgba{ 255u, 255u, 255u, 14u }, 1.0f);
+
     const char* DefaultHint =
         (Category == ContentCategoryKind::Colours)
-            ? "Drag any colour circle/strip onto a colour slot or double-click to apply"
-            : "Click ContentBrowser notch or Split to dock alongside scene panels";
+            ? "Drag any .ColourSwatch circle/strip onto a colour slot or double-click to apply"
+            : "Pre-baked 1024x1024 ThumbnailSheet + 64B ContentIndex · Drop external files to quarantine & import";
     Canvas.Text(
         { FooterRect.X, FooterRect.Y + 9.0f },
         9.5f,
         ColorRgba{ 152u, 152u, 156u, 255u },
         StatusMessage.empty() ? DefaultHint : StatusMessage.c_str());
-    Canvas.TextRightAligned(FooterRect, 9.0f, ColorRgba{ 116u, 116u, 120u, 255u }, "CONTENTBROWSER · COLOURCODEX");
+
+    const std::string RightMeta = std::string(Threading::AssetStreamThread::QueryHardwareTierTitle(StreamChannelThread.QueryResolvedTier())) +
+                                  " · " + ThumbnailSheetRepository::QueryWorkspaceTitle(ActiveWorkspace) + " Mask";
+    Canvas.TextRightAligned(FooterRect, 9.0f, ColorRgba{ 122u, 122u, 128u, 255u }, RightMeta.c_str());
 
     Canvas.PopClip();
 

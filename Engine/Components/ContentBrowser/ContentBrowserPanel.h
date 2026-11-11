@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                            CONTENTBROWSERPANEL.H
 ============================================================================================================================================*/
-// 🗂️ Bottom-edge ContentBrowser drawer featuring ColourCodex Grid/Vertical/Horizontal views, Colour Filters, and drag/double-click slots
+// 🧩 Bottom-edge ContentBrowser drawer with pre-baked ThumbnailSheet, dual-path SSD/HDD streaming, strict workspace masks & ColourCodex
 
 #pragma once
 
@@ -11,12 +11,15 @@
 
 #include "Engine/Components/Appearance/ThemeRepository.h"
 #include "Engine/Components/ContentBrowser/ColourCodex.h"
+#include "Engine/Components/ContentBrowser/ThumbnailSheetRepository.h"
 #include "Engine/Components/Motion/SpringIntegrator.h"
 #include "Engine/Components/Panes/OutlinerPanel.h"
 #include "Engine/Components/PixelSpace.h"
+#include "Engine/Threading/Threads/Streaming/AssetStreamThread.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <span>
 #include <string>
@@ -30,31 +33,10 @@ namespace Frontier
 //                                                      ENUMERATIONS
 //------------------------------------------------------------------------------------------------------------------------
 
-enum class ContentCategoryKind : uint8_t
-{
-    All       = 0, // [-] - Every content entry across all categories
-    Materials = 1, // [-] - Authoring material presets and custom materials
-    Colours   = 2, // [-] - ColourCodex named colour aliases
-    Images    = 3, // [-] - Celestial and authoring image previews
-    Fonts     = 4, // [-] - Embedded studio typeface previews
-    Models    = 5, // [-] - Geometry preview packages
-    Icons     = 6, // [-] - Vector icon entries
-    Code      = 7, // [-] - Shader and C++ descriptors
-    Other     = 8, // [-] - Auxiliary browser files
-};
-
-enum class ContentOriginFilter : uint8_t
-{
-    All      = 0, // [-] - Built-in engine, project, and imported entries
-    Project  = 1, // [-] - User-authored project entries
-    Imported = 2, // [-] - External TOML or file imports
-    Engine   = 3, // [-] - Read-only built-in engine entries
-};
-
 enum class StandardRepositoryLayout : uint8_t
 {
-    Grid = 0, // [-] - Multi-column thumbnail grid (non-Colours categories)
-    List = 1, // [-] - Compact single-column list (non-Colours categories)
+    Grid = 0, // [-] - Multi-column pre-baked ThumbnailSheet grid (non-Colours categories)
+    List = 1, // [-] - Compact single-column pre-baked ThumbnailSheet list (non-Colours categories)
 };
 
 enum class ContentShelfExtent : uint8_t
@@ -70,11 +52,11 @@ enum class ContentShelfExtent : uint8_t
 
 struct ColourSlotRegistration
 {
-    std::string                                           SlotIdentifier {};                   // [-]  - Stable colour-slot key
-    std::string                                           DisplayTitle   {};                   // [-]  - Human-readable slot label
-    Rectangle2D                                           ScreenBounds   {};                   // [px] - Logical drop-target rectangle
-    ColorRgba*                                            TargetColour   = nullptr;            // [-]  - Optional direct ColorRgba destination
-    std::function<void(ColorRgba, const ColourCodexEntry&)> NotifyColourAssigned {};               // [-]  - Optional assignment callback
+    std::string                                             SlotIdentifier       {};        // [-]  - Stable colour-slot key
+    std::string                                             DisplayTitle         {};        // [-]  - Human-readable slot label
+    Rectangle2D                                             ScreenBounds         {};        // [px] - Logical drop-target rectangle
+    ColorRgba*                                              TargetColour         = nullptr; // [-]  - Optional direct ColorRgba destination
+    std::function<void(ColorRgba, const ColourCodexEntry&)> NotifyColourAssigned {};        // [-]  - Optional assignment callback
 };
 
 struct ContentBrowserPointerInput
@@ -90,18 +72,23 @@ struct ContentBrowserPointerInput
 
 struct ContentBrowserReading
 {
-    ContentShelfExtent      ShelfExtent          = ContentShelfExtent::Closed;            // [-]     - Closed, SplitHalf, or FullHeight
-    float                   ShelfProgress        = 0.0f;                                  // [0-1]   - Animated spring height ratio
-    ContentCategoryKind     ActiveCategory       = ContentCategoryKind::Materials;        // [-]     - Selected left-rail category
-    ColourRepositoryLayout   ActiveColourLayout   = ColourRepositoryLayout::GridCircles;    // [-]     - Colours-only layout mode
-    StandardRepositoryLayout ActiveStandardLayout = StandardRepositoryLayout::Grid;         // [-]     - Non-Colours layout mode
-    ColourFilterGroup       ActiveColourFilter   = ColourFilterGroup::All;                // [-]     - Dedicated Colour Filters selection
-    ColourSortOrder         ActiveColourSort     = ColourSortOrder::Spectrum;             // [-]     - Colour sort ordering
-    uint32_t                VisibleEntryCount    = 0u;                                    // [count] - Filtered visible entries
-    bool                    ColourFiltersVisible = false;                                 // [-]     - True only when Colours is active
-    bool                    DraggingColourActive = false;                                 // [-]     - True while dragging a ColourCodex swatch
-    std::string             SelectedColourAlias  {};                                      // [-]     - Selected ColourCodex alias name
-    std::string             LastStatusMessage    {};                                      // [-]     - Latest footer status feedback
+    ContentShelfExtent             ShelfExtent            = ContentShelfExtent::Closed;                     // [-]     - Closed, SplitHalf, or FullHeight
+    float                          ShelfProgress          = 0.0f;                                           // [0-1]   - Animated spring height ratio
+    WorkspaceDomainKind            ActiveWorkspace        = WorkspaceDomainKind::SceneWorld;                // [-]     - Active workspace domain filter
+    ContentCategoryKind            ActiveCategory         = ContentCategoryKind::Materials;                 // [-]     - Selected left-rail category
+    ContentOriginFilter            ActiveOrigin           = ContentOriginFilter::All;                       // [-]     - All, Project, Imported, or Engine
+    ColourRepositoryLayout         ActiveColourLayout     = ColourRepositoryLayout::GridCircles;            // [-]     - Colours-only layout mode
+    StandardRepositoryLayout       ActiveStandardLayout   = StandardRepositoryLayout::Grid;                 // [-]     - Non-Colours layout mode
+    ColourFilterGroup              ActiveColourFilter     = ColourFilterGroup::All;                         // [-]     - Dedicated Colour Filters selection
+    ColourSortOrder                ActiveColourSort       = ColourSortOrder::Spectrum;                      // [-]     - Colour sort ordering
+    Threading::StorageHardwareTier ActiveStorageTier      = Threading::StorageHardwareTier::FlashStorageRandomIo; // [-] - SSD vs HDD streaming path
+    ImportDestinationMode          ActiveImportMode       = ImportDestinationMode::ProjectImportedFolder;   // [-]     - Persistent vs Scratch/Temp vs Custom
+    uint32_t                       PermittedCategoryCount = 0u;                                             // [count] - Categories visible in active workspace
+    uint32_t                       VisibleEntryCount      = 0u;                                             // [count] - Filtered visible entries
+    bool                           ColourFiltersVisible   = false;                                          // [-]     - True only when Colours is active
+    bool                           DraggingColourActive   = false;                                          // [-]     - True while dragging a ColourCodex swatch
+    std::string                    SelectedColourAlias    {};                                               // [-]     - Selected ColourCodex alias name
+    std::string                    LastStatusMessage      {};                                               // [-]     - Latest footer status feedback
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -112,16 +99,25 @@ class ContentBrowserPanel
 {
 public:
     ContentBrowserPanel();
+    ~ContentBrowserPanel() noexcept;
+
+    ContentBrowserPanel(const ContentBrowserPanel&)            = delete;
+    ContentBrowserPanel& operator=(const ContentBrowserPanel&) = delete;
 
     void ConfigureShelfExtent(ContentShelfExtent RequestedExtent, bool Immediate = false) noexcept;
-    void ActivateCategory(ContentCategoryKind Category) noexcept;
+    void ConfigureWorkspaceDomain(WorkspaceDomainKind Workspace) noexcept;
+    bool ActivateCategory(ContentCategoryKind NextCategory) noexcept;
     void ConfigureOriginFilter(ContentOriginFilter Origin) noexcept;
     void ConfigureStandardLayout(StandardRepositoryLayout Layout) noexcept;
     void ConfigureColourLayout(ColourRepositoryLayout Layout) noexcept;
     void ConfigureColourFilter(ColourFilterGroup Filter) noexcept;
     void ConfigureColourSort(ColourSortOrder Order) noexcept;
     void ConfigureSearchQuery(std::string_view SearchText);
+    void ConfigureStorageHardwareTier(Threading::StorageHardwareTier RequestedTier, const std::filesystem::path& MountTarget = {}) noexcept;
+    void ConfigureImportDestination(const ImportIntakeConfiguration& Policy);
     bool SelectColourByName(std::string_view AliasName) noexcept;
+
+    [[nodiscard]] ImportIntakeResult IntakeExternalAssetDrop(const std::filesystem::path& DroppedSourceFile);
 
     void ClearColourSlots() noexcept;
     void RegisterColourSlot(const ColourSlotRegistration& Registration);
@@ -139,19 +135,23 @@ public:
 
     void Render(Rectangle2D HostBoundsPhysical, double DeltaSeconds, float ScaleFactor = 1.0f);
 
-    [[nodiscard]] ContentBrowserReading     InspectReading() const noexcept;
-    [[nodiscard]] bool                      QueryOpen() const noexcept;
-    [[nodiscard]] bool                      QueryBlocksUnderlyingWorkspace() const noexcept;
-    [[nodiscard]] Rectangle2D               QueryNotchTabBounds(Rectangle2D ViewportLogicalBounds) const noexcept;
-    [[nodiscard]] Rectangle2D               QueryRenderedColourCellBounds(std::size_t ColourIndex) const noexcept;
-    [[nodiscard]] ColourCodex&              AccessColourCodex() noexcept;
-    [[nodiscard]] const ColourCodex&        QueryColourCodex() const noexcept;
+    [[nodiscard]] ContentBrowserReading             InspectReading() const noexcept;
+    [[nodiscard]] bool                              QueryOpen() const noexcept;
+    [[nodiscard]] bool                              QueryBlocksUnderlyingWorkspace() const noexcept;
+    [[nodiscard]] Rectangle2D                       QueryNotchTabBounds(Rectangle2D ViewportLogicalBounds) const noexcept;
+    [[nodiscard]] Rectangle2D                       QueryRenderedColourCellBounds(std::size_t ColourIndex) const noexcept;
+    [[nodiscard]] ColourCodex&                      AccessColourCodex() noexcept;
+    [[nodiscard]] const ColourCodex&                QueryColourCodex() const noexcept;
+    [[nodiscard]] ThumbnailSheetRepository&         AccessThumbnailRepository() noexcept;
+    [[nodiscard]] const ThumbnailSheetRepository&   QueryThumbnailRepository() const noexcept;
+    [[nodiscard]] Threading::AssetStreamThread&     AccessStreamThread() noexcept;
+    [[nodiscard]] const Threading::AssetStreamThread& QueryStreamThread() const noexcept;
 
 private:
     struct RecordedCellHitbox
     {
-        std::size_t EntryIndex = 0u;  // [idx] - Index inside ColourCodex
-        Rectangle2D Bounds     {};    // [px]  - Last rendered logical cell or strip rectangle
+        std::size_t EntryIndex = 0u; // [idx] - Index inside ColourCodex
+        Rectangle2D Bounds     {};   // [px]  - Last rendered logical cell or strip rectangle
     };
 
     void RenderColourSlotHighlights(PixelSpace& Canvas, Point2D Cursor) const noexcept;
@@ -169,32 +169,35 @@ private:
         Rectangle2D                       SidebarArea,
         const ContentBrowserPointerInput& PointerInput);
 
-    ColourCodex                         CodexLibrary           {};                                        // [-]   - Built-in + custom ColourCodex
-    SpringIntegrator                    ShelfSpring            {};                                        // [-]   - Smooth bottom-drawer spring
-    uint32_t                            ShelfAxis              = 0u;                                      // [idx] - Vertical shelf spring axis
-    ContentShelfExtent                  TargetExtent           = ContentShelfExtent::Closed;              // [-]   - Target stop (Closed/SplitHalf/Full)
-    ContentCategoryKind                 Category               = ContentCategoryKind::Materials;          // [-]   - Active left-rail category
-    ContentOriginFilter                 OriginScope            = ContentOriginFilter::All;                // [-]   - Active origin scope
-    StandardRepositoryLayout             StandardLayout         = StandardRepositoryLayout::Grid;           // [-]   - Non-Colours layout
-    ColourRepositoryLayout               ColourLayout           = ColourRepositoryLayout::GridCircles;      // [-]   - Colours-only layout
-    ColourFilterGroup                   ColourFilter           = ColourFilterGroup::All;                  // [-]   - Dedicated Colour Filters selection
-    ColourSortOrder                     ColourSort             = ColourSortOrder::Spectrum;               // [-]   - Colour sort order
-    std::string                         SearchBuffer           {};                                        // [-]   - Active search filter text
-    std::size_t                         SelectedColourIndex    = 0u;                                      // [idx] - Selected ColourCodex index
-    uint32_t                            SelectedMaterialIndex  = 0u;                                      // [idx] - Selected Material preset index
-    float                               RepositoryScrollY       = 0.0f;                                    // [px]  - Vertical scroll offset
-    uint32_t                            LastVisibleCount       = 9u;                                      // [cnt] - Cached visible entry count
-    std::string                         StatusMessage          {};                                        // [-]   - Latest footer status string
+    ColourCodex                         CodexLibrary          {};                                       // [-]   - Built-in + custom ColourCodex (.ColourSwatch)
+    ThumbnailSheetRepository            ThumbnailRepository   {};                                       // [-]   - Pre-baked 1024x1024 ThumbnailSheet + 64B index
+    Threading::AssetStreamThread        StreamChannelThread          {};                                       // [-]   - Dual-path SSD/HDD streaming thread
+    SpringIntegrator                    ShelfSpring           {};                                       // [-]   - Smooth bottom-drawer spring
+    uint32_t                            ShelfAxis             = 0u;                                     // [idx] - Vertical shelf spring axis
+    ContentShelfExtent                  TargetExtent          = ContentShelfExtent::Closed;             // [-]   - Target stop (Closed/SplitHalf/Full)
+    WorkspaceDomainKind                 ActiveWorkspace       = WorkspaceDomainKind::SceneWorld;        // [-]   - Active workspace domain mask
+    ContentCategoryKind                 Category              = ContentCategoryKind::Materials;         // [-]   - Active left-rail category
+    ContentOriginFilter                 OriginScope           = ContentOriginFilter::All;               // [-]   - Active origin scope
+    StandardRepositoryLayout            StandardLayout        = StandardRepositoryLayout::Grid;         // [-]   - Non-Colours layout
+    ColourRepositoryLayout              ColourLayout          = ColourRepositoryLayout::GridCircles;    // [-]   - Colours-only layout
+    ColourFilterGroup                   ColourFilter          = ColourFilterGroup::All;                 // [-]   - Dedicated Colour Filters selection
+    ColourSortOrder                     ColourSort            = ColourSortOrder::Spectrum;              // [-]   - Colour sort order
+    std::string                         SearchBuffer          {};                                       // [-]   - Active search filter text
+    std::size_t                         SelectedColourIndex   = 0u;                                     // [idx] - Selected ColourCodex index
+    std::size_t                         SelectedContentIndex  = 0u;                                     // [idx] - Selected ThumbnailSheetRepository index
+    float                               RepositoryScrollY     = 0.0f;                                   // [px]  - Vertical scroll offset
+    uint32_t                            LastVisibleCount      = 0u;                                     // [cnt] - Cached visible entry count
+    std::string                         StatusMessage         {};                                       // [-]   - Latest footer status string
 
-    std::vector<ColourSlotRegistration> RegisteredSlots        {};                                        // [-]   - Bound editor colour slots
-    std::string                         FocusedSlotId          {};                                        // [-]   - Active target slot key
-    OutlinerPanel*                      FallbackOutliner       = nullptr;                                 // [-]   - Optional Outliner fallback
-    std::vector<RecordedCellHitbox>     LastColourHitboxes     {};                                        // [-]   - Hitboxes for testing & drag
+    std::vector<ColourSlotRegistration> RegisteredSlots       {};                                       // [-]   - Bound editor colour slots
+    std::string                         FocusedSlotId         {};                                       // [-]   - Active target slot key
+    OutlinerPanel*                      FallbackOutliner      = nullptr;                                // [-]   - Optional Outliner fallback
+    std::vector<RecordedCellHitbox>     LastColourHitboxes    {};                                       // [-]   - Hitboxes for testing & drag
 
-    bool                                PotentialColourDrag    = false;                                   // [-]   - Pointer pressed on colour swatch
-    bool                                DraggingColour         = false;                                   // [-]   - Active drag threshold crossed
-    std::size_t                         DraggedColourIndex     = 0u;                                      // [idx] - ColourCodex entry being dragged
-    Point2D                             DragPressOrigin        {};                                        // [px]  - Press coordinate for deadzone
+    bool                                PotentialColourDrag   = false;                                  // [-]   - Pointer pressed on colour swatch
+    bool                                DraggingColour        = false;                                  // [-]   - Active drag threshold crossed
+    std::size_t                         DraggedColourIndex    = 0u;                                     // [idx] - ColourCodex entry being dragged
+    Point2D                             DragPressOrigin       {};                                       // [px]  - Press coordinate for deadzone
 };
 
 } // namespace Frontier

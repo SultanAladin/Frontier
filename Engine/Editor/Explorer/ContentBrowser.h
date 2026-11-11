@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                                CONTENTBROWSER.H
 ============================================================================================================================================*/
-// 🗂️ Editor-tier ContentBrowser coordinator connecting ColourCodex TOML persistence and Outliner/Inspector colour-slot assignment
+// 🧩 Editor-tier ContentBrowser coordinator connecting ColourCodex (.ColourSwatch), ThumbnailSheet streaming, and workspace domain masks
 
 #pragma once
 
@@ -32,10 +32,19 @@ class ContentBrowser
 public:
     ContentBrowser() = default;
 
-    void SynchronizeWorkspaceTargets(OutlinerPanel* ActiveOutliner, InspectorPanel* ActiveInspector) noexcept;
+    void SynchronizeWorkspaceTargets(
+        OutlinerPanel*  ActiveOutliner,
+        InspectorPanel* ActiveInspector) noexcept;
+
+    void ConfigureWorkspaceDomain(WorkspaceDomainKind ActiveDomain) noexcept;
+    void ConfigureImportPolicy(const ImportIntakeConfiguration& Policy);
+
+    [[nodiscard]] ImportIntakeResult IntakeExternalAssetDrop(const std::filesystem::path& DroppedSourceFile);
 
     bool ExportColourCodexToml(const std::filesystem::path& DestinationFile, std::string* FailureReason = nullptr) const;
     bool ImportColourCodexToml(const std::filesystem::path& SourceFile, std::string* FailureReason = nullptr);
+    bool ExportSingleColourSwatch(std::size_t EntryIndex, const std::filesystem::path& DestinationFile, std::string* FailureReason = nullptr) const;
+    bool ImportSingleColourSwatch(const std::filesystem::path& SourceFile, std::string* FailureReason = nullptr);
 
     void Render(Rectangle2D HostBoundsPhysical, double DeltaSeconds, float ScaleFactor = 1.0f);
 
@@ -44,8 +53,8 @@ public:
 
 private:
     ContentBrowserPanel Panel          {};       // [-] - Underlying PixelSpace ContentBrowser drawer
-    OutlinerPanel*      BoundOutliner  = nullptr; // [-] - Active workspace Outliner colour target
-    InspectorPanel*     BoundInspector = nullptr; // [-] - Active workspace Inspector colour target
+    OutlinerPanel*      BoundOutliner  = nullptr;// [-] - Active workspace Outliner colour target
+    InspectorPanel*     BoundInspector = nullptr;// [-] - Active workspace Inspector colour target
 };
 
 } // namespace Frontier::Editor::Explorer

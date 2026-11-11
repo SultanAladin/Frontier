@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                               CONTENTBROWSER.CPP
 ============================================================================================================================================*/
-// 🗂️ Implementation of Editor-tier ContentBrowser coordinator
+// 🧩 Implementation of Editor-tier ContentBrowser coordinator
 
 #include "Engine/Editor/Explorer/ContentBrowser.h"
 
@@ -14,11 +14,28 @@ namespace Frontier::Editor::Explorer
 //                                               CONTENTBROWSER IMPLEMENTATION
 //------------------------------------------------------------------------------------------------------------------------
 
-void ContentBrowser::SynchronizeWorkspaceTargets(OutlinerPanel* ActiveOutliner, InspectorPanel* ActiveInspector) noexcept
+void ContentBrowser::SynchronizeWorkspaceTargets(
+    OutlinerPanel*  ActiveOutliner,
+    InspectorPanel* ActiveInspector) noexcept
 {
     BoundOutliner  = ActiveOutliner;
     BoundInspector = ActiveInspector;
     Panel.AttachOutlinerFallback(ActiveOutliner);
+}
+
+void ContentBrowser::ConfigureWorkspaceDomain(WorkspaceDomainKind ActiveDomain) noexcept
+{
+    Panel.ConfigureWorkspaceDomain(ActiveDomain);
+}
+
+void ContentBrowser::ConfigureImportPolicy(const ImportIntakeConfiguration& Policy)
+{
+    Panel.ConfigureImportDestination(Policy);
+}
+
+ImportIntakeResult ContentBrowser::IntakeExternalAssetDrop(const std::filesystem::path& DroppedSourceFile)
+{
+    return Panel.IntakeExternalAssetDrop(DroppedSourceFile);
 }
 
 bool ContentBrowser::ExportColourCodexToml(const std::filesystem::path& DestinationFile, std::string* FailureReason) const
@@ -36,6 +53,31 @@ bool ContentBrowser::ImportColourCodexToml(const std::filesystem::path& SourceFi
 {
     std::string Diagnostic{};
     const bool  Succeeded = Panel.AccessColourCodex().LoadFromTomlFile(SourceFile, Diagnostic);
+    if (!Succeeded && FailureReason != nullptr)
+    {
+        *FailureReason = Diagnostic;
+    }
+    return Succeeded;
+}
+
+bool ContentBrowser::ExportSingleColourSwatch(
+    std::size_t                  EntryIndex,
+    const std::filesystem::path& DestinationFile,
+    std::string*                 FailureReason) const
+{
+    std::string Diagnostic{};
+    const bool  Succeeded = Panel.QueryColourCodex().SaveSingleSwatchFile(EntryIndex, DestinationFile, Diagnostic);
+    if (!Succeeded && FailureReason != nullptr)
+    {
+        *FailureReason = Diagnostic;
+    }
+    return Succeeded;
+}
+
+bool ContentBrowser::ImportSingleColourSwatch(const std::filesystem::path& SourceFile, std::string* FailureReason)
+{
+    std::string Diagnostic{};
+    const bool  Succeeded = Panel.AccessColourCodex().LoadSingleSwatchFile(SourceFile, Diagnostic);
     if (!Succeeded && FailureReason != nullptr)
     {
         *FailureReason = Diagnostic;

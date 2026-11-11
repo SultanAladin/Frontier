@@ -132,6 +132,14 @@ public:
     [[nodiscard]] bool        SaveToTomlFile(const std::filesystem::path& FilePath, std::string& OutDiagnostic) const;
     [[nodiscard]] bool        LoadFromTomlFile(const std::filesystem::path& FilePath, std::string& OutDiagnostic, bool AppendAsImported = true);
 
+    // 📝 Singular named colour swatch container (.ColourSwatch — case-insensitive load, canonical PascalCase write)
+    static constexpr std::string_view CanonicalSwatchExtension = ".ColourSwatch";
+    [[nodiscard]] static bool         MatchesSwatchExtension(const std::filesystem::path& FilePath) noexcept;
+    [[nodiscard]] std::string         EncodeSingleSwatchString(std::size_t EntryIndex) const;
+    [[nodiscard]] bool                DecodeSingleSwatchString(std::string_view SwatchDocument, std::string& OutDiagnostic, std::size_t* OutAddedIndex = nullptr);
+    [[nodiscard]] bool                SaveSingleSwatchFile(std::size_t EntryIndex, const std::filesystem::path& FilePath, std::string& OutDiagnostic) const;
+    [[nodiscard]] bool                LoadSingleSwatchFile(const std::filesystem::path& FilePath, std::string& OutDiagnostic, std::size_t* OutAddedIndex = nullptr);
+
 private:
     std::vector<ColourCodexEntry> RepositoryEntries {}; // [-] - Ordered built-in and custom ColourCodex entries
 };

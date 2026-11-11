@@ -118,6 +118,29 @@ void PixelSpace::FillRectangleBottomRounded(Rectangle2D Bounds, ColorRgba Fill, 
                             ImDrawFlags_RoundCornersBottom);
 }
 
+void PixelSpace::FillTexturedRectangle(
+    Rectangle2D    Bounds,
+    ImTextureData* TextureSource,
+    Point2D        UvMin,
+    Point2D        UvMax,
+    float          CornerRadius,
+    ColorRgba      Modulation) noexcept
+{
+    if (!CanvasBuffer || !TextureSource || Bounds.Width <= 0.0f || Bounds.Height <= 0.0f || Modulation.Alpha == 0)
+        return;
+    const Rectangle2D Phys = ToPhysical(Bounds);
+    const float       MaxR = 0.5f * std::min(Phys.Width, Phys.Height);
+    const float       Rad  = std::clamp(CornerRadius * Scale, 0.0f, MaxR);
+    CanvasBuffer->AddImageRounded(
+        TextureSource->GetTexRef(),
+        ImVec2(Phys.X, Phys.Y),
+        ImVec2(Phys.Right(), Phys.Bottom()),
+        ImVec2(UvMin.X, UvMin.Y),
+        ImVec2(UvMax.X, UvMax.Y),
+        PackColor(Modulation),
+        Rad);
+}
+
 void PixelSpace::StrokeRectangle(Rectangle2D Bounds, ColorRgba Stroke, float CornerRadius, float Thickness) noexcept
 {
     if (!CanvasBuffer || Bounds.Width <= 0.0f || Bounds.Height <= 0.0f || Stroke.Alpha == 0 || Thickness <= 0.0f)
