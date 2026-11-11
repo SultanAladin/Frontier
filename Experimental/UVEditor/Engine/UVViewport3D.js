@@ -242,7 +242,11 @@ export class UVViewport3D
         this.onContextMenu = onContextMenu;
         this.onBoxSelect3D = onBoxSelect3D;
         this.onPaintSelect3D = onPaintSelect3D;
-        this.shadingMode = 'lit-matcap'; // 'lit-eon' | 'multi-matcap' | 'lit-matcap' | 'checker' | 'flat' | 'matcap' | 'matcap-satin' | 'importance' | 'texel' | 'stretch'
+        this.shadingMode = 'lit-matcap'; // 'fast-pbr' | 'multi-matcap' | 'lit-matcap' | 'checker' | 'flat' | 'flat-slots' | 'importance' | 'texel' | 'stretch' | 'overlap'
+        this.pbrColor = '#7d93b2';
+        this.pbrMetallic = 0.55;
+        this.pbrRoughness = 0.28;
+        this.pbrSpecular = 0.55;
         this.eonRoughness = 0.36;
         this.blinnShininess = 64.0;
         this.specularStrength = 0.65;
@@ -605,28 +609,24 @@ export class UVViewport3D
                     float rim = pow(1.0 - ndv, 3.6) * (0.35 + 0.65 * clamp(N.y * 0.5 + 0.5, 0.0, 1.0));
 
                     float alpha = max(0.045, uRoughness * uRoughness);
-                    float a2 = alpha * alpha;
                     vec3 H = normalize(L + V);
                     float ndh = max(0.0, dot(N, H));
-                    float vdh = max(0.0, dot(V, H));
-                    float denom = ndh * ndh * (a2 - 1.0) + 1.0;
-                    float dGgx = a2 / max(1e-4, PI * denom * denom);
-                    float f0 = mix(0.05, 0.22, uMatcapBlend);
-                    float fresnel = f0 + (1.0 - f0) * pow(1.0 - vdh, 5.0);
-                    float visApprox = 1.0 / max(0.18, 4.0 * mix(ndv, 1.0, alpha * 0.5));
-                    float ggxSpec = min(3.2, dGgx * fresnel * visApprox * ndl) * uSpecStrength;
+                    float omv = 1.0 - ndv;
+                    float omv2 = omv * omv;
+                    float fresnel = mix(0.05, 0.22, uMatcapBlend) + 0.78 * (omv2 * omv2 * omv);
+                    // Fast Spherical-Gaussian specular lobe (1 exp2 SFU op — no GGX microfacet division!)
+                    float sgSharp = max(0.004, alpha * alpha * 0.65);
+                    float fastSpec = exp2((ndh * ndh - 1.0) / sgSharp) * mix(2.2, 0.16, uRoughness) * fresnel * ndl * uSpecStrength;
 
                     vec3 studioRigLin = baseAlbedo * (skyDome + 0.24 * wrapFill * vec3(0.78, 0.85, 0.96) + shadowVis * wrapKey * vec3(1.12, 1.08, 1.02));
-                    studioRigLin += shadowVis * vec3(ggxSpec) * vec3(1.0, 0.98, 0.95);
+                    studioRigLin += shadowVis * vec3(fastSpec) * vec3(1.0, 0.98, 0.95);
                     studioRigLin += rim * 0.14 * uSpecStrength * vec3(0.75, 0.84, 1.0);
 
                     if (uMode > 1.5) {
-                        // Preserve 100% of the Engineering MatCap's studio softboxes, dark horizon & Zebra bands,
-                        // grounded by real 9-tap PCF cast shadows + directional GGX key glint + geometric bevel cavity!
                         float shadowEnv = mix(0.54, 1.03, shadowVis * (0.38 + 0.62 * wrapKey));
-                        vec3 engMatcapSrgb = clamp(matcapSrgb * shadowEnv + shadowVis * ggxSpec * 0.14, 0.0, 1.0);
+                        vec3 engMatcapSrgb = clamp(matcapSrgb * shadowEnv + shadowVis * fastSpec * 0.14, 0.0, 1.0);
                         vec3 xRig = max(vec3(0.0), studioRigLin * cavity);
-                        vec3 rigSrgb = pow(clamp((xRig * (2.15 * xRig + 0.06)) / (xRig * (2.05 * xRig + 0.52) + 0.09), 0.0, 1.0), vec3(1.0 / 2.2));
+                        vec3 rigSrgb = sqrt(clamp((xRig * (2.15 * xRig + 0.06)) / (xRig * (2.05 * xRig + 0.52) + 0.09), 0.0, 1.0));
                         gl_FragColor = vec4(clamp(mix(rigSrgb, engMatcapSrgb * cavity, uMatcapBlend), 0.0, 1.0), 1.0);
                         return;
                     }
@@ -634,10 +634,103 @@ export class UVViewport3D
                     studioRigLin *= cavity;
                     vec3 x = max(vec3(0.0), studioRigLin);
                     vec3 mapped = (x * (2.15 * x + 0.06)) / (x * (2.05 * x + 0.52) + 0.09);
-                    gl_FragColor = vec4(pow(clamp(mapped, 0.0, 1.0), vec3(1.0 / 2.2)), 1.0);
+                    gl_FragColor = vec4(sqrt(clamp(mapped, 0.0, 1.0)), 1.0);
                 }
             `,
             vertexColors: true,
+            toneMapped: false,
+            side: THREE.DoubleSide
+        });
+
+        // 1B. Ultra-Fast Simplified Analytic PBR Shader (MatCap-speed, ZERO texture fetches, ZERO GGX, ZERO pow!)
+        //     Uses ONLY: Base Colour (uPbrColor), Metallic (uPbrMetallic), Roughness (uPbrRoughness), Specular (uPbrSpecular).
+        this.fastPbrMat = new THREE.ShaderMaterial({
+            uniforms: {
+                uPbrColor: { value: new THREE.Color(this.pbrColor) },
+                uPbrMetallic: { value: this.pbrMetallic },
+                uPbrRoughness: { value: this.pbrRoughness },
+                uPbrSpecular: { value: this.pbrSpecular },
+                uKeyLightDir: { value: new THREE.Vector3(0.48, 0.76, 0.44).normalize() }
+            },
+            vertexShader: `
+                precision highp float;
+                varying vec3 vWorldPos;
+                varying vec3 vWorldNormal;
+                void main() {
+                    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+                    vWorldPos = worldPos.xyz;
+                    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+                    gl_Position = projectionMatrix * viewMatrix * worldPos;
+                }
+            `,
+            fragmentShader: `
+                precision highp float;
+                uniform vec3 uPbrColor;
+                uniform float uPbrMetallic;
+                uniform float uPbrRoughness;
+                uniform float uPbrSpecular;
+                uniform vec3 uKeyLightDir;
+                varying vec3 vWorldPos;
+                varying vec3 vWorldNormal;
+
+                void main() {
+                    vec3 N = normalize(gl_FrontFacing ? vWorldNormal : -vWorldNormal);
+                    vec3 V = normalize(cameraPosition - vWorldPos);
+                    vec3 L = normalize(uKeyLightDir);
+                    vec3 H = normalize(L + V);
+                    vec3 R = reflect(-V, N);
+
+                    float ndl = max(0.0, dot(N, L));
+                    float ndv = max(0.001, dot(N, V));
+                    float ndh = max(0.0, dot(N, H));
+
+                    // Fast sRGB -> linear decode via single multiply (zero pow!)
+                    vec3 baseLin = uPbrColor * uPbrColor;
+
+                    float metallic = clamp(uPbrMetallic, 0.0, 1.0);
+                    float roughness = clamp(uPbrRoughness, 0.04, 1.0);
+                    float specular = clamp(uPbrSpecular, 0.0, 1.0);
+
+                    // Simplified PBR dielectric / metal split
+                    vec3 diffuseAlbedo = baseLin * (1.0 - metallic);
+                    vec3 f0 = mix(vec3(0.08 * specular), baseLin, metallic);
+
+                    // Fast Schlick Fresnel (3 multiplies, zero pow!)
+                    float omv = 1.0 - ndv;
+                    float omv2 = omv * omv;
+                    float schlick = omv2 * omv2 * omv;
+                    vec3 F = f0 + (max(vec3(1.0 - roughness), f0) - f0) * schlick;
+
+                    // Fast hemisphere + key/fill wrap irradiance
+                    float wrapKey = clamp((dot(N, L) + 0.22) * 0.82, 0.0, 1.0);
+                    vec3 fillDir = normalize(vec3(-L.x, 0.28, -L.z));
+                    float wrapFill = clamp((dot(N, fillDir) + 0.35) * 0.74, 0.0, 1.0);
+                    vec3 hemi = mix(vec3(0.085, 0.09, 0.105), vec3(0.30, 0.33, 0.38), N.y * 0.5 + 0.5);
+                    vec3 diffuseLit = diffuseAlbedo * (hemi + wrapFill * vec3(0.18, 0.20, 0.24) + wrapKey * vec3(0.98, 0.96, 0.92));
+
+                    // Analytic studio reflection along R blurred by roughness^2 (MatCap-speed, world-anchored!)
+                    float ry = R.y;
+                    float softbox = smoothstep(0.36, 0.92, dot(R, L)) * (1.0 - roughness * 0.78);
+                    float horizon = smoothstep(-0.18, 0.08, ry);
+                    vec3 sharpEnv = mix(vec3(0.065, 0.07, 0.08), mix(vec3(0.35, 0.39, 0.45), vec3(0.84, 0.88, 0.94), clamp(ry, 0.0, 1.0)), horizon);
+                    sharpEnv += softbox * vec3(0.94, 0.92, 0.88);
+                    vec3 roughEnv = mix(vec3(0.10, 0.105, 0.12), vec3(0.42, 0.45, 0.50), ry * 0.5 + 0.5);
+                    float r2 = roughness * roughness;
+                    vec3 envRefl = mix(sharpEnv, roughEnv, r2);
+
+                    // Fast Spherical-Gaussian key highlight (1 hardware exp2 op — NO GGX!)
+                    float invSharp = max(0.0035, r2 * r2 * 0.62);
+                    float sgSpec = exp2((ndh * ndh - 1.0) / invSharp) * mix(2.35, 0.16, roughness) * ndl;
+                    float specWeight = mix(specular * 1.85, 1.0, metallic);
+
+                    vec3 specLit = envRefl * F * mix(0.25 + specular * 0.95, 1.0, metallic) + F * sgSpec * specWeight * vec3(1.0, 0.98, 0.95);
+                    vec3 linCol = diffuseLit * (1.0 - F * 0.65) + specLit;
+
+                    // Fast tone map + hardware sqrt gamma encode
+                    vec3 mapped = linCol / (1.0 + linCol * 0.52);
+                    gl_FragColor = vec4(sqrt(clamp(mapped, 0.0, 1.0)), 1.0);
+                }
+            `,
             toneMapped: false,
             side: THREE.DoubleSide
         });
@@ -1314,6 +1407,14 @@ export class UVViewport3D
         this.fastLitMat.uniforms.uMatcapBlend.value = this.matcapCoatBlend;
         this.fastLitMat.uniforms.uShadowsEnabled.value = this.shadowsEnabled ? 1.0 : 0.0;
         this.fastLitMat.uniforms.uEonEnergyComp.value = this.eonEnergyComp ? 1.0 : 0.0;
+        if (this.fastPbrMat)
+        {
+            this.fastPbrMat.uniforms.uKeyLightDir.value.copy(Dir);
+            this.fastPbrMat.uniforms.uPbrColor.value.set(this.pbrColor || '#7d93b2');
+            this.fastPbrMat.uniforms.uPbrMetallic.value = this.pbrMetallic;
+            this.fastPbrMat.uniforms.uPbrRoughness.value = this.pbrRoughness;
+            this.fastPbrMat.uniforms.uPbrSpecular.value = this.pbrSpecular;
+        }
         if (this.groundShadowMat) this.groundShadowMat.uniforms.uShadowsEnabled.value = this.shadowsEnabled ? 1.0 : 0.0;
         if (this.keyLight) this.keyLight.position.copy(Dir).multiplyScalar(10.0);
 
@@ -1353,6 +1454,18 @@ export class UVViewport3D
     {
         Object.assign(this, Patch);
         this._SyncLightAndShadowFrustum();
+    }
+
+    UpdatePbrConfig(Patch = {})
+    {
+        Object.assign(this, Patch);
+        if (this.fastPbrMat)
+        {
+            if (Patch.pbrColor !== undefined) this.fastPbrMat.uniforms.uPbrColor.value.set(this.pbrColor);
+            if (Patch.pbrMetallic !== undefined) this.fastPbrMat.uniforms.uPbrMetallic.value = this.pbrMetallic;
+            if (Patch.pbrRoughness !== undefined) this.fastPbrMat.uniforms.uPbrRoughness.value = this.pbrRoughness;
+            if (Patch.pbrSpecular !== undefined) this.fastPbrMat.uniforms.uPbrSpecular.value = this.pbrSpecular;
+        }
     }
 
     SetActiveTool(Tool)
@@ -2126,13 +2239,20 @@ export class UVViewport3D
         this.surface = Surface;
         if (!this.webglReady || !Surface) return;
 
+        const IsFastPbr = this.shadingMode === 'fast-pbr';
         const IsFastLit = this.shadingMode === 'lit-eon' || this.shadingMode === 'multi-matcap' || this.shadingMode === 'lit-matcap';
         const IsMatcap = this.shadingMode === 'matcap' || this.shadingMode === 'matcap-satin';
         const IsUnlitFlat = this.shadingMode === 'flat' || this.shadingMode === 'flat-charts' || this.shadingMode === 'flat-slots' ||
             this.shadingMode === 'checker' || this.shadingMode === 'importance' || this.shadingMode === 'texel' ||
             this.shadingMode === 'stretch' || this.shadingMode === 'overlap';
 
-        if (IsFastLit)
+        if (IsFastPbr && this.fastPbrMat)
+        {
+            this.UpdatePbrConfig({});
+            this._SyncLightAndShadowFrustum();
+            this.mesh.material = this.fastPbrMat;
+        }
+        else if (IsFastLit)
         {
             this.fastLitMat.uniforms.uMode.value = this.shadingMode === 'lit-eon' ? 0.0 : this.shadingMode === 'multi-matcap' ? 1.0 : 2.0;
             this._SyncLightAndShadowFrustum();
@@ -2168,7 +2288,8 @@ export class UVViewport3D
             const P = Surface.uvCoords[i];
             UvHash = ((UvHash * 1.00013) + P[0] * 13.7 + P[1] * 29.3) % 1e9;
         }
-        const DataSig = `${Surface.faces.length}:${ULen}:${Surface.hiddenIslands.size}:${Surface.importanceByFace.size}:${this.shadingMode}:${TargetTexelDensity}:${ImportanceGroups.length}:${UvHash.toFixed(4)}`;
+        const GeomShadeKey = (IsFastPbr || IsFastLit || IsMatcap) ? 'smooth52' : this.shadingMode;
+        const DataSig = `${Surface.faces.length}:${ULen}:${Surface.hiddenIslands.size}:${Surface.importanceByFace.size}:${GeomShadeKey}:${TargetTexelDensity}:${ImportanceGroups.length}:${UvHash.toFixed(4)}`;
 
         // Fast path: topology, UVs, and shading didn't change -> ONLY upload compact GPU masks (0.02ms!)
         if (this._lastMeshTopoSig === DataSig && this.triToFace.length > 0)
@@ -2206,7 +2327,7 @@ export class UVViewport3D
             [0.74, 0.94, 0.85]
         ];
 
-        const CreaseNormals = (IsMatcap || IsFastLit) ? ComputeCreaseCornerNormals(Surface, 52) : null;
+        const CreaseNormals = (IsMatcap || IsFastLit || IsFastPbr) ? ComputeCreaseCornerNormals(Surface, 52) : null;
         const EdgeAccum = new Map();
 
         for (let fi = 0; fi < Surface.faces.length; fi++)

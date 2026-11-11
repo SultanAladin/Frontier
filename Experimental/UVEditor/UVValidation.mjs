@@ -579,13 +579,29 @@ console.log('11. Testing Multi-Surface Engineering MatCaps, Stack Similar UVs, F
     const IndexHtml = ReadText('index.html');
     assert.ok(Vp3dJs.includes('attribute float aMatcapSlot;') && Vp3dJs.includes('precision highp float;'),
         'UVViewport3D.js must pass lossless per-vertex aMatcapSlot with highp float precision');
-    assert.ok(Vp3dJs.includes('this.showSeams = false;'), 'Seam debug overlay must default to false in UVViewport3D');
-    assert.ok(EditorJs.includes('showSeams: false') && !IndexHtml.includes('class="pill-btn active" id="toggle-seams-btn"'),
-        'Seam debug overlay toggle must start inactive by default');
-    assert.ok(EditorJs.includes('RenderStudioPreviewAndFlatDebugCard(Body)') && EditorJs.includes('pz-udim-atlas-shell') && EditorJs.includes('IconStripBlock('),
-        'Checks tab must host Studio Preview & Flat Debug, UDIM tab must render spatial matrix, and Unwrap/Pack must use compact icon strips');
+    assert.ok(Vp3dJs.includes('this.fastPbrMat') && Vp3dJs.includes('uPbrColor') && Vp3dJs.includes('uPbrMetallic') &&
+              Vp3dJs.includes('uPbrRoughness') && Vp3dJs.includes('uPbrSpecular') && !Vp3dJs.includes('dGgx'),
+        'UVViewport3D.js must provide simplified Fast PBR shader (Colour, Metallic, Roughness, Specular only) with zero GGX');
+    assert.ok(IndexHtml.includes('value="fast-pbr"') && IndexHtml.includes('>Check</button>'),
+        'index.html must include Fast PBR (Lit) in shader dropdown and preserve Check tab label');
 
-    console.log(`   OK: ${DistinctSlots.size} distinct MatCaps on vehicle, StackSimilarIslands (${StackRes.stackedIslands} stacked onto ${StackRes.masterGroups} masters), FollowActiveQuads & UI checks verified.`);
+    const ShadingSlice = EditorJs.slice(EditorJs.indexOf('function RenderShadingTab'), EditorJs.indexOf('function RenderPackingTab'));
+    assert.ok(!ShadingSlice.includes('RenderUvSelectionTransformCard'), 'Shading menu must NOT include 2D UV Transform card');
+    assert.ok(ShadingSlice.includes("'Colour'") && ShadingSlice.includes("Label: 'Metallic'") &&
+              ShadingSlice.includes("Label: 'Roughness'") && ShadingSlice.includes("Label: 'Specular'"),
+        'Shading menu must expose Colour, Metallic, Roughness, and Specular controls');
+
+    const CheckSlice = EditorJs.slice(EditorJs.indexOf('function RenderDiagnosticsTab'), EditorJs.indexOf('function SnapUV'));
+    assert.ok(CheckSlice.includes("Label: 'Overlapping Faces'") && CheckSlice.includes("Label: 'Select Overlaps'") &&
+              !CheckSlice.includes('RenderStudioPreviewAndFlatDebugCard'),
+        'Check menu must match exact UV Integrity & Repair layout from a874c93');
+
+    assert.ok(EditorJs.includes('pz-budget-rail') && EditorJs.includes('pz-alloc-composer') && EditorJs.includes('pz-tier-card'),
+        'Pack menu must use redesigned Importance Space Allocation');
+    assert.ok(Vp3dJs.includes('this.showSeams = false;') && EditorJs.includes('showSeams: false'),
+        'Seam debug overlay must default to false');
+
+    console.log(`   OK: Fast PBR (no GGX), Check tab restored, Importance Allocator redesigned, ${DistinctSlots.size} MatCaps & StackSimilarIslands (${StackRes.stackedIslands} stacked) verified.`);
 }
 
 console.log('\nALL UV STUDIO VALIDATIONS PASSED SUCCESSFULLY.');

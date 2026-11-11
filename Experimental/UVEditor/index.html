@@ -169,9 +169,10 @@
         <!-- Dropdown 1: Surface Shading (Studio Preview + Multi-MatCap + Unlit Flat Modes) -->
         <div class="select-pill-wrap vp-compact-select">
           <select id="mesh-shade-select" title="3D Surface Shading (Z)">
-            <option value="lit-matcap" selected>Studio + MatCap</option>
-            <option value="lit-eon">Studio Preview</option>
+            <option value="lit-matcap" selected>Lit + MatCap</option>
+            <option value="fast-pbr">Fast PBR (Lit)</option>
             <option value="multi-matcap">Multi-MatCap</option>
+            <option value="lit-eon">Studio Clay</option>
             <option value="flat">Flat · UV Charts</option>
             <option value="flat-slots">Flat · Face Slots</option>
             <option value="checker">Flat · UV Checker</option>
@@ -391,7 +392,7 @@
         <button data-tab="packing" type="button">Pack</button>
         <button data-tab="unwrap" type="button">Unwrap</button>
         <button data-tab="udim" type="button">UDIM</button>
-        <button data-tab="check" type="button">Checks</button>
+        <button data-tab="check" type="button">Check</button>
       </div>
 
       <div class="panel-scroll inspector-scroll" id="inspector-scroll">
