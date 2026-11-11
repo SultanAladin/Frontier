@@ -110,7 +110,7 @@ export class TopologySurface
                 name: F.name || F.partId || `Face ${Index}`,
                 partId: F.partId || 'Surface',
                 materialName: F.materialName || 'Default',
-                matcapSlot: typeof F.matcapSlot === 'number' ? (F.matcapSlot & 7) : this._DefaultMatcapForPart(PartTag, Index),
+                matcapSlot: typeof F.matcapSlot === 'number' ? (F.matcapSlot & 15) : this._DefaultMatcapForPart(PartTag, Index),
                 pbrColor: typeof F.pbrColor === 'string' ? F.pbrColor : DefPbr.pbrColor,
                 pbrMetallic: typeof F.pbrMetallic === 'number' ? F.pbrMetallic : DefPbr.pbrMetallic,
                 pbrRoughness: typeof F.pbrRoughness === 'number' ? F.pbrRoughness : DefPbr.pbrRoughness,
@@ -148,14 +148,17 @@ export class TopologySurface
     {
         const S = String(PartLabel || '').toLowerCase();
         if (!S || S === 'surface' || S === 'default') return 0; // CNC Aluminum
-        if (/\b(tyre|tire|rubber|grip|seal|bumper)\b/.test(S)) return 4; // Gunmetal Ano
+        if (/\b(tyre|tire|rubber|grip|seal|bumper)\b/.test(S)) return 8; // Vulcan Rubber
+        if (/\b(carbon|splitter|diffuser|wing|spoiler)\b/.test(S)) return 12; // Carbon Fibre
+        if (/\b(strap|cloth|fabric|seat|canvas|pouch|velvet|suede)\b/.test(S)) return 13; // Woven Fabric
         if (/\b(rim|wheel|spoke|hub|pauldron|lid)\b/.test(S)) return 0; // CNC Aluminum
         if (/\b(glass|visor|chrome|canopy|windshield|mirror)\b/.test(S)) return 3; // Class-A Chrome
-        if (S.includes('optic') || S.includes('light') || S.includes('latch') || S.includes('strap') || S.includes('bolt') || S.includes('brass') || S.includes('gold') || S.includes('lock') || S.includes('ring') || S.includes('badge') || S.includes('crest')) return 6; // Turned Brass
-        if (S.includes('body') || S.includes('hood') || S.includes('roof') || S.includes('door') || S.includes('fender') || S.includes('chest') || S.includes('torso') || S.includes('helm') || S.includes('hull') || S.includes('caliper') || S.includes('brake') || S.includes('accent')) return 5; // Steel Blue
-        if (S.includes('chassis') || S.includes('trim') || S.includes('exhaust') || S.includes('frame') || S.includes('grille') || S.includes('spoiler') || S.includes('iron') || S.includes('panel')) return 1; // Grade-5 Titanium
+        if (S.includes('optic') || S.includes('light') || S.includes('latch') || S.includes('bolt') || S.includes('brass') || S.includes('gold') || S.includes('lock') || S.includes('ring') || S.includes('badge') || S.includes('crest')) return 6; // Turned Brass
+        if (S.includes('caliper') || S.includes('brake')) return 11; // Car Flake Ruby
+        if (S.includes('body') || S.includes('hood') || S.includes('roof') || S.includes('door') || S.includes('fender') || S.includes('chest') || S.includes('torso') || S.includes('helm') || S.includes('hull') || S.includes('accent')) return 10; // Car Flake Blue
+        if (S.includes('chassis') || S.includes('trim') || S.includes('exhaust') || S.includes('frame') || S.includes('grille') || S.includes('iron') || S.includes('panel')) return 1; // Grade-5 Titanium
         if (S.includes('arch') || S.includes('stone') || S.includes('pillar') || S.includes('column') || S.includes('capital') || S.includes('plinth') || S.includes('wall') || S.includes('clay') || S.includes('sculpt') || S.includes('bust') || S.includes('head')) return 2; // CAD Clay
-        const EngMetals = [5, 0, 1, 6, 4, 2];
+        const EngMetals = [10, 0, 1, 6, 8, 12, 13, 2];
         let Hash = 0;
         for (let i = 0; i < S.length; i++) Hash = ((Hash * 31) + S.charCodeAt(i)) | 0;
         return EngMetals[Math.abs(Hash || FallbackIndex) % EngMetals.length];
@@ -228,7 +231,7 @@ export class TopologySurface
         {
             const F = this.faces[Fi];
             if (!F) continue;
-            if (Patch.matcapSlot !== undefined) F.matcapSlot = (Patch.matcapSlot | 0) & 7;
+            if (Patch.matcapSlot !== undefined) F.matcapSlot = (Patch.matcapSlot | 0) & 15;
             if (Patch.pbrColor !== undefined) F.pbrColor = String(Patch.pbrColor);
             if (Patch.pbrMetallic !== undefined) F.pbrMetallic = Math.max(0, Math.min(1, Number(Patch.pbrMetallic)));
             if (Patch.pbrRoughness !== undefined) F.pbrRoughness = Math.max(0.04, Math.min(1, Number(Patch.pbrRoughness)));
@@ -299,8 +302,8 @@ export class TopologySurface
 
     GetMatcapUsageCounts()
     {
-        const Counts = new Uint32Array(8);
-        for (let Fi = 0; Fi < this.faces.length; Fi++) Counts[this.faces[Fi].matcapSlot & 7]++;
+        const Counts = new Uint32Array(16);
+        for (let Fi = 0; Fi < this.faces.length; Fi++) Counts[this.faces[Fi].matcapSlot & 15]++;
         return Counts;
     }
 

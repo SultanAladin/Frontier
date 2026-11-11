@@ -64,12 +64,17 @@ assert.ok(/data-stage-mode="mesh"[^>]*class="nav-button active"|class="nav-butto
 assert.ok((Html.match(/select-pill-wrap vp-compact-select/g) || []).length >= 4, 'Top toolbar dropdowns must use unified .select-pill-wrap with .pill-caret-divider');
 assert.ok(HtmlIds.has('pz-notch-toggle'), 'Project-Zero pull-down notch must be present');
 
-// Verify 8 Engineering / CAD MatCaps + studio contrast + per-face Multi-MatCap assignment + Undo/Redo round-trip
+// Verify 16 Procedural Studio MatCaps (Metals, Rubber, Normal, Car Flakes, Carbon Fibre, Fabrics) + Undo/Redo round-trip
 {
     const { MATCAP_STUDIO_CATALOG, SynthesizeMatcapPixels } = await import('./Engine/EngineeringMatcaps.js');
-    assert.equal(MATCAP_STUDIO_CATALOG.length, 8, 'MATCAP_STUDIO_CATALOG must expose 8 Engineering MatCaps');
-    const ExpectedIds = ['cnc-alu', 'ti-grade5', 'cad-clay', 'studio-chrome', 'gunmetal-ano', 'layout-blue', 'cnc-brass', 'cad-zebra'];
-    assert.deepEqual(MATCAP_STUDIO_CATALOG.map(M => M.id), ExpectedIds, 'Engineering MatCap catalog IDs must match');
+    assert.equal(MATCAP_STUDIO_CATALOG.length, 16, 'MATCAP_STUDIO_CATALOG must expose 16 procedural Studio MatCaps');
+    const ExpectedIds = [
+        'cnc-alu', 'ti-grade5', 'cad-clay', 'studio-chrome',
+        'gunmetal-ano', 'layout-blue', 'cnc-brass', 'cad-zebra',
+        'vulcan-rubber', 'normal-rgb', 'car-flake-blue', 'car-flake-ruby',
+        'carbon-fiber', 'woven-fabric', 'velvet-suede', 'ripstop-fabric'
+    ];
+    assert.deepEqual(MATCAP_STUDIO_CATALOG.map(M => M.id), ExpectedIds, '16-slot MatCap catalog IDs must match');
 
     for (const Spec of MATCAP_STUDIO_CATALOG)
     {
@@ -88,22 +93,33 @@ assert.ok(HtmlIds.has('pz-notch-toggle'), 'Project-Zero pull-down notch must be 
                 if (Lum > MaxLum) MaxLum = Lum;
             }
         }
-        assert.ok(MaxLum - MinLum >= 120, `Engineering MatCap "${Spec.label}" must have high studio contrast (got span ${(MaxLum - MinLum).toFixed(1)})`);
+        const MinExpectedSpan = (Spec.kind === 'rubber' || Spec.kind.startsWith('fabric')) ? 42 : 110;
+        assert.ok(MaxLum - MinLum >= MinExpectedSpan,
+            `MatCap "${Spec.label}" must have realistic shading range >= ${MinExpectedSpan} (got ${(MaxLum - MinLum).toFixed(1)})`);
     }
+
+    // Verify Normal Map MatCap center pixel encodes +Z normal (~128, ~128, ~255)
+    const NormBuf = SynthesizeMatcapPixels(MATCAP_STUDIO_CATALOG[9], 64);
+    const CenterIdx = (32 * 64 + 32) * 4;
+    assert.ok(NormBuf[CenterIdx] > 115 && NormBuf[CenterIdx] < 142 &&
+              NormBuf[CenterIdx + 1] > 115 && NormBuf[CenterIdx + 1] < 142 &&
+              NormBuf[CenterIdx + 2] > 245,
+        `Normal RGB MatCap center must encode (0,0,+1) normal, got (${NormBuf[CenterIdx]}, ${NormBuf[CenterIdx + 1]}, ${NormBuf[CenterIdx + 2]})`);
 
     const TestSurf = SampleAssetCatalog[0].create().surface;
     TestSurf.PushUndo('Before Multi-MatCap');
-    TestSurf.AssignMatcapToFaces([0], 2);       // Face 0 -> CAD Clay
-    TestSurf.AssignMatcapToFaces([1, 2, 3], 5); // Faces 1..3 -> Steel Blue
-    TestSurf.AssignMatcapToFaces([4, 5], 7);    // Faces 4..5 -> Zebra CAD
-    assert.equal(TestSurf.faces[0].matcapSlot, 2);
-    assert.equal(TestSurf.faces[2].matcapSlot, 5);
-    assert.equal(TestSurf.faces[5].matcapSlot, 7);
+    TestSurf.AssignMatcapToFaces([0], 8);        // Face 0 -> Vulcan Rubber
+    TestSurf.AssignMatcapToFaces([1, 2, 3], 12); // Faces 1..3 -> Carbon Fibre
+    TestSurf.AssignMatcapToFaces([4, 5], 14);    // Faces 4..5 -> Velvet Suede
+    assert.equal(TestSurf.faces[0].matcapSlot, 8);
+    assert.equal(TestSurf.faces[2].matcapSlot, 12);
+    assert.equal(TestSurf.faces[5].matcapSlot, 14);
     const Hist = TestSurf.GetMatcapUsageCounts();
-    assert.ok(Hist[2] >= 1 && Hist[5] >= 3 && Hist[7] >= 2, 'Multiple MatCaps active simultaneously on one surface');
+    assert.equal(Hist.length, 16, 'GetMatcapUsageCounts must track all 16 MatCap slots');
+    assert.ok(Hist[8] >= 1 && Hist[12] >= 3 && Hist[14] >= 2, 'High-slot MatCaps (Rubber, Carbon, Velvet) active simultaneously');
     TestSurf.Undo();
     TestSurf.Redo();
-    assert.equal(TestSurf.faces[2].matcapSlot, 5, 'Per-face MatCap assignment survives Undo/Redo');
+    assert.equal(TestSurf.faces[2].matcapSlot, 12, '16-slot Per-face MatCap assignment survives Undo/Redo');
 }
 console.log('   OK: All assets bundled & DOM IDs wired cleanly.');
 
@@ -528,8 +544,8 @@ console.log('10. Testing GPU Wireframe/Edge/Vertex Shaders, Spatial Grid, Adjace
 // 11. Multi-Surface Engineering MatCaps, Stack Similar UVs, Follow Active Quads & Decluttered UI Checks
 console.log('11. Testing Multi-Surface Engineering MatCaps, Stack Similar UVs, Follow Active Quads & UI Polish...');
 {
-    assert.equal(MATCAP_STUDIO_CATALOG.length, 8, 'MATCAP_STUDIO_CATALOG must expose 8 Engineering MatCap finishes');
-    const Pixels = SynthesizeMatcapPixels(MATCAP_STUDIO_CATALOG[0], 64);
+    assert.equal(MATCAP_STUDIO_CATALOG.length, 16, 'MATCAP_STUDIO_CATALOG must expose 16 procedural MatCap finishes');
+    const Pixels = SynthesizeMatcapPixels(MATCAP_STUDIO_CATALOG[12], 64); // Carbon Fibre
     assert.equal(Pixels.length, 64 * 64 * 4, 'SynthesizeMatcapPixels must generate RGBA buffer');
 
     // Multi-part surface must receive multiple distinct MatCap slots (never 1 single uniform colour)
@@ -628,6 +644,8 @@ console.log('11. Testing Multi-Surface Engineering MatCaps, Stack Similar UVs, F
         'UVViewport3D.js must pass lossless per-vertex aMatcapSlot, aPbrColor, and aPbrParams with FastUpdateGpuFaceMaterials');
     assert.ok(Vp3dJs.includes('this.fastPbrMat') && !Vp3dJs.includes('dGgx'),
         'UVViewport3D.js must provide simplified Fast PBR shader (Colour, Metallic, Roughness, Specular only) with zero GGX');
+    assert.ok(Vp3dJs.includes("this.shadingMode = 'fast-pbr';"),
+        'Default 3D shadingMode must be fast-pbr so MatCaps only appear when a MatCap mode is selected');
 
     // Verify Inspector tab order: Pack -> Unwrap -> UDIM -> Shading -> Check (Shading after UDIM, before Check)
     const TabsBlock = IndexHtml.slice(IndexHtml.indexOf('id="inspector-tabs"'), IndexHtml.indexOf('</div>', IndexHtml.indexOf('id="inspector-tabs"')));
@@ -635,8 +653,10 @@ console.log('11. Testing Multi-Surface Engineering MatCaps, Stack Similar UVs, F
     assert.deepEqual(TabOrder, ['packing', 'unwrap', 'udim', 'shading', 'check'],
         `Inspector tabs must be ordered Pack -> Unwrap -> UDIM -> Shading -> Check (got ${TabOrder.join(' -> ')})`);
 
-    // Verify unified single Shading card (PBR + Multi-MatCap combined with Apply Selected & Fill All)
+    // Verify unified single Shading card (MatCaps gated strictly on IsMatcapMode + Apply Selected & Fill All)
     const ShadingSlice = EditorJs.slice(EditorJs.indexOf('function RenderShadingTab'), EditorJs.indexOf('function RenderPackingTab'));
+    assert.ok(ShadingSlice.includes('if (IsMatcapMode)') && EditorJs.includes('CtxMatcapSec.hidden = !'),
+        'MatCap orbs must be conditionally rendered ONLY when a MatCap mode is selected');
     assert.ok(!ShadingSlice.includes('RenderUvSelectionTransformCard'), 'Shading menu must NOT include 2D UV Transform card');
     assert.equal((ShadingSlice.match(/SectionCard\(/g) || []).length, 1,
         'Shading menu must combine Fast PBR Lit + Multi-MatCap into a single unified SectionCard');

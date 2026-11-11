@@ -55,7 +55,7 @@ function BuildCheckerTexture()
 export function BuildMatcapPreviewDataUrl(Slot = 0, Size = 72)
 {
     if (typeof document === 'undefined') return '';
-    const Spec = MATCAP_STUDIO_CATALOG[Slot & 7] || MATCAP_STUDIO_CATALOG[0];
+    const Spec = MATCAP_STUDIO_CATALOG[Slot & 15] || MATCAP_STUDIO_CATALOG[0];
     const Canvas = document.createElement('canvas');
     Canvas.width = Size;
     Canvas.height = Size;
@@ -66,13 +66,13 @@ export function BuildMatcapPreviewDataUrl(Slot = 0, Size = 72)
 
 function BuildMultiMatcapSheetTexture()
 {
-    const Cell = 384;
-    const Cols = 4, Rows = 2;
+    const Cell = 256;
+    const Cols = 4, Rows = 4;
     const Canvas = document.createElement('canvas');
     Canvas.width = Cell * Cols;
     Canvas.height = Cell * Rows;
     const Ctx = Canvas.getContext('2d');
-    for (let i = 0; i < 8; i++)
+    for (let i = 0; i < MATCAP_STUDIO_CATALOG.length && i < Cols * Rows; i++)
     {
         const Col = i % Cols;
         const Row = Math.floor(i / Cols);
@@ -242,7 +242,7 @@ export class UVViewport3D
         this.onContextMenu = onContextMenu;
         this.onBoxSelect3D = onBoxSelect3D;
         this.onPaintSelect3D = onPaintSelect3D;
-        this.shadingMode = 'lit-matcap'; // 'fast-pbr' | 'multi-matcap' | 'lit-matcap' | 'checker' | 'flat' | 'flat-slots' | 'importance' | 'texel' | 'stretch' | 'overlap'
+        this.shadingMode = 'fast-pbr'; // 'fast-pbr' | 'multi-matcap' | 'lit-matcap' | 'checker' | 'flat' | 'flat-slots' | 'importance' | 'texel' | 'stretch' | 'overlap'
         this.pbrColor = '#7d93b2';
         this.pbrMetallic = 0.55;
         this.pbrRoughness = 0.28;
@@ -323,9 +323,11 @@ export class UVViewport3D
         this.scene.add(Grid);
 
         this.checkerTex = BuildCheckerTexture();
-        this.matcapClayTex = BuildMatcapTexture('clay');
-        this.matcapSatinTex = BuildMatcapTexture('matcap-satin');
-        this.matcapSheetTex = BuildMultiMatcapSheetTexture();
+        this.matcapClayTex = null;
+        this.matcapSatinTex = null;
+        this.matcapSheetTex = new THREE.DataTexture(new Uint8Array([180, 188, 200, 255]), 1, 1, THREE.RGBAFormat);
+        this.matcapSheetTex.needsUpdate = true;
+        this._matcapSheetBuilt = false;
         this.vertexDotTex = BuildVertexDotTexture();
 
         this.meshMat = new THREE.MeshStandardMaterial({
@@ -558,7 +560,7 @@ export class UVViewport3D
                     float col = mod(slot, 4.0);
                     float row = floor(slot / 4.0);
                     vec2 localUv = clamp(viewN.xy * 0.485 + 0.5, 0.012, 0.988);
-                    vec2 sheetUv = vec2((col + localUv.x) * 0.25, ((1.0 - row) + localUv.y) * 0.5);
+                    vec2 sheetUv = vec2((col + localUv.x) * 0.25, ((3.0 - row) + localUv.y) * 0.25);
                     return texture2D(uMatcapSheet, sheetUv).rgb;
                 }
 
@@ -586,7 +588,7 @@ export class UVViewport3D
                 }
 
                 void main() {
-                    float matcapSlot = clamp(floor(vMatcapSlot + 0.5), 0.0, 7.0);
+                    float matcapSlot = clamp(floor(vMatcapSlot + 0.5), 0.0, 15.0);
 
                     vec3 N = normalize(gl_FrontFacing ? vWorldNormal : -vWorldNormal);
                     vec3 Vn = normalize(gl_FrontFacing ? vViewNormal : -vViewNormal);
@@ -802,20 +804,28 @@ export class UVViewport3D
 
                 vec3 FlatSlotPalette(float slot) {
                     int s = int(slot + 0.5);
-                    if (s == 1) return vec3(0.68, 0.67, 0.65); // Grade-5 Titanium
-                    if (s == 2) return vec3(0.76, 0.74, 0.70); // CAD Clay
-                    if (s == 3) return vec3(0.86, 0.91, 0.97); // Class-A Chrome
-                    if (s == 4) return vec3(0.32, 0.36, 0.43); // Gunmetal Ano
-                    if (s == 5) return vec3(0.30, 0.52, 0.78); // Steel Blue
-                    if (s == 6) return vec3(0.80, 0.67, 0.40); // Turned Brass
-                    if (s == 7) return vec3(0.55, 0.82, 0.76); // Zebra CAD indicator
-                    return vec3(0.74, 0.78, 0.84);             // CNC Aluminum
+                    if (s == 1) return vec3(0.68, 0.67, 0.65);  // Grade-5 Titanium
+                    if (s == 2) return vec3(0.76, 0.74, 0.70);  // CAD Clay
+                    if (s == 3) return vec3(0.86, 0.91, 0.97);  // Class-A Chrome
+                    if (s == 4) return vec3(0.32, 0.36, 0.43);  // Gunmetal Ano
+                    if (s == 5) return vec3(0.30, 0.52, 0.78);  // Steel Blue
+                    if (s == 6) return vec3(0.80, 0.67, 0.40);  // Turned Brass
+                    if (s == 7) return vec3(0.55, 0.82, 0.76);  // Zebra CAD
+                    if (s == 8) return vec3(0.22, 0.24, 0.28);  // Vulcan Rubber
+                    if (s == 9) return vec3(0.54, 0.54, 0.96);  // Normal Map
+                    if (s == 10) return vec3(0.18, 0.52, 0.94); // Car Flake Blue
+                    if (s == 11) return vec3(0.86, 0.20, 0.30); // Car Flake Ruby
+                    if (s == 12) return vec3(0.26, 0.29, 0.34); // Carbon Fibre
+                    if (s == 13) return vec3(0.38, 0.46, 0.62); // Woven Fabric
+                    if (s == 14) return vec3(0.46, 0.36, 0.56); // Velvet Suede
+                    if (s == 15) return vec3(0.34, 0.44, 0.38); // Ripstop Nylon
+                    return vec3(0.74, 0.78, 0.84);              // CNC Aluminum
                 }
 
                 void main() {
                     vec3 col = vColor;
                     if (abs(uFlatMode - 1.0) < 0.25) {
-                        float slot = clamp(floor(vMatcapSlot + 0.5), 0.0, 7.0);
+                        float slot = clamp(floor(vMatcapSlot + 0.5), 0.0, 15.0);
                         col = FlatSlotPalette(slot);
                     } else if (uFlatMode > 1.5) {
                         vec3 chk = texture2D(uCheckerTex, vUv).rgb;
@@ -1597,7 +1607,7 @@ export class UVViewport3D
         Data.fill(0);
         for (let fi = 0; fi < FaceCount; fi++)
         {
-            Data[fi * 4 + 2] = ((Surface.faces[fi].matcapSlot || 0) & 7) * 16;
+            Data[fi * 4 + 2] = ((Surface.faces[fi].matcapSlot || 0) & 15) * 16;
             Data[fi * 4 + 3] = 255;
         }
         if (this.selectionMode === 'island' && UseIslands)
@@ -1674,7 +1684,7 @@ export class UVViewport3D
         {
             const F = Surface.faces[this.triToFace[t]];
             if (!F) continue;
-            const s = (F.matcapSlot || 0) & 7;
+            const s = (F.matcapSlot || 0) & 15;
             const [cr, cg, cb] = ParseHex(F.pbrColor);
             const pm = F.pbrMetallic ?? 0.55;
             const pr = F.pbrRoughness ?? 0.28;
@@ -2313,12 +2323,21 @@ export class UVViewport3D
         }
         else if (IsFastLit)
         {
+            if ((this.shadingMode === 'multi-matcap' || this.shadingMode === 'lit-matcap') && !this._matcapSheetBuilt)
+            {
+                this._matcapSheetBuilt = true;
+                this.matcapSheetTex.dispose();
+                this.matcapSheetTex = BuildMultiMatcapSheetTexture();
+                this.fastLitMat.uniforms.uMatcapSheet.value = this.matcapSheetTex;
+            }
             this.fastLitMat.uniforms.uMode.value = this.shadingMode === 'lit-eon' ? 0.0 : this.shadingMode === 'multi-matcap' ? 1.0 : 2.0;
             this._SyncLightAndShadowFrustum();
             this.mesh.material = this.fastLitMat;
         }
         else if (IsMatcap)
         {
+            if (!this.matcapClayTex) this.matcapClayTex = BuildMatcapTexture('clay');
+            if (!this.matcapSatinTex) this.matcapSatinTex = BuildMatcapTexture('matcap-satin');
             this.matcapMat.matcap = this.shadingMode === 'matcap-satin' ? this.matcapSatinTex : this.matcapClayTex;
             this.matcapMat.needsUpdate = true;
             this.mesh.material = this.matcapMat;
@@ -2470,7 +2489,7 @@ export class UVViewport3D
                     UvArr.push(Uv[0], Uv[1]);
                     ColArr.push(R, G, B);
                     FaceIdArr.push(fi);
-                    SlotArr.push((F.matcapSlot || 0) & 7);
+                    SlotArr.push((F.matcapSlot || 0) & 15);
                     PbrColArr.push(PbrR, PbrG, PbrB);
                     PbrParamArr.push(PbrM, PbrRo, PbrSp, MatMix);
                     BaryArr.push(Barys[b][0], Barys[b][1], Barys[b][2]);

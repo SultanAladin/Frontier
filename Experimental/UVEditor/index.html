@@ -166,12 +166,12 @@
 
         <span class="bar-divider"></span>
 
-        <!-- Dropdown 1: Surface Shading (Studio Preview + Multi-MatCap + Unlit Flat Modes) -->
+        <!-- Dropdown 1: Surface Shading (Fast PBR + MatCap + Unlit Flat Modes) -->
         <div class="select-pill-wrap vp-compact-select">
           <select id="mesh-shade-select" title="3D Surface Shading (Z)">
-            <option value="lit-matcap" selected>Lit + MatCap</option>
-            <option value="fast-pbr">Fast PBR (Lit)</option>
-            <option value="multi-matcap">Multi-MatCap</option>
+            <option value="fast-pbr" selected>Fast PBR (Lit)</option>
+            <option value="multi-matcap">MatCap (Per-Face)</option>
+            <option value="lit-matcap">Lit + MatCap</option>
             <option value="lit-eon">Studio Clay</option>
             <option value="flat">Flat · UV Charts</option>
             <option value="flat-slots">Flat · Face Slots</option>
@@ -328,9 +328,9 @@
             <span id="mesh-object-pill" class="udim-caption-pill">Aero Coupe GT</span>
           </div>
           <div class="mesh-camera-bar pz-compact-hidden">
-            <button class="pill-btn active" data-shade3d="lit-matcap" type="button">Lit+MatCap</button>
-            <button class="pill-btn" data-shade3d="lit-eon" type="button">Fast Lit</button>
-            <button class="pill-btn" data-shade3d="multi-matcap" type="button">Multi-MatCap</button>
+            <button class="pill-btn active" data-shade3d="fast-pbr" type="button">Fast PBR</button>
+            <button class="pill-btn" data-shade3d="multi-matcap" type="button">MatCap</button>
+            <button class="pill-btn" data-shade3d="lit-matcap" type="button">Lit+MatCap</button>
             <button class="pill-btn" data-shade3d="checker" type="button">Checker</button>
             <button class="pill-btn" data-cam="Persp" type="button">Persp</button>
             <button class="pill-btn" data-cam="Front" type="button">Front</button>
@@ -553,9 +553,11 @@
     <button class="ctx-chip" data-ctx-edge="clear-seam-weld" type="button"><span>Clear &amp; Weld</span><kbd>Heal</kbd></button>
     <button class="ctx-chip" data-ctx-edge="seams-from-islands" type="button"><span>Seams ← Islands</span><kbd>Rim</kbd></button>
   </div>
-  <div class="menu-divider"></div>
-  <div class="popover-label">ASSIGN MATCAP TO SELECTED FACES</div>
-  <div class="ctx-matcap-strip" id="ctx-matcap-strip"></div>
+  <div id="ctx-matcap-section" hidden>
+    <div class="menu-divider"></div>
+    <div class="popover-label">ASSIGN MATCAP TO SELECTED FACES</div>
+    <div class="ctx-matcap-strip" id="ctx-matcap-strip"></div>
+  </div>
   <div class="menu-divider"></div>
   <button class="ctx-full-btn" data-ctx-op="open-edge-menu" type="button"><span>Full Edges, Boundaries &amp; Seams Menu…</span><kbd>Ctrl+E</kbd></button>
 </div>

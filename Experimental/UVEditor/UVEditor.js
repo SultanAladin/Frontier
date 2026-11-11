@@ -429,7 +429,8 @@ function ComputeInspectorSelectionInfo(Doc)
 
     const HasSelection = FaceSet.size > 0;
     const TargetFaces = HasSelection ? [...FaceSet] : S.faces.map((_, i) => i);
-    const MatcapCounts = new Int32Array(8);
+    const MatcapTotal = MATCAP_STUDIO_CATALOG.length;
+    const MatcapCounts = new Int32Array(MatcapTotal);
     let OverlapCount = 0, FlippedCount = 0;
     let StretchWeighted = 0, Area3DSum = 0, AreaUvSum = 0;
     const UvSet = new Set();
@@ -440,7 +441,7 @@ function ComputeInspectorSelectionInfo(Doc)
     {
         const F = S.faces[Fi];
         if (!F) continue;
-        const Slot = (F.matcapSlot || 0) & 7;
+        const Slot = (F.matcapSlot || 0) & 15;
         MatcapCounts[Slot]++;
         if (Diag?.OverlappingFaces?.has(Fi)) OverlapCount++;
         if (Diag?.FlippedFaces?.has(Fi)) FlippedCount++;
@@ -452,7 +453,7 @@ function ComputeInspectorSelectionInfo(Doc)
     }
 
     let DominantSlot = 0, BestSlotCnt = -1, DistinctSlots = 0;
-    for (let i = 0; i < 8; i++)
+    for (let i = 0; i < MatcapTotal; i++)
     {
         if (MatcapCounts[i] > 0) DistinctSlots++;
         if (MatcapCounts[i] > BestSlotCnt) { BestSlotCnt = MatcapCounts[i]; DominantSlot = i; }
@@ -1259,6 +1260,43 @@ function CloseAllSelectMenus()
     if (M3) M3.hidden = true;
 }
 
+let CtxMatcapStripBuilt = false;
+function EnsureContextMatcapStripBuilt()
+{
+    if (CtxMatcapStripBuilt) return;
+    const CtxMatcapStrip = document.getElementById('ctx-matcap-strip');
+    if (!CtxMatcapStrip) return;
+    CtxMatcapStripBuilt = true;
+    for (const Spec of MATCAP_STUDIO_CATALOG)
+    {
+        const Img = Construct('img');
+        Img.src = GetCachedMatcapThumb(Spec.slot);
+        Img.alt = Spec.label;
+        const ShortName = Spec.short || Spec.label.split(' ')[0];
+        const Btn = Construct('button', 'ctx-matcap-btn', [Img, Construct('span', null, ShortName)]);
+        Btn.type = 'button';
+        Btn.title = `Assign "${Spec.label}" to selected faces`;
+        Btn.addEventListener('click', () =>
+        {
+            CloseUvContextMenu();
+            const Doc = ActiveDoc();
+            if (!Doc) return;
+            const SelFaces = Doc.surface.GetSelectedTargetFaces(Doc.islands);
+            if (SelFaces.size === 0)
+            {
+                Toast('Select faces or islands first');
+                return;
+            }
+            RunWithUndo(`Assign MatCap: ${Spec.label}`, () =>
+            {
+                const Changed = Doc.surface.AssignSurfaceMaterialToFaces(SelFaces, { matcapSlot: Spec.slot });
+                Toast(`Assigned "${Spec.label}" (${Changed} selected faces)`);
+            });
+        });
+        CtxMatcapStrip.append(Btn);
+    }
+}
+
 function CloseUvContextMenu()
 {
     const Menu = document.getElementById('uv-context-menu');
@@ -1303,6 +1341,15 @@ function OpenUvContextMenu(ClientX, ClientY, { source = '3d', hitEdge = null } =
     const RadVal = document.getElementById('ctx-paint-radius-val');
     if (RadSlider) RadSlider.value = String(Math.round(CircleSelect.radiusPx));
     if (RadVal) RadVal.textContent = `${Math.round(CircleSelect.radiusPx)}px`;
+
+    const CtxMatcapSec = document.getElementById('ctx-matcap-section');
+    if (CtxMatcapSec)
+    {
+        const CurShade = Viewport3D ? Viewport3D.shadingMode : 'fast-pbr';
+        const ShowCtxMatcaps = ['multi-matcap', 'lit-matcap', 'matcap', 'matcap-satin'].includes(CurShade);
+        CtxMatcapSec.hidden = !ShowCtxMatcaps;
+        if (ShowCtxMatcaps) EnsureContextMatcapStripBuilt();
+    }
 
     Menu.hidden = false;
     const W = 332;
@@ -1994,7 +2041,7 @@ function RenderShadingTab(Body, Doc)
         const RefF = Doc.surface.faces[Sel.targetFaces[0]];
         if (RefF)
         {
-            StudioState.materialBrush.matcapSlot = (RefF.matcapSlot || 0) & 7;
+            StudioState.materialBrush.matcapSlot = (RefF.matcapSlot || 0) & 15;
             StudioState.materialBrush.pbrColor = (RefF.pbrColor || '#4c7dc9').toLowerCase();
             StudioState.materialBrush.pbrMetallic = RefF.pbrMetallic ?? 0.60;
             StudioState.materialBrush.pbrRoughness = RefF.pbrRoughness ?? 0.24;
@@ -2007,12 +2054,14 @@ function RenderShadingTab(Body, Doc)
         StudioState._lastSampledSelKey = null;
     }
 
-    const CurMode = Viewport3D ? Viewport3D.shadingMode : 'lit-matcap';
+    const CurMode = Viewport3D ? Viewport3D.shadingMode : 'fast-pbr';
+    const IsMatcapMode = ['multi-matcap', 'lit-matcap', 'matcap', 'matcap-satin'].includes(CurMode);
+    const IsPbrMode = ['fast-pbr', 'lit-matcap'].includes(CurMode);
     const ModePretty = {
-        'lit-matcap': 'Lit + Multi-MatCap',
         'fast-pbr': 'Fast PBR (Lit)',
+        'multi-matcap': 'MatCap (Per-Face)',
+        'lit-matcap': 'Lit + MatCap',
         'lit-eon': 'Studio Clay',
-        'multi-matcap': 'Multi-MatCap Studio',
         flat: 'Flat · UV Charts',
         'flat-slots': 'Flat · Face Slots',
         checker: 'Flat · UV Checker',
@@ -2024,48 +2073,76 @@ function RenderShadingTab(Body, Doc)
         overlap: 'Flat · Overlaps'
     }[CurMode] || CurMode;
 
-    // 1A. Visual Studio Hero Banner (Selection-aware MatCap usage & active Engineering Orbs)
-    const ActiveOrbImgs = [];
-    for (const Spec of MATCAP_STUDIO_CATALOG)
-    {
-        if (Counts[Spec.slot] > 0)
-        {
-            const Im = Construct('img');
-            Im.src = GetCachedMatcapThumb(Spec.slot);
-            Im.alt = Spec.label;
-            ActiveOrbImgs.push(Im);
-            if (ActiveOrbImgs.length >= 5) break;
-        }
-    }
-    const SlotBarColors = ['#9fb2c8', '#b8b3aa', '#a8a29a', '#dbeafe', '#4b5563', '#3b82f6', '#d9a441', '#34d399'];
+    // 1A. Mode-Aware Visual Studio Hero Banner (MatCap spheres shown ONLY when a MatCap mode is active!)
+    const SlotBarColors = [
+        '#9fb2c8', '#b8b3aa', '#a8a29a', '#dbeafe', '#4b5563', '#3b82f6', '#d9a441', '#34d399',
+        '#2e323b', '#818cf8', '#2563eb', '#e11d48', '#475569', '#64748b', '#9333ea', '#4d7c5f'
+    ];
     const TotalFaces = Math.max(1, Sel.faceCount);
-    const BarSpans = [];
-    for (let s = 0; s < 8; s++)
+    let HeroBanner = null;
+    if (IsMatcapMode)
     {
-        if (Counts[s] <= 0) continue;
-        const Seg = Construct('span');
-        Seg.style.width = `${Math.max(4, (Counts[s] / TotalFaces) * 100).toFixed(1)}%`;
-        Seg.style.background = SlotBarColors[s];
-        BarSpans.push(Seg);
+        const ActiveOrbImgs = [];
+        for (const Spec of MATCAP_STUDIO_CATALOG)
+        {
+            if (Counts[Spec.slot] > 0)
+            {
+                const Im = Construct('img');
+                Im.src = GetCachedMatcapThumb(Spec.slot);
+                Im.alt = Spec.label;
+                ActiveOrbImgs.push(Im);
+                if (ActiveOrbImgs.length >= 5) break;
+            }
+        }
+        const BarSpans = [];
+        for (let s = 0; s < MATCAP_STUDIO_CATALOG.length; s++)
+        {
+            if (Counts[s] <= 0) continue;
+            const Seg = Construct('span');
+            Seg.style.width = `${Math.max(3.5, (Counts[s] / TotalFaces) * 100).toFixed(1)}%`;
+            Seg.style.background = SlotBarColors[s % SlotBarColors.length];
+            BarSpans.push(Seg);
+        }
+        HeroBanner = Construct('div', 'pz-shading-hero', [
+            Construct('div', 'pz-hero-top', [
+                Construct('div', null, [
+                    Construct('span', 'pz-hero-eyebrow', Sel.hasSelection ? `SELECTED · ${Sel.title}` : ModePretty),
+                    Construct('div', 'pz-hero-big', [
+                        document.createTextNode(String(DistinctMatcaps)),
+                        Construct('small', null, Sel.hasSelection ? 'MatCap(s) on Sel' : `/ ${MATCAP_STUDIO_CATALOG.length} MatCaps`)
+                    ])
+                ]),
+                Construct('div', 'pz-hero-orb-stack', ActiveOrbImgs)
+            ]),
+            Construct('div', 'pz-hero-bar', BarSpans),
+            Construct('div', 'pz-hero-foot', [
+                Construct('span', null, Sel.scopeTag),
+                Construct('span', null, `${Sel.area3D.toFixed(2)} m² · ${Sel.uvCount} UVs`)
+            ])
+        ]);
     }
-
-    const HeroBanner = Construct('div', 'pz-shading-hero', [
-        Construct('div', 'pz-hero-top', [
-            Construct('div', null, [
-                Construct('span', 'pz-hero-eyebrow', Sel.hasSelection ? `SELECTED · ${Sel.title}` : ModePretty),
-                Construct('div', 'pz-hero-big', [
-                    document.createTextNode(String(DistinctMatcaps)),
-                    Construct('small', null, Sel.hasSelection ? 'MatCap(s) on Sel' : '/ 8 MatCaps')
+    else
+    {
+        const PbrBarSeg = Construct('span');
+        PbrBarSeg.style.width = '100%';
+        PbrBarSeg.style.background = StudioState.materialBrush.pbrColor || '#4c7dc9';
+        HeroBanner = Construct('div', 'pz-shading-hero', [
+            Construct('div', 'pz-hero-top', [
+                Construct('div', null, [
+                    Construct('span', 'pz-hero-eyebrow', Sel.hasSelection ? `SELECTED · ${Sel.title}` : 'VIEWPORT SHADER'),
+                    Construct('div', 'pz-hero-big', [
+                        document.createTextNode(ModePretty),
+                        Construct('small', null, `${Doc.islands.length} charts`)
+                    ])
                 ])
             ]),
-            Construct('div', 'pz-hero-orb-stack', ActiveOrbImgs)
-        ]),
-        Construct('div', 'pz-hero-bar', BarSpans),
-        Construct('div', 'pz-hero-foot', [
-            Construct('span', null, Sel.scopeTag),
-            Construct('span', null, `${Sel.area3D.toFixed(2)} m² · ${Sel.uvCount} UVs`)
-        ])
-    ]);
+            Construct('div', 'pz-hero-bar', [PbrBarSeg]),
+            Construct('div', 'pz-hero-foot', [
+                Construct('span', null, Sel.scopeTag),
+                Construct('span', null, `${Sel.area3D.toFixed(2)} m² · ${Sel.uvCount} UVs`)
+            ])
+        ]);
+    }
     Body.append(HeroBanner);
 
     // 1B. Infographic Bento Tiles (Preserved design, driven dynamically by Selected Object / Surface!)
@@ -2106,60 +2183,119 @@ function RenderShadingTab(Body, Doc)
     ]);
     Body.append(BentoGrid);
 
-    // 2. Unified Surface Shading Card: Combined Fast PBR Lit + Per-Face Multi-MatCap
-    //    Assigns strictly to Selected Faces via "Apply Selected" (or "Fill All" for entire geometry!)
+    // 2. Unified Surface Shading Card (MatCaps shown ONLY when a MatCap mode is selected!)
     const Brush = StudioState.materialBrush;
+    const CardTitle = CurMode === 'multi-matcap'
+        ? 'Per-Face MatCap Studio'
+        : (CurMode === 'lit-matcap' ? 'Surface Shading · PBR + MatCap' : 'Surface Shading · Fast PBR');
     const MatSec = SectionCard(Body, {
         Id: 'unified-surface-shading',
-        Title: 'Surface Shading · PBR + MatCap',
+        Title: CardTitle,
         Glyph: 'Sparkles',
-        Badge: Sel.hasSelection ? `${Sel.faceCount} SEL` : 'BRUSH'
+        Badge: Sel.hasSelection ? `${Sel.faceCount} SEL` : (IsMatcapMode ? 'MATCAP' : 'FAST LIT')
     });
 
-    const SampleBtn = Construct('button', 'pz-mini-pill-btn', 'Sample');
-    SampleBtn.type = 'button';
-    SampleBtn.title = 'Sample MatCap & Fast PBR settings from active/selected face into the brush';
-    SampleBtn.addEventListener('click', () =>
-    {
-        const SrcIdx = Sel.hasSelection ? Sel.targetFaces[0] : (Doc.surface.activeFace ?? 0);
-        const SrcF = Doc.surface.faces[SrcIdx];
-        if (!SrcF) return;
-        Brush.matcapSlot = (SrcF.matcapSlot || 0) & 7;
-        Brush.pbrColor = (SrcF.pbrColor || '#4c7dc9').toLowerCase();
-        Brush.pbrMetallic = SrcF.pbrMetallic ?? 0.60;
-        Brush.pbrRoughness = SrcF.pbrRoughness ?? 0.24;
-        Brush.pbrSpecular = SrcF.pbrSpecular ?? 0.68;
-        Brush.matcapMix = SrcF.matcapMix ?? 0.62;
-        RebuildInspector();
-        Toast(`Sampled material from Face #${SrcIdx}`);
+    SelectRow(MatSec.Inner, {
+        Label: 'Shader',
+        Options: [
+            ['Fast PBR (Lit)', 'fast-pbr'],
+            ['MatCap (Per-Face)', 'multi-matcap'],
+            ['Lit + MatCap', 'lit-matcap'],
+            ['Studio Clay', 'lit-eon'],
+            ['Flat · UV Charts', 'flat'],
+            ['Flat · Face Slots', 'flat-slots'],
+            ['Flat · UV Checker', 'checker']
+        ],
+        Read: () => Viewport3D?.shadingMode || 'fast-pbr',
+        Write: Val => Set3DShadingMode(Val)
     });
 
-    const AutoPartBtn = Construct('button', 'pz-mini-pill-btn', 'Auto Parts');
-    AutoPartBtn.type = 'button';
-    AutoPartBtn.title = 'Auto-assign distinct MatCaps & PBR materials across surface parts';
-    AutoPartBtn.addEventListener('click', () =>
+    if (IsMatcapMode || IsPbrMode)
     {
-        RunWithUndo('Auto-Assign Part Materials', () =>
+        const SampleBtn = Construct('button', 'pz-mini-pill-btn', 'Sample');
+        SampleBtn.type = 'button';
+        SampleBtn.title = 'Sample material from active/selected face into the brush';
+        SampleBtn.addEventListener('click', () =>
         {
-            Doc.surface.AutoAssignMatcapsByPart(Doc.islands);
-            Toast(`Auto-assigned part materials across ${Doc.islands.length} charts`);
+            const SrcIdx = Sel.hasSelection ? Sel.targetFaces[0] : (Doc.surface.activeFace ?? 0);
+            const SrcF = Doc.surface.faces[SrcIdx];
+            if (!SrcF) return;
+            Brush.matcapSlot = (SrcF.matcapSlot || 0) & 15;
+            Brush.pbrColor = (SrcF.pbrColor || '#4c7dc9').toLowerCase();
+            Brush.pbrMetallic = SrcF.pbrMetallic ?? 0.60;
+            Brush.pbrRoughness = SrcF.pbrRoughness ?? 0.24;
+            Brush.pbrSpecular = SrcF.pbrSpecular ?? 0.68;
+            Brush.matcapMix = SrcF.matcapMix ?? 0.62;
+            RebuildInspector();
+            Toast(`Sampled material from Face #${SrcIdx}`);
         });
-    });
 
-    MatSec.Inner.append(Construct('div', 'pz-sel-scope-bar', [
-        Construct('strong', null, Sel.hasSelection ? `Selected: ${Sel.title} (${Sel.faceCount}f)` : 'No faces selected'),
-        Construct('div', 'pz-mat-scope-actions', [SampleBtn, AutoPartBtn])
-    ]));
-
-    const EnsureLitSurfaceMode = () =>
-    {
-        if (Viewport3D && !['lit-matcap', 'fast-pbr', 'multi-matcap'].includes(Viewport3D.shadingMode))
+        const AutoPartBtn = Construct('button', 'pz-mini-pill-btn', 'Auto Parts');
+        AutoPartBtn.type = 'button';
+        AutoPartBtn.title = 'Auto-assign distinct materials across surface parts';
+        AutoPartBtn.addEventListener('click', () =>
         {
-            Viewport3D.shadingMode = 'lit-matcap';
-            const TopShadeSel = document.getElementById('mesh-shade-select');
-            if (TopShadeSel) TopShadeSel.value = 'lit-matcap';
-        }
-    };
+            RunWithUndo('Auto-Assign Part Materials', () =>
+            {
+                Doc.surface.AutoAssignMatcapsByPart(Doc.islands);
+                Toast(`Auto-assigned part materials across ${Doc.islands.length} charts`);
+            });
+        });
+
+        MatSec.Inner.append(Construct('div', 'pz-sel-scope-bar', [
+            Construct('strong', null, Sel.hasSelection ? `Selected: ${Sel.title} (${Sel.faceCount}f)` : 'No faces selected'),
+            Construct('div', 'pz-mat-scope-actions', [SampleBtn, AutoPartBtn])
+        ]));
+
+        const BuildActiveModePatch = () =>
+        {
+            if (CurMode === 'multi-matcap') return { matcapSlot: Brush.matcapSlot };
+            if (CurMode === 'fast-pbr')
+            {
+                return {
+                    pbrColor: Brush.pbrColor,
+                    pbrMetallic: Brush.pbrMetallic,
+                    pbrRoughness: Brush.pbrRoughness,
+                    pbrSpecular: Brush.pbrSpecular
+                };
+            }
+            return { ...Brush };
+        };
+
+        ActionRow(MatSec.Inner, [
+            {
+                Label: 'Apply Selected',
+                Glyph: 'Check',
+                Tone: 'accent',
+                Act: () =>
+                {
+                    const SelFaces = Doc.surface.GetSelectedTargetFaces(Doc.islands);
+                    if (SelFaces.size === 0)
+                    {
+                        Toast('Select faces or islands first — or click Fill All');
+                        return;
+                    }
+                    RunWithUndo('Apply Material to Selected Faces', () =>
+                    {
+                        const N = Doc.surface.AssignSurfaceMaterialToFaces(SelFaces, BuildActiveModePatch());
+                        Toast(`Applied to ${N} selected face(s)`);
+                    });
+                }
+            },
+            {
+                Label: 'Fill All',
+                Glyph: 'Layers',
+                Act: () =>
+                {
+                    RunWithUndo('Fill Material Across Geometry', () =>
+                    {
+                        const N = Doc.surface.FillSurfaceMaterial(BuildActiveModePatch());
+                        Toast(`Filled entire geometry (${N} faces)`);
+                    });
+                }
+            }
+        ]);
+    }
 
     const LivePreviewSelectedOnly = Patch =>
     {
@@ -2168,199 +2304,155 @@ function RenderShadingTab(Body, Doc)
         if (SelFaces.size > 0)
         {
             Doc.surface.AssignSurfaceMaterialToFaces(SelFaces, Patch);
-            EnsureLitSurfaceMode();
             if (Viewport3D) Viewport3D.FastUpdateGpuFaceMask(Doc.surface, Doc.islands);
             UpdateHeaderAndHud(Doc);
         }
     };
 
-    ActionRow(MatSec.Inner, [
-        {
-            Label: 'Apply Selected',
-            Glyph: 'Check',
-            Tone: 'accent',
-            Act: () =>
-            {
-                const SelFaces = Doc.surface.GetSelectedTargetFaces(Doc.islands);
-                if (SelFaces.size === 0)
-                {
-                    Toast('Select faces or islands first — or click Fill All');
-                    return;
-                }
-                RunWithUndo('Apply Material to Selected Faces', () =>
-                {
-                    const N = Doc.surface.AssignSurfaceMaterialToFaces(SelFaces, Brush);
-                    EnsureLitSurfaceMode();
-                    Toast(`Applied PBR + MatCap to ${N} selected face(s)`);
-                });
-            }
-        },
-        {
-            Label: 'Fill All',
-            Glyph: 'Layers',
-            Act: () =>
-            {
-                RunWithUndo('Fill Material Across Geometry', () =>
-                {
-                    const N = Doc.surface.FillSurfaceMaterial(Brush);
-                    EnsureLitSurfaceMode();
-                    Toast(`Filled entire geometry (${N} faces)`);
-                });
-            }
-        }
-    ]);
-
-    SelectRow(MatSec.Inner, {
-        Label: 'Shader',
-        Options: [
-            ['Combined · PBR + MatCap', 'lit-matcap'],
-            ['Fast PBR (Lit)', 'fast-pbr'],
-            ['Multi-MatCap', 'multi-matcap'],
-            ['Studio Clay', 'lit-eon'],
-            ['Flat · UV Charts', 'flat'],
-            ['Flat · Face Slots', 'flat-slots'],
-            ['Flat · UV Checker', 'checker']
-        ],
-        Read: () => Viewport3D?.shadingMode || 'lit-matcap',
-        Write: Val => Set3DShadingMode(Val)
-    });
-
-    // Sub-section A: Per-Face Multi-MatCap Orbs + MatCap Blend
-    const ActiveSlotSpec = MATCAP_STUDIO_CATALOG[Brush.matcapSlot & 7] || MATCAP_STUDIO_CATALOG[0];
-    const SlotSubName = Construct('span', null, ActiveSlotSpec.label);
-    MatSec.Inner.append(Construct('div', 'pz-mat-subhead', [
-        document.createTextNode('Multi-MatCap Coat'),
-        SlotSubName
-    ]));
-
-    const OrbGrid = Construct('div', 'pz-matcap-grid');
-    const OrbBtns = [];
-    for (const Spec of MATCAP_STUDIO_CATALOG)
+    // Sub-section A: 16-Orb Procedural MatCap Library — SHOWN ONLY WHEN MATCAP MODE IS SELECTED!
+    if (IsMatcapMode)
     {
-        const UsedCount = Counts[Spec.slot];
-        const IsActiveOrb = (Brush.matcapSlot & 7) === Spec.slot;
-        const OrbImg = Construct('img');
-        OrbImg.src = GetCachedMatcapThumb(Spec.slot);
-        OrbImg.alt = Spec.label;
-        const Children = [OrbImg, Construct('small', null, Spec.label)];
-        if (UsedCount > 0) Children.push(Construct('span', 'pz-matcap-count', `${UsedCount}`));
-        const Btn = Construct('button', `pz-matcap-orb-btn${IsActiveOrb ? ' active' : ''}`, Children);
-        Btn.type = 'button';
-        Btn.title = Sel.hasSelection
-            ? `Select "${Spec.label}" & apply to ${Sel.faceCount} selected face(s)`
-            : `Select "${Spec.label}" in brush (click Apply Selected or Fill All)`;
-        Btn.addEventListener('click', () =>
-        {
-            Brush.matcapSlot = Spec.slot;
-            SlotSubName.textContent = Spec.label;
-            for (const [Ob, Os] of OrbBtns) Ob.classList.toggle('active', Os === Spec.slot);
-            const SelFaces = Doc.surface.GetSelectedTargetFaces(Doc.islands);
-            if (SelFaces.size > 0)
-            {
-                RunWithUndo(`Assign MatCap: ${Spec.label}`, () =>
-                {
-                    const N = Doc.surface.AssignSurfaceMaterialToFaces(SelFaces, { matcapSlot: Spec.slot });
-                    EnsureLitSurfaceMode();
-                    Toast(`Assigned "${Spec.label}" to ${N} selected face(s)`);
-                });
-            }
-        });
-        OrbBtns.push([Btn, Spec.slot]);
-        OrbGrid.append(Btn);
-    }
-    MatSec.Inner.append(OrbGrid);
+        const ActiveSlotSpec = MATCAP_STUDIO_CATALOG[Brush.matcapSlot & 15] || MATCAP_STUDIO_CATALOG[0];
+        const SlotSubName = Construct('span', null, ActiveSlotSpec.label);
+        MatSec.Inner.append(Construct('div', 'pz-mat-subhead', [
+            document.createTextNode(`MatCap Library (${MATCAP_STUDIO_CATALOG.length})`),
+            SlotSubName
+        ]));
 
-    SliderRow(MatSec.Inner, {
-        Label: 'MatCap Mix',
-        Minimum: 0,
-        Maximum: 100,
-        Step: 2,
-        Digits: 0,
-        Unit: '%',
-        Read: () => Math.round((Brush.matcapMix ?? 0.62) * 100),
-        Write: Val => LivePreviewSelectedOnly({ matcapMix: Val / 100 })
-    });
+        const OrbGrid = Construct('div', 'pz-matcap-grid');
+        const OrbBtns = [];
+        for (const Spec of MATCAP_STUDIO_CATALOG)
+        {
+            const UsedCount = Counts[Spec.slot];
+            const IsActiveOrb = (Brush.matcapSlot & 15) === Spec.slot;
+            const OrbImg = Construct('img');
+            OrbImg.src = GetCachedMatcapThumb(Spec.slot);
+            OrbImg.alt = Spec.label;
+            const Children = [OrbImg, Construct('small', null, Spec.label)];
+            if (UsedCount > 0) Children.push(Construct('span', 'pz-matcap-count', `${UsedCount}`));
+            const Btn = Construct('button', `pz-matcap-orb-btn${IsActiveOrb ? ' active' : ''}`, Children);
+            Btn.type = 'button';
+            Btn.title = Sel.hasSelection
+                ? `Select "${Spec.label}" & apply to ${Sel.faceCount} selected face(s)`
+                : `Select "${Spec.label}" in brush (click Apply Selected or Fill All)`;
+            Btn.addEventListener('click', () =>
+            {
+                Brush.matcapSlot = Spec.slot;
+                SlotSubName.textContent = Spec.label;
+                for (const [Ob, Os] of OrbBtns) Ob.classList.toggle('active', Os === Spec.slot);
+                const SelFaces = Doc.surface.GetSelectedTargetFaces(Doc.islands);
+                if (SelFaces.size > 0)
+                {
+                    RunWithUndo(`Assign MatCap: ${Spec.label}`, () =>
+                    {
+                        const N = Doc.surface.AssignSurfaceMaterialToFaces(SelFaces, { matcapSlot: Spec.slot });
+                        Toast(`Assigned "${Spec.label}" to ${N} selected face(s)`);
+                    });
+                }
+            });
+            OrbBtns.push([Btn, Spec.slot]);
+            OrbGrid.append(Btn);
+        }
+        MatSec.Inner.append(OrbGrid);
+
+        if (CurMode === 'lit-matcap')
+        {
+            SliderRow(MatSec.Inner, {
+                Label: 'MatCap Mix',
+                Minimum: 0,
+                Maximum: 100,
+                Step: 2,
+                Digits: 0,
+                Unit: '%',
+                Read: () => Math.round((Brush.matcapMix ?? 0.62) * 100),
+                Write: Val => LivePreviewSelectedOnly({ matcapMix: Val / 100 })
+            });
+        }
+    }
 
     // Sub-section B: Simplified Fast PBR Lit (Colour, Metallic, Roughness, Specular ONLY — NO GGX!)
-    MatSec.Inner.append(Construct('div', 'pz-mat-subhead', [
-        document.createTextNode('Fast PBR · Lit'),
-        Construct('span', null, 'No GGX')
-    ]));
-
-    const CurHex = (Brush.pbrColor || '#4c7dc9').toLowerCase();
-    const SwatchDots = Construct('div', 'pz-pbr-swatch-dots');
-    const HexLabel = Construct('span', 'pz-pbr-color-hex', CurHex.toUpperCase());
-    const ColorInput = Construct('input');
-    ColorInput.type = 'color';
-    ColorInput.value = CurHex;
-
-    const PbrSwatches = [
-        ['Steel Blue', '#4c7dc9'],
-        ['Machined Alu', '#c4ccd8'],
-        ['Titanium', '#c7bdb0'],
-        ['Gunmetal', '#363b44'],
-        ['Turned Brass', '#d9a448'],
-        ['CAD Sage', '#7b9478']
-    ];
-    const DotEls = [];
-    const SetBrushPbrColor = HexVal =>
+    if (IsPbrMode)
     {
-        const Norm = String(HexVal || '#4c7dc9').toLowerCase();
-        ColorInput.value = Norm;
-        HexLabel.textContent = Norm.toUpperCase();
-        for (const [El, SwHex] of DotEls) El.classList.toggle('active', SwHex === Norm);
-        LivePreviewSelectedOnly({ pbrColor: Norm });
-    };
+        MatSec.Inner.append(Construct('div', 'pz-mat-subhead', [
+            document.createTextNode('Fast PBR · Lit'),
+            Construct('span', null, 'No GGX')
+        ]));
 
-    for (const [SwName, SwHex] of PbrSwatches)
-    {
-        const DotBtn = Construct('button', `pz-pbr-color-dot${CurHex === SwHex ? ' active' : ''}`);
-        DotBtn.type = 'button';
-        DotBtn.style.background = SwHex;
-        DotBtn.title = `${SwName} (${SwHex.toUpperCase()})`;
-        DotBtn.addEventListener('click', () => SetBrushPbrColor(SwHex));
-        DotEls.push([DotBtn, SwHex]);
-        SwatchDots.append(DotBtn);
+        const CurHex = (Brush.pbrColor || '#4c7dc9').toLowerCase();
+        const SwatchDots = Construct('div', 'pz-pbr-swatch-dots');
+        const HexLabel = Construct('span', 'pz-pbr-color-hex', CurHex.toUpperCase());
+        const ColorInput = Construct('input');
+        ColorInput.type = 'color';
+        ColorInput.value = CurHex;
+
+        const PbrSwatches = [
+            ['Steel Blue', '#4c7dc9'],
+            ['Machined Alu', '#c4ccd8'],
+            ['Titanium', '#c7bdb0'],
+            ['Gunmetal', '#363b44'],
+            ['Turned Brass', '#d9a448'],
+            ['CAD Sage', '#7b9478']
+        ];
+        const DotEls = [];
+        const SetBrushPbrColor = HexVal =>
+        {
+            const Norm = String(HexVal || '#4c7dc9').toLowerCase();
+            ColorInput.value = Norm;
+            HexLabel.textContent = Norm.toUpperCase();
+            for (const [El, SwHex] of DotEls) El.classList.toggle('active', SwHex === Norm);
+            LivePreviewSelectedOnly({ pbrColor: Norm });
+        };
+
+        for (const [SwName, SwHex] of PbrSwatches)
+        {
+            const DotBtn = Construct('button', `pz-pbr-color-dot${CurHex === SwHex ? ' active' : ''}`);
+            DotBtn.type = 'button';
+            DotBtn.style.background = SwHex;
+            DotBtn.title = `${SwName} (${SwHex.toUpperCase()})`;
+            DotBtn.addEventListener('click', () => SetBrushPbrColor(SwHex));
+            DotEls.push([DotBtn, SwHex]);
+            SwatchDots.append(DotBtn);
+        }
+
+        ColorInput.addEventListener('input', () => SetBrushPbrColor(ColorInput.value));
+        const ColorWell = Construct('label', 'pz-pbr-color-well', [ColorInput, HexLabel]);
+        ColorWell.title = 'Pick Fast PBR Base Colour';
+
+        MatSec.Inner.append(Construct('div', 'pz-pbr-color-row', [
+            Construct('span', 'pz-pbr-color-label', 'Colour'),
+            Construct('div', 'pz-pbr-color-controls', [SwatchDots, ColorWell])
+        ]));
+
+        SliderRow(MatSec.Inner, {
+            Label: 'Metallic',
+            Minimum: 0.0,
+            Maximum: 1.0,
+            Step: 0.01,
+            Digits: 2,
+            Read: () => Brush.pbrMetallic ?? 0.60,
+            Write: Val => LivePreviewSelectedOnly({ pbrMetallic: Val })
+        });
+
+        SliderRow(MatSec.Inner, {
+            Label: 'Roughness',
+            Minimum: 0.04,
+            Maximum: 1.0,
+            Step: 0.01,
+            Digits: 2,
+            Read: () => Brush.pbrRoughness ?? 0.24,
+            Write: Val => LivePreviewSelectedOnly({ pbrRoughness: Val })
+        });
+
+        SliderRow(MatSec.Inner, {
+            Label: 'Specular',
+            Minimum: 0.0,
+            Maximum: 1.0,
+            Step: 0.01,
+            Digits: 2,
+            Read: () => Brush.pbrSpecular ?? 0.68,
+            Write: Val => LivePreviewSelectedOnly({ pbrSpecular: Val })
+        });
     }
-
-    ColorInput.addEventListener('input', () => SetBrushPbrColor(ColorInput.value));
-    const ColorWell = Construct('label', 'pz-pbr-color-well', [ColorInput, HexLabel]);
-    ColorWell.title = 'Pick Fast PBR Base Colour';
-
-    MatSec.Inner.append(Construct('div', 'pz-pbr-color-row', [
-        Construct('span', 'pz-pbr-color-label', 'Colour'),
-        Construct('div', 'pz-pbr-color-controls', [SwatchDots, ColorWell])
-    ]));
-
-    SliderRow(MatSec.Inner, {
-        Label: 'Metallic',
-        Minimum: 0.0,
-        Maximum: 1.0,
-        Step: 0.01,
-        Digits: 2,
-        Read: () => Brush.pbrMetallic ?? 0.60,
-        Write: Val => LivePreviewSelectedOnly({ pbrMetallic: Val })
-    });
-
-    SliderRow(MatSec.Inner, {
-        Label: 'Roughness',
-        Minimum: 0.04,
-        Maximum: 1.0,
-        Step: 0.01,
-        Digits: 2,
-        Read: () => Brush.pbrRoughness ?? 0.24,
-        Write: Val => LivePreviewSelectedOnly({ pbrRoughness: Val })
-    });
-
-    SliderRow(MatSec.Inner, {
-        Label: 'Specular',
-        Minimum: 0.0,
-        Maximum: 1.0,
-        Step: 0.01,
-        Digits: 2,
-        Read: () => Brush.pbrSpecular ?? 0.68,
-        Write: Val => LivePreviewSelectedOnly({ pbrSpecular: Val })
-    });
 }
 
 function RenderPackingTab(Body, Doc)
@@ -4830,37 +4922,7 @@ function InitStudioIconsAndBindings()
         }
     });
 
-    // Context Menu Per-Face Multi-MatCap Quick Strip
-    const CtxMatcapStrip = document.getElementById('ctx-matcap-strip');
-    if (CtxMatcapStrip)
-    {
-        for (const Spec of MATCAP_STUDIO_CATALOG)
-        {
-            const Img = Construct('img');
-            Img.src = GetCachedMatcapThumb(Spec.slot);
-            Img.alt = Spec.label;
-            const ShortName = Spec.short || Spec.label.split(' ')[0];
-            const Btn = Construct('button', 'ctx-matcap-btn', [Img, Construct('span', null, ShortName)]);
-            Btn.type = 'button';
-            Btn.title = `Assign "${Spec.label}" to selected faces`;
-            Btn.addEventListener('click', () =>
-            {
-                CloseUvContextMenu();
-                const Doc = ActiveDoc();
-                if (!Doc) return;
-                RunWithUndo(`Assign MatCap: ${Spec.label}`, () =>
-                {
-                    const Changed = Doc.surface.AssignMatcapToSelection(Spec.slot, Doc.islands);
-                    if (Viewport3D && !['lit-matcap', 'multi-matcap'].includes(Viewport3D.shadingMode))
-                    {
-                        Set3DShadingMode('lit-matcap');
-                    }
-                    Toast(`Assigned "${Spec.label}" (${Changed} faces)`);
-                });
-            });
-            CtxMatcapStrip.append(Btn);
-        }
-    }
+    // Context Menu Per-Face Multi-MatCap Quick Strip is built lazily via EnsureContextMatcapStripBuilt() when MatCap mode is active!
 
     // Project-Zero Draggable Left/Right Dock Splitters
     function WireDockResizer(ElementId, CssVarName, MinPx, MaxPx, IsRightSide)
