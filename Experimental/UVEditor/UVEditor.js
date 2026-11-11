@@ -50,7 +50,7 @@ const StudioState = {
     activeDocId: null,
     stageMode: 'mesh', // 'split' | 'uv' | 'mesh'
     inspectorTab: 'packing', // 'packing' | 'unwrap' | 'udim' | 'shading' | 'check'
-    outlinerFilter: 'all',
+    udimFilter: 'all', // 'all' | UDIM tile number string ('1001', '1002', ...) — ONLY Search + UDIM filters!
     searchQuery: '',
     compactOutliner: false,
     maximizedStage: false,
@@ -543,8 +543,126 @@ function ComputeInspectorSelectionInfo(Doc)
     };
 }
 
+let _lastUdimFilterSig = null;
+function RenderUdimFilterBar(Doc)
+{
+    const Bar = document.getElementById('outliner-filters');
+    if (!Bar || !Doc) return;
+    if (StudioState.udimFilter !== 'all' && !Doc.udimTiles.some(T => String(T.id) === String(StudioState.udimFilter)))
+    {
+        StudioState.udimFilter = 'all';
+    }
+    const Sig = `${Doc.id}|${StudioState.udimFilter}|${Doc.udimTiles.map(T => T.id).join(',')}`;
+    if (_lastUdimFilterSig === Sig) return;
+    _lastUdimFilterSig = Sig;
+
+    Bar.textContent = '';
+    const MakeBtn = (Label, Val) =>
+    {
+        const Btn = Construct('button', String(StudioState.udimFilter) === String(Val) ? 'active' : '', Label);
+        Btn.type = 'button';
+        Btn.dataset.udim = String(Val);
+        Btn.addEventListener('click', () =>
+        {
+            StudioState.udimFilter = String(Val);
+            if (Val !== 'all')
+            {
+                Doc.activeUdim = Number(Val);
+                const O = UdimOrigin(Number(Val));
+                Canvas2D.FrameBounds(O.u, O.v, O.u + 1, O.v + 1, 0.14);
+            }
+            _lastUdimFilterSig = null;
+            _lastOutlinerSig = null;
+            SyncAllViews(true);
+        });
+        return Btn;
+    };
+
+    Bar.append(MakeBtn('All UDIMs', 'all'));
+    for (const Tile of [...Doc.udimTiles].sort((A, B) => A.id - B.id))
+    {
+        Bar.append(MakeBtn(`UDIM ${Tile.id}`, String(Tile.id)));
+    }
+}
+
+function RenderUdimSpaceBudgetCard(Doc)
+{
+    const Hero = document.getElementById('lp-udim-budget-card');
+    if (!Hero || !Doc) return;
+    Hero.textContent = '';
+
+    const FilterTileId = StudioState.udimFilter === 'all' ? Doc.activeUdim : Number(StudioState.udimFilter);
+    const ActiveReport = Doc.lastPackReport?.tileReports?.find(R => R.tileId === FilterTileId) || Doc.lastPackReport?.tileReports?.[0];
+    const ScopedIslands = StudioState.udimFilter === 'all'
+        ? Doc.islands.filter(I => !I.hidden)
+        : Doc.islands.filter(I => I.udimTile === FilterTileId && !I.hidden);
+    const TileIslands = Doc.islands.filter(I => I.udimTile === FilterTileId && !I.hidden);
+    const RawTileOcc = TileIslands.reduce((S, I) => S + I.areaUV, 0) * 100;
+    const DisplayOcc = (ActiveReport && ActiveReport.tileId === FilterTileId) ? ActiveReport.tileUtilizationPct : RawTileOcc;
+
+    const GroupAreaById = new Map();
+    let TotalUvAll = 0;
+    for (const Isl of ScopedIslands)
+    {
+        TotalUvAll += Isl.areaUV;
+        GroupAreaById.set(Isl.importanceGroupId || null, (GroupAreaById.get(Isl.importanceGroupId || null) || 0) + Isl.areaUV);
+    }
+
+    const Spectrum = Construct('div', 'allocation-spectrum');
+    const ChipsRow = Construct('div', 'alloc-chips-row');
+    const ExplicitSum = Doc.importanceGroups.reduce((S, G) => S + G.targetPercent, 0);
+
+    for (const Grp of Doc.importanceGroups)
+    {
+        const ActualShare = TotalUvAll > 0 ? ((GroupAreaById.get(Grp.id) || 0) / TotalUvAll) * 100 : Grp.targetPercent;
+        const Seg = Construct('div', 'alloc-segment');
+        Seg.style.width = `${Math.max(2, Grp.targetPercent)}%`;
+        Seg.style.background = Grp.color;
+        Spectrum.append(Seg);
+        const Dot = Construct('span', 'legend-dot');
+        Dot.style.background = Grp.color;
+        ChipsRow.append(Construct('span', 'alloc-chip', [Dot, `${Grp.name}: ${Grp.targetPercent}% (${ActualShare.toFixed(0)}% uv)`]));
+    }
+
+    const RemTarget = Math.max(0, 100 - ExplicitSum);
+    const RemActual = TotalUvAll > 0 ? ((GroupAreaById.get(null) || 0) / TotalUvAll) * 100 : RemTarget;
+    if (RemTarget > 0.1 || Doc.islands.some(I => !I.importanceGroupId))
+    {
+        const Seg = Construct('div', 'alloc-segment');
+        Seg.style.width = `${Math.max(2, RemTarget)}%`;
+        Seg.style.background = '#6e6e6e';
+        Spectrum.append(Seg);
+        const Dot = Construct('span', 'legend-dot');
+        Dot.style.background = '#6e6e6e';
+        ChipsRow.append(Construct('span', 'alloc-chip', [Dot, `Auto: ${RemTarget.toFixed(0)}% (${RemActual.toFixed(0)}% uv)`]));
+    }
+
+    const AutoCount = ScopedIslands.filter(I => !I.importanceGroupId).length;
+    Hero.append(
+        Construct('div', 'hero-top', [
+            Construct('div', 'budget-chip', [
+                Construct('span', 'mark', ConstructGlyph('Pack')),
+                Construct('span', null, `UDIM ${FilterTileId} Space Budget`)
+            ]),
+            Construct('span', 'estimate-tag', StudioState.packOptions.budgetMode === 'strict-ratio' ? 'STRICT RATIO' : 'FILL POCKETS')
+        ]),
+        Construct('div', 'hero-metrics', [
+            Construct('div', 'metric-big', [document.createTextNode(DisplayOcc.toFixed(1)), Construct('small', null, '% filled')]),
+            Construct('div', 'metric-side', [
+                Construct('div', 'rate', `${ScopedIslands.length} / ${Doc.islands.length} islands`),
+                Construct('div', 'low', `${Doc.importanceGroups.length} layers · ${AutoCount} auto`)
+            ])
+        ]),
+        Spectrum,
+        ChipsRow
+    );
+}
+
 function UpdateHeaderAndHud(Doc)
 {
+    RenderUdimFilterBar(Doc);
+    RenderUdimSpaceBudgetCard(Doc);
+
     let ErrorCharts = 0, CautionCharts = 0;
     for (const Isl of Doc.islands)
     {
@@ -556,10 +674,11 @@ function UpdateHeaderAndHud(Doc)
     const OverlapMetric = Overlaps + (Doc.diagnostics.flippedCount || 0);
 
     // 1. Update the 3 Pack Allocation Tiles in UV Space Left Panel
-    const ActiveReport = Doc.lastPackReport?.tileReports?.find(R => R.tileId === Doc.activeUdim) || Doc.lastPackReport?.tileReports?.[0];
-    const CurTileIslands = Doc.islands.filter(I => I.udimTile === Doc.activeUdim && !I.hidden);
+    const FilterTileId = StudioState.udimFilter === 'all' ? Doc.activeUdim : Number(StudioState.udimFilter);
+    const ActiveReport = Doc.lastPackReport?.tileReports?.find(R => R.tileId === FilterTileId) || Doc.lastPackReport?.tileReports?.[0];
+    const CurTileIslands = Doc.islands.filter(I => I.udimTile === FilterTileId && !I.hidden);
     const RawTileOcc = CurTileIslands.reduce((S, I) => S + I.areaUV, 0) * 100;
-    const DisplayOcc = ActiveReport ? ActiveReport.tileUtilizationPct : RawTileOcc;
+    const DisplayOcc = (ActiveReport && ActiveReport.tileId === FilterTileId) ? ActiveReport.tileUtilizationPct : RawTileOcc;
     const SelIslCount = Doc.surface.selectedIslands.size;
     const RemIslands = Doc.islands.filter(I => !I.importanceGroupId).length;
     const RemPct = Math.max(0, 100 - Doc.importanceGroups.reduce((S, G) => S + G.targetPercent, 0));
@@ -567,17 +686,17 @@ function UpdateHeaderAndHud(Doc)
     const UtilVal = document.getElementById('lp-kpi-util-val');
     const UtilSub = document.getElementById('lp-kpi-util-sub');
     if (UtilVal) UtilVal.textContent = `${DisplayOcc.toFixed(1)}%`;
-    if (UtilSub) UtilSub.textContent = `UDIM ${Doc.activeUdim}`;
+    if (UtilSub) UtilSub.textContent = `UDIM ${FilterTileId} · ${CurTileIslands.length} isl`;
 
     const SelVal = document.getElementById('lp-kpi-sel-val');
     const SelSub = document.getElementById('lp-kpi-sel-sub');
-    if (SelVal) SelVal.textContent = String(SelIslCount);
-    if (SelSub) SelSub.textContent = SelIslCount ? 'Ready to assign' : 'Click islands';
+    if (SelVal) SelVal.textContent = `${SelIslCount} / ${Doc.islands.length}`;
+    if (SelSub) SelSub.textContent = SelIslCount ? 'Selected islands' : 'Total islands';
 
     const RemVal = document.getElementById('lp-kpi-rem-val');
     const RemSub = document.getElementById('lp-kpi-rem-sub');
     if (RemVal) RemVal.textContent = `${RemPct.toFixed(0)}%`;
-    if (RemSub) RemSub.textContent = `${RemIslands} auto-fill`;
+    if (RemSub) RemSub.textContent = `${RemIslands} / ${Doc.islands.length} isl`;
 
     // 2. Update Stretch Caution (Amber) + Overlaps (Red) Bento Cards
     document.getElementById('stat-udim-count').textContent = String(CautionCharts);
@@ -593,7 +712,7 @@ function UpdateHeaderAndHud(Doc)
     if (OverlapCard) OverlapCard.classList.toggle('has-error', OverlapMetric > 0 || ErrorCharts > 0);
 
     const NodeSummary = document.getElementById('pz-outliner-node-summary');
-    if (NodeSummary) NodeSummary.textContent = `Allocation · ${Doc.islands.length} charts`;
+    if (NodeSummary) NodeSummary.textContent = `${Doc.islands.length} total islands · ${Doc.udimTiles.length} UDIM${Doc.udimTiles.length === 1 ? '' : 's'}`;
 
     const ActiveTile = Doc.udimTiles.find(T => T.id === Doc.activeUdim) || Doc.udimTiles[0];
     const ResK = ActiveTile ? (ActiveTile.resolution >= 1024 ? `${ActiveTile.resolution / 1024}K` : `${ActiveTile.resolution}px`) : '2K';
@@ -712,34 +831,43 @@ function FrameIslandGroupBounds(IslList)
 
 function RenderOutliner(Doc)
 {
+    RenderUdimFilterBar(Doc);
+
     const GrpSig = Doc.importanceGroups.map(G => `${G.id}:${G.name}:${G.targetPercent}:${G.color}`).join(';');
     const SelCount = Doc.surface.selectedIslands.size;
     const FirstSel = SelCount ? [...Doc.surface.selectedIslands][0] : -1;
     const SurfSig = typeof Doc.surface.ComputeDataSignature === 'function' ? Doc.surface.ComputeDataSignature() : `${Doc.islands.length}`;
-    const OutlinerSig = `${Doc.id}|${StudioState.outlinerFilter}|${StudioState.searchQuery.trim()}|${SurfSig}|${GrpSig}|${SelCount}:${FirstSel}|${Doc.diagnostics?.overlapCount || 0}|${Doc.diagnostics?.flippedCount || 0}`;
+    const OutlinerSig = `${Doc.id}|${StudioState.udimFilter}|${StudioState.searchQuery.trim()}|${SurfSig}|${GrpSig}|${SelCount}:${FirstSel}|${Doc.diagnostics?.overlapCount || 0}|${Doc.diagnostics?.flippedCount || 0}`;
     if (_lastOutlinerSig === OutlinerSig) return;
     _lastOutlinerSig = OutlinerSig;
 
     const Container = document.getElementById('outliner-list');
     Container.textContent = '';
     const Query = StudioState.searchQuery.trim().toLowerCase();
+    const FilterUdimNum = StudioState.udimFilter === 'all' ? null : Number(StudioState.udimFilter);
 
-    // 1. Importance Space Allocation (Placed directly in UV Space panel — same grouped island entities!)
+    const ScopedPool = FilterUdimNum === null
+        ? Doc.islands
+        : Doc.islands.filter(I => I.udimTile === FilterUdimNum);
+    const TotalIslands = ScopedPool.length;
+    const TotalUvArea = Math.max(1e-6, ScopedPool.reduce((S, I) => S + (I.areaUV || 0), 0));
+
+    // 1. Redesigned Importance Space Allocation — Studio Layer Stack with Bottom-of-Layer Slider!
     const AllocCard = Construct('div', 'pz-left-alloc-card');
     AllocCard.append(Construct('div', 'pz-left-alloc-head', [
         Construct('strong', null, 'Importance Space Allocation'),
-        Construct('span', null, `${Doc.importanceGroups.length} LAYER${Doc.importanceGroups.length === 1 ? '' : 'S'}`)
+        Construct('span', null, `${TotalIslands} ISL · ${Doc.importanceGroups.length} LAYER${Doc.importanceGroups.length === 1 ? '' : 'S'}`)
     ]));
 
     const SelIds = ResolveSelectedIslandIds(Doc);
     const AddLayerBtn = Construct('button', 'pz-prio-add-btn', [
         ConstructGlyph('Plus'),
-        Construct('span', null, SelIds.length ? `Add Layer (${SelIds.length} sel)` : 'Add Priority Layer')
+        Construct('span', null, SelIds.length ? `Add Layer (${SelIds.length} sel)` : 'Add UV Space Layer')
     ]);
     AddLayerBtn.type = 'button';
     AddLayerBtn.title = SelIds.length
-        ? `Create a new priority layer from ${SelIds.length} selected chart(s)`
-        : 'Add a new priority layer';
+        ? `Create a new UV Space Layer from ${SelIds.length} selected island(s)`
+        : 'Add a new UV Space Layer';
     AddLayerBtn.addEventListener('click', () => AssignSelectedIslandsToNewGroup(StudioState.pendingGroupPct));
 
     const MakeToolIconBtn = (GlyphName, Tip, OnClick) =>
@@ -754,63 +882,81 @@ function RenderOutliner(Doc)
     AllocCard.append(Construct('div', 'pz-prio-toolbar', [
         AddLayerBtn,
         Construct('div', 'pz-prio-tools', [
-            MakeToolIconBtn('StackUv', 'Stack duplicate/similar UV charts onto one shared footprint', RunStackSimilarOp),
-            MakeToolIconBtn('UnstackUv', 'Unstack overlapping duplicate UV charts', RunUnstackOp),
-            MakeToolIconBtn('Reset', 'Return selected charts to Auto Remainder', () => AssignSelectedToGroup(null))
+            MakeToolIconBtn('StackUv', 'Stack duplicate/similar UV islands onto one shared footprint', RunStackSimilarOp),
+            MakeToolIconBtn('UnstackUv', 'Unstack overlapping duplicate UV islands', RunUnstackOp),
+            MakeToolIconBtn('Reset', 'Return selected islands to Auto Remainder', () => AssignSelectedToGroup(null))
         ])
     ]));
 
     const TierPalette = ['#eff4cf', '#9ecfff', '#fbbf24', '#34d399', '#f472b6', '#a78bfa', '#fb923c'];
-    const Table = Construct('div', 'pz-prio-table');
-    Table.append(Construct('div', 'pz-prio-colhead', [
-        Construct('span', null, ''),
-        Construct('span', null, 'Layer'),
-        Construct('span', null, 'Charts'),
-        Construct('span', null, 'Share'),
-        Construct('span', null, '')
-    ]));
+    const StackWrap = Construct('div', 'pz-layer-stack');
 
-    let AutoPctEl = null;
-    let AutoBarEl = null;
-    const RefreshAutoRowLive = () =>
+    let AutoPctPillEl = null;
+    let AutoGaugeSpanEl = null;
+    const RefreshStackBudgetLive = () =>
     {
         const Sum = Doc.importanceGroups.reduce((S, G) => S + G.targetPercent, 0);
         const Rem = Math.max(0, 100 - Sum);
-        if (AutoPctEl)
+        if (AutoPctPillEl)
         {
-            AutoPctEl.textContent = Sum > 100 ? `${Sum.toFixed(0)}% !` : `${Rem.toFixed(0)}%`;
-            AutoPctEl.classList.toggle('warn', Sum > 100);
+            AutoPctPillEl.textContent = Sum > 100 ? `${Sum.toFixed(0)}% !` : `${Rem.toFixed(0)}%`;
+            AutoPctPillEl.classList.toggle('warn', Sum > 100);
         }
-        if (AutoBarEl) AutoBarEl.style.width = `${Math.min(100, Rem)}%`;
+        if (AutoGaugeSpanEl) AutoGaugeSpanEl.style.width = `${Math.min(100, Rem)}%`;
         const RemValEl = document.getElementById('lp-kpi-rem-val');
         if (RemValEl) RemValEl.textContent = `${Rem.toFixed(0)}%`;
+        RenderUdimSpaceBudgetCard(Doc);
         RenderLegendStrip(Doc);
         Broadcast();
     };
 
-    const ExplicitSum = Doc.importanceGroups.reduce((S, G) => S + G.targetPercent, 0);
-    for (const Grp of Doc.importanceGroups)
+    for (let LayerIdx = 0; LayerIdx < Doc.importanceGroups.length; LayerIdx++)
     {
+        const Grp = Doc.importanceGroups[LayerIdx];
         if (Query && !Grp.name.toLowerCase().includes(Query)) continue;
-        const Members = Doc.islands.filter(I => I.importanceGroupId === Grp.id);
-        if (StudioState.outlinerFilter === 'selected' && !Members.some(M => Doc.surface.selectedIslands.has(M.id))) continue;
 
-        const Row = Construct('div', 'pz-prio-row');
+        const AllMembers = Doc.islands.filter(I => I.importanceGroupId === Grp.id);
+        const Members = FilterUdimNum === null ? AllMembers : AllMembers.filter(I => I.udimTile === FilterUdimNum);
+        if (FilterUdimNum !== null && Members.length === 0 && Doc.importanceGroups.length > 1) continue;
 
-        const DotBtn = Construct('button', 'pz-prio-dot');
-        DotBtn.type = 'button';
-        DotBtn.style.background = Grp.color;
-        DotBtn.title = 'Click to cycle layer colour';
+        const AllSel = Members.length > 0 && Members.every(M => Doc.surface.selectedIslands.has(M.id));
+        const LayerFaces = Members.reduce((S, M) => S + (M.faceIndices ? M.faceIndices.length : 1), 0);
+        const LayerUvSum = Members.reduce((S, M) => S + (M.areaUV || 0), 0);
+        const ActualUvPct = (LayerUvSum / TotalUvArea) * 100;
+        const UdimSet = [...new Set(Members.map(M => M.udimTile))].sort((A, B) => A - B);
+        const UdimLabel = UdimSet.length === 0 ? 'empty' : UdimSet.length === 1 ? `UDIM ${UdimSet[0]}` : `${UdimSet.length} UDIMs`;
 
-        const NameIn = Construct('input', 'pz-prio-name');
+        const LayerCard = Construct('div', `pz-uv-layer-card${AllSel ? ' selected' : ''}`);
+        LayerCard.style.setProperty('--layer-color', Grp.color);
+        LayerCard.style.setProperty('--layer-frac', `${Math.min(100, Grp.targetPercent)}%`);
+
+        const IdxTag = Construct('span', 'pz-layer-idx-tag', `L${LayerIdx + 1}`);
+        const SwatchBtn = Construct('button', 'pz-layer-swatch-btn');
+        SwatchBtn.type = 'button';
+        SwatchBtn.style.background = Grp.color;
+        SwatchBtn.title = 'Click to cycle layer accent colour';
+
+        const NameIn = Construct('input', 'pz-layer-title-input');
         NameIn.value = Grp.name;
         NameIn.spellcheck = false;
         NameIn.addEventListener('change', () => { Grp.name = NameIn.value.trim() || Grp.name; _lastOutlinerSig = null; SyncAllViews(); });
 
-        const CntBtn = Construct('button', 'pz-prio-count', String(Members.length));
-        CntBtn.type = 'button';
-        CntBtn.title = `Select ${Members.length} chart(s) in "${Grp.name}" (Shift+Click adds current selection)`;
-        CntBtn.addEventListener('click', E =>
+        const PctPill = Construct('span', 'pz-layer-pct-pill', `${Math.round(Grp.targetPercent)}%`);
+
+        const AssignBtn = Construct('button', 'pz-prio-act', ConstructGlyph('Plus'));
+        AssignBtn.type = 'button';
+        AssignBtn.title = `Assign selected islands to "${Grp.name}"`;
+        AssignBtn.addEventListener('click', () => AssignSelectedToGroup(Grp.id));
+
+        const DelBtn = Construct('button', 'pz-prio-act danger', ConstructGlyph('Close'));
+        DelBtn.type = 'button';
+        DelBtn.title = `Remove "${Grp.name}" (islands return to Auto Remainder)`;
+        DelBtn.addEventListener('click', () => RemoveImportanceGroup(Grp.id));
+
+        const IslChip = Construct('button', 'pz-layer-stat-chip clickable', `${Members.length} / ${TotalIslands} isl`);
+        IslChip.type = 'button';
+        IslChip.title = `Select ${Members.length} island(s) in "${Grp.name}" (Shift+Click assigns current selection)`;
+        IslChip.addEventListener('click', E =>
         {
             if (E.shiftKey) AssignSelectedToGroup(Grp.id);
             else
@@ -820,211 +966,200 @@ function RenderOutliner(Doc)
             }
         });
 
+        const StatsRow = Construct('div', 'pz-layer-stats-row', [
+            IslChip,
+            Construct('span', 'pz-layer-stat-chip', `UV ${ActualUvPct.toFixed(1)}%`),
+            Construct('span', 'pz-layer-stat-chip', `${LayerFaces.toLocaleString()}f`),
+            Construct('span', 'pz-layer-stat-chip', UdimLabel)
+        ]);
+
+        // Bottom-of-Layer Slider + Exact % Input
+        const RangeIn = Construct('input', 'pz-layer-bottom-slider');
+        RangeIn.type = 'range';
+        RangeIn.min = '1';
+        RangeIn.max = '95';
+        RangeIn.step = '1';
+        RangeIn.value = String(Math.round(Grp.targetPercent));
+        RangeIn.title = `Adjust "${Grp.name}" UV space allocation %`;
+
         const PctIn = Construct('input');
         PctIn.type = 'text';
         PctIn.inputMode = 'numeric';
         PctIn.value = String(Math.round(Grp.targetPercent));
         const PctBox = Construct('div', 'pz-prio-pct-box', [PctIn, Construct('small', null, '%')]);
-        PctBox.title = 'Drag horizontally or type exact target space %';
-
-        const BarLine = Construct('span', 'pz-prio-bar');
-        BarLine.style.background = Grp.color;
-        BarLine.style.width = `${Math.min(100, Grp.targetPercent)}%`;
-
-        DotBtn.addEventListener('click', () =>
-        {
-            Grp.color = TierPalette[(TierPalette.indexOf(Grp.color) + 1) % TierPalette.length];
-            DotBtn.style.background = Grp.color;
-            BarLine.style.background = Grp.color;
-            _lastOutlinerSig = null;
-            SyncAllViews();
-        });
 
         const CommitPct = Raw =>
         {
             const V = Math.max(1, Math.min(95, Math.round(Number(Raw) || Grp.targetPercent)));
             Grp.targetPercent = V;
+            RangeIn.value = String(V);
             PctIn.value = String(V);
-            BarLine.style.width = `${Math.min(100, V)}%`;
-            RefreshAutoRowLive();
+            PctPill.textContent = `${V}%`;
+            LayerCard.style.setProperty('--layer-frac', `${V}%`);
+            RefreshStackBudgetLive();
         };
+
+        RangeIn.addEventListener('input', () => CommitPct(RangeIn.value));
         PctIn.addEventListener('change', () => CommitPct(PctIn.value));
 
-        let DragStartX = 0, DragStartVal = 0, Scrubbing = false;
-        PctBox.addEventListener('pointerdown', E =>
+        SwatchBtn.addEventListener('click', () =>
         {
-            if (document.activeElement === PctIn) return;
-            DragStartX = E.clientX;
-            DragStartVal = Grp.targetPercent;
-            Scrubbing = false;
-            PctBox.setPointerCapture(E.pointerId);
-            const OnMove = Me =>
-            {
-                const Dx = Me.clientX - DragStartX;
-                if (Math.abs(Dx) > 3) Scrubbing = true;
-                if (Scrubbing) CommitPct(DragStartVal + Math.round(Dx * 0.35));
-            };
-            const OnUp = () =>
-            {
-                PctBox.removeEventListener('pointermove', OnMove);
-                PctBox.removeEventListener('pointerup', OnUp);
-                if (!Scrubbing) { PctIn.focus(); PctIn.select(); }
-            };
-            PctBox.addEventListener('pointermove', OnMove);
-            PctBox.addEventListener('pointerup', OnUp);
+            Grp.color = TierPalette[(TierPalette.indexOf(Grp.color) + 1) % TierPalette.length];
+            SwatchBtn.style.background = Grp.color;
+            LayerCard.style.setProperty('--layer-color', Grp.color);
+            _lastOutlinerSig = null;
+            SyncAllViews();
         });
 
-        const AssignBtn = Construct('button', 'pz-prio-act', ConstructGlyph('Plus'));
-        AssignBtn.type = 'button';
-        AssignBtn.title = `Assign selected charts to "${Grp.name}"`;
-        AssignBtn.addEventListener('click', () => AssignSelectedToGroup(Grp.id));
-
-        const DelBtn = Construct('button', 'pz-prio-act danger', ConstructGlyph('Close'));
-        DelBtn.type = 'button';
-        DelBtn.title = `Delete "${Grp.name}" (charts return to Auto Remainder)`;
-        DelBtn.addEventListener('click', () => RemoveImportanceGroup(Grp.id));
-
-        Row.append(DotBtn, NameIn, CntBtn, PctBox, Construct('div', 'pz-prio-row-acts', [AssignBtn, DelBtn]), BarLine);
-        Table.append(Row);
+        LayerCard.append(
+            Construct('div', 'pz-uv-layer-top', [IdxTag, SwatchBtn, NameIn, PctPill, AssignBtn, DelBtn]),
+            StatsRow,
+            Construct('div', 'pz-layer-bottom-bar', [RangeIn, PctBox])
+        );
+        StackWrap.append(LayerCard);
     }
 
-    const RemMembers = Doc.islands.filter(I => !I.importanceGroupId);
+    // Base Foundation Layer at bottom of Stack (Auto Remainder)
+    const ExplicitSum = Doc.importanceGroups.reduce((S, G) => S + G.targetPercent, 0);
     const RemTarget = Math.max(0, 100 - ExplicitSum);
-    const AutoDot = Construct('span', 'pz-prio-dot');
-    AutoDot.style.background = '#6e6e6e';
-    AutoPctEl = Construct('span', `pz-prio-auto-pct${ExplicitSum > 100 ? ' warn' : ''}`,
-        ExplicitSum > 100 ? `${ExplicitSum.toFixed(0)}% !` : `${RemTarget.toFixed(0)}%`);
-    AutoBarEl = Construct('span', 'pz-prio-bar');
-    AutoBarEl.style.background = '#6e6e6e';
-    AutoBarEl.style.width = `${Math.min(100, RemTarget)}%`;
+    const RemMembers = ScopedPool.filter(I => !I.importanceGroupId);
+    const RemFaces = RemMembers.reduce((S, M) => S + (M.faceIndices ? M.faceIndices.length : 1), 0);
+    const RemUvPct = (RemMembers.reduce((S, M) => S + (M.areaUV || 0), 0) / TotalUvArea) * 100;
 
-    const AutoRow = Construct('div', 'pz-prio-row auto-row', [
-        AutoDot,
-        Construct('span', 'pz-prio-name', 'Auto Remainder'),
-        Construct('button', 'pz-prio-count', String(RemMembers.length)),
-        AutoPctEl,
-        Construct('span', null, ''),
-        AutoBarEl
-    ]);
-    AutoRow.title = 'Remaining unassigned charts automatically fill leftover UV space (click to select)';
-    AutoRow.addEventListener('click', () =>
+    AutoPctPillEl = Construct('span', `pz-layer-pct-pill${ExplicitSum > 100 ? ' warn' : ''}`,
+        ExplicitSum > 100 ? `${ExplicitSum.toFixed(0)}% !` : `${RemTarget.toFixed(0)}%`);
+    AutoGaugeSpanEl = Construct('span');
+    AutoGaugeSpanEl.style.width = `${Math.min(100, RemTarget)}%`;
+
+    const BaseIslChip = Construct('button', 'pz-layer-stat-chip clickable', `${RemMembers.length} / ${TotalIslands} isl`);
+    BaseIslChip.type = 'button';
+    BaseIslChip.title = 'Click to select all unassigned Auto-Remainder islands';
+    BaseIslChip.addEventListener('click', () =>
     {
         if (!RemMembers.length) return;
         Doc.surface.SelectIslands(RemMembers.map(M => M.id), false);
         SyncAllViews(true);
     });
-    Table.append(AutoRow);
-    AllocCard.append(Table);
+
+    const BaseCard = Construct('div', 'pz-uv-layer-card base-layer', [
+        Construct('div', 'pz-uv-layer-top', [
+            Construct('span', 'pz-layer-idx-tag', 'BASE'),
+            Construct('span', 'pz-layer-title-input', 'Auto Remainder'),
+            AutoPctPillEl
+        ]),
+        Construct('div', 'pz-layer-stats-row', [
+            BaseIslChip,
+            Construct('span', 'pz-layer-stat-chip', `UV ${RemUvPct.toFixed(1)}%`),
+            Construct('span', 'pz-layer-stat-chip', `${RemFaces.toLocaleString()}f`)
+        ]),
+        Construct('div', 'pz-layer-bottom-bar', [
+            Construct('div', 'pz-layer-base-gauge', [AutoGaugeSpanEl])
+        ])
+    ]);
+    StackWrap.append(BaseCard);
+    AllocCard.append(StackWrap);
     Container.append(AllocCard);
 
-    // 2. Aggregated Surface Parts (Bounded O(Parts) summary — 1 click promotes any mesh part to a Priority Layer above!)
-    if (StudioState.outlinerFilter !== 'grouped')
+    // 2. Surface Parts as Crisp Square Blocks (NOT Rounded!) — Filtered ONLY by Search + UDIM!
+    const PartBuckets = new Map();
+    for (const Isl of ScopedPool)
     {
-        const PartBuckets = new Map();
-        for (const Isl of Doc.islands)
+        if (Isl.importanceGroupId) continue;
+        const IsSel = Doc.surface.selectedIslands.has(Isl.id);
+        const Spec = SemanticPartBucketForIsland(Isl);
+        if (Query && !`${Spec.title} ${Isl.materialName || ''}`.toLowerCase().includes(Query)) continue;
+        let B = PartBuckets.get(Spec.key);
+        if (!B)
         {
-            if (Isl.importanceGroupId) continue;
-            const IsSel = Doc.surface.selectedIslands.has(Isl.id);
-            if (StudioState.outlinerFilter === 'selected' && !IsSel) continue;
-            const Health = ClassifyIslandHealth(Doc, Isl);
-            const HasIssue = Health === 'error' || Health === 'caution';
-            if (StudioState.outlinerFilter === 'issues' && !HasIssue) continue;
-
-            const Spec = SemanticPartBucketForIsland(Isl);
-            if (Query && !`${Spec.title} ${Isl.materialName || ''}`.toLowerCase().includes(Query)) continue;
-            let B = PartBuckets.get(Spec.key);
-            if (!B)
-            {
-                B = { ...Spec, islands: [], faceCount: 0, selectedCount: 0, issueCount: 0 };
-                PartBuckets.set(Spec.key, B);
-            }
-            B.islands.push(Isl);
-            B.faceCount += (Isl.faceIndices ? Isl.faceIndices.length : 1);
-            if (IsSel) B.selectedCount++;
-            if (HasIssue) B.issueCount++;
+            B = { ...Spec, islands: [], faceCount: 0, uvArea: 0, selectedCount: 0 };
+            PartBuckets.set(Spec.key, B);
         }
-
-        let Parts = [...PartBuckets.values()].sort((A, B) => B.faceCount - A.faceCount);
-        if (Parts.length > 20)
-        {
-            const Head = Parts.slice(0, 19);
-            const Tail = Parts.slice(19);
-            const Overflow = {
-                key: 'part-overflow',
-                title: `Other Parts (${Tail.length})`,
-                color: '#737373',
-                islands: Tail.flatMap(T => T.islands),
-                faceCount: Tail.reduce((S, T) => S + T.faceCount, 0),
-                selectedCount: Tail.reduce((S, T) => S + T.selectedCount, 0),
-                issueCount: Tail.reduce((S, T) => S + T.issueCount, 0)
-            };
-            Parts = [...Head, Overflow];
-        }
-
-        Container.append(Construct('div', 'pz-outliner-sec-head', [
-            Construct('span', null, 'Surface Parts'),
-            Construct('span', null, `${Parts.length} group${Parts.length === 1 ? '' : 's'}`)
-        ]));
-
-        const PartList = Construct('div', 'pz-cat-list');
-        for (const Part of Parts)
-        {
-            const AllSel = Part.islands.length > 0 && Part.selectedCount === Part.islands.length;
-            const AllHidden = Part.islands.length > 0 && Part.islands.every(I => I.hidden);
-            const FIcon = Construct('span', 'pz-folder-icon', [BuildFolderSvg()]);
-            FIcon.style.setProperty('--folder-tint', Part.color);
-
-            const Sub = `${Part.islands.length.toLocaleString()} chart${Part.islands.length === 1 ? '' : 's'} · ${Part.faceCount.toLocaleString()} faces${Part.issueCount ? ` · ${Part.issueCount} !` : ''}`;
-
-            const PromoteBtn = Construct('button', 'pz-prio-act', [ConstructGlyph('Plus')]);
-            PromoteBtn.type = 'button';
-            PromoteBtn.title = `Promote "${Part.title}" into a Priority Layer in Importance Space Allocation`;
-            PromoteBtn.addEventListener('click', E =>
-            {
-                E.stopPropagation();
-                Doc.surface.ClearSelection();
-                for (const Isl of Part.islands) Doc.surface.SelectIsland(Isl.id, true);
-                AssignSelectedIslandsToNewGroup(StudioState.pendingGroupPct, Part.title);
-            });
-
-            const EyeBtn = Construct('button', 'pz-prio-act', [ConstructGlyph(AllHidden ? 'EyeOff' : 'Eye')]);
-            EyeBtn.type = 'button';
-            EyeBtn.title = AllHidden ? 'Show Surface Part' : 'Hide Surface Part';
-            EyeBtn.addEventListener('click', E =>
-            {
-                E.stopPropagation();
-                for (const Isl of Part.islands) Doc.surface.SetIslandHidden(Isl.id, !AllHidden);
-                SyncAllViews();
-            });
-
-            const Row = Construct('div', `pz-cat-row${AllSel ? ' selected' : ''}`, [
-                FIcon,
-                Construct('div', 'pz-cat-copy', [
-                    Construct('strong', null, Part.title),
-                    Construct('small', null, Sub)
-                ]),
-                PromoteBtn,
-                EyeBtn
-            ]);
-            Row.addEventListener('click', E =>
-            {
-                if (!E.shiftKey && !E.ctrlKey) Doc.surface.ClearSelection();
-                for (const Isl of Part.islands) Doc.surface.SelectIsland(Isl.id, true);
-                SyncAllViews(true);
-            });
-            Row.addEventListener('dblclick', () =>
-            {
-                Doc.surface.ClearSelection();
-                for (const Isl of Part.islands) Doc.surface.SelectIsland(Isl.id, true);
-                FrameIslandGroupBounds(Part.islands);
-                SyncAllViews(true);
-            });
-            PartList.append(Row);
-        }
-
-        if (PartList.childElementCount) Container.append(PartList);
-        else Container.append(Construct('p', 'property-hint', 'No unassigned surface parts match the active filter.'));
+        B.islands.push(Isl);
+        B.faceCount += (Isl.faceIndices ? Isl.faceIndices.length : 1);
+        B.uvArea += (Isl.areaUV || 0);
+        if (IsSel) B.selectedCount++;
     }
+
+    let Parts = [...PartBuckets.values()].sort((A, B) => B.faceCount - A.faceCount);
+    if (Parts.length > 20)
+    {
+        const Head = Parts.slice(0, 19);
+        const Tail = Parts.slice(19);
+        Parts = [...Head, {
+            key: 'part-overflow',
+            title: `Other Parts (${Tail.length})`,
+            color: '#737373',
+            islands: Tail.flatMap(T => T.islands),
+            faceCount: Tail.reduce((S, T) => S + T.faceCount, 0),
+            uvArea: Tail.reduce((S, T) => S + T.uvArea, 0),
+            selectedCount: Tail.reduce((S, T) => S + T.selectedCount, 0)
+        }];
+    }
+
+    Container.append(Construct('div', 'pz-outliner-sec-head', [
+        Construct('span', null, 'Surface Parts'),
+        Construct('span', null, `${Parts.length} block${Parts.length === 1 ? '' : 's'} · ${RemMembers.length} isl`)
+    ]));
+
+    const BlockGrid = Construct('div', 'pz-part-square-grid');
+    for (const Part of Parts)
+    {
+        const AllSel = Part.islands.length > 0 && Part.selectedCount === Part.islands.length;
+        const AllHidden = Part.islands.length > 0 && Part.islands.every(I => I.hidden);
+        const PartUvPct = (Part.uvArea / TotalUvArea) * 100;
+
+        const PromoteBtn = Construct('button', 'pz-prio-act', [ConstructGlyph('Plus')]);
+        PromoteBtn.type = 'button';
+        PromoteBtn.title = `Promote "${Part.title}" into a UV Space Layer`;
+        PromoteBtn.addEventListener('click', E =>
+        {
+            E.stopPropagation();
+            Doc.surface.ClearSelection();
+            for (const Isl of Part.islands) Doc.surface.SelectIsland(Isl.id, true);
+            AssignSelectedIslandsToNewGroup(StudioState.pendingGroupPct, Part.title);
+        });
+
+        const EyeBtn = Construct('button', 'pz-prio-act', [ConstructGlyph(AllHidden ? 'EyeOff' : 'Eye')]);
+        EyeBtn.type = 'button';
+        EyeBtn.title = AllHidden ? 'Show Surface Part' : 'Hide Surface Part';
+        EyeBtn.addEventListener('click', E =>
+        {
+            E.stopPropagation();
+            for (const Isl of Part.islands) Doc.surface.SetIslandHidden(Isl.id, !AllHidden);
+            SyncAllViews();
+        });
+
+        const SqBadge = Construct('span', 'pz-part-sq-badge');
+        const Block = Construct('div', `pz-part-square-block${AllSel ? ' selected' : ''}`, [
+            Construct('div', 'pz-part-block-top', [
+                SqBadge,
+                Construct('div', 'pz-part-block-acts', [PromoteBtn, EyeBtn])
+            ]),
+            Construct('div', 'pz-part-block-body', [
+                Construct('strong', null, Part.title),
+                Construct('small', null, `${Part.islands.length} / ${TotalIslands} isl · ${PartUvPct.toFixed(1)}%`),
+                Construct('small', null, `${Part.faceCount.toLocaleString()} faces`)
+            ])
+        ]);
+        Block.style.setProperty('--part-color', Part.color);
+        Block.addEventListener('click', E =>
+        {
+            if (!E.shiftKey && !E.ctrlKey) Doc.surface.ClearSelection();
+            for (const Isl of Part.islands) Doc.surface.SelectIsland(Isl.id, true);
+            SyncAllViews(true);
+        });
+        Block.addEventListener('dblclick', () =>
+        {
+            Doc.surface.ClearSelection();
+            for (const Isl of Part.islands) Doc.surface.SelectIsland(Isl.id, true);
+            FrameIslandGroupBounds(Part.islands);
+            SyncAllViews(true);
+        });
+        BlockGrid.append(Block);
+    }
+
+    if (BlockGrid.childElementCount) Container.append(BlockGrid);
+    else Container.append(Construct('p', 'property-hint', 'No unassigned surface parts match the active Search / UDIM filter.'));
 }
 
 function RenderLegendStrip(Doc)
@@ -2586,69 +2721,7 @@ function RenderShadingTab(Body, Doc)
 
 function RenderPackingTab(Body, Doc)
 {
-    // 1. Sun Hero Card: Tile Utilization + Live Importance Spectrum Bar
-    const ActiveReport = Doc.lastPackReport?.tileReports?.find(R => R.tileId === Doc.activeUdim) || Doc.lastPackReport?.tileReports?.[0];
-    const CurTileIslands = Doc.islands.filter(I => I.udimTile === Doc.activeUdim && !I.hidden);
-    const RawTileOcc = CurTileIslands.reduce((S, I) => S + I.areaUV, 0) * 100;
-    const DisplayOcc = ActiveReport ? ActiveReport.tileUtilizationPct : RawTileOcc;
-
-    const Hero = Construct('div', 'hero-card');
-    const GroupAreaById = new Map();
-    let TotalUvAll = 0;
-    for (const Isl of CurTileIslands)
-    {
-        TotalUvAll += Isl.areaUV;
-        GroupAreaById.set(Isl.importanceGroupId || null, (GroupAreaById.get(Isl.importanceGroupId || null) || 0) + Isl.areaUV);
-    }
-
-    const Spectrum = Construct('div', 'allocation-spectrum');
-    const ChipsRow = Construct('div', 'alloc-chips-row');
-
-    const ExplicitSum = Doc.importanceGroups.reduce((S, G) => S + G.targetPercent, 0);
-    for (const Grp of Doc.importanceGroups)
-    {
-        const ActualShare = TotalUvAll > 0 ? ((GroupAreaById.get(Grp.id) || 0) / TotalUvAll) * 100 : Grp.targetPercent;
-        const Seg = Construct('div', 'alloc-segment');
-        Seg.style.width = `${Math.max(2, ActualShare)}%`;
-        Seg.style.background = Grp.color;
-        Spectrum.append(Seg);
-        const Dot = Construct('span', 'legend-dot');
-        Dot.style.background = Grp.color;
-        ChipsRow.append(Construct('span', 'alloc-chip', [Dot, `${Grp.name}: ${ActualShare.toFixed(1)}% / ${Grp.targetPercent}%`]));
-    }
-    const RemActual = TotalUvAll > 0 ? ((GroupAreaById.get(null) || 0) / TotalUvAll) * 100 : Math.max(0, 100 - ExplicitSum);
-    if (RemActual > 0.1 || Doc.islands.some(I => !I.importanceGroupId))
-    {
-        const Seg = Construct('div', 'alloc-segment');
-        Seg.style.width = `${Math.max(2, RemActual)}%`;
-        Seg.style.background = '#6e7680';
-        Spectrum.append(Seg);
-        const Dot = Construct('span', 'legend-dot');
-        Dot.style.background = '#6e7680';
-        ChipsRow.append(Construct('span', 'alloc-chip', [Dot, `Remaining: ${RemActual.toFixed(1)}% / ${Math.max(0, 100 - ExplicitSum).toFixed(0)}%`]));
-    }
-
-    Hero.append(
-        Construct('div', 'hero-top', [
-            Construct('div', 'budget-chip', [
-                Construct('span', 'mark', ConstructGlyph('Pack')),
-                Construct('span', null, `UDIM ${Doc.activeUdim} Space Budget`)
-            ]),
-            Construct('span', 'estimate-tag', StudioState.packOptions.budgetMode === 'strict-ratio' ? 'STRICT RATIO' : 'FILL POCKETS')
-        ]),
-        Construct('div', 'hero-metrics', [
-            Construct('div', 'metric-big', [document.createTextNode(DisplayOcc.toFixed(1)), Construct('small', null, '% filled')]),
-            Construct('div', 'metric-side', [
-                Construct('div', 'rate', `${CurTileIslands.length} islands`),
-                Construct('div', 'low', `${Doc.importanceGroups.length} explicit · ${Doc.islands.filter(I => !I.importanceGroupId).length} auto`)
-            ])
-        ]),
-        Spectrum,
-        ChipsRow
-    );
-    Body.append(Hero);
-
-    // Packing Solver Options Card (KPI Trio & Importance Space Allocation now live permanently in UV Space left panel!)
+    // UDIM Space Budget, KPI Trio & Importance Space Allocation Layer Stack all live in the UV Space left panel!
     const PackSec = SectionCard(Body, {
         Id: 'pack-options',
         Title: 'Concave Packing Engine',
@@ -4435,16 +4508,12 @@ function InitStudioIconsAndBindings()
         });
     });
 
-    // Outliner search & filters
-    document.getElementById('outliner-search').addEventListener('input', E => { StudioState.searchQuery = E.target.value; RenderOutliner(ActiveDoc()); });
-    document.querySelectorAll('#outliner-filters button').forEach(Btn =>
+    // UV Space Search (ONLY Search + dynamic UDIM filters in RenderUdimFilterBar!)
+    document.getElementById('outliner-search').addEventListener('input', E =>
     {
-        Btn.addEventListener('click', () =>
-        {
-            StudioState.outlinerFilter = Btn.dataset.filter;
-            document.querySelectorAll('#outliner-filters button').forEach(B => B.classList.toggle('active', B === Btn));
-            RenderOutliner(ActiveDoc());
-        });
+        StudioState.searchQuery = E.target.value;
+        _lastOutlinerSig = null;
+        RenderOutliner(ActiveDoc());
     });
 
     // Header & Viewport actions
@@ -4667,10 +4736,11 @@ function InitStudioIconsAndBindings()
     document.getElementById('lp-kpi-util')?.addEventListener('click', () => ActivateInspectorTab('packing'));
     document.getElementById('lp-kpi-selected')?.addEventListener('click', () =>
     {
-        StudioState.outlinerFilter = StudioState.outlinerFilter === 'selected' ? 'all' : 'selected';
-        document.querySelectorAll('#outliner-filters button').forEach(B => B.classList.toggle('active', B.dataset.filter === StudioState.outlinerFilter));
-        _lastOutlinerSig = null;
-        RenderOutliner(ActiveDoc());
+        const Doc = ActiveDoc();
+        if (!Doc || !Doc.surface.selectedIslands.size) return;
+        const SelIsls = Doc.islands.filter(I => Doc.surface.selectedIslands.has(I.id));
+        FrameIslandGroupBounds(SelIsls);
+        SyncAllViews(true);
     });
     document.getElementById('lp-kpi-remaining')?.addEventListener('click', () =>
     {
@@ -4684,17 +4754,12 @@ function InitStudioIconsAndBindings()
     document.getElementById('stat-issues-card')?.addEventListener('click', () =>
     {
         const Doc = ActiveDoc();
-        StudioState.outlinerFilter = StudioState.outlinerFilter === 'issues' ? 'all' : 'issues';
-        document.querySelectorAll('#outliner-filters button').forEach(B => B.classList.toggle('active', B.dataset.filter === StudioState.outlinerFilter));
-        if (Doc)
-        {
-            const StretchIds = Doc.islands.filter(I => ClassifyIslandHealth(Doc, I) === 'caution').map(I => I.id);
-            if (StretchIds.length) Doc.surface.SelectIslands(StretchIds, false);
-            StudioState.overlayLens = 'stretch';
-            const LensSel = document.getElementById('uv-lens-select');
-            if (LensSel) LensSel.value = 'stretch';
-        }
-        _lastOutlinerSig = null;
+        if (!Doc) return;
+        const StretchIds = Doc.islands.filter(I => ClassifyIslandHealth(Doc, I) === 'caution').map(I => I.id);
+        if (StretchIds.length) Doc.surface.SelectIslands(StretchIds, false);
+        StudioState.overlayLens = 'stretch';
+        const LensSel = document.getElementById('uv-lens-select');
+        if (LensSel) LensSel.value = 'stretch';
         SyncAllViews(true);
     });
     document.getElementById('stat-overlap-card')?.addEventListener('click', () =>
@@ -4708,7 +4773,6 @@ function InitStudioIconsAndBindings()
         StudioState.overlayLens = 'overlap';
         const LensSel = document.getElementById('uv-lens-select');
         if (LensSel) LensSel.value = 'overlap';
-        _lastOutlinerSig = null;
         SyncAllViews(true);
         Toast(Doc.surface.selectedFaces.size ? `Highlighted ${Doc.surface.selectedFaces.size} overlapping/flipped faces` : '0 UV overlaps detected');
     });
@@ -5297,7 +5361,7 @@ function Bootstrap()
     });
 
     InspectorScroll = SmoothScroll(document.getElementById('inspector-scroll'), document.getElementById('inspector-body'));
-    OutlinerScroll = SmoothScroll(document.getElementById('outliner-scroll'), document.getElementById('outliner-list'));
+    OutlinerScroll = SmoothScroll(document.getElementById('outliner-scroll'), document.getElementById('outliner-scroll-content'));
 
     // Initialize default workspace documents from SampleAssetCatalog
     for (const Sample of SampleAssetCatalog)

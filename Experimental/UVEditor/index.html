@@ -49,44 +49,12 @@
       <div class="outliner-heading">
         <div class="pz-outliner-title-row">
           <h1>UV Space</h1>
-          <span class="outliner-subtitle" id="pz-outliner-node-summary">Allocation · 0 charts</span>
+          <span class="outliner-subtitle" id="pz-outliner-node-summary">0 total islands</span>
         </div>
         <div class="outliner-heading-actions">
-          <button class="pz-folder-add-btn" id="pz-new-folder-btn" type="button" title="Create a Priority Layer from selected charts">+ Layer</button>
+          <button class="pz-folder-add-btn" id="pz-new-folder-btn" type="button" title="Create a Priority Layer from selected islands">+ Layer</button>
           <button class="icon-button" id="add-udim-quick" type="button" title="Add UDIM Tile" hidden></button>
         </div>
-      </div>
-
-      <!-- 5 Infographic Cards: 3 Pack Allocation Tiles + Stretch Caution (Amber) + Overlaps (Red) -->
-      <div class="kpi-trio pz-left-kpi-trio">
-        <button class="kpi-card highlight pz-kpi-btn" id="lp-kpi-util" type="button" title="Active UDIM tile pack utilization (click to open Pack settings)">
-          <span class="kpi-label">Utilization</span>
-          <strong class="kpi-value" id="lp-kpi-util-val">0%</strong>
-          <small class="kpi-sub" id="lp-kpi-util-sub">UDIM 1001</small>
-        </button>
-        <button class="kpi-card pz-kpi-btn" id="lp-kpi-selected" type="button" title="Filter to currently selected UV islands">
-          <span class="kpi-label">Selected</span>
-          <strong class="kpi-value" id="lp-kpi-sel-val">0</strong>
-          <small class="kpi-sub" id="lp-kpi-sel-sub">Click islands</small>
-        </button>
-        <button class="kpi-card pz-kpi-btn" id="lp-kpi-remaining" type="button" title="Select unassigned Auto-Remainder islands">
-          <span class="kpi-label">Remaining</span>
-          <strong class="kpi-value" id="lp-kpi-rem-val">100%</strong>
-          <small class="kpi-sub" id="lp-kpi-rem-sub">Auto-fill</small>
-        </button>
-      </div>
-
-      <div class="scene-statistics">
-        <button class="scene-stat pz-bento-stat pz-stretch-card" id="stat-issues-card" type="button" title="Select & filter high UV stretch caution charts">
-          <div class="stat-symbol pz-stretch-amber-symbol" id="stat-udim-icon">α</div>
-          <span class="stat-label" id="stat-issues-label">Stretch Caution</span>
-          <strong id="stat-udim-count">0</strong>
-        </button>
-        <button class="scene-stat pz-bento-stat pz-overlap-card" id="stat-overlap-card" type="button" title="Select & highlight overlapping or flipped UV faces">
-          <div class="stat-symbol pz-overlap-red-symbol" id="stat-islands-icon">!</div>
-          <span class="stat-label">Overlaps</span>
-          <strong id="stat-islands-count">0</strong>
-        </button>
       </div>
 
       <label class="search">
@@ -95,23 +63,60 @@
         <kbd>Ctrl+F</kbd>
       </label>
 
-      <div class="scene-filters" id="outliner-filters">
-        <button class="active" data-filter="all" type="button">All</button>
-        <button data-filter="selected" type="button">Selected</button>
-        <button data-filter="grouped" type="button">Priority</button>
-        <button data-filter="issues" type="button">Issues</button>
+      <!-- ONLY Search + UDIM Filters -->
+      <div class="scene-filters pz-udim-filter-bar" id="outliner-filters">
+        <button class="active" data-udim="all" type="button">All UDIMs</button>
+        <button data-udim="1001" type="button">1001</button>
       </div>
 
-      <!-- Legacy UDIM Strip Hidden (UDIM management lives exclusively in the UDIM Tab) -->
+      <!-- Legacy UDIM Strip Hidden -->
       <div class="udim-strip-header" hidden>
         <span>UDIM TILES</span>
         <button class="text-pill-btn" id="frame-udims-btn" type="button">Frame</button>
       </div>
       <div class="udim-chip-strip" id="udim-chip-strip" hidden></div>
 
-      <!-- Scrollable Island Outliner -->
+      <!-- Scrollable UV Space Stack: UDIM Space Budget + 5 Infographic Cards + Layer Stack + Square Surface Parts -->
       <div class="panel-scroll outliner-scroll" id="outliner-scroll">
-        <div class="panel-content" id="outliner-list"></div>
+        <div class="panel-content" id="outliner-scroll-content">
+          <!-- 1. UDIM Space Budget Card (Moved from Pack) -->
+          <div class="hero-card pz-left-budget-hero" id="lp-udim-budget-card"></div>
+
+          <!-- 2. 5 Infographic Cards: 3 Pack Allocation Tiles + Stretch Caution (Amber) + Overlaps (Red) -->
+          <div class="kpi-trio pz-left-kpi-trio">
+            <button class="kpi-card highlight pz-kpi-btn" id="lp-kpi-util" type="button" title="Active UDIM tile pack utilization (click to open Pack settings)">
+              <span class="kpi-label">Utilization</span>
+              <strong class="kpi-value" id="lp-kpi-util-val">0%</strong>
+              <small class="kpi-sub" id="lp-kpi-util-sub">UDIM 1001</small>
+            </button>
+            <button class="kpi-card pz-kpi-btn" id="lp-kpi-selected" type="button" title="Selected UV islands">
+              <span class="kpi-label">Selected</span>
+              <strong class="kpi-value" id="lp-kpi-sel-val">0</strong>
+              <small class="kpi-sub" id="lp-kpi-sel-sub">Click islands</small>
+            </button>
+            <button class="kpi-card pz-kpi-btn" id="lp-kpi-remaining" type="button" title="Select unassigned Auto-Remainder islands">
+              <span class="kpi-label">Remaining</span>
+              <strong class="kpi-value" id="lp-kpi-rem-val">100%</strong>
+              <small class="kpi-sub" id="lp-kpi-rem-sub">Auto-fill</small>
+            </button>
+          </div>
+
+          <div class="scene-statistics pz-in-scroll-stats">
+            <button class="scene-stat pz-bento-stat pz-stretch-card" id="stat-issues-card" type="button" title="Select high UV stretch caution charts">
+              <div class="stat-symbol pz-stretch-amber-symbol" id="stat-udim-icon">α</div>
+              <span class="stat-label" id="stat-issues-label">Stretch Caution</span>
+              <strong id="stat-udim-count">0</strong>
+            </button>
+            <button class="scene-stat pz-bento-stat pz-overlap-card" id="stat-overlap-card" type="button" title="Select overlapping or flipped UV faces">
+              <div class="stat-symbol pz-overlap-red-symbol" id="stat-islands-icon">!</div>
+              <span class="stat-label">Overlaps</span>
+              <strong id="stat-islands-count">0</strong>
+            </button>
+          </div>
+
+          <!-- 3. Cool Layer Stack (Importance Space Allocation) + Square Surface Part Blocks -->
+          <div id="outliner-list"></div>
+        </div>
       </div>
 
       <!-- Hidden Legacy Quick Unwrap Drawer (Moved cleanly into Unwrap Inspector Tab to declutter Outliner) -->

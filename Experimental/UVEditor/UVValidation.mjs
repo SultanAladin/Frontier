@@ -684,10 +684,19 @@ console.log('11. Testing Multi-Surface Engineering MatCaps, Stack Similar UVs, F
 
     const OutlinerSlice = EditorJs.slice(EditorJs.indexOf('function RenderOutliner'), EditorJs.indexOf('function RenderLegendStrip'));
     const PackSlice = EditorJs.slice(EditorJs.indexOf('function RenderPackingTab'), EditorJs.indexOf('function RenderUnwrapTab'));
-    assert.ok(OutlinerSlice.includes('Importance Space Allocation') && OutlinerSlice.includes('pz-prio-table') &&
-              OutlinerSlice.includes('Surface Parts') && !PackSlice.includes('pz-prio-table') &&
-              !OutlinerSlice.includes('pz-chart-row') && IndexHtml.includes('id="udim-chip-strip" hidden'),
-        'Importance Space Allocation must live directly in the UV Space left panel (not duplicated in Pack)');
+    assert.ok(EditorJs.includes('function RenderUdimSpaceBudgetCard') && IndexHtml.includes('id="lp-udim-budget-card"') &&
+              !PackSlice.includes('hero-card') && !PackSlice.includes('allocation-spectrum'),
+        'UDIM Space Budget must live in UV Space left panel and be removed from Pack');
+
+    assert.ok(OutlinerSlice.includes('Importance Space Allocation') && OutlinerSlice.includes('pz-layer-stack') &&
+              OutlinerSlice.includes('pz-uv-layer-card') && OutlinerSlice.includes('pz-layer-bottom-slider') &&
+              OutlinerSlice.includes('pz-part-square-block') && !OutlinerSlice.includes('pz-chart-row') &&
+              !PackSlice.includes('pz-layer-stack'),
+        'Importance Space Allocation must use Layer Stack with bottom-of-layer slider & square Surface Part blocks');
+
+    assert.ok(EditorJs.includes('function RenderUdimFilterBar') && IndexHtml.includes('data-udim="all"') &&
+              !IndexHtml.includes('data-filter="selected"') && !IndexHtml.includes('data-filter="issues"'),
+        'UV Space filters must strictly be Search + UDIM filters only');
 
     assert.ok(IndexHtml.includes('<h1>UV Space</h1>') && !IndexHtml.includes('Clean Charts') &&
               IndexHtml.includes('id="lp-kpi-util"') && IndexHtml.includes('id="lp-kpi-selected"') &&
