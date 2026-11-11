@@ -44,6 +44,7 @@ Related governance documents: [FolderStructure.md](FolderStructure.md) · [Codin
 - `interpolant`
 - `item`
 - `listener`
+- `make` *(verb/prefix barred: use `Construct`)*
 - `map`
 - `member`
 - `menu`
@@ -77,8 +78,9 @@ Related governance documents: [FolderStructure.md](FolderStructure.md) · [Codin
 | **Generic-programmer / AI tropes** | `Manager`, `Handler`, `Dispatcher`, `Processor`, `Controller`, `Service`, `Utility`, `Helper`, `Representation`, `Traversal`\*, `Kernel`, `Graph`, `Record`†, `Frame`, `Node`, `Module`, `Data`, `Info`, `Object`, `Stuff`, `Thing`, `Item`, `Common`, `Base` | Default placeholder nouns that hide ownership, memory layout, and exact transformation. |
 | **Human job titles** | `Manager`, `Worker`, `Provider`, `Dispatcher`, `Conductor`, `Listener`, `Observer` | Barred unless a strict, canonical named design pattern is genuinely in use. |
 | **Kinship / Family** *(whole category barred)* | `Parent`, `Child`, `Children`, `Sibling`, `Ancestor`, `Descendant`, `lineage`, `family`, `kin`, `Orphan` | **Entire category barred.** Name tree/graph links by concrete memory/index direction (`EnclosingIndex`, `FirstNestedIndex`, `NextPeerIndex`, `DepthLevel`). |
-| **State-change verbs** | `Commit`, `Compose` *(verb AND noun)* | `Commit` → `Finalize` / `Enforce` / `Align` / `Resolve`.<br>`Compose` (verb and noun) → `Stack` / `Order`. |
-| **Banned variable words** | `flag`, `state`, `value` | Describe what the variable actually holds instead of its meta-category. |
+| **State-change & factory verbs** | `Commit`, `Compose` *(verb AND noun)*, `Make`, `Accept` | `Commit` → `Finalize` / `Enforce` / `Align` / `Resolve`.<br>`Compose` (verb and noun) → `Stack` / `Order`.<br>`Make` → `Construct` (`ConstructSplashWindow`, `ConstructApplicationWindow`).<br>`Accept` → `Intake` / `Enable` (`IntakeSignalPacket`, `EnableExternalDrop`). |
+| **Boolean & bitmask prefixes** | `Is*`, `Has*`, `Was*`, `Can*`, `Should*`, `On*`, `*On*` *(e.g. `CenteredOnMonitor`, `FocusOnShow`)* | Name bitmask options with imperative directives **`Enable*`**, **`Toggle*`**, or **`Assign*`** (`EnableBorderDecoration`, `AssignMonitorCenter`, `AssignInitialFocus`, `TogglePanelVisibility`). Name booleans directly (`VisibilityEnabled`, `Minimized`, `Maximized`). |
+| **Banned variable words** | `flag`, `flags`, `state`, `value` | Describe what the variable actually holds (`WindowAttributeMask`, `AttributeMask`, `PresentationMode`, `ScalarReading`). |
 
 *\* `Traversal` is exempt **only** at `Topology/Selection/SelectionTraversal.{h,cpp}` (explicit user direction).*
 *† Bare `Record` is banned; composite `RecordEntry` and `RecordToken` are approved (`RecordStore` is barred because `store` is banned).*
@@ -92,6 +94,8 @@ When replacing or avoiding a banned concept, name the **concrete layout, index l
 | Banned Term / Concept | Approved Frontier Mechanism / Replacement |
 | :--- | :--- |
 | `Commit` | `Finalize`, `Enforce`, `Align`, or `Resolve` |
+| `Make` / `Make*` | `Construct` / `Construct*` (`ConstructSplashWindow`, `ConstructApplicationWindow`, `ConstructGameWindow`) |
+| `Is*`, `Has*`, `Was*`, `On*`, `Accept*`, `CenteredOnMonitor` | Bitmask directives use **`Enable*`**, **`Toggle*`**, or **`Assign*`** (`EnableBorderDecoration`, `EnableInteractiveResize`, `AssignMonitorCenter`, `AssignInitialFocus`); boolean queries use `Query*` / `Verify*` |
 | `Compose` / `Composite` (verb or noun) | `Stack` or `Order` (e.g., `RadiometricToneStack`) |
 | `Parent` / `Child` / `Sibling` / `Orphan` / kinship | Technical memory/index link terminology (`EnclosingIndex`, `FirstNestedIndex`, `NextPeerIndex`, `DepthLevel`) |
 | `flag`, `state`, `value` | Concrete domain name describing the exact condition, quantity, or payload held |

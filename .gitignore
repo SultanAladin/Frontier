@@ -27,3 +27,5 @@ Thumbs.db
 *.swp
 .env
 .env.local
+_Build/
+Experimental/FrontierEditor/dist/

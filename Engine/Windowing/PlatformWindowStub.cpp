@@ -40,16 +40,14 @@ bool HeadlessPlatformWindow::Initialize(const WindowConfigurationDescriptor& Des
     MaxWidthLimit  = 0;
     MaxHeightLimit = 0;
 
-    AuthoringFlags = Descriptor.StyleFlags;
-    if (Descriptor.PresentationMode == WindowPresentationMode::Windowed ||
-        Descriptor.PresentationMode == WindowPresentationMode::MaximizedWindowed)
+    WindowedAttributes = Descriptor.AttributeMask;
+    if (Descriptor.PresentationMode != WindowPresentationMode::Windowed &&
+        Descriptor.PresentationMode != WindowPresentationMode::MaximizedWindowed &&
+        !QueryAttributeEnabled(WindowedAttributes, WindowAttributeMask::EnableBorderDecoration))
     {
-        AuthoringFlags = Descriptor.StyleFlags;
-    }
-    else if (!HasWindowFlag(AuthoringFlags, WindowStyleFlags::DecoratedFrame))
-    {
-        // 📝 Preserve standard decorated/resizable flags for a later Splash -> Windowed transition.
-        AuthoringFlags = Descriptor.StyleFlags | WindowStyleFlags::DecoratedFrame | WindowStyleFlags::ResizableBorder;
+        WindowedAttributes = Descriptor.AttributeMask |
+                             WindowAttributeMask::EnableBorderDecoration |
+                             WindowAttributeMask::EnableInteractiveResize;
     }
 
     RestorableBounds.OriginX     = Descriptor.OriginX;
@@ -57,7 +55,7 @@ bool HeadlessPlatformWindow::Initialize(const WindowConfigurationDescriptor& Des
     RestorableBounds.PixelWidth  = std::max(Descriptor.PixelWidth, MinWidthLimit);
     RestorableBounds.PixelHeight = std::max(Descriptor.PixelHeight, MinHeightLimit);
 
-    if (HasWindowFlag(Descriptor.StyleFlags, WindowStyleFlags::CenteredOnMonitor))
+    if (QueryAttributeEnabled(Descriptor.AttributeMask, WindowAttributeMask::AssignMonitorCenter))
     {
         RestorableBounds.OriginX = static_cast<int32_t>((VirtualMonitorWidthPx > RestorableBounds.PixelWidth)
                                                             ? (VirtualMonitorWidthPx - RestorableBounds.PixelWidth) / 2u
@@ -74,13 +72,14 @@ bool HeadlessPlatformWindow::Initialize(const WindowConfigurationDescriptor& Des
     ActiveExtent.PixelHeight    = RestorableBounds.PixelHeight;
     ActiveExtent.DpiScaleFactor = (Descriptor.DpiScaleFactor > 0.0f) ? Descriptor.DpiScaleFactor : 1.0f;
     ActiveExtent.RefreshRateHz  = (Descriptor.TargetRefreshRateHz > 0) ? Descriptor.TargetRefreshRateHz : DefaultMonitorRefresh;
-    ActiveExtent.Visible        = HasWindowFlag(Descriptor.StyleFlags, WindowStyleFlags::StartVisible);
-    ActiveExtent.Focused        = ActiveExtent.Visible && HasWindowFlag(Descriptor.StyleFlags, WindowStyleFlags::FocusOnShow);
+    ActiveExtent.Visible        = QueryAttributeEnabled(Descriptor.AttributeMask, WindowAttributeMask::EnableInitialVisibility);
+    ActiveExtent.Focused        = ActiveExtent.Visible &&
+                           QueryAttributeEnabled(Descriptor.AttributeMask, WindowAttributeMask::AssignInitialFocus);
     ActiveExtent.Minimized      = false;
     ActiveExtent.Maximized      = false;
 
     CurrentMode          = WindowPresentationMode::Windowed;
-    EffectiveFlags       = Descriptor.StyleFlags;
+    EffectiveAttributes  = Descriptor.AttributeMask;
     CurrentCursorMode    = Input::CursorConfinementMode::FreeVisible;
     DeliveredHapticCount = 0;
     ClosingRequested     = false;
@@ -104,7 +103,7 @@ void HeadlessPlatformWindow::PollOperatingEvents(Input::InputExtension& InputCoo
     {
         Input::InputExtension* Coordinator;
 
-        void AcceptInputSignal(const Input::InputSignalPacket& Packet) noexcept
+        void IntakeSignalPacket(const Input::InputSignalPacket& Packet) noexcept
         {
             (void)Coordinator->IntakeHardwareSignal(Packet);
         }
@@ -121,8 +120,8 @@ void HeadlessPlatformWindow::Finalize() noexcept
     CaptionText.clear();
     ActiveExtent         = {};
     RestorableBounds     = {};
-    AuthoringFlags       = WindowStyleFlags::DefaultAppFlags;
-    EffectiveFlags       = WindowStyleFlags::DefaultAppFlags;
+    WindowedAttributes   = WindowAttributeMask::ApplicationPresetMask;
+    EffectiveAttributes  = WindowAttributeMask::ApplicationPresetMask;
     CurrentMode          = WindowPresentationMode::Windowed;
     CurrentCursorMode    = Input::CursorConfinementMode::FreeVisible;
     DeliveredHapticCount = 0;
@@ -131,7 +130,7 @@ void HeadlessPlatformWindow::Finalize() noexcept
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                       PRESENTATION MODE & STYLE MUTATIONS
+//                                      PRESENTATION MODE & ATTRIBUTE MUTATIONS
 //------------------------------------------------------------------------------------------------------------------------
 
 bool HeadlessPlatformWindow::ApplyPresentationMode(
@@ -145,7 +144,6 @@ bool HeadlessPlatformWindow::ApplyPresentationMode(
         return false;
     }
 
-    // ① Save current windowed rectangle before transitioning into maximized or fullscreen modes
     if (CurrentMode == WindowPresentationMode::Windowed &&
         NewMode != WindowPresentationMode::Windowed &&
         ActiveExtent.PixelWidth > 0 &&
@@ -159,17 +157,16 @@ bool HeadlessPlatformWindow::ApplyPresentationMode(
 
     CurrentMode = NewMode;
 
-    // ② Apply geometry, refresh rate, and reconciled style flags for the requested mode
     switch (NewMode)
     {
         case WindowPresentationMode::SplashBorderless:
         {
-            const uint32_t TargetW = (FullscreenWidth > 0) ? FullscreenWidth : RestorableBounds.PixelWidth;
-            const uint32_t TargetH = (FullscreenHeight > 0) ? FullscreenHeight : RestorableBounds.PixelHeight;
-            EffectiveFlags          = ReconcileFlagsForMode(NewMode, EffectiveFlags);
+            const uint32_t TargetW  = (FullscreenWidth > 0) ? FullscreenWidth : RestorableBounds.PixelWidth;
+            const uint32_t TargetH  = (FullscreenHeight > 0) ? FullscreenHeight : RestorableBounds.PixelHeight;
+            EffectiveAttributes     = ReconcileAttributesForMode(NewMode, EffectiveAttributes);
             ActiveExtent.PixelWidth = TargetW;
             ActiveExtent.PixelHeight = TargetH;
-            if (HasWindowFlag(EffectiveFlags, WindowStyleFlags::CenteredOnMonitor))
+            if (QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::AssignMonitorCenter))
             {
                 ActiveExtent.OriginX = static_cast<int32_t>((VirtualMonitorWidthPx > TargetW)
                                                                 ? (VirtualMonitorWidthPx - TargetW) / 2u
@@ -186,7 +183,7 @@ bool HeadlessPlatformWindow::ApplyPresentationMode(
 
         case WindowPresentationMode::Windowed:
         {
-            EffectiveFlags           = ReconcileFlagsForMode(NewMode, AuthoringFlags);
+            EffectiveAttributes      = ReconcileAttributesForMode(NewMode, WindowedAttributes);
             ActiveExtent.OriginX     = RestorableBounds.OriginX;
             ActiveExtent.OriginY     = RestorableBounds.OriginY;
             ActiveExtent.PixelWidth  = std::max(RestorableBounds.PixelWidth, MinWidthLimit);
@@ -207,7 +204,7 @@ bool HeadlessPlatformWindow::ApplyPresentationMode(
 
         case WindowPresentationMode::MaximizedWindowed:
         {
-            EffectiveFlags             = ReconcileFlagsForMode(NewMode, AuthoringFlags);
+            EffectiveAttributes        = ReconcileAttributesForMode(NewMode, WindowedAttributes);
             ActiveExtent.OriginX       = 0;
             ActiveExtent.OriginY       = 0;
             ActiveExtent.PixelWidth    = VirtualMonitorWidthPx;
@@ -220,7 +217,7 @@ bool HeadlessPlatformWindow::ApplyPresentationMode(
 
         case WindowPresentationMode::BorderlessFullscreen:
         {
-            EffectiveFlags             = ReconcileFlagsForMode(NewMode, AuthoringFlags);
+            EffectiveAttributes        = ReconcileAttributesForMode(NewMode, WindowedAttributes);
             ActiveExtent.OriginX       = 0;
             ActiveExtent.OriginY       = 0;
             ActiveExtent.PixelWidth    = VirtualMonitorWidthPx;
@@ -233,7 +230,7 @@ bool HeadlessPlatformWindow::ApplyPresentationMode(
 
         case WindowPresentationMode::ExclusiveFullscreen:
         {
-            EffectiveFlags             = ReconcileFlagsForMode(NewMode, AuthoringFlags);
+            EffectiveAttributes        = ReconcileAttributesForMode(NewMode, WindowedAttributes);
             ActiveExtent.OriginX       = 0;
             ActiveExtent.OriginY       = 0;
             ActiveExtent.PixelWidth    = (FullscreenWidth > 0) ? FullscreenWidth : VirtualMonitorWidthPx;
@@ -245,25 +242,25 @@ bool HeadlessPlatformWindow::ApplyPresentationMode(
         }
     }
 
-    RecomputeFramebufferExtent();
+    RecomputeDrawableExtent();
     return true;
 }
 
-bool HeadlessPlatformWindow::ApplyStyleFlags(WindowStyleFlags NewFlags) noexcept
+bool HeadlessPlatformWindow::ApplyAttributeMask(WindowAttributeMask NewAttributes) noexcept
 {
     if (!SurfaceInitialized)
     {
         return false;
     }
 
-    AuthoringFlags       = NewFlags;
-    EffectiveFlags       = ReconcileFlagsForMode(CurrentMode, NewFlags);
-    ActiveExtent.Visible = HasWindowFlag(EffectiveFlags, WindowStyleFlags::StartVisible);
-    if (ActiveExtent.Visible && HasWindowFlag(EffectiveFlags, WindowStyleFlags::FocusOnShow))
+    WindowedAttributes   = NewAttributes;
+    EffectiveAttributes  = ReconcileAttributesForMode(CurrentMode, NewAttributes);
+    ActiveExtent.Visible = QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableInitialVisibility);
+    if (ActiveExtent.Visible && QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::AssignInitialFocus))
     {
         ActiveExtent.Focused = true;
     }
-    RecomputeFramebufferExtent();
+    RecomputeDrawableExtent();
     return true;
 }
 
@@ -297,7 +294,7 @@ void HeadlessPlatformWindow::ApplySizeLimits(
         }
         RestorableBounds.PixelWidth  = ActiveExtent.PixelWidth;
         RestorableBounds.PixelHeight = ActiveExtent.PixelHeight;
-        RecomputeFramebufferExtent();
+        RecomputeDrawableExtent();
     }
 }
 
@@ -342,7 +339,7 @@ void HeadlessPlatformWindow::ResizeSurface(uint32_t NewWidth, uint32_t NewHeight
         RestorableBounds.PixelWidth  = NewWidth;
         RestorableBounds.PixelHeight = NewHeight;
     }
-    RecomputeFramebufferExtent();
+    RecomputeDrawableExtent();
 }
 
 void HeadlessPlatformWindow::RequestClose() noexcept
@@ -359,13 +356,13 @@ bool HeadlessPlatformWindow::QueueSyntheticSignal(const Input::InputSignalPacket
     return PendingSyntheticExchange.IntakeSignal(Packet);
 }
 
-void HeadlessPlatformWindow::RecomputeFramebufferExtent() noexcept
+void HeadlessPlatformWindow::RecomputeDrawableExtent() noexcept
 {
-    const float ScaleFactor = HasWindowFlag(EffectiveFlags, WindowStyleFlags::HighDpiScale)
+    const float ScaleFactor = QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableDpiScaling)
                                   ? ActiveExtent.DpiScaleFactor
                                   : 1.0f;
-    ActiveExtent.FramebufferWidth  = static_cast<uint32_t>(std::lround(static_cast<double>(ActiveExtent.PixelWidth) * ScaleFactor));
-    ActiveExtent.FramebufferHeight = static_cast<uint32_t>(std::lround(static_cast<double>(ActiveExtent.PixelHeight) * ScaleFactor));
+    ActiveExtent.DrawablePixelWidth  = static_cast<uint32_t>(std::lround(static_cast<double>(ActiveExtent.PixelWidth) * ScaleFactor));
+    ActiveExtent.DrawablePixelHeight = static_cast<uint32_t>(std::lround(static_cast<double>(ActiveExtent.PixelHeight) * ScaleFactor));
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -392,9 +389,9 @@ WindowPresentationMode HeadlessPlatformWindow::ActivePresentationMode() const no
     return CurrentMode;
 }
 
-WindowStyleFlags HeadlessPlatformWindow::ActiveStyleFlags() const noexcept
+WindowAttributeMask HeadlessPlatformWindow::ActiveAttributeMask() const noexcept
 {
-    return EffectiveFlags;
+    return EffectiveAttributes;
 }
 
 WindowPlacementBounds HeadlessPlatformWindow::SavedWindowedBounds() const noexcept

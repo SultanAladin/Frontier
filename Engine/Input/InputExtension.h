@@ -103,10 +103,10 @@ std::size_t InputExtension::TickExchangeWithSink(SinkType&& ExternalSink) noexce
         InputExtension*                    Self;
         std::remove_reference_t<SinkType>* Downstream;
 
-        void AcceptInputSignal(const InputSignalPacket& Packet) noexcept
+        void IntakeSignalPacket(const InputSignalPacket& Packet) noexcept
         {
             Self->ApplyPacketToSnapshot(Packet);
-            Downstream->AcceptInputSignal(Packet);
+            Downstream->IntakeSignalPacket(Packet);
         }
     };
 

@@ -93,8 +93,8 @@ Choose suffixes strictly by GPU mechanism:
 ## 4. Function & Concept Verb Vocabulary
 
 All functions and C++20 `concept` names use **PascalCase**.
-❌ **Barred verbs:** `Get`, `Set`, `Handle`, `Manage`, `Process`, `Compose`, `Update`, `Do`, `Perform`,
-`Watch`, `Listen`, `Spawn`, `Kill`, `Commit`, `Emit`.
+❌ **Barred verbs:** `Make`, `Accept`, `Get`, `Set`, `Handle`, `Manage`, `Process`, `Compose`, `Update`,
+`Do`, `Perform`, `Watch`, `Listen`, `Spawn`, `Kill`, `Commit`, `Emit`.
 
 | Domain                    | Approved Frontier Verbs                                                                                      |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -114,5 +114,8 @@ Lifecycle sequence is always **Initialize → Tick → Finalize**.
 - **PascalCase everywhere:** local variables, parameters, struct fields, template parameters, and `constexpr` constants.
 - **No shorthand or Hungarian prefixes:** never `kMin`, `m_count`, `s_inst`, `tmp`, `val`, `idx`, `ptr`. Write `MinimumExtent`, `RegisteredSlotCount`, `ProjectedCoordinate`.
 - **No type-name mirroring:** ❌ `WorkspaceToken workspaceToken` → ✔️ `WorkspaceToken ActiveDocumentToken`.
-- **Booleans:** avoid `is`/`has`/`can` prefixes; describe the condition directly (`VisibilityEnabled`, `CaptureActive`, `EditorIncluded`, `RepeatSuppressed`).
+- **Booleans & Bitmask Directives:**
+  - **NEVER** prefix booleans, queries, or bitmask options with `Is*`, `Has*`, `Was*`, `Can*`, `Should*`, `On*`, `Accept*`, or prepositional phrases like `CenteredOnMonitor` / `FocusOnShow` (and never use the banned words `flag`/`flags`, `state`, or `value`).
+  - **Bitmask option enumerators (`…AttributeMask` / `…Directives`)** MUST start with imperative verbs **`Enable*`**, **`Toggle*`**, or **`Assign*`** (`EnableBorderDecoration`, `EnableInteractiveResize`, `AssignMonitorCenter`, `EnableTopmostOrder`, `AssignInitialFocus`, `EnableExternalDrop`).
+  - **Booleans** describe the property directly (`VisibilityEnabled`, `CaptureActive`, `EditorIncluded`, `RepeatSuppressed`), and boolean functions use `Query*` or `Verify*` (`QueryAttributeEnabled`, `VerifyDockTransferPermitted`).
 - **Modular Reuse:** design GPU and UI structures once to serve arbitrary instance counts via per-call parameters/push-constants rather than hardcoding single-purpose types.

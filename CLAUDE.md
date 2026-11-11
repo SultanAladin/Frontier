@@ -41,11 +41,13 @@ code, shaders, build scripts, or documentation.
 - **`Development` (`-DFRONTIER_PROFILE=Development` → `FRONTIER_PROFILE_DEVELOPMENT=1`)**: Standalone project runtime with developer flags, assertions, profiler, and GPU debug annotations active; `Engine/Editor/` excluded; runs directly from build output **without binary packaging or CI workflows**.
 - **`Shipping` (`-DFRONTIER_PROFILE=Shipping` → `FRONTIER_PROFILE_SHIPPING=1`)**: Production release binary (`Engine/Editor/` excluded at CMake target level, assertions/diagnostics/annotations stripped, release optimizations enabled). Requires **standalone binary packaging** (`Automation/`) and gates release GitHub Actions (run GitHub Actions **only** with explicit user approval).
 
-### 🔴 2.5 ImGui 8-Patch Stack & Pinned Dependencies
+### 🔴 2.5 ImGui 8-Patch Stack, `Experimental/` HTML Reference & Visual Proofs in `Exhibits/`
 - Third-party packages live in `ExternalPackages/` (git-ignored) and are fetched + SHA-256 verified via `python3 Automation/PrepareDependencies.py`.
 - `ExternalPackages/imgui` (`3bae66c`) **requires all 8 stacked patches (`PatchA`–`PatchH`)** applied in order via `Automation/ApplyImGuiPatches.py` and compiled with `ImDrawIdx=unsigned int`.
-- Reference `https://github.com/egoistm1inbox/Frontier-OLD/tree/arena/d96da802-frontier` for proven pins and domain math, **never for blind engine file copying**.
-- The 8 web/GPU prototypes staged under `Experimental/` (`FluidEditor`, `FractureEditor`, `ParticleEditor`, `PhotometricEditor`, `ForceFieldEditor`, `VehicleLab`, `UVEditor`, `TextureStudio`) serve as verified UX/solver specifications slated for native C++20 + `.slang` conversion into `Engine/`.
+- **`Experimental/` Prototypes Are HTML/JS Only (No C++)**: All reference studios and editor UIs under `Experimental/` (`ProjectZeroEditor`, `FrontierEditor`, `FluidEditor`, `FractureEditor`, `ParticleEditor`, `PhotometricEditor`, `ForceFieldEditor`, `VehicleLab`, `UVEditor`, `TextureStudio`) are strictly HTML/JS/CSS prototypes. **`Experimental/ProjectZeroEditor/`** is the primary UI design reference for shared C++20 components (`Engine/Components/`, `Engine/Workspaces/`, `Engine/Editor/`).
+- **Mandatory Visual Proofs for Every `Exhibits/` Target (`Exhibits/Images/<Domain>/`)**:
+  - Every validation executable in `Exhibits/` **MUST** render deterministic `.png` visual proof images into `Exhibits/Images/<Domain>/` via a CPU software rasterizer, SwiftShader offscreen Vulkan, or rendered diagnostic/comparison charts showing what the user would see when running the feature.
+  - **Zero Excuses Rule**: Never claim a visual proof cannot be shown because the sandbox runs Linux instead of Windows or lacks a physical GPU — always synthesize and present the CPU/offscreen `.png` visual proof!
 
 ---
 

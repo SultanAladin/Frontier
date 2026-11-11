@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                 PLATFORMWINDOWDESKTOP.CPP
 ============================================================================================================================================*/
-// 🧩 GLFW 3.4 cross-platform desktop window implementation (Win32, X11, Wayland, and headless GLFW_PLATFORM_NULL fallback)
+// 🧩 GLFW 3.4 cross-platform desktop window implementation (Win32, X11, Wayland, and offscreen GLFW_PLATFORM_NULL interface)
 
 #if !defined(__ANDROID__)
 
@@ -32,7 +32,7 @@ std::atomic<uint32_t> ActiveGlfwWindowCount{ 0 }; // [count] - Reference-counted
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(Now).count());
 }
 
-[[nodiscard]] WindowPlatformCategory ResolveGlfwBackendCategory() noexcept
+[[nodiscard]] WindowPlatformCategory ResolveGlfwPlatformCategory() noexcept
 {
     switch (glfwGetPlatform())
     {
@@ -52,11 +52,11 @@ std::atomic<uint32_t> ActiveGlfwWindowCount{ 0 }; // [count] - Reference-counted
     }
 
 #if defined(__linux__)
-    const char* DisplayEnv        = std::getenv("DISPLAY");
-    const char* WaylandDisplayEnv = std::getenv("WAYLAND_DISPLAY");
-    const bool  HasDisplayServer  = (DisplayEnv != nullptr && DisplayEnv[0] != '\0') ||
-                                   (WaylandDisplayEnv != nullptr && WaylandDisplayEnv[0] != '\0');
-    if (!HasDisplayServer)
+    const char* DisplayEnv             = std::getenv("DISPLAY");
+    const char* WaylandDisplayEnv      = std::getenv("WAYLAND_DISPLAY");
+    const bool  DisplayServerAvailable = (DisplayEnv != nullptr && DisplayEnv[0] != '\0') ||
+                                         (WaylandDisplayEnv != nullptr && WaylandDisplayEnv[0] != '\0');
+    if (!DisplayServerAvailable)
     {
         glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_NULL);
     }
@@ -67,7 +67,6 @@ std::atomic<uint32_t> ActiveGlfwWindowCount{ 0 }; // [count] - Reference-counted
         return true;
     }
 
-    // 📝 Fallback to GLFW 3.4's built-in null backend if an OS display connection could not be opened.
     glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_NULL);
     return glfwInit() == GLFW_TRUE;
 }
@@ -117,34 +116,45 @@ bool DesktopPlatformWindow::Initialize(const WindowConfigurationDescriptor& Desc
     MaxWidthLimit     = 0;
     MaxHeightLimit    = 0;
 
-    AuthoringFlags = Descriptor.StyleFlags;
+    WindowedAttributes = Descriptor.AttributeMask;
     if (Descriptor.PresentationMode != WindowPresentationMode::Windowed &&
         Descriptor.PresentationMode != WindowPresentationMode::MaximizedWindowed &&
-        !HasWindowFlag(AuthoringFlags, WindowStyleFlags::DecoratedFrame))
+        !QueryAttributeEnabled(WindowedAttributes, WindowAttributeMask::EnableBorderDecoration))
     {
-        AuthoringFlags = Descriptor.StyleFlags | WindowStyleFlags::DecoratedFrame | WindowStyleFlags::ResizableBorder;
+        WindowedAttributes = Descriptor.AttributeMask |
+                             WindowAttributeMask::EnableBorderDecoration |
+                             WindowAttributeMask::EnableInteractiveResize;
     }
 
-    EffectiveFlags = ReconcileFlagsForMode(Descriptor.PresentationMode, Descriptor.StyleFlags);
-    CurrentMode    = Descriptor.PresentationMode;
+    EffectiveAttributes = ReconcileAttributesForMode(Descriptor.PresentationMode, Descriptor.AttributeMask);
+    CurrentMode         = Descriptor.PresentationMode;
 
     glfwDefaultWindowHints();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_DECORATED, HasWindowFlag(EffectiveFlags, WindowStyleFlags::DecoratedFrame) ? GLFW_TRUE : GLFW_FALSE);
-    glfwWindowHint(GLFW_RESIZABLE, HasWindowFlag(EffectiveFlags, WindowStyleFlags::ResizableBorder) ? GLFW_TRUE : GLFW_FALSE);
-    glfwWindowHint(GLFW_FLOATING, HasWindowFlag(EffectiveFlags, WindowStyleFlags::FloatingTopmost) ? GLFW_TRUE : GLFW_FALSE);
-    glfwWindowHint(GLFW_AUTO_ICONIFY, HasWindowFlag(EffectiveFlags, WindowStyleFlags::AutoMinimizeFocus) ? GLFW_TRUE : GLFW_FALSE);
-    glfwWindowHint(GLFW_SCALE_TO_MONITOR, HasWindowFlag(EffectiveFlags, WindowStyleFlags::HighDpiScale) ? GLFW_TRUE : GLFW_FALSE);
-    glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, HasWindowFlag(EffectiveFlags, WindowStyleFlags::TransparentClient) ? GLFW_TRUE : GLFW_FALSE);
-    glfwWindowHint(GLFW_VISIBLE, HasWindowFlag(EffectiveFlags, WindowStyleFlags::StartVisible) ? GLFW_TRUE : GLFW_FALSE);
-    glfwWindowHint(GLFW_FOCUS_ON_SHOW, HasWindowFlag(EffectiveFlags, WindowStyleFlags::FocusOnShow) ? GLFW_TRUE : GLFW_FALSE);
-    glfwWindowHint(GLFW_MAXIMIZED, (Descriptor.PresentationMode == WindowPresentationMode::MaximizedWindowed) ? GLFW_TRUE : GLFW_FALSE);
+    glfwWindowHint(GLFW_DECORATED,
+                   QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableBorderDecoration) ? GLFW_TRUE : GLFW_FALSE);
+    glfwWindowHint(GLFW_RESIZABLE,
+                   QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableInteractiveResize) ? GLFW_TRUE : GLFW_FALSE);
+    glfwWindowHint(GLFW_FLOATING,
+                   QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableTopmostOrder) ? GLFW_TRUE : GLFW_FALSE);
+    glfwWindowHint(GLFW_AUTO_ICONIFY,
+                   QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableFocusMinimize) ? GLFW_TRUE : GLFW_FALSE);
+    glfwWindowHint(GLFW_SCALE_TO_MONITOR,
+                   QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableDpiScaling) ? GLFW_TRUE : GLFW_FALSE);
+    glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER,
+                   QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableAlphaCompositing) ? GLFW_TRUE : GLFW_FALSE);
+    glfwWindowHint(GLFW_VISIBLE,
+                   QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableInitialVisibility) ? GLFW_TRUE : GLFW_FALSE);
+    glfwWindowHint(GLFW_FOCUS_ON_SHOW,
+                   QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::AssignInitialFocus) ? GLFW_TRUE : GLFW_FALSE);
+    glfwWindowHint(GLFW_MAXIMIZED,
+                   (Descriptor.PresentationMode == WindowPresentationMode::MaximizedWindowed) ? GLFW_TRUE : GLFW_FALSE);
 
     GLFWmonitor*       Monitor   = SelectTargetMonitor(TargetMonitorSlot);
     const GLFWvidmode* VideoMode = (Monitor != nullptr) ? glfwGetVideoMode(Monitor) : nullptr;
 
-    uint32_t    CreateWidth   = std::max(Descriptor.PixelWidth, MinWidthLimit);
-    uint32_t    CreateHeight  = std::max(Descriptor.PixelHeight, MinHeightLimit);
+    uint32_t     CreateWidth   = std::max(Descriptor.PixelWidth, MinWidthLimit);
+    uint32_t     CreateHeight  = std::max(Descriptor.PixelHeight, MinHeightLimit);
     GLFWmonitor* FullscreenMon = nullptr;
 
     RestorableBounds.OriginX     = Descriptor.OriginX;
@@ -152,7 +162,7 @@ bool DesktopPlatformWindow::Initialize(const WindowConfigurationDescriptor& Desc
     RestorableBounds.PixelWidth  = CreateWidth;
     RestorableBounds.PixelHeight = CreateHeight;
 
-    if (Monitor != nullptr && HasWindowFlag(Descriptor.StyleFlags, WindowStyleFlags::CenteredOnMonitor))
+    if (Monitor != nullptr && QueryAttributeEnabled(Descriptor.AttributeMask, WindowAttributeMask::AssignMonitorCenter))
     {
         int WorkX = 0;
         int WorkY = 0;
@@ -195,15 +205,18 @@ bool DesktopPlatformWindow::Initialize(const WindowConfigurationDescriptor& Desc
 
     ActiveGlfwWindowCount.fetch_add(1u, std::memory_order_acq_rel);
     GlfwWindowHandle = CreatedWindow;
-    ActiveBackend    = ResolveGlfwBackendCategory();
+    SelectedPlatform = ResolveGlfwPlatformCategory();
 
     glfwSetWindowUserPointer(CreatedWindow, &CallbackExchange);
-    glfwSetWindowSizeLimits(
-        CreatedWindow,
-        static_cast<int>(MinWidthLimit),
-        static_cast<int>(MinHeightLimit),
-        GLFW_DONT_CARE,
-        GLFW_DONT_CARE);
+    if (SelectedPlatform != WindowPlatformCategory::GlfwNull)
+    {
+        glfwSetWindowSizeLimits(
+            CreatedWindow,
+            static_cast<int>(MinWidthLimit),
+            static_cast<int>(MinHeightLimit),
+            GLFW_DONT_CARE,
+            GLFW_DONT_CARE);
+    }
 
     if (Descriptor.PresentationMode == WindowPresentationMode::BorderlessFullscreen && Monitor != nullptr)
     {
@@ -218,8 +231,7 @@ bool DesktopPlatformWindow::Initialize(const WindowConfigurationDescriptor& Desc
         glfwSetWindowPos(CreatedWindow, RestorableBounds.OriginX, RestorableBounds.OriginY);
     }
 
-    // 📝 Wire GLFW peripheral callbacks straight into InputExchange
-    glfwSetKeyCallback(CreatedWindow, [](GLFWwindow* Win, int Key, int Scancode, int Action, int Mods) {
+    glfwSetKeyCallback(CreatedWindow, [](GLFWwindow* Win, int Key, int Scancode, int KeyTransition, int Mods) {
         auto* Exchange = static_cast<Input::InputExchange*>(glfwGetWindowUserPointer(Win));
         if (Exchange == nullptr) return;
         (void)Mods;
@@ -227,12 +239,12 @@ bool DesktopPlatformWindow::Initialize(const WindowConfigurationDescriptor& Desc
         Packet.TimestampNanoseconds = CurrentMonotonicNanoseconds();
         Packet.Category             = Input::InputSignalCategory::KeyboardKey;
         Packet.ControlCode          = static_cast<uint32_t>(Scancode != 0 ? Scancode : Key);
-        if (Action == GLFW_PRESS)
+        if (KeyTransition == GLFW_PRESS)
         {
             Packet.Transition  = Input::ButtonTransitionCategory::Pressed;
             Packet.PrimaryAxis = 1.0f;
         }
-        else if (Action == GLFW_REPEAT)
+        else if (KeyTransition == GLFW_REPEAT)
         {
             Packet.Transition  = Input::ButtonTransitionCategory::Repeated;
             Packet.PrimaryAxis = 1.0f;
@@ -245,7 +257,7 @@ bool DesktopPlatformWindow::Initialize(const WindowConfigurationDescriptor& Desc
         (void)Exchange->IntakeSignal(Packet);
     });
 
-    glfwSetMouseButtonCallback(CreatedWindow, [](GLFWwindow* Win, int Button, int Action, int Mods) {
+    glfwSetMouseButtonCallback(CreatedWindow, [](GLFWwindow* Win, int Button, int ButtonTransition, int Mods) {
         auto* Exchange = static_cast<Input::InputExchange*>(glfwGetWindowUserPointer(Win));
         if (Exchange == nullptr) return;
         (void)Mods;
@@ -253,9 +265,9 @@ bool DesktopPlatformWindow::Initialize(const WindowConfigurationDescriptor& Desc
         Packet.TimestampNanoseconds = CurrentMonotonicNanoseconds();
         Packet.Category             = Input::InputSignalCategory::PointerButton;
         Packet.ControlCode          = static_cast<uint32_t>(Button);
-        Packet.Transition           = (Action == GLFW_PRESS) ? Input::ButtonTransitionCategory::Pressed
-                                                             : Input::ButtonTransitionCategory::Released;
-        Packet.PrimaryAxis          = (Action == GLFW_PRESS) ? 1.0f : 0.0f;
+        Packet.Transition           = (ButtonTransition == GLFW_PRESS) ? Input::ButtonTransitionCategory::Pressed
+                                                                       : Input::ButtonTransitionCategory::Released;
+        Packet.PrimaryAxis          = (ButtonTransition == GLFW_PRESS) ? 1.0f : 0.0f;
         (void)Exchange->IntakeSignal(Packet);
     });
 
@@ -299,7 +311,7 @@ void DesktopPlatformWindow::PollOperatingEvents(Input::InputExtension& InputCoor
     {
         Input::InputExtension* Coordinator;
 
-        void AcceptInputSignal(const Input::InputSignalPacket& Packet) noexcept
+        void IntakeSignalPacket(const Input::InputSignalPacket& Packet) noexcept
         {
             (void)Coordinator->IntakeHardwareSignal(Packet);
         }
@@ -329,13 +341,13 @@ void DesktopPlatformWindow::Finalize() noexcept
     ActiveExtent         = {};
     RestorableBounds     = {};
     CurrentMode          = WindowPresentationMode::Windowed;
-    ActiveBackend        = WindowPlatformCategory::HeadlessStub;
+    SelectedPlatform     = WindowPlatformCategory::HeadlessStub;
     CurrentCursorMode    = Input::CursorConfinementMode::FreeVisible;
     DeliveredHapticCount = 0;
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                       PRESENTATION MODE & STYLE MUTATIONS
+//                                      PRESENTATION MODE & ATTRIBUTE MUTATIONS
 //------------------------------------------------------------------------------------------------------------------------
 
 bool DesktopPlatformWindow::ApplyPresentationMode(
@@ -352,7 +364,6 @@ bool DesktopPlatformWindow::ApplyPresentationMode(
     auto* Window = static_cast<GLFWwindow*>(GlfwWindowHandle);
     RefreshCachedExtent();
 
-    // ① Preserve windowed bounds prior to entering fullscreen or maximized states
     if (CurrentMode == WindowPresentationMode::Windowed &&
         NewMode != WindowPresentationMode::Windowed &&
         ActiveExtent.PixelWidth > 0 &&
@@ -372,11 +383,17 @@ bool DesktopPlatformWindow::ApplyPresentationMode(
     {
         case WindowPresentationMode::SplashBorderless:
         {
-            EffectiveFlags = ReconcileFlagsForMode(NewMode, EffectiveFlags);
+            EffectiveAttributes   = ReconcileAttributesForMode(NewMode, EffectiveAttributes);
             const uint32_t Width  = (FullscreenWidth > 0) ? FullscreenWidth : RestorableBounds.PixelWidth;
             const uint32_t Height = (FullscreenHeight > 0) ? FullscreenHeight : RestorableBounds.PixelHeight;
-            glfwSetWindowMonitor(Window, nullptr, RestorableBounds.OriginX, RestorableBounds.OriginY,
-                                 static_cast<int>(Width), static_cast<int>(Height), GLFW_DONT_CARE);
+            glfwSetWindowMonitor(
+                Window,
+                nullptr,
+                RestorableBounds.OriginX,
+                RestorableBounds.OriginY,
+                static_cast<int>(Width),
+                static_cast<int>(Height),
+                GLFW_DONT_CARE);
             glfwSetWindowAttrib(Window, GLFW_DECORATED, GLFW_FALSE);
             glfwSetWindowAttrib(Window, GLFW_RESIZABLE, GLFW_FALSE);
             break;
@@ -384,15 +401,19 @@ bool DesktopPlatformWindow::ApplyPresentationMode(
 
         case WindowPresentationMode::Windowed:
         {
-            EffectiveFlags = ReconcileFlagsForMode(NewMode, AuthoringFlags);
+            EffectiveAttributes = ReconcileAttributesForMode(NewMode, WindowedAttributes);
             if (glfwGetWindowAttrib(Window, GLFW_MAXIMIZED) == GLFW_TRUE)
             {
                 glfwRestoreWindow(Window);
             }
-            glfwSetWindowAttrib(Window, GLFW_DECORATED,
-                                HasWindowFlag(EffectiveFlags, WindowStyleFlags::DecoratedFrame) ? GLFW_TRUE : GLFW_FALSE);
-            glfwSetWindowAttrib(Window, GLFW_RESIZABLE,
-                                HasWindowFlag(EffectiveFlags, WindowStyleFlags::ResizableBorder) ? GLFW_TRUE : GLFW_FALSE);
+            glfwSetWindowAttrib(
+                Window,
+                GLFW_DECORATED,
+                QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableBorderDecoration) ? GLFW_TRUE : GLFW_FALSE);
+            glfwSetWindowAttrib(
+                Window,
+                GLFW_RESIZABLE,
+                QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableInteractiveResize) ? GLFW_TRUE : GLFW_FALSE);
             glfwSetWindowMonitor(
                 Window,
                 nullptr,
@@ -406,7 +427,7 @@ bool DesktopPlatformWindow::ApplyPresentationMode(
 
         case WindowPresentationMode::MaximizedWindowed:
         {
-            EffectiveFlags = ReconcileFlagsForMode(NewMode, AuthoringFlags);
+            EffectiveAttributes = ReconcileAttributesForMode(NewMode, WindowedAttributes);
             glfwSetWindowMonitor(
                 Window,
                 nullptr,
@@ -415,17 +436,21 @@ bool DesktopPlatformWindow::ApplyPresentationMode(
                 static_cast<int>(RestorableBounds.PixelWidth),
                 static_cast<int>(RestorableBounds.PixelHeight),
                 GLFW_DONT_CARE);
-            glfwSetWindowAttrib(Window, GLFW_DECORATED,
-                                HasWindowFlag(EffectiveFlags, WindowStyleFlags::DecoratedFrame) ? GLFW_TRUE : GLFW_FALSE);
-            glfwSetWindowAttrib(Window, GLFW_RESIZABLE,
-                                HasWindowFlag(EffectiveFlags, WindowStyleFlags::ResizableBorder) ? GLFW_TRUE : GLFW_FALSE);
+            glfwSetWindowAttrib(
+                Window,
+                GLFW_DECORATED,
+                QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableBorderDecoration) ? GLFW_TRUE : GLFW_FALSE);
+            glfwSetWindowAttrib(
+                Window,
+                GLFW_RESIZABLE,
+                QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableInteractiveResize) ? GLFW_TRUE : GLFW_FALSE);
             glfwMaximizeWindow(Window);
             break;
         }
 
         case WindowPresentationMode::BorderlessFullscreen:
         {
-            EffectiveFlags = ReconcileFlagsForMode(NewMode, AuthoringFlags);
+            EffectiveAttributes = ReconcileAttributesForMode(NewMode, WindowedAttributes);
             int MonX  = 0;
             int MonY  = 0;
             int FullW = (VideoMode != nullptr) ? VideoMode->width : 1920;
@@ -442,7 +467,7 @@ bool DesktopPlatformWindow::ApplyPresentationMode(
 
         case WindowPresentationMode::ExclusiveFullscreen:
         {
-            EffectiveFlags   = ReconcileFlagsForMode(NewMode, AuthoringFlags);
+            EffectiveAttributes = ReconcileAttributesForMode(NewMode, WindowedAttributes);
             const int ModeW  = (FullscreenWidth > 0) ? static_cast<int>(FullscreenWidth)
                                                      : ((VideoMode != nullptr) ? VideoMode->width : 1920);
             const int ModeH  = (FullscreenHeight > 0) ? static_cast<int>(FullscreenHeight)
@@ -466,29 +491,39 @@ bool DesktopPlatformWindow::ApplyPresentationMode(
     return true;
 }
 
-bool DesktopPlatformWindow::ApplyStyleFlags(WindowStyleFlags NewFlags) noexcept
+bool DesktopPlatformWindow::ApplyAttributeMask(WindowAttributeMask NewAttributes) noexcept
 {
     if (GlfwWindowHandle == nullptr)
     {
         return false;
     }
 
-    auto* Window   = static_cast<GLFWwindow*>(GlfwWindowHandle);
-    AuthoringFlags = NewFlags;
-    EffectiveFlags = ReconcileFlagsForMode(CurrentMode, NewFlags);
+    auto* Window        = static_cast<GLFWwindow*>(GlfwWindowHandle);
+    WindowedAttributes  = NewAttributes;
+    EffectiveAttributes = ReconcileAttributesForMode(CurrentMode, NewAttributes);
 
-    glfwSetWindowAttrib(Window, GLFW_DECORATED,
-                        HasWindowFlag(EffectiveFlags, WindowStyleFlags::DecoratedFrame) ? GLFW_TRUE : GLFW_FALSE);
-    glfwSetWindowAttrib(Window, GLFW_RESIZABLE,
-                        HasWindowFlag(EffectiveFlags, WindowStyleFlags::ResizableBorder) ? GLFW_TRUE : GLFW_FALSE);
-    glfwSetWindowAttrib(Window, GLFW_FLOATING,
-                        HasWindowFlag(EffectiveFlags, WindowStyleFlags::FloatingTopmost) ? GLFW_TRUE : GLFW_FALSE);
-    glfwSetWindowAttrib(Window, GLFW_AUTO_ICONIFY,
-                        HasWindowFlag(EffectiveFlags, WindowStyleFlags::AutoMinimizeFocus) ? GLFW_TRUE : GLFW_FALSE);
-    glfwSetWindowAttrib(Window, GLFW_FOCUS_ON_SHOW,
-                        HasWindowFlag(EffectiveFlags, WindowStyleFlags::FocusOnShow) ? GLFW_TRUE : GLFW_FALSE);
+    glfwSetWindowAttrib(
+        Window,
+        GLFW_DECORATED,
+        QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableBorderDecoration) ? GLFW_TRUE : GLFW_FALSE);
+    glfwSetWindowAttrib(
+        Window,
+        GLFW_RESIZABLE,
+        QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableInteractiveResize) ? GLFW_TRUE : GLFW_FALSE);
+    glfwSetWindowAttrib(
+        Window,
+        GLFW_FLOATING,
+        QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableTopmostOrder) ? GLFW_TRUE : GLFW_FALSE);
+    glfwSetWindowAttrib(
+        Window,
+        GLFW_AUTO_ICONIFY,
+        QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableFocusMinimize) ? GLFW_TRUE : GLFW_FALSE);
+    glfwSetWindowAttrib(
+        Window,
+        GLFW_FOCUS_ON_SHOW,
+        QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::AssignInitialFocus) ? GLFW_TRUE : GLFW_FALSE);
 
-    if (HasWindowFlag(EffectiveFlags, WindowStyleFlags::StartVisible))
+    if (QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableInitialVisibility))
     {
         glfwShowWindow(Window);
     }
@@ -521,7 +556,7 @@ void DesktopPlatformWindow::ApplySizeLimits(
     MaxWidthLimit  = MaxWidth;
     MaxHeightLimit = MaxHeight;
 
-    if (GlfwWindowHandle != nullptr)
+    if (GlfwWindowHandle != nullptr && SelectedPlatform != WindowPlatformCategory::GlfwNull)
     {
         glfwSetWindowSizeLimits(
             static_cast<GLFWwindow*>(GlfwWindowHandle),
@@ -625,27 +660,27 @@ void DesktopPlatformWindow::RefreshCachedExtent() noexcept
     int   PosY   = 0;
     int   WinW   = 0;
     int   WinH   = 0;
-    int   FbW    = 0;
-    int   FbH    = 0;
+    int   DrawW  = 0;
+    int   DrawH  = 0;
     float ScaleX = 1.0f;
     float ScaleY = 1.0f;
 
     glfwGetWindowPos(Window, &PosX, &PosY);
     glfwGetWindowSize(Window, &WinW, &WinH);
-    glfwGetFramebufferSize(Window, &FbW, &FbH);
+    glfwGetFramebufferSize(Window, &DrawW, &DrawH);
     glfwGetWindowContentScale(Window, &ScaleX, &ScaleY);
 
-    ActiveExtent.OriginX           = PosX;
-    ActiveExtent.OriginY           = PosY;
-    ActiveExtent.PixelWidth        = static_cast<uint32_t>(std::max(0, WinW));
-    ActiveExtent.PixelHeight       = static_cast<uint32_t>(std::max(0, WinH));
-    ActiveExtent.FramebufferWidth  = static_cast<uint32_t>(std::max(0, FbW));
-    ActiveExtent.FramebufferHeight = static_cast<uint32_t>(std::max(0, FbH));
-    ActiveExtent.DpiScaleFactor    = std::max(ScaleX, ScaleY);
-    ActiveExtent.Minimized         = (glfwGetWindowAttrib(Window, GLFW_ICONIFIED) == GLFW_TRUE) || (FbW == 0 || FbH == 0);
-    ActiveExtent.Maximized         = (glfwGetWindowAttrib(Window, GLFW_MAXIMIZED) == GLFW_TRUE);
-    ActiveExtent.Focused           = (glfwGetWindowAttrib(Window, GLFW_FOCUSED) == GLFW_TRUE);
-    ActiveExtent.Visible           = (glfwGetWindowAttrib(Window, GLFW_VISIBLE) == GLFW_TRUE);
+    ActiveExtent.OriginX             = PosX;
+    ActiveExtent.OriginY             = PosY;
+    ActiveExtent.PixelWidth          = static_cast<uint32_t>(std::max(0, WinW));
+    ActiveExtent.PixelHeight         = static_cast<uint32_t>(std::max(0, WinH));
+    ActiveExtent.DrawablePixelWidth  = static_cast<uint32_t>(std::max(0, DrawW));
+    ActiveExtent.DrawablePixelHeight = static_cast<uint32_t>(std::max(0, DrawH));
+    ActiveExtent.DpiScaleFactor      = std::max(ScaleX, ScaleY);
+    ActiveExtent.Minimized           = (glfwGetWindowAttrib(Window, GLFW_ICONIFIED) == GLFW_TRUE) || (DrawW == 0 || DrawH == 0);
+    ActiveExtent.Maximized           = (glfwGetWindowAttrib(Window, GLFW_MAXIMIZED) == GLFW_TRUE);
+    ActiveExtent.Focused             = (glfwGetWindowAttrib(Window, GLFW_FOCUSED) == GLFW_TRUE);
+    ActiveExtent.Visible             = (glfwGetWindowAttrib(Window, GLFW_VISIBLE) == GLFW_TRUE);
 
     GLFWmonitor* Monitor = glfwGetWindowMonitor(Window);
     if (Monitor == nullptr)
@@ -681,7 +716,7 @@ WindowExtentReading DesktopPlatformWindow::InspectExtent() const noexcept
 
 WindowPlatformCategory DesktopPlatformWindow::PlatformCategory() const noexcept
 {
-    return ActiveBackend;
+    return SelectedPlatform;
 }
 
 WindowPresentationMode DesktopPlatformWindow::ActivePresentationMode() const noexcept
@@ -689,9 +724,9 @@ WindowPresentationMode DesktopPlatformWindow::ActivePresentationMode() const noe
     return CurrentMode;
 }
 
-WindowStyleFlags DesktopPlatformWindow::ActiveStyleFlags() const noexcept
+WindowAttributeMask DesktopPlatformWindow::ActiveAttributeMask() const noexcept
 {
-    return EffectiveFlags;
+    return EffectiveAttributes;
 }
 
 WindowPlacementBounds DesktopPlatformWindow::SavedWindowedBounds() const noexcept

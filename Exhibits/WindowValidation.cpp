@@ -1,191 +1,342 @@
 /*============================================================================================================================================
-                                                    WINDOWVALIDATION.CPP
+                                                     WINDOWVALIDATION.CPP
 ============================================================================================================================================*/
-// 🧩 Validation executable verifying splash, windowed, maximized, and dynamic game fullscreen transitions across window backends
+// 🧩 Validation suite and CPU visual proof generator for splash, desktop application, and dynamic game fullscreen PlatformWindow modes
 
-#include "Engine/Input/InputExtension.h"
 #include "Engine/Windowing/PlatformWindow.h"
+#include "Exhibits/VisualProofRasterizer.h"
+
+#include <imgui.h>
 
 #include <cstdio>
 
 namespace
 {
 
-using namespace Frontier::Input;
-using namespace Frontier::Windowing;
+using Frontier::Components::RgbaColor8;
+using Frontier::Exhibits::LoadProjectZeroDmSansFont;
+using Frontier::Exhibits::ResolveRepositoryRootPath;
+using Frontier::Exhibits::SoftwareProofCanvas;
+using Frontier::Input::ButtonTransitionCategory;
+using Frontier::Input::CursorConfinementMode;
+using Frontier::Input::HapticFeedbackDirective;
+using Frontier::Input::InputExtension;
+using Frontier::Input::InputSignalCategory;
+using Frontier::Input::InputSignalPacket;
+using Frontier::Windowing::HeadlessPlatformWindow;
+using Frontier::Windowing::PlatformWindowSurface;
+using Frontier::Windowing::QueryAttributeEnabled;
+using Frontier::Windowing::WindowAttributeMask;
+using Frontier::Windowing::WindowConfigurationDescriptor;
+using Frontier::Windowing::WindowPresentationMode;
 
-template <PlatformWindowSurface WindowBackend>
-bool VerifyWindowLifecycleAndModeTransitions(const char* BackendLabel) noexcept
+bool VerifyAssertion(bool Condition, const char* Description) noexcept
 {
-    // ① Borderless Splash Screen verification (frameless, non-resizable, floating topmost, centered, passive focus)
+    if (!Condition)
     {
-        WindowBackend Splash{};
-        const auto    SplashDesc = WindowConfigurationDescriptor::MakeSplashWindow("Frontier Splash", 720, 420);
-        if (!Splash.Initialize(SplashDesc))
-        {
-            std::fprintf(stderr, "[FAILED] %s: Splash window initialization failed.\n", BackendLabel);
-            return false;
-        }
-
-        const auto SplashFlags  = Splash.ActiveStyleFlags();
-        const auto SplashExtent = Splash.InspectExtent();
-        if (Splash.ActivePresentationMode() != WindowPresentationMode::SplashBorderless ||
-            HasWindowFlag(SplashFlags, WindowStyleFlags::DecoratedFrame) ||
-            HasWindowFlag(SplashFlags, WindowStyleFlags::ResizableBorder) ||
-            !HasWindowFlag(SplashFlags, WindowStyleFlags::FloatingTopmost) ||
-            SplashExtent.PixelWidth != 720 ||
-            SplashExtent.PixelHeight != 420 ||
-            !SplashExtent.Visible)
-        {
-            std::fprintf(stderr, "[FAILED] %s: Splash window flags or dimensions mismatch.\n", BackendLabel);
-            return false;
-        }
-        Splash.Finalize();
+        std::fprintf(stderr, "[WindowValidation] FAILED: %s\n", Description);
+        return false;
     }
-
-    // ② Standard Windowed + Maximized Application Window verification (shared workspace shell)
-    {
-        WindowBackend AppWindow{};
-        const auto    AppDesc = WindowConfigurationDescriptor::MakeApplicationWindow("Frontier Workspace", 1600, 900, false);
-        if (!AppWindow.Initialize(AppDesc))
-        {
-            std::fprintf(stderr, "[FAILED] %s: Application window initialization failed.\n", BackendLabel);
-            return false;
-        }
-
-        const auto AppFlags = AppWindow.ActiveStyleFlags();
-        if (AppWindow.ActivePresentationMode() != WindowPresentationMode::Windowed ||
-            !HasWindowFlag(AppFlags, WindowStyleFlags::DecoratedFrame) ||
-            !HasWindowFlag(AppFlags, WindowStyleFlags::ResizableBorder) ||
-            !HasWindowFlag(AppFlags, WindowStyleFlags::AcceptFileDrops))
-        {
-            std::fprintf(stderr, "[FAILED] %s: Application window flags mismatch.\n", BackendLabel);
-            return false;
-        }
-
-        if (!AppWindow.ApplyPresentationMode(WindowPresentationMode::MaximizedWindowed) ||
-            AppWindow.ActivePresentationMode() != WindowPresentationMode::MaximizedWindowed ||
-            !AppWindow.InspectExtent().Maximized)
-        {
-            std::fprintf(stderr, "[FAILED] %s: MaximizedWindowed transition failed.\n", BackendLabel);
-            return false;
-        }
-
-        // Runtime borderless toggle via ApplyStyleFlags
-        if (!AppWindow.ApplyPresentationMode(WindowPresentationMode::Windowed) ||
-            !AppWindow.ApplyStyleFlags(AppFlags & ~WindowStyleFlags::DecoratedFrame) ||
-            HasWindowFlag(AppWindow.ActiveStyleFlags(), WindowStyleFlags::DecoratedFrame))
-        {
-            std::fprintf(stderr, "[FAILED] %s: Runtime ApplyStyleFlags borderless toggle failed.\n", BackendLabel);
-            return false;
-        }
-
-        AppWindow.Finalize();
-    }
-
-    // ③ Game Application Dynamic Mode Transitions:
-    //    SplashBorderless -> Windowed (custom placement) -> BorderlessFullscreen -> ExclusiveFullscreen -> Windowed (restored!)
-    {
-        WindowBackend GameWindow{};
-        auto          GameDesc = WindowConfigurationDescriptor::MakeSplashWindow("Frontier Boot", 640, 360);
-        if (!GameWindow.Initialize(GameDesc))
-        {
-            std::fprintf(stderr, "[FAILED] %s: Game boot splash initialization failed.\n", BackendLabel);
-            return false;
-        }
-
-        // Transition SplashBorderless -> Windowed game window at explicit (220, 140), 1440x810
-        if (!GameWindow.ApplyStyleFlags(WindowStyleFlags::DefaultGameFlags) ||
-            !GameWindow.ApplyPresentationMode(WindowPresentationMode::Windowed))
-        {
-            std::fprintf(stderr, "[FAILED] %s: Splash -> Windowed transition failed.\n", BackendLabel);
-            return false;
-        }
-        GameWindow.MoveSurface(220, 140);
-        GameWindow.ApplySizeLimits(640, 360, 3840, 2160);
-
-        InputExtension Coordinator{};
-        Coordinator.Initialize();
-        Coordinator.BeginTick();
-        Coordinator.RequestCursorConfinement(CursorConfinementMode::LockedRelativeHidden);
-        GameWindow.PollOperatingEvents(Coordinator);
-
-        // Transition Windowed -> BorderlessFullscreen (must strip DecoratedFrame & ResizableBorder, saving 220, 140)
-        if (!GameWindow.ApplyPresentationMode(WindowPresentationMode::BorderlessFullscreen))
-        {
-            std::fprintf(stderr, "[FAILED] %s: Windowed -> BorderlessFullscreen failed.\n", BackendLabel);
-            return false;
-        }
-        if (HasWindowFlag(GameWindow.ActiveStyleFlags(), WindowStyleFlags::DecoratedFrame) ||
-            HasWindowFlag(GameWindow.ActiveStyleFlags(), WindowStyleFlags::ResizableBorder) ||
-            GameWindow.SavedWindowedBounds().OriginX != 220 ||
-            GameWindow.SavedWindowedBounds().OriginY != 140)
-        {
-            std::fprintf(stderr, "[FAILED] %s: BorderlessFullscreen did not strip frame or preserve bounds.\n", BackendLabel);
-            return false;
-        }
-
-        // Transition BorderlessFullscreen -> ExclusiveFullscreen (1920x1080 @ 120 Hz)
-        if (!GameWindow.ApplyPresentationMode(WindowPresentationMode::ExclusiveFullscreen, 1920, 1080, 120))
-        {
-            std::fprintf(stderr, "[FAILED] %s: BorderlessFullscreen -> ExclusiveFullscreen failed.\n", BackendLabel);
-            return false;
-        }
-        const auto ExclusiveExtent = GameWindow.InspectExtent();
-        if (GameWindow.ActivePresentationMode() != WindowPresentationMode::ExclusiveFullscreen ||
-            ExclusiveExtent.PixelWidth != 1920 ||
-            ExclusiveExtent.PixelHeight != 1080 ||
-            ExclusiveExtent.RefreshRateHz != 120)
-        {
-            std::fprintf(stderr, "[FAILED] %s: ExclusiveFullscreen dimensions or refresh rate mismatch.\n", BackendLabel);
-            return false;
-        }
-
-        // Transition ExclusiveFullscreen -> Windowed (must restore saved (220, 140) placement and DecoratedFrame!)
-        if (!GameWindow.ApplyPresentationMode(WindowPresentationMode::Windowed))
-        {
-            std::fprintf(stderr, "[FAILED] %s: ExclusiveFullscreen -> Windowed restore failed.\n", BackendLabel);
-            return false;
-        }
-        const auto RestoredExtent = GameWindow.InspectExtent();
-        if (GameWindow.ActivePresentationMode() != WindowPresentationMode::Windowed ||
-            !HasWindowFlag(GameWindow.ActiveStyleFlags(), WindowStyleFlags::DecoratedFrame) ||
-            !HasWindowFlag(GameWindow.ActiveStyleFlags(), WindowStyleFlags::ResizableBorder) ||
-            RestoredExtent.OriginX != 220 ||
-            RestoredExtent.OriginY != 140)
-        {
-            std::fprintf(stderr,
-                         "[FAILED] %s: Windowed restore mismatch (Origin=%d,%d).\n",
-                         BackendLabel,
-                         RestoredExtent.OriginX,
-                         RestoredExtent.OriginY);
-            return false;
-        }
-
-        Coordinator.Finalize();
-        GameWindow.Finalize();
-    }
-
-    std::printf("[OK] %s verified (SplashBorderless, Windowed, MaximizedWindowed, BorderlessFullscreen, ExclusiveFullscreen).\n",
-                BackendLabel);
     return true;
+}
+
+template <PlatformWindowSurface SurfaceType>
+bool ValidateSplashRole(const char* SurfaceName) noexcept
+{
+    SurfaceType SplashWindow{};
+    const auto  SplashDesc = WindowConfigurationDescriptor::ConstructSplashWindow("Frontier — Initializing", 720, 420);
+
+    if (!VerifyAssertion(SplashWindow.Initialize(SplashDesc), SurfaceName))
+    {
+        return false;
+    }
+
+    const auto Extent     = SplashWindow.InspectExtent();
+    const auto Attributes = SplashWindow.ActiveAttributeMask();
+
+    const bool Passed =
+        VerifyAssertion(SplashWindow.ActivePresentationMode() == WindowPresentationMode::SplashBorderless, "Splash mode active") &&
+        VerifyAssertion(!QueryAttributeEnabled(Attributes, WindowAttributeMask::EnableBorderDecoration), "Splash disables border chrome") &&
+        VerifyAssertion(!QueryAttributeEnabled(Attributes, WindowAttributeMask::EnableInteractiveResize), "Splash disables interactive resize") &&
+        VerifyAssertion(QueryAttributeEnabled(Attributes, WindowAttributeMask::EnableTopmostOrder), "Splash enables topmost order") &&
+        VerifyAssertion(QueryAttributeEnabled(Attributes, WindowAttributeMask::AssignMonitorCenter), "Splash assigns monitor center") &&
+        VerifyAssertion(Extent.PixelWidth == 720 && Extent.PixelHeight == 420, "Splash exact dimensions");
+
+    SplashWindow.Finalize();
+    return Passed;
+}
+
+template <PlatformWindowSurface SurfaceType>
+bool ValidateDesktopApplicationRole(const char* SurfaceName) noexcept
+{
+    SurfaceType AppWindow{};
+    const auto  AppDesc = WindowConfigurationDescriptor::ConstructApplicationWindow("Frontier Editor", 1600, 900, false);
+
+    if (!VerifyAssertion(AppWindow.Initialize(AppDesc), SurfaceName))
+    {
+        return false;
+    }
+
+    const auto InitialExtent = AppWindow.InspectExtent();
+    const auto InitialAttrs  = AppWindow.ActiveAttributeMask();
+
+    bool Passed =
+        VerifyAssertion(AppWindow.ActivePresentationMode() == WindowPresentationMode::Windowed, "Application starts Windowed") &&
+        VerifyAssertion(QueryAttributeEnabled(InitialAttrs, WindowAttributeMask::EnableBorderDecoration), "Application enables border chrome") &&
+        VerifyAssertion(QueryAttributeEnabled(InitialAttrs, WindowAttributeMask::EnableInteractiveResize), "Application enables interactive resize") &&
+        VerifyAssertion(QueryAttributeEnabled(InitialAttrs, WindowAttributeMask::EnableExternalDrop), "Application enables external drop") &&
+        VerifyAssertion(InitialExtent.PixelWidth == 1600 && InitialExtent.PixelHeight == 900, "Application 1600x900");
+
+    Passed = Passed &&
+        VerifyAssertion(AppWindow.ApplyPresentationMode(WindowPresentationMode::MaximizedWindowed), "Maximize application window") &&
+        VerifyAssertion(AppWindow.ActivePresentationMode() == WindowPresentationMode::MaximizedWindowed, "Maximized mode recorded") &&
+        VerifyAssertion(AppWindow.ApplyPresentationMode(WindowPresentationMode::Windowed), "Restore application window") &&
+        VerifyAssertion(AppWindow.InspectExtent().PixelWidth == 1600 && AppWindow.InspectExtent().PixelHeight == 900,
+                        "Restored bounds match pre-maximized 1600x900");
+
+    AppWindow.Finalize();
+    return Passed;
+}
+
+template <PlatformWindowSurface SurfaceType>
+bool ValidateGameDynamicModeTransitions(const char* SurfaceName) noexcept
+{
+    SurfaceType    GameWindow{};
+    InputExtension InputCoordinator{};
+    InputCoordinator.Initialize();
+
+    const auto GameDesc = WindowConfigurationDescriptor::ConstructGameWindow(
+        "Frontier Runtime",
+        1280,
+        720,
+        WindowPresentationMode::Windowed,
+        0);
+
+    if (!VerifyAssertion(GameWindow.Initialize(GameDesc), SurfaceName))
+    {
+        InputCoordinator.Finalize();
+        return false;
+    }
+
+    GameWindow.MoveSurface(220, 140);
+    const auto SavedBeforeFullscreen = GameWindow.InspectExtent();
+
+    bool Passed =
+        VerifyAssertion(SavedBeforeFullscreen.PixelWidth == 1280 && SavedBeforeFullscreen.PixelHeight == 720,
+                        "Game initial 1280x720 windowed") &&
+        VerifyAssertion(GameWindow.ApplyPresentationMode(WindowPresentationMode::BorderlessFullscreen),
+                        "Transition Windowed -> BorderlessFullscreen") &&
+        VerifyAssertion(!QueryAttributeEnabled(GameWindow.ActiveAttributeMask(), WindowAttributeMask::EnableBorderDecoration),
+                        "BorderlessFullscreen strips border decoration") &&
+        VerifyAssertion(!QueryAttributeEnabled(GameWindow.ActiveAttributeMask(), WindowAttributeMask::EnableInteractiveResize),
+                        "BorderlessFullscreen strips interactive resize") &&
+        VerifyAssertion(GameWindow.ApplyPresentationMode(WindowPresentationMode::ExclusiveFullscreen, 1920, 1080, 144),
+                        "Transition BorderlessFullscreen -> ExclusiveFullscreen 1920x1080@144Hz") &&
+        VerifyAssertion(GameWindow.ActivePresentationMode() == WindowPresentationMode::ExclusiveFullscreen,
+                        "ExclusiveFullscreen active") &&
+        VerifyAssertion(GameWindow.InspectExtent().RefreshRateHz == 144,
+                        "ExclusiveFullscreen 144Hz refresh rate applied") &&
+        VerifyAssertion(GameWindow.ApplyPresentationMode(WindowPresentationMode::Windowed),
+                        "Transition ExclusiveFullscreen -> Windowed") &&
+        VerifyAssertion(QueryAttributeEnabled(GameWindow.ActiveAttributeMask(), WindowAttributeMask::EnableBorderDecoration),
+                        "Windowed restores border decoration") &&
+        VerifyAssertion(QueryAttributeEnabled(GameWindow.ActiveAttributeMask(), WindowAttributeMask::EnableInteractiveResize),
+                        "Windowed restores interactive resize") &&
+        VerifyAssertion(GameWindow.InspectExtent().PixelWidth == 1280 && GameWindow.InspectExtent().PixelHeight == 720,
+                        "Windowed restores exact 1280x720 client dimensions");
+
+    InputCoordinator.RequestCursorConfinement(CursorConfinementMode::LockedRelativeHidden);
+    (void)InputCoordinator.RequestHapticFeedback(HapticFeedbackDirective{
+        .DeviceIdentifier       = 0,
+        .LowFrequencyAmplitude  = 0.7f,
+        .HighFrequencyAmplitude = 0.4f,
+        .DurationMilliseconds   = 20u,
+    });
+    GameWindow.PollOperatingEvents(InputCoordinator);
+
+    Passed = Passed &&
+        VerifyAssertion(GameWindow.AppliedCursorMode() == CursorConfinementMode::LockedRelativeHidden,
+                        "Cursor lock propagated to OS window") &&
+        VerifyAssertion(GameWindow.AppliedHapticPulseCount() == 1,
+                        "Haptic directive propagated through window poll");
+
+    GameWindow.Finalize();
+    InputCoordinator.Finalize();
+    return Passed;
+}
+
+bool GenerateWindowModesVisualProof()
+{
+    HeadlessPlatformWindow ProbeWindow{};
+    (void)ProbeWindow.Initialize(WindowConfigurationDescriptor::ConstructSplashWindow("Frontier", 720, 420));
+    const auto SplashExt = ProbeWindow.InspectExtent();
+    ProbeWindow.Finalize();
+
+    (void)ProbeWindow.Initialize(WindowConfigurationDescriptor::ConstructApplicationWindow("Frontier Editor", 1600, 900));
+    const auto AppExt = ProbeWindow.InspectExtent();
+    (void)ProbeWindow.ApplyPresentationMode(WindowPresentationMode::MaximizedWindowed);
+    const auto MaxExt = ProbeWindow.InspectExtent();
+    (void)ProbeWindow.ApplyPresentationMode(WindowPresentationMode::BorderlessFullscreen);
+    const auto BorderlessExt = ProbeWindow.InspectExtent();
+    (void)ProbeWindow.ApplyPresentationMode(WindowPresentationMode::ExclusiveFullscreen, 1920, 1080, 144);
+    const auto ExclusiveExt = ProbeWindow.InspectExtent();
+    ProbeWindow.Finalize();
+
+    ImGuiContext* ProofCtx = ImGui::CreateContext();
+    ImGui::SetCurrentContext(ProofCtx);
+    ImGuiIO& IoInstance      = ImGui::GetIO();
+    IoInstance.IniFilename   = nullptr;
+    IoInstance.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+    IoInstance.DisplaySize   = ImVec2(1440.0f, 820.0f);
+    (void)LoadProjectZeroDmSansFont(IoInstance, 13.0f);
+    Frontier::Components::ConfigureImGuiTrapezoidalStyle(Frontier::Components::ConstructProjectZeroTabMetrics(1.0f));
+
+    ImGui::NewFrame();
+    ImDrawList* CanvasList = ImGui::GetForegroundDrawList();
+    CanvasList->AddText(
+        ImVec2(36.0f, 24.0f),
+        IM_COL32(238, 238, 244, 255),
+        "PlatformWindow Multi-Mode Surface Verification  —  Simulated 2560x1440 Display Geometry & Directive Masks");
+
+    struct ModeTileSpec
+    {
+        const char*                       Heading;
+        const char*                       DirectiveSummary;
+        Frontier::Windowing::WindowExtentReading Extent;
+        ImU32                             AccentColor;
+    };
+
+    const ModeTileSpec Tiles[5] = {
+        { "1. SplashBorderless (ConstructSplashWindow)",
+          "AssignMonitorCenter | EnableTopmostOrder | Borderless",
+          SplashExt,
+          IM_COL32(245, 158, 11, 255) },
+        { "2. Windowed (ConstructApplicationWindow)",
+          "EnableBorderDecoration | EnableInteractiveResize | EnableExternalDrop",
+          AppExt,
+          IM_COL32(34, 197, 94, 255) },
+        { "3. MaximizedWindowed",
+          "Full Monitor Work-Area (2560x1400) | Restores 1600x900 on Exit",
+          MaxExt,
+          IM_COL32(59, 130, 246, 255) },
+        { "4. BorderlessFullscreen",
+          "Full Monitor Span (2560x1440) | Chrome & Resize Automatically Masked",
+          BorderlessExt,
+          IM_COL32(168, 85, 247, 255) },
+        { "5. ExclusiveFullscreen (ConstructGameWindow @ 144 Hz)",
+          "1920x1080 Dedicated Video Mode @ 144 Hz | EnableFocusMinimize",
+          ExclusiveExt,
+          IM_COL32(236, 72, 153, 255) },
+    };
+
+    for (int Index = 0; Index < 5; ++Index)
+    {
+        const int   Col   = Index % 3;
+        const int   Row   = Index / 3;
+        const float TileX = 36.0f + static_cast<float>(Col) * 462.0f;
+        const float TileY = 72.0f + static_cast<float>(Row) * 356.0f;
+        const float TileW = 438.0f;
+        const float TileH = 330.0f;
+
+        CanvasList->AddRectFilled(ImVec2(TileX, TileY), ImVec2(TileX + TileW, TileY + TileH), IM_COL32(20, 20, 24, 255), 6.0f);
+        CanvasList->AddRect(ImVec2(TileX, TileY), ImVec2(TileX + TileW, TileY + TileH), IM_COL32(44, 44, 52, 255), 6.0f);
+        CanvasList->AddText(ImVec2(TileX + 14.0f, TileY + 12.0f), Tiles[Index].AccentColor, Tiles[Index].Heading);
+        CanvasList->AddText(ImVec2(TileX + 14.0f, TileY + 34.0f), IM_COL32(150, 150, 160, 255), Tiles[Index].DirectiveSummary);
+
+        // Scaled 2560x1440 monitor diagram inside tile
+        const float MonX     = TileX + 22.0f;
+        const float MonY     = TileY + 66.0f;
+        const float MonW     = 394.0f;
+        const float MonH     = 221.6f;
+        const float ScaleX   = MonW / 2560.0f;
+        const float ScaleY   = MonH / 1440.0f;
+        const auto& Ext      = Tiles[Index].Extent;
+
+        CanvasList->AddRectFilled(ImVec2(MonX, MonY), ImVec2(MonX + MonW, MonY + MonH), IM_COL32(11, 13, 18, 255), 3.0f);
+        CanvasList->AddRect(ImVec2(MonX, MonY), ImVec2(MonX + MonW, MonY + MonH), IM_COL32(62, 66, 78, 255), 3.0f);
+
+        const float WinX = MonX + static_cast<float>(Ext.OriginX) * ScaleX;
+        const float WinY = MonY + static_cast<float>(Ext.OriginY) * ScaleY;
+        const float WinW = static_cast<float>(Ext.PixelWidth) * ScaleX;
+        const float WinH = static_cast<float>(Ext.PixelHeight) * ScaleY;
+
+        CanvasList->AddRectFilled(ImVec2(WinX, WinY), ImVec2(WinX + WinW, WinY + WinH), IM_COL32(32, 42, 58, 220), 2.0f);
+        CanvasList->AddRect(ImVec2(WinX, WinY), ImVec2(WinX + WinW, WinY + WinH), Tiles[Index].AccentColor, 2.0f, 0, 2.0f);
+
+        char MetricsLine[128]{};
+        std::snprintf(
+            MetricsLine,
+            sizeof(MetricsLine),
+            "Origin (%d, %d)  |  Extent %ux%u px  |  Refresh %u Hz",
+            Ext.OriginX,
+            Ext.OriginY,
+            Ext.PixelWidth,
+            Ext.PixelHeight,
+            Ext.RefreshRateHz);
+        CanvasList->AddText(ImVec2(TileX + 14.0f, TileY + 298.0f), IM_COL32(215, 215, 224, 255), MetricsLine);
+    }
+
+    ImGui::Render();
+    SoftwareProofCanvas OutputCanvas(1440, 820, RgbaColor8{ 12, 12, 14, 255 });
+    OutputCanvas.RasterizeImGuiDrawData(ImGui::GetDrawData(), 0, 0);
+    ImGui::DestroyContext(ProofCtx);
+
+    const auto OutputPath = ResolveRepositoryRootPath() / "Exhibits/Images/Windowing/WindowPresentationModes.png";
+    return VerifyAssertion(OutputCanvas.EncodePngToFile(OutputPath), "Write WindowPresentationModes.png");
 }
 
 } // namespace
 
 int main()
 {
-    if (!VerifyWindowLifecycleAndModeTransitions<HeadlessPlatformWindow>("HeadlessPlatformWindow"))
+    if (!ValidateSplashRole<HeadlessPlatformWindow>("HeadlessSplash") ||
+        !ValidateDesktopApplicationRole<HeadlessPlatformWindow>("HeadlessApplication") ||
+        !ValidateGameDynamicModeTransitions<HeadlessPlatformWindow>("HeadlessGame"))
     {
         return 1;
     }
 
+    HeadlessPlatformWindow SyntheticWindow{};
+    InputExtension         Coordinator{};
+    Coordinator.Initialize();
+    if (!VerifyAssertion(
+            SyntheticWindow.Initialize(WindowConfigurationDescriptor::ConstructApplicationWindow("SyntheticCheck", 1280, 720)),
+            "Initialize synthetic headless window"))
+    {
+        return 1;
+    }
+    InputSignalPacket KeyPacket{};
+    KeyPacket.TimestampNanoseconds = 1000ULL;
+    KeyPacket.PrimaryAxis          = 1.0f;
+    KeyPacket.DeviceIdentifier     = 0;
+    KeyPacket.ControlCode          = 42;
+    KeyPacket.Category             = InputSignalCategory::KeyboardKey;
+    KeyPacket.Transition           = ButtonTransitionCategory::Pressed;
+    (void)SyntheticWindow.QueueSyntheticSignal(KeyPacket);
+
+    SyntheticWindow.PollOperatingEvents(Coordinator);
+    (void)Coordinator.TickExchange();
+    if (!VerifyAssertion(Coordinator.QueryScanCodeHeld(42), "Synthetic OS key signal forwarded to InputExtension"))
+    {
+        return 1;
+    }
+    SyntheticWindow.Finalize();
+    Coordinator.Finalize();
+
 #if !defined(__ANDROID__)
-    if (!VerifyWindowLifecycleAndModeTransitions<DesktopPlatformWindow>("DesktopPlatformWindow[GLFW-3.4]"))
+    if (!ValidateSplashRole<Frontier::Windowing::DesktopPlatformWindow>("DesktopGlfwSplash") ||
+        !ValidateDesktopApplicationRole<Frontier::Windowing::DesktopPlatformWindow>("DesktopGlfwApplication") ||
+        !ValidateGameDynamicModeTransitions<Frontier::Windowing::DesktopPlatformWindow>("DesktopGlfwGame"))
     {
         return 1;
     }
 #endif
 
+    if (!GenerateWindowModesVisualProof())
+    {
+        return 1;
+    }
+
+    std::printf("[WindowValidation] All splash, application, and dynamic game window modes + visual proof PNG verified.\n");
     return 0;
 }

@@ -79,17 +79,26 @@ else()
 endif()
 
 #------------------------------------------------------------------------------------------------------------------------
-#                                            PATCHED IMGUI (EXCLUDED IN SHIPPING)
+#                                     PATCHED IMGUI (EXCLUDED FROM SHIPPING RUNTIME)
 #------------------------------------------------------------------------------------------------------------------------
 
-if(NOT FRONTIER_PROFILE STREQUAL "Shipping")
+if(NOT FRONTIER_PROFILE STREQUAL "Shipping" OR BUILD_TESTING)
     set(IMGUI_ROOT "${CMAKE_SOURCE_DIR}/ExternalPackages/imgui")
-    add_library(FrontierImGui STATIC
-        "${IMGUI_ROOT}/imgui.cpp"
-        "${IMGUI_ROOT}/imgui_draw.cpp"
-        "${IMGUI_ROOT}/imgui_tables.cpp"
-        "${IMGUI_ROOT}/imgui_widgets.cpp"
-    )
+    if(FRONTIER_PROFILE STREQUAL "Shipping")
+        add_library(FrontierImGui STATIC EXCLUDE_FROM_ALL
+            "${IMGUI_ROOT}/imgui.cpp"
+            "${IMGUI_ROOT}/imgui_draw.cpp"
+            "${IMGUI_ROOT}/imgui_tables.cpp"
+            "${IMGUI_ROOT}/imgui_widgets.cpp"
+        )
+    else()
+        add_library(FrontierImGui STATIC
+            "${IMGUI_ROOT}/imgui.cpp"
+            "${IMGUI_ROOT}/imgui_draw.cpp"
+            "${IMGUI_ROOT}/imgui_tables.cpp"
+            "${IMGUI_ROOT}/imgui_widgets.cpp"
+        )
+    endif()
     target_include_directories(FrontierImGui PUBLIC "${IMGUI_ROOT}")
     target_compile_definitions(FrontierImGui PUBLIC "ImDrawIdx=unsigned int")
     if(NOT MSVC)
@@ -142,6 +151,12 @@ set(FRONTIER_ENGINE_SOURCES
 if(NOT ANDROID)
     list(APPEND FRONTIER_ENGINE_SOURCES Engine/Windowing/PlatformWindowDesktop.cpp)
 endif()
+if(NOT FRONTIER_PROFILE STREQUAL "Shipping")
+    list(APPEND FRONTIER_ENGINE_SOURCES
+        Engine/Components/Docking/TrapezoidalTabProfile.cpp
+        Engine/Components/Docking/DockingPanel.cpp
+    )
+endif()
 
 add_library(FrontierEngine STATIC ${FRONTIER_ENGINE_SOURCES})
 
@@ -152,6 +167,9 @@ target_include_directories(FrontierEngine PUBLIC
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include"
 )
 target_link_libraries(FrontierEngine PUBLIC FrontierCompileSettings)
+if(NOT FRONTIER_PROFILE STREQUAL "Shipping")
+    target_link_libraries(FrontierEngine PUBLIC FrontierImGui)
+endif()
 if(NOT ANDROID)
     target_include_directories(FrontierEngine PUBLIC "${CMAKE_SOURCE_DIR}/ExternalPackages/glfw/include")
     target_link_libraries(FrontierEngine PRIVATE glfw)
@@ -162,14 +180,23 @@ endif()
 #------------------------------------------------------------------------------------------------------------------------
 
 if(BUILD_TESTING)
-    add_executable(InputValidation Exhibits/InputValidation.cpp)
-    target_link_libraries(InputValidation PRIVATE FrontierEngine)
-    if(FRONTIER_PROFILE STREQUAL "Editor")
-        target_link_libraries(InputValidation PRIVATE FrontierImGui)
-    endif()
-    add_test(NAME InputValidation COMMAND InputValidation)
+    function(frontier_register_exhibit EXHIBIT_NAME EXHIBIT_SOURCE)
+        add_executable(${EXHIBIT_NAME} ${EXHIBIT_SOURCE} ${ARGN})
+        target_include_directories(${EXHIBIT_NAME} PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+        target_compile_definitions(${EXHIBIT_NAME} PRIVATE "FRONTIER_REPO_ROOT_DIR=\"${CMAKE_SOURCE_DIR}\"")
+        target_link_libraries(${EXHIBIT_NAME} PRIVATE FrontierEngine FrontierImGui)
+        add_test(NAME ${EXHIBIT_NAME} COMMAND ${EXHIBIT_NAME})
+    endfunction()
 
-    add_executable(WindowValidation Exhibits/WindowValidation.cpp)
-    target_link_libraries(WindowValidation PRIVATE FrontierEngine)
-    add_test(NAME WindowValidation COMMAND WindowValidation)
+    set(FRONTIER_SHIPPING_DOCKING_SOURCES "")
+    if(FRONTIER_PROFILE STREQUAL "Shipping")
+        set(FRONTIER_SHIPPING_DOCKING_SOURCES
+            Engine/Components/Docking/TrapezoidalTabProfile.cpp
+            Engine/Components/Docking/DockingPanel.cpp
+        )
+    endif()
+
+    frontier_register_exhibit(InputValidation   Exhibits/InputValidation.cpp   ${FRONTIER_SHIPPING_DOCKING_SOURCES})
+    frontier_register_exhibit(WindowValidation  Exhibits/WindowValidation.cpp  ${FRONTIER_SHIPPING_DOCKING_SOURCES})
+    frontier_register_exhibit(DockingValidation Exhibits/DockingValidation.cpp ${FRONTIER_SHIPPING_DOCKING_SOURCES})
 endif()

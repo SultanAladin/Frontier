@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                       PLATFORMWINDOW.H
 ============================================================================================================================================*/
-// 🧩 Cross-platform window and surface interface with style flags, application presets, and dynamic fullscreen mode transitions
+// 🧩 Cross-platform window and surface interface with directive masks, application presets, and dynamic fullscreen mode transitions
 
 #pragma once
 
@@ -26,93 +26,92 @@ enum class WindowPlatformCategory : uint8_t
     X11          = 2, // [-] - Linux Xlib / XCB surface
     Wayland      = 3, // [-] - Linux Wayland XDG surface
     Android      = 4, // [-] - Android NDK ANativeWindow surface
-    GlfwNull     = 5, // [-] - GLFW 3.4 offscreen desktop state-machine backend
+    GlfwNull     = 5, // [-] - GLFW 3.4 offscreen desktop state-machine interface
 };
 
 enum class WindowPresentationMode : uint8_t
 {
-    SplashBorderless     = 0, // [-] - Frameless centered startup splash surface (undecorated, non-resizable)
-    Windowed             = 1, // [-] - Standard decorated movable/resizable desktop application surface
+    SplashBorderless     = 0, // [-] - Undecorated centered startup splash surface (non-resizable)
+    Windowed             = 1, // [-] - Decorated movable/resizable desktop application surface
     MaximizedWindowed    = 2, // [-] - Decorated desktop surface occupying full monitor work-area
-    BorderlessFullscreen = 3, // [-] - Undecorated surface covering full monitor bounds without video-mode switch
+    BorderlessFullscreen = 3, // [-] - Undecorated surface spanning full monitor bounds without video-mode switch
     ExclusiveFullscreen  = 4, // [-] - Dedicated hardware video-mode fullscreen surface for game applications
 };
 
-enum class WindowStyleFlags : uint32_t
+enum class WindowAttributeMask : uint32_t
 {
-    None              = 0u,       // [mask] - All optional window attributes cleared
-    DecoratedFrame    = 1u << 0,  // [mask] - OS title bar, frame borders, and caption buttons (0 = borderless)
-    ResizableBorder   = 1u << 1,  // [mask] - User drag-resizable frame edges and corners
-    CenteredOnMonitor = 1u << 2,  // [mask] - Center window within target monitor work-area upon placement
-    FloatingTopmost   = 1u << 3,  // [mask] - Keep surface above normal Z-order peers (splash / tool palettes)
-    AutoMinimizeFocus = 1u << 4,  // [mask] - Auto-minimize exclusive fullscreen game surface on focus loss
-    HighDpiScale      = 1u << 5,  // [mask] - Per-monitor physical framebuffer DPI scaling
-    TransparentClient = 1u << 6,  // [mask] - Alpha-composited client background (shaped splash surfaces)
-    AcceptFileDrops   = 1u << 7,  // [mask] - Deliver OS drag-and-drop asset paths to workspaces
-    StartVisible      = 1u << 8,  // [mask] - Map window immediately upon creation (0 = hidden until first frame)
-    FocusOnShow       = 1u << 9,  // [mask] - Acquire keyboard focus when shown (0 = passive splash / overlay)
+    EmptyAttributes         = 0u,       // [mask] - All optional window directives cleared
+    EnableBorderDecoration  = 1u << 0,  // [mask] - Enable OS title bar, border chrome, and caption buttons (0 = borderless)
+    EnableInteractiveResize = 1u << 1,  // [mask] - Enable interactive edge and corner resize grips
+    AssignMonitorCenter     = 1u << 2,  // [mask] - Assign initial placement to target monitor work-area center
+    EnableTopmostOrder      = 1u << 3,  // [mask] - Enable topmost Z-order above standard desktop windows
+    EnableFocusMinimize     = 1u << 4,  // [mask] - Enable automatic minimize of exclusive fullscreen window upon focus loss
+    EnableDpiScaling        = 1u << 5,  // [mask] - Enable per-monitor physical pixel DPI scaling
+    EnableAlphaCompositing  = 1u << 6,  // [mask] - Enable alpha-composited client background (shaped splash surfaces)
+    EnableExternalDrop      = 1u << 7,  // [mask] - Enable OS file drag-and-drop path intake for workspaces
+    EnableInitialVisibility = 1u << 8,  // [mask] - Enable immediate surface visibility upon construction
+    AssignInitialFocus      = 1u << 9,  // [mask] - Assign keyboard focus immediately upon visibility
 
-    DefaultSplashFlags = CenteredOnMonitor | FloatingTopmost | HighDpiScale | StartVisible,
-    DefaultAppFlags    = DecoratedFrame | ResizableBorder | CenteredOnMonitor | HighDpiScale |
-                         AcceptFileDrops | StartVisible | FocusOnShow,
-    DefaultGameFlags   = DecoratedFrame | ResizableBorder | CenteredOnMonitor | AutoMinimizeFocus |
-                         HighDpiScale | StartVisible | FocusOnShow,
+    SplashPresetMask      = AssignMonitorCenter | EnableTopmostOrder | EnableDpiScaling | EnableInitialVisibility,
+    ApplicationPresetMask = EnableBorderDecoration | EnableInteractiveResize | AssignMonitorCenter |
+                            EnableDpiScaling | EnableExternalDrop | EnableInitialVisibility | AssignInitialFocus,
+    GamePresetMask        = EnableBorderDecoration | EnableInteractiveResize | AssignMonitorCenter |
+                            EnableFocusMinimize | EnableDpiScaling | EnableInitialVisibility | AssignInitialFocus,
 };
 
-[[nodiscard]] constexpr WindowStyleFlags operator|(WindowStyleFlags Left, WindowStyleFlags Right) noexcept
+[[nodiscard]] constexpr WindowAttributeMask operator|(WindowAttributeMask Left, WindowAttributeMask Right) noexcept
 {
-    return static_cast<WindowStyleFlags>(static_cast<uint32_t>(Left) | static_cast<uint32_t>(Right));
+    return static_cast<WindowAttributeMask>(static_cast<uint32_t>(Left) | static_cast<uint32_t>(Right));
 }
 
-[[nodiscard]] constexpr WindowStyleFlags operator&(WindowStyleFlags Left, WindowStyleFlags Right) noexcept
+[[nodiscard]] constexpr WindowAttributeMask operator&(WindowAttributeMask Left, WindowAttributeMask Right) noexcept
 {
-    return static_cast<WindowStyleFlags>(static_cast<uint32_t>(Left) & static_cast<uint32_t>(Right));
+    return static_cast<WindowAttributeMask>(static_cast<uint32_t>(Left) & static_cast<uint32_t>(Right));
 }
 
-[[nodiscard]] constexpr WindowStyleFlags operator^(WindowStyleFlags Left, WindowStyleFlags Right) noexcept
+[[nodiscard]] constexpr WindowAttributeMask operator^(WindowAttributeMask Left, WindowAttributeMask Right) noexcept
 {
-    return static_cast<WindowStyleFlags>(static_cast<uint32_t>(Left) ^ static_cast<uint32_t>(Right));
+    return static_cast<WindowAttributeMask>(static_cast<uint32_t>(Left) ^ static_cast<uint32_t>(Right));
 }
 
-[[nodiscard]] constexpr WindowStyleFlags operator~(WindowStyleFlags Flags) noexcept
+[[nodiscard]] constexpr WindowAttributeMask operator~(WindowAttributeMask Mask) noexcept
 {
-    return static_cast<WindowStyleFlags>(~static_cast<uint32_t>(Flags));
+    return static_cast<WindowAttributeMask>(~static_cast<uint32_t>(Mask));
 }
 
-constexpr WindowStyleFlags& operator|=(WindowStyleFlags& Left, WindowStyleFlags Right) noexcept
+constexpr WindowAttributeMask& operator|=(WindowAttributeMask& Left, WindowAttributeMask Right) noexcept
 {
     Left = Left | Right;
     return Left;
 }
 
-constexpr WindowStyleFlags& operator&=(WindowStyleFlags& Left, WindowStyleFlags Right) noexcept
+constexpr WindowAttributeMask& operator&=(WindowAttributeMask& Left, WindowAttributeMask Right) noexcept
 {
     Left = Left & Right;
     return Left;
 }
 
-[[nodiscard]] constexpr bool HasWindowFlag(WindowStyleFlags Mask, WindowStyleFlags Flag) noexcept
+[[nodiscard]] constexpr bool QueryAttributeEnabled(WindowAttributeMask Mask, WindowAttributeMask Directive) noexcept
 {
-    return (static_cast<uint32_t>(Mask) & static_cast<uint32_t>(Flag)) == static_cast<uint32_t>(Flag);
+    return (static_cast<uint32_t>(Mask) & static_cast<uint32_t>(Directive)) == static_cast<uint32_t>(Directive);
 }
 
-[[nodiscard]] constexpr WindowStyleFlags ReconcileFlagsForMode(
+[[nodiscard]] constexpr WindowAttributeMask ReconcileAttributesForMode(
     WindowPresentationMode Mode,
-    WindowStyleFlags       RequestedFlags) noexcept
+    WindowAttributeMask    RequestedAttributes) noexcept
 {
     switch (Mode)
     {
         case WindowPresentationMode::SplashBorderless:
-            return RequestedFlags & ~(WindowStyleFlags::DecoratedFrame | WindowStyleFlags::ResizableBorder);
-
         case WindowPresentationMode::BorderlessFullscreen:
         case WindowPresentationMode::ExclusiveFullscreen:
-            return RequestedFlags & ~(WindowStyleFlags::DecoratedFrame | WindowStyleFlags::ResizableBorder);
+            return RequestedAttributes &
+                   ~(WindowAttributeMask::EnableBorderDecoration | WindowAttributeMask::EnableInteractiveResize);
 
         case WindowPresentationMode::Windowed:
         case WindowPresentationMode::MaximizedWindowed:
         default:
-            return RequestedFlags;
+            return RequestedAttributes;
     }
 }
 
@@ -130,22 +129,22 @@ struct WindowPlacementBounds
 
 struct WindowConfigurationDescriptor
 {
-    std::string_view       TitleText           = "Frontier";                        // [-]   - Surface caption text
-    int32_t                OriginX             = 120;                               // [px]  - Initial X position when not centered
-    int32_t                OriginY             = 80;                                // [px]  - Initial Y position when not centered
-    uint32_t               PixelWidth          = 1600;                              // [px]  - Initial client surface width
-    uint32_t               PixelHeight         = 900;                               // [px]  - Initial client surface height
-    uint32_t               MinimumWidth        = 320;                               // [px]  - Minimum interactive resize width
-    uint32_t               MinimumHeight       = 200;                               // [px]  - Minimum interactive resize height
-    uint32_t               TargetRefreshRateHz = 0;                                 // [Hz]  - 0 = monitor native refresh rate
-    uint32_t               TargetMonitorIndex  = 0;                                 // [idx] - 0 = primary monitor
-    float                  DpiScaleFactor      = 1.0f;                              // [-]   - Logical-to-physical pixel ratio
-    WindowPresentationMode PresentationMode    = WindowPresentationMode::Windowed;  // [-]   - Initial presentation mode
-    WindowStyleFlags       StyleFlags          = WindowStyleFlags::DefaultAppFlags; // [mask]- Composable window attributes
+    std::string_view       TitleText           = "Frontier";                                  // [-]    - Surface caption text
+    int32_t                OriginX             = 120;                                         // [px]   - Initial X position when not centered
+    int32_t                OriginY             = 80;                                          // [px]   - Initial Y position when not centered
+    uint32_t               PixelWidth          = 1600;                                        // [px]   - Initial client surface width
+    uint32_t               PixelHeight         = 900;                                         // [px]   - Initial client surface height
+    uint32_t               MinimumWidth        = 320;                                         // [px]   - Minimum interactive resize width
+    uint32_t               MinimumHeight       = 200;                                         // [px]   - Minimum interactive resize height
+    uint32_t               TargetRefreshRateHz = 0;                                           // [Hz]   - 0 = monitor native refresh rate
+    uint32_t               TargetMonitorIndex  = 0;                                           // [idx]  - 0 = primary monitor
+    float                  DpiScaleFactor      = 1.0f;                                        // [-]    - Logical-to-physical pixel ratio
+    WindowPresentationMode PresentationMode    = WindowPresentationMode::Windowed;            // [-]    - Initial presentation mode
+    WindowAttributeMask    AttributeMask       = WindowAttributeMask::ApplicationPresetMask;  // [mask] - Composable window directives
 
-    [[nodiscard]] static constexpr WindowConfigurationDescriptor MakeSplashWindow(
-        std::string_view Title       = "Frontier",
-        uint32_t         SplashWidth = 720,
+    [[nodiscard]] static constexpr WindowConfigurationDescriptor ConstructSplashWindow(
+        std::string_view Title        = "Frontier",
+        uint32_t         SplashWidth  = 720,
         uint32_t         SplashHeight = 420) noexcept
     {
         WindowConfigurationDescriptor Descriptor{};
@@ -155,15 +154,15 @@ struct WindowConfigurationDescriptor
         Descriptor.MinimumWidth     = SplashWidth;
         Descriptor.MinimumHeight    = SplashHeight;
         Descriptor.PresentationMode = WindowPresentationMode::SplashBorderless;
-        Descriptor.StyleFlags       = WindowStyleFlags::DefaultSplashFlags;
+        Descriptor.AttributeMask    = WindowAttributeMask::SplashPresetMask;
         return Descriptor;
     }
 
-    [[nodiscard]] static constexpr WindowConfigurationDescriptor MakeApplicationWindow(
-        std::string_view Title          = "Frontier",
-        uint32_t         ClientWidth    = 1600,
-        uint32_t         ClientHeight   = 900,
-        bool             StartMaximized = false) noexcept
+    [[nodiscard]] static constexpr WindowConfigurationDescriptor ConstructApplicationWindow(
+        std::string_view Title                 = "Frontier",
+        uint32_t         ClientWidth           = 1600,
+        uint32_t         ClientHeight          = 900,
+        bool             EnableInitialMaximize = false) noexcept
     {
         WindowConfigurationDescriptor Descriptor{};
         Descriptor.TitleText        = Title;
@@ -171,13 +170,13 @@ struct WindowConfigurationDescriptor
         Descriptor.PixelHeight      = ClientHeight;
         Descriptor.MinimumWidth     = 960;
         Descriptor.MinimumHeight    = 540;
-        Descriptor.PresentationMode = StartMaximized ? WindowPresentationMode::MaximizedWindowed
-                                                     : WindowPresentationMode::Windowed;
-        Descriptor.StyleFlags       = WindowStyleFlags::DefaultAppFlags;
+        Descriptor.PresentationMode = EnableInitialMaximize ? WindowPresentationMode::MaximizedWindowed
+                                                            : WindowPresentationMode::Windowed;
+        Descriptor.AttributeMask    = WindowAttributeMask::ApplicationPresetMask;
         return Descriptor;
     }
 
-    [[nodiscard]] static constexpr WindowConfigurationDescriptor MakeGameWindow(
+    [[nodiscard]] static constexpr WindowConfigurationDescriptor ConstructGameWindow(
         std::string_view       Title         = "Frontier Game",
         uint32_t               SurfaceWidth  = 1920,
         uint32_t               SurfaceHeight = 1080,
@@ -192,25 +191,50 @@ struct WindowConfigurationDescriptor
         Descriptor.MinimumHeight       = 360;
         Descriptor.TargetRefreshRateHz = RefreshRateHz;
         Descriptor.PresentationMode    = Mode;
-        Descriptor.StyleFlags          = ReconcileFlagsForMode(Mode, WindowStyleFlags::DefaultGameFlags);
+        Descriptor.AttributeMask       = ReconcileAttributesForMode(Mode, WindowAttributeMask::GamePresetMask);
+        return Descriptor;
+    }
+
+    [[nodiscard]] static constexpr WindowConfigurationDescriptor ConstructDetachedPanelWindow(
+        std::string_view Title       = "Frontier Panel",
+        int32_t          PanelX      = 240,
+        int32_t          PanelY      = 160,
+        uint32_t         PanelWidth  = 460,
+        uint32_t         PanelHeight = 620) noexcept
+    {
+        WindowConfigurationDescriptor Descriptor{};
+        Descriptor.TitleText        = Title;
+        Descriptor.OriginX          = PanelX;
+        Descriptor.OriginY          = PanelY;
+        Descriptor.PixelWidth       = PanelWidth;
+        Descriptor.PixelHeight      = PanelHeight;
+        Descriptor.MinimumWidth     = 260;
+        Descriptor.MinimumHeight    = 180;
+        Descriptor.PresentationMode = WindowPresentationMode::Windowed;
+        Descriptor.AttributeMask    = WindowAttributeMask::EnableBorderDecoration |
+                                      WindowAttributeMask::EnableInteractiveResize |
+                                      WindowAttributeMask::EnableDpiScaling |
+                                      WindowAttributeMask::EnableExternalDrop |
+                                      WindowAttributeMask::EnableInitialVisibility |
+                                      WindowAttributeMask::AssignInitialFocus;
         return Descriptor;
     }
 };
 
 struct WindowExtentReading
 {
-    int32_t  OriginX           = 0;     // [px] - Current desktop X position
-    int32_t  OriginY           = 0;     // [px] - Current desktop Y position
-    uint32_t PixelWidth        = 0;     // [px] - Current client logical width
-    uint32_t PixelHeight       = 0;     // [px] - Current client logical height
-    uint32_t FramebufferWidth  = 0;     // [px] - Current physical swapchain-drawable width
-    uint32_t FramebufferHeight = 0;     // [px] - Current physical swapchain-drawable height
-    uint32_t RefreshRateHz     = 60;    // [Hz] - Active display refresh rate
-    float    DpiScaleFactor    = 1.0f;  // [-]  - Active display DPI scale factor
-    bool     Minimized         = false; // [-]  - True when iconified or zero drawable area
-    bool     Maximized         = false; // [-]  - True when occupying maximized work-area
-    bool     Focused           = true;  // [-]  - True when holding OS keyboard focus
-    bool     Visible           = true;  // [-]  - True when mapped on screen
+    int32_t  OriginX             = 0;     // [px] - Current desktop X position
+    int32_t  OriginY             = 0;     // [px] - Current desktop Y position
+    uint32_t PixelWidth          = 0;     // [px] - Current client logical width
+    uint32_t PixelHeight         = 0;     // [px] - Current client logical height
+    uint32_t DrawablePixelWidth  = 0;     // [px] - Current physical swapchain-drawable width
+    uint32_t DrawablePixelHeight = 0;     // [px] - Current physical swapchain-drawable height
+    uint32_t RefreshRateHz       = 60;    // [Hz] - Active display refresh rate
+    float    DpiScaleFactor      = 1.0f;  // [-]  - Active display DPI scale factor
+    bool     Minimized           = false; // [-]  - True when iconified or zero drawable area
+    bool     Maximized           = false; // [-]  - True when occupying maximized work-area
+    bool     Focused             = true;  // [-]  - True when holding OS keyboard focus
+    bool     Visible             = true;  // [-]  - True when mapped on screen
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -223,17 +247,17 @@ concept PlatformWindowSurface = requires(
     const WindowConfigurationDescriptor& Descriptor,
     Input::InputExtension&               InputCoordinator,
     WindowPresentationMode               Mode,
-    WindowStyleFlags                     Flags)
+    WindowAttributeMask                  Attributes)
 {
-    { Surface.Initialize(Descriptor) }                noexcept -> std::same_as<bool>;
-    { Surface.PollOperatingEvents(InputCoordinator) } noexcept -> std::same_as<void>;
-    { Surface.ApplyPresentationMode(Mode, 0u, 0u, 0u) } noexcept -> std::same_as<bool>;
-    { Surface.ApplyStyleFlags(Flags) }                noexcept -> std::same_as<bool>;
-    { Surface.Finalize() }                            noexcept -> std::same_as<void>;
-    { Surface.CloseRequested() }                      noexcept -> std::same_as<bool>;
-    { Surface.InspectExtent() }                       noexcept -> std::same_as<WindowExtentReading>;
-    { Surface.ActivePresentationMode() }              noexcept -> std::same_as<WindowPresentationMode>;
-    { Surface.ActiveStyleFlags() }                    noexcept -> std::same_as<WindowStyleFlags>;
+    { Surface.Initialize(Descriptor) }                        noexcept -> std::same_as<bool>;
+    { Surface.PollOperatingEvents(InputCoordinator) }         noexcept -> std::same_as<void>;
+    { Surface.ApplyPresentationMode(Mode, 0u, 0u, 0u) }       noexcept -> std::same_as<bool>;
+    { Surface.ApplyAttributeMask(Attributes) }                noexcept -> std::same_as<bool>;
+    { Surface.Finalize() }                                    noexcept -> std::same_as<void>;
+    { Surface.CloseRequested() }                              noexcept -> std::same_as<bool>;
+    { Surface.InspectExtent() }                               noexcept -> std::same_as<WindowExtentReading>;
+    { Surface.ActivePresentationMode() }                      noexcept -> std::same_as<WindowPresentationMode>;
+    { Surface.ActiveAttributeMask() }                         noexcept -> std::same_as<WindowAttributeMask>;
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -258,7 +282,7 @@ public:
         uint32_t               FullscreenWidth  = 0,
         uint32_t               FullscreenHeight = 0,
         uint32_t               RefreshRateHz    = 0) noexcept;
-    [[nodiscard]] bool ApplyStyleFlags(WindowStyleFlags NewFlags) noexcept;
+    [[nodiscard]] bool ApplyAttributeMask(WindowAttributeMask NewAttributes) noexcept;
     void               ApplyTitle(std::string_view NewTitle) noexcept;
     void               ApplySizeLimits(
         uint32_t MinWidth,
@@ -277,21 +301,21 @@ public:
     [[nodiscard]] WindowExtentReading          InspectExtent()           const noexcept;
     [[nodiscard]] WindowPlatformCategory       PlatformCategory()        const noexcept;
     [[nodiscard]] WindowPresentationMode       ActivePresentationMode()  const noexcept;
-    [[nodiscard]] WindowStyleFlags             ActiveStyleFlags()        const noexcept;
+    [[nodiscard]] WindowAttributeMask          ActiveAttributeMask()     const noexcept;
     [[nodiscard]] WindowPlacementBounds        SavedWindowedBounds()     const noexcept;
     [[nodiscard]] std::string_view             TitleText()               const noexcept;
     [[nodiscard]] Input::CursorConfinementMode AppliedCursorMode()       const noexcept;
     [[nodiscard]] uint32_t                     AppliedHapticPulseCount() const noexcept;
 
 private:
-    void RecomputeFramebufferExtent() noexcept;
+    void RecomputeDrawableExtent() noexcept;
 
     Input::InputExchange         PendingSyntheticExchange{};                                               // [-]     - Synthetic OS events queued for next poll
     std::string                  CaptionText          = "Frontier";                                        // [-]     - Current window caption
     WindowExtentReading          ActiveExtent{};                                                           // [px]    - Current simulated surface metrics
     WindowPlacementBounds        RestorableBounds{};                                                       // [px]    - Last windowed position/size before fullscreen
-    WindowStyleFlags             AuthoringFlags       = WindowStyleFlags::DefaultAppFlags;                 // [mask]  - Windowed base flags restored on exit fullscreen
-    WindowStyleFlags             EffectiveFlags       = WindowStyleFlags::DefaultAppFlags;                 // [mask]  - Active flags reconciled with presentation mode
+    WindowAttributeMask          WindowedAttributes   = WindowAttributeMask::ApplicationPresetMask;        // [mask]  - Windowed base attributes restored on exit
+    WindowAttributeMask          EffectiveAttributes  = WindowAttributeMask::ApplicationPresetMask;        // [mask]  - Active attributes reconciled with mode
     WindowPresentationMode       CurrentMode          = WindowPresentationMode::Windowed;                  // [-]     - Current presentation mode
     uint32_t                     MinWidthLimit        = 1;                                                 // [px]    - Minimum resize clamp width
     uint32_t                     MinHeightLimit       = 1;                                                 // [px]    - Minimum resize clamp height
@@ -336,7 +360,7 @@ public:
         uint32_t               FullscreenWidth  = 0,
         uint32_t               FullscreenHeight = 0,
         uint32_t               RefreshRateHz    = 0) noexcept;
-    [[nodiscard]] bool ApplyStyleFlags(WindowStyleFlags NewFlags) noexcept;
+    [[nodiscard]] bool ApplyAttributeMask(WindowAttributeMask NewAttributes) noexcept;
     void               ApplyTitle(std::string_view NewTitle) noexcept;
     void               ApplySizeLimits(
         uint32_t MinWidth,
@@ -354,7 +378,7 @@ public:
     [[nodiscard]] WindowExtentReading          InspectExtent()           const noexcept;
     [[nodiscard]] WindowPlatformCategory       PlatformCategory()        const noexcept;
     [[nodiscard]] WindowPresentationMode       ActivePresentationMode()  const noexcept;
-    [[nodiscard]] WindowStyleFlags             ActiveStyleFlags()        const noexcept;
+    [[nodiscard]] WindowAttributeMask          ActiveAttributeMask()     const noexcept;
     [[nodiscard]] WindowPlacementBounds        SavedWindowedBounds()     const noexcept;
     [[nodiscard]] std::string_view             TitleText()               const noexcept;
     [[nodiscard]] Input::CursorConfinementMode AppliedCursorMode()       const noexcept;
@@ -367,12 +391,12 @@ private:
     void*                        GlfwWindowHandle     = nullptr;                                           // [-]     - Opaque GLFWwindow* instance
     Input::InputExchange         CallbackExchange{};                                                       // [-]     - OS callback events buffered until next poll
     std::string                  CaptionText          = "Frontier";                                        // [-]     - Current window caption
-    WindowExtentReading          ActiveExtent{};                                                           // [px]    - Latest queried window & framebuffer dimensions
+    WindowExtentReading          ActiveExtent{};                                                           // [px]    - Latest queried window & drawable dimensions
     WindowPlacementBounds        RestorableBounds{};                                                       // [px]    - Saved windowed placement prior to fullscreen
-    WindowStyleFlags             AuthoringFlags       = WindowStyleFlags::DefaultAppFlags;                 // [mask]  - Windowed base flags restored on exit fullscreen
-    WindowStyleFlags             EffectiveFlags       = WindowStyleFlags::DefaultAppFlags;                 // [mask]  - Active flags reconciled with presentation mode
+    WindowAttributeMask          WindowedAttributes   = WindowAttributeMask::ApplicationPresetMask;        // [mask]  - Windowed base attributes restored on exit
+    WindowAttributeMask          EffectiveAttributes  = WindowAttributeMask::ApplicationPresetMask;        // [mask]  - Active attributes reconciled with mode
     WindowPresentationMode       CurrentMode          = WindowPresentationMode::Windowed;                  // [-]     - Current presentation mode
-    WindowPlatformCategory       ActiveBackend        = WindowPlatformCategory::HeadlessStub;              // [-]     - Resolved runtime backend (Win32/X11/Wayland/Null)
+    WindowPlatformCategory       SelectedPlatform     = WindowPlatformCategory::HeadlessStub;              // [-]     - Resolved runtime platform (Win32/X11/Wayland/Null)
     uint32_t                     TargetMonitorSlot    = 0;                                                 // [idx]   - Selected monitor index
     uint32_t                     MinWidthLimit        = 1;                                                 // [px]    - Minimum resize clamp width
     uint32_t                     MinHeightLimit       = 1;                                                 // [px]    - Minimum resize clamp height

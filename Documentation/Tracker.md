@@ -11,8 +11,8 @@ Deferred items live in [Backlog.md](Backlog.md); architectural invariants live i
 | Phase | Milestone | Status | Primary Domains |
 | ----- | --------- | ------ | --------------- |
 | **Phase 0** | Governance, Pinned Dependencies, ImGui Patch Stack & CMake Profiles | 🟢 Complete | `Documentation/` · `Automation/` · `ExternalPackages/` · `Engine/Configuration/` |
-| **Phase 1** | **Input Foundation & Cross-Platform Windowing** | 🟢 Groundwork Active | `Engine/Input/` · `Engine/Windowing/` · `Exhibits/` |
-| **Phase 2** | **Editor & Multi-Document Workspace Groundwork** | 🚩 Next | `Engine/Workspaces/` · `Engine/Editor/` · `Engine/Components/` |
+| **Phase 1** | **Input Foundation & Cross-Platform Windowing** | 🟢 Complete | `Engine/Input/` · `Engine/Windowing/` · `Exhibits/` |
+| **Phase 2** | **Shared UI Components & Multi-Document Workspace Groundwork** | 🟢 Active | `Engine/Components/` · `Engine/Workspaces/` · `Engine/Editor/` |
 | **Phase 3** | **`.slang` Shader Compiler, GPU Device Interface & GPU Viewport Overlays** | 🏳️ Planned | `Engine/GeometricRaster/` · `Engine/Shaders/` · `Engine/Annotation/` · `Engine/Editor/Viewports/` |
 | **Phase 4** | **Geometry Processing, UV Space, Color Space & Asset Interchange** | 🏳️ Planned | `Engine/MetricSpace/` · `Engine/GeometryProcessing/` · `Engine/UVSpace/` · `Engine/ColorSpace/` · `Engine/Interchange/` |
 | **Phase 5** | **Simulation, Audio & Networking Spaces** | 🏳️ Planned | `Engine/SimulationSpace/` · `Engine/AudioSpace/` · `Engine/NetworkingSpace/` |
@@ -42,11 +42,14 @@ Starting focus agreed with user: **`Input/` + `Editor/` groundwork**.
    - Bi-directional fixed-capacity deterministic exchange (`InputExchange`) covering both OS→Engine signal intake (`InputSignalSink`) and Engine→OS cursor confinement & haptic rumble directives (`InputFeedbackTarget`) with zero heap churn per tick.
    - Lifecycle coordination via `InputExtension` (`Initialize` → `TickExchange` / `FlushOutboundDirectives` → `Finalize`).
 3. **`Engine/Windowing/PlatformWindow.h`, `PlatformWindowDesktop.cpp` & `PlatformWindowStub.cpp`**:
-   - Composable `WindowStyleFlags` (`DecoratedFrame`, `ResizableBorder`, `CenteredOnMonitor`, `FloatingTopmost`, `AutoMinimizeFocus`, `HighDpiScale`, `TransparentClient`, `AcceptFileDrops`, `StartVisible`, `FocusOnShow`), `WindowPresentationMode` (`SplashBorderless`, `Windowed`, `MaximizedWindowed`, `BorderlessFullscreen`, `ExclusiveFullscreen`), application presets (`MakeSplashWindow`, `MakeApplicationWindow`, `MakeGameWindow`), and dynamic runtime transitions restoring saved windowed bounds across GLFW 3.4 (`Win32`, `X11`, `Wayland`, `GlfwNull`) and `HeadlessPlatformWindow`.
-4. **Validation (`Exhibits/InputValidation.cpp` & `Exhibits/WindowValidation.cpp`)**:
-   - Deterministic CTest verification across `Editor`, `Development`, and `Shipping` profiles covering inbound peripheral/multi-touch intake, outbound cursor-lock / haptic directive delivery, splash/windowed/maximized creation, and dynamic game fullscreen transitions.
-5. **Reference Editor UIs & Studio Prototypes (`Experimental/`)**:
-   - Staged `FrontierEditor` (`c0aaab6`), `ProjectZeroEditor` (`186a7b8`), and 8 domain studios (`FluidEditor`, `FractureEditor`, `ParticleEditor`, `PhotometricEditor`, `ForceFieldEditor`, `VehicleLab`, `UVEditor`, `TextureStudio`) under `Experimental/` as UI component & solver specifications for `Engine/Components/`, `Engine/Workspaces/`, and `Engine/Editor/`.
+   - Composable `WindowAttributeMask` (`EnableBorderDecoration`, `EnableInteractiveResize`, `AssignMonitorCenter`, `EnableTopmostOrder`, `EnableFocusMinimize`, `EnableDpiScaling`, `EnableAlphaCompositing`, `EnableExternalDrop`, `EnableInitialVisibility`, `AssignInitialFocus`), `WindowPresentationMode` (`SplashBorderless`, `Windowed`, `MaximizedWindowed`, `BorderlessFullscreen`, `ExclusiveFullscreen`), application presets (`ConstructSplashWindow`, `ConstructApplicationWindow`, `ConstructGameWindow`, `ConstructDetachedPanelWindow`), and dynamic runtime transitions restoring saved windowed bounds across GLFW 3.4 (`Win32`, `X11`, `Wayland`, `GlfwNull`) and `HeadlessPlatformWindow`.
+4. **`Engine/Components/Docking/TrapezoidalTabProfile.{h,cpp}` & `DockingPanel.{h,cpp}`**:
+   - Shared Project-Zero trapezoidal tab silhouette (`PatchA`–`PatchH` `TabSlant`, `TabOverlap`, `TabHeight`, `TabStripPadTop`, `TabButtonRounding`, adjacent `+` disc, upright & inverted notches, DM Sans `1.302` CSS-to-ImGui scale).
+   - `TrapezoidalDockCoordinator<WindowSurfaceType>` enforcing: (1) docking to any window within the application, (2) undocking into a standalone OS `PlatformWindow`, and (3) strict `ApplicationDockDomainToken` + `ImGuiWindowClass` intra-application boundary enforcement.
+5. **Validation & Visual Proofs (`Exhibits/{Input,Window,Docking}Validation.cpp` + `Exhibits/Images/`)**:
+   - Deterministic CTest verification across `Editor`, `Development`, and `Shipping` profiles with CPU-rasterized `.png` visual proofs emitted under `Exhibits/Images/{Input,Windowing,Docking}/`.
+6. **HTML-Only Reference Editor UIs & Studio Prototypes (`Experimental/`)**:
+   - Staged HTML/JS `ProjectZeroEditor` (with embedded render in `Experimental/ProjectZeroEditor/README.md`), HTML/Vite `FrontierEditor` (`arena/f3437631-frontier`), and 8 domain studios (`FluidEditor`, `FractureEditor`, `ParticleEditor`, `PhotometricEditor`, `ForceFieldEditor`, `VehicleLab`, `UVEditor`, `TextureStudio`) under `Experimental/` (zero C++).
 
 ---
 

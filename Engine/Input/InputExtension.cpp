@@ -89,7 +89,7 @@ std::size_t InputExtension::TickExchange() noexcept
     {
         InputExtension* Self;
 
-        void AcceptInputSignal(const InputSignalPacket& Packet) noexcept
+        void IntakeSignalPacket(const InputSignalPacket& Packet) noexcept
         {
             Self->ApplyPacketToSnapshot(Packet);
         }

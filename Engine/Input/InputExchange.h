@@ -101,7 +101,7 @@ static_assert(sizeof(HapticFeedbackDirective) == 16, "HapticFeedbackDirective si
 template <typename ReceiverType>
 concept InputSignalSink = requires(ReceiverType& Receiver, const InputSignalPacket& Packet)
 {
-    { Receiver.AcceptInputSignal(Packet) } noexcept -> std::same_as<void>;
+    { Receiver.IntakeSignalPacket(Packet) } noexcept -> std::same_as<void>;
 };
 
 template <typename FeedbackReceiverType>
@@ -182,7 +182,7 @@ std::size_t InputExchange::DrainSignals(SinkType&& DestinationSink) noexcept
     const std::size_t ToDrainCount = QueuedSignals;
     for (std::size_t StepIndex = 0; StepIndex < ToDrainCount; ++StepIndex)
     {
-        DestinationSink.AcceptInputSignal(SignalRing[SignalReadCursor]);
+        DestinationSink.IntakeSignalPacket(SignalRing[SignalReadCursor]);
         SignalReadCursor = (SignalReadCursor + 1) & (DefaultSignalQueueCapacity - 1);
     }
 

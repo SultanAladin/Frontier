@@ -59,3 +59,15 @@ Reference repository: `https://github.com/egoistm1inbox/Frontier-OLD/tree/arena/
 - **`FRONTIER_PROFILE_EDITOR`** (`-DFRONTIER_PROFILE=Editor`): Compiles and links `Engine/Editor/`, authoring workspaces, inspectors, console, and GPU `.slang` overlays. Runs directly from the build tree without packaging.
 - **`FRONTIER_PROFILE_DEVELOPMENT`** (`-DFRONTIER_PROFILE=Development`): Standalone project runtime with developer compile flags, assertions, profiler, and GPU debug annotations active, while `Engine/Editor/` is unlinked. Runs directly against loose project content **without binary packaging or CI workflows**.
 - **`FRONTIER_PROFILE_SHIPPING`** (`-DFRONTIER_PROFILE=Shipping`): Production release binary (`Engine/Editor/` excluded at CMake target level, assertions/diagnostics/annotations stripped, full optimizations enabled). Produces packaged standalone binary archives and gates release GitHub Actions (which require explicit user approval before triggering).
+
+---
+
+## 🔴 6. MANDATORY `Exhibits/Images/` VISUAL PROOFS & HTML-ONLY `Experimental/` POLICY (2026-11-10)
+
+- **Every `Exhibits/` Target Produces `.png` Visual Proofs**:
+  - When an `Exhibits/*Validation` executable runs, it **MUST** write deterministic `.png` visual proof images into `Exhibits/Images/<Domain>/` — either a CPU software mirror of the UI/window/surface or a visual comparison/telemetry chart showing exactly what the user would see when running it.
+  - **"It compiles" is never proof, and OS/GPU excuses are forbidden**: Never tell the user that a visual proof cannot be rendered because the environment is Linux rather than Windows or lacks a hardware GPU. Always render the visual proof on CPU / SwiftShader and present the resulting `.png` image(s).
+  - Note the strict separation: **Engine runtime & Editor viewports** draw overlays 100% on GPU via `.slang` (§1), whereas **`Exhibits/` headless verification binaries** include a self-contained CPU rasterizer / image encoder solely to emit `.png` visual proofs into `Exhibits/Images/<Domain>/`.
+- **`Experimental/` Holds HTML/JS Reference Prototypes Only (Zero C++)**:
+  - All prototypes under `Experimental/` are browser HTML/JS/CSS specifications; native C++20 implementations belong exclusively in `Engine/` and `Exhibits/`.
+  - **`Experimental/ProjectZeroEditor/`** is the starting visual & structural reference for shared UI components (`Engine/Components/`). Note DM Sans metrics when rasterizing in ImGui: CSS `font-size` scales the `1000 em` box while ImGui scales `ascent - descent`, requiring a `1.302` multiplier (`hhea` ascent `992`, descent `-310`) so ImGui text matches browser pixel sizing.

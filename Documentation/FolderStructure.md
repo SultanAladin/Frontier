@@ -15,8 +15,8 @@ For identifier, file, folder, and comment naming rules enforced across the repos
 | `EngineContent/` | Engine default stock assets, vector icons, font archives, PBR material definitions, worlds, and graphics archives. |
 | `EngineDocs/` | Authoritative architectural guides and deep domain references. |
 | `Documentation/` | Repository governance, `AgenticInstructions/`, `FolderStructure.md`, `BannedWordsVocabulary.md`, `CodingStandards.md`, `ImportantNotes.md`, `Backlog.md`, and `Tracker.md`. |
-| `Exhibits/` | Validation executables (`*Validation`), benchmarks, and `EditorMirror` verification targets. |
-| `Experimental/` | Reference web/GPU studios (`FluidEditor`, `FractureEditor`, `ParticleEditor`, `PhotometricEditor`, `ForceFieldEditor`, `VehicleLab`, `UVEditor`, `TextureStudio`) staged for native C++20 + `.slang` conversion. |
+| `Exhibits/` | Validation executables (`*Validation`), `Images/` CPU-rendered `.png` visual proofs, and `EditorMirror` verification targets. |
+| `Experimental/` | HTML/JS-only reference editor UIs (`ProjectZeroEditor`, `FrontierEditor`) and domain studios (`FluidEditor`, `FractureEditor`, `ParticleEditor`, `PhotometricEditor`, `ForceFieldEditor`, `VehicleLab`, `UVEditor`, `TextureStudio`) staged for native C++20 + `.slang` conversion. |
 | `Automation/` | Dependency pinning (`Dependencies.json`), ImGui 8-patch stack (`Patches/`), `.slang` toolchain setup, CMake modules, and binary packaging. |
 | `ExternalPackages/` | Checksum-verified third-party packages (`imgui`, `thorvg`, `tomlpp`, `glfw`, `vulkan-headers`, `volk`, `stb`, `JoltPhysics`, `VulkanCompute/`). Git-ignored; populated by `Automation/`. |
 | `_ClaudeScratch/` | Ignored local scratchpad and transient planning notes (excluded from version control). |
@@ -56,13 +56,16 @@ Frontier/
 │   ├── Backlog.md                             // Deferred engineering items ledger
 │   └── Tracker.md                             // Active milestone roadmap & bringup status
 │
-├── Exhibits/                                  // Validation test suites, benches, and EditorMirror
+├── Exhibits/                                  // Validation test suites, visual proofs, and EditorMirror
+│   ├── Images/                                // CPU-rendered .png visual proofs for every validation
+│   ├── VisualProofRasterizer.h                // CPU ImDrawData & RGBA8 PNG visual proof encoder
 │   ├── InputValidation.cpp                    // Deterministic Input & BuildConfiguration verification
-│   └── WindowValidation.cpp                   // Splash, windowed, maximized & fullscreen mode verification
+│   ├── WindowValidation.cpp                   // Splash, windowed, maximized & fullscreen mode verification
+│   └── DockingValidation.cpp                  // Trapezoidal multi-window & intra-app docking verification
 │
-├── Experimental/                              // Reference studios & UIs staged for C++20 conversion
-│   ├── FrontierEditor/                        // Native C++ dockspace, Notch, Outliner & theme UI (c0aaab6)
-│   ├── ProjectZeroEditor/                     // Project-Zero editor shell, Notch, Outliner & inspectors
+├── Experimental/                              // HTML/JS reference UIs & studios for C++20 conversion
+│   ├── FrontierEditor/                        // Initial HTML/Vite scene inspector, CAD & icon lab UI
+│   ├── ProjectZeroEditor/                     // Canonical Project-Zero UI reference + README render
 │   ├── FluidEditor/                           // Gas, plume, combustion, and vortex solver prototype
 │   ├── FractureEditor/                        // Voronoi, convex partition, SDF, and debris prototype
 │   ├── ParticleEditor/                        // GPU compute particle, fibre, and lightning studio
@@ -287,6 +290,9 @@ Frontier/
     │       └── GPUCaptureRecorder.{h,cpp}     // RenderDoc / PIX programmatic capture recorder
     │
     ├── Components/                            // Reusable UI controls and presentation panels
+    │   ├── Docking/                           // Shared trapezoidal docking panels & multi-window host
+    │   │   ├── TrapezoidalTabProfile.{h,cpp}  // Sloped tab & notch contours + patched ImGui theme
+    │   │   └── DockingPanel.{h,cpp}           // Intra-app multi-window docking & OS window tear-off
     │   ├── PropertyPanels/
     │   │   ├── PropertyPanelBase.{h,cpp}      // Root panel for attribute inspectors
     │   │   └── AttributeReflector.{h,cpp}     // Type-to-control generator
@@ -345,3 +351,4 @@ Frontier/
 2. **100% GPU `.slang` Viewport Overlays**: Grids (`NavigationOverlay`), gizmos (`TransformGizmo`), and debug shapes/lines (`Engine/Annotation/*`) render exclusively on the GPU via `.slang` shaders — never on CPU and never via ImGui draw lists.
 3. **Cross-Platform Portability**: All `Engine/` modules target **Windows**, **Linux (X11/Wayland)**, **Android (NDK)**, and **Headless (`PlatformWindowStub`)**.
 4. **Project & Archive Isolation**: Concrete user titles reside under `Projects/<ProjectName>/`, stock archives reside under `EngineContent/`, and checksummed third-party libraries reside under git-ignored `ExternalPackages/`.
+5. **Mandatory `Exhibits/Images/` Visual Proofs**: Every `Exhibits/*Validation` target renders deterministic CPU `.png` visual proofs into `Exhibits/Images/<Domain>/` demonstrating the runtime behavior without hardware GPU or host OS preconditions.

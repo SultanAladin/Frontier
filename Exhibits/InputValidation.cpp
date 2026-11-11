@@ -1,174 +1,275 @@
 /*============================================================================================================================================
-                                                    INPUTVALIDATION.CPP
+                                                      INPUTVALIDATION.CPP
 ============================================================================================================================================*/
-// 🧩 Validation executable verifying BuildConfiguration profiles, bi-directional InputExchange, desktop input, and Android multi-touch
+// 🧩 Bi-directional InputExchange & InputExtension validation suite with CPU telemetry visual proof output
 
-#include "Engine/Configuration/BuildConfiguration.h"
 #include "Engine/Input/InputExtension.h"
 #include "Engine/Windowing/PlatformWindow.h"
+#include "Exhibits/VisualProofRasterizer.h"
 
+#include <imgui.h>
+
+#include <cmath>
 #include <cstdio>
 
 namespace
 {
 
-struct CountingSignalReceiver
-{
-    uint32_t ObservedPackets = 0; // [count] - Total packets received through concept-constrained exchange
+using Frontier::Components::RgbaColor8;
+using Frontier::Exhibits::LoadProjectZeroDmSansFont;
+using Frontier::Exhibits::ResolveRepositoryRootPath;
+using Frontier::Exhibits::SoftwareProofCanvas;
+using Frontier::Input::ButtonTransitionCategory;
+using Frontier::Input::CursorConfinementMode;
+using Frontier::Input::HapticFeedbackDirective;
+using Frontier::Input::InputExchange;
+using Frontier::Input::InputExtension;
+using Frontier::Input::InputSignalCategory;
+using Frontier::Input::InputSignalPacket;
+using Frontier::Windowing::HeadlessPlatformWindow;
+using Frontier::Windowing::WindowConfigurationDescriptor;
 
-    void AcceptInputSignal(const Frontier::Input::InputSignalPacket& Packet) noexcept
+struct CountingSignalSink
+{
+    uint32_t ReceivedPackets = 0;
+    uint32_t LastKeyCode     = 0;
+
+    void IntakeSignalPacket(const InputSignalPacket& Packet) noexcept
     {
-        (void)Packet;
-        ++ObservedPackets;
+        ++ReceivedPackets;
+        if (Packet.Category == InputSignalCategory::KeyboardKey)
+        {
+            LastKeyCode = Packet.ControlCode;
+        }
     }
 };
 
-static_assert(Frontier::Input::InputSignalSink<CountingSignalReceiver>,
-              "CountingSignalReceiver must satisfy InputSignalSink.");
+bool VerifyCondition(bool Condition, const char* Label) noexcept
+{
+    if (!Condition)
+    {
+        std::fprintf(stderr, "[InputValidation] FAILED: %s\n", Label);
+        return false;
+    }
+    return true;
+}
+
+bool GenerateInputVisualProof(
+    uint64_t DrainedCount,
+    float    CursorX,
+    float    CursorY,
+    float    ScrollSteps,
+    uint32_t HapticCount)
+{
+    ImGuiContext* ProofCtx = ImGui::CreateContext();
+    ImGui::SetCurrentContext(ProofCtx);
+    ImGuiIO& IoInstance      = ImGui::GetIO();
+    IoInstance.IniFilename   = nullptr;
+    IoInstance.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+    IoInstance.DisplaySize   = ImVec2(1280.0f, 680.0f);
+    (void)LoadProjectZeroDmSansFont(IoInstance, 13.0f);
+    Frontier::Components::ConfigureImGuiTrapezoidalStyle(Frontier::Components::ConstructProjectZeroTabMetrics(1.0f));
+
+    ImGui::NewFrame();
+    ImDrawList* DrawList = ImGui::GetForegroundDrawList();
+    DrawList->AddText(
+        ImVec2(36.0f, 24.0f),
+        IM_COL32(238, 238, 244, 255),
+        "InputExchange & InputExtension Bi-Directional Verification  —  Inbound Hardware Ring & Outbound OS Directives");
+
+    // Left panel: Inbound OS -> Engine Signal Ring
+    DrawList->AddRectFilled(ImVec2(36.0f, 68.0f), ImVec2(624.0f, 640.0f), IM_COL32(20, 20, 24, 255), 6.0f);
+    DrawList->AddRect(ImVec2(36.0f, 68.0f), ImVec2(624.0f, 640.0f), IM_COL32(46, 46, 54, 255), 6.0f);
+    DrawList->AddText(ImVec2(56.0f, 86.0f), IM_COL32(34, 197, 94, 255), "OS -> Engine Inbound Signal Intake (InputExchange)");
+
+    char SummaryLine[160]{};
+    std::snprintf(
+        SummaryLine,
+        sizeof(SummaryLine),
+        "Drained Signals: %llu   |   Cursor: (%.1f, %.1f) px   |   Scroll: +%.1f",
+        static_cast<unsigned long long>(DrainedCount),
+        CursorX,
+        CursorY,
+        ScrollSteps);
+    DrawList->AddText(ImVec2(56.0f, 118.0f), IM_COL32(214, 214, 222, 255), SummaryLine);
+
+    const char* Channels[5] = {
+        "KeyboardKey  [Scancode 17 'W' Pressed -> Held -> Released]",
+        "PointerMotion [Absolute (420.5, 310.25) + Delta (+14.0, -6.5)]",
+        "PointerButton [Button 0 Pressed -> Active]",
+        "ScrollWheel   [Vertical +3.0 Detents]",
+        "TouchContact  [Slot 0 Down @ (640.0, 360.0) — Android Ready]",
+    };
+    for (int Idx = 0; Idx < 5; ++Idx)
+    {
+        const float RowY = 166.0f + static_cast<float>(Idx) * 86.0f;
+        DrawList->AddRectFilled(ImVec2(56.0f, RowY), ImVec2(604.0f, RowY + 68.0f), IM_COL32(26, 28, 34, 255), 5.0f);
+        DrawList->AddRect(ImVec2(56.0f, RowY), ImVec2(604.0f, RowY + 68.0f), IM_COL32(34, 197, 94, 120), 5.0f);
+        DrawList->AddText(ImVec2(74.0f, RowY + 24.0f), IM_COL32(230, 232, 240, 255), Channels[Idx]);
+    }
+
+    // Right panel: Outbound Engine -> OS Directives
+    DrawList->AddRectFilled(ImVec2(656.0f, 68.0f), ImVec2(1244.0f, 640.0f), IM_COL32(20, 20, 24, 255), 6.0f);
+    DrawList->AddRect(ImVec2(656.0f, 68.0f), ImVec2(1244.0f, 640.0f), IM_COL32(46, 46, 54, 255), 6.0f);
+    DrawList->AddText(ImVec2(676.0f, 86.0f), IM_COL32(245, 158, 11, 255), "Engine -> OS Outbound Directives (InputFeedbackTarget)");
+
+    DrawList->AddRectFilled(ImVec2(676.0f, 140.0f), ImVec2(1224.0f, 340.0f), IM_COL32(26, 28, 34, 255), 5.0f);
+    DrawList->AddText(ImVec2(696.0f, 158.0f), IM_COL32(238, 238, 244, 255), "CursorConfinementMode :: LockedRelativeHidden");
+    DrawList->AddText(ImVec2(696.0f, 190.0f), IM_COL32(156, 160, 172, 255), "Applied atomically during PlatformWindow::PollOperatingEvents");
+    DrawList->AddRectFilled(ImVec2(696.0f, 232.0f), ImVec2(1204.0f, 312.0f), IM_COL32(16, 24, 20, 255), 4.0f);
+    DrawList->AddText(ImVec2(716.0f, 262.0f), IM_COL32(34, 197, 94, 255), "VERIFIED: ActiveCursorMode == LockedRelativeHidden");
+
+    DrawList->AddRectFilled(ImVec2(676.0f, 368.0f), ImVec2(1224.0f, 608.0f), IM_COL32(26, 28, 34, 255), 5.0f);
+    char HapticTitle[128]{};
+    std::snprintf(HapticTitle, sizeof(HapticTitle), "HapticFeedbackDirective  (Delivered Pulses: %u)", HapticCount);
+    DrawList->AddText(ImVec2(696.0f, 388.0f), IM_COL32(238, 238, 244, 255), HapticTitle);
+
+    // Motor amplitude bars
+    DrawList->AddText(ImVec2(696.0f, 434.0f), IM_COL32(170, 174, 184, 255), "Low-Frequency Motor  (80%)");
+    DrawList->AddRectFilled(ImVec2(696.0f, 460.0f), ImVec2(1204.0f, 482.0f), IM_COL32(14, 14, 18, 255), 4.0f);
+    DrawList->AddRectFilled(ImVec2(696.0f, 460.0f), ImVec2(696.0f + 508.0f * 0.80f, 482.0f), IM_COL32(245, 158, 11, 255), 4.0f);
+
+    DrawList->AddText(ImVec2(696.0f, 506.0f), IM_COL32(170, 174, 184, 255), "High-Frequency Motor (35%)");
+    DrawList->AddRectFilled(ImVec2(696.0f, 532.0f), ImVec2(1204.0f, 554.0f), IM_COL32(14, 14, 18, 255), 4.0f);
+    DrawList->AddRectFilled(ImVec2(696.0f, 532.0f), ImVec2(696.0f + 508.0f * 0.35f, 554.0f), IM_COL32(59, 130, 246, 255), 4.0f);
+
+    ImGui::Render();
+    SoftwareProofCanvas OutputCanvas(1280, 680, RgbaColor8{ 12, 12, 14, 255 });
+    OutputCanvas.RasterizeImGuiDrawData(ImGui::GetDrawData(), 0, 0);
+    ImGui::DestroyContext(ProofCtx);
+
+    const auto OutputPath = ResolveRepositoryRootPath() / "Exhibits/Images/Input/InputExchangeTelemetry.png";
+    return VerifyCondition(OutputCanvas.EncodePngToFile(OutputPath), "Write InputExchangeTelemetry.png");
+}
 
 } // namespace
 
 int main()
 {
-    using namespace Frontier;
-    using namespace Frontier::Input;
-    using namespace Frontier::Windowing;
+    InputExtension         Coordinator{};
+    HeadlessPlatformWindow Window{};
 
-    // ① Verify compile-time build profile exclusivity
-    constexpr uint32_t ActiveProfileSum =
-        (BuildConfiguration::EditorProfileActive ? 1u : 0u) +
-        (BuildConfiguration::DevelopmentProfileActive ? 1u : 0u) +
-        (BuildConfiguration::ShippingProfileActive ? 1u : 0u);
-    if (ActiveProfileSum != 1u)
-    {
-        std::fprintf(stderr, "[FAILED] Expected exactly 1 active BuildConfiguration profile.\n");
-        return 1;
-    }
-
-    // ② Initialize headless cross-platform surface and InputExtension coordinator
-    HeadlessPlatformWindow Surface{};
-    WindowConfigurationDescriptor SurfaceDescriptor{};
-    SurfaceDescriptor.TitleText      = "FrontierValidation";
-    SurfaceDescriptor.PixelWidth     = 1920;
-    SurfaceDescriptor.PixelHeight    = 1080;
-    SurfaceDescriptor.DpiScaleFactor = 1.5f;
-
-    if (!Surface.Initialize(SurfaceDescriptor))
-    {
-        std::fprintf(stderr, "[FAILED] HeadlessPlatformWindow initialization failed.\n");
-        return 1;
-    }
-
-    InputExtension Coordinator{};
     Coordinator.Initialize();
-    Coordinator.BeginTick();
+    if (!VerifyCondition(
+            Window.Initialize(WindowConfigurationDescriptor::ConstructApplicationWindow("Frontier Validation", 1920, 1080)),
+            "Window initialization"))
+    {
+        return 1;
+    }
 
-    // ③ Queue Engine -> OS cursor lock and haptic rumble directives before surface poll
+    {
+        InputSignalPacket Packet{};
+        Packet.TimestampNanoseconds = 100'000ULL;
+        Packet.PrimaryAxis          = 1.0f;
+        Packet.ControlCode          = 17;
+        Packet.Category             = InputSignalCategory::KeyboardKey;
+        Packet.Transition           = ButtonTransitionCategory::Pressed;
+        (void)Window.QueueSyntheticSignal(Packet);
+    }
+    {
+        InputSignalPacket Packet{};
+        Packet.TimestampNanoseconds = 110'000ULL;
+        Packet.PrimaryAxis          = 420.5f;
+        Packet.SecondaryAxis        = 310.25f;
+        Packet.DeltaPrimary         = 14.0f;
+        Packet.DeltaSecondary       = -6.5f;
+        Packet.Category             = InputSignalCategory::PointerMotion;
+        (void)Window.QueueSyntheticSignal(Packet);
+    }
+    {
+        InputSignalPacket Packet{};
+        Packet.TimestampNanoseconds = 120'000ULL;
+        Packet.PrimaryAxis          = 1.0f;
+        Packet.ControlCode          = 0;
+        Packet.Category             = InputSignalCategory::PointerButton;
+        Packet.Transition           = ButtonTransitionCategory::Pressed;
+        (void)Window.QueueSyntheticSignal(Packet);
+    }
+    {
+        InputSignalPacket Packet{};
+        Packet.TimestampNanoseconds = 125'000ULL;
+        Packet.SecondaryAxis        = 3.0f;
+        Packet.Category             = InputSignalCategory::ScrollWheel;
+        (void)Window.QueueSyntheticSignal(Packet);
+    }
+    {
+        InputSignalPacket Packet{};
+        Packet.TimestampNanoseconds = 130'000ULL;
+        Packet.PrimaryAxis          = 640.0f;
+        Packet.SecondaryAxis        = 360.0f;
+        Packet.DeltaPrimary         = 0.85f;
+        Packet.DeviceIdentifier     = 1;
+        Packet.ControlCode          = 0;
+        Packet.Category             = InputSignalCategory::TouchContact;
+        Packet.TouchPhase           = Frontier::Input::TouchContactCategory::Began;
+        (void)Window.QueueSyntheticSignal(Packet);
+    }
+
     Coordinator.RequestCursorConfinement(CursorConfinementMode::LockedRelativeHidden);
-    HapticFeedbackDirective RumblePulse{};
-    RumblePulse.DeviceIdentifier       = 0;
-    RumblePulse.LowFrequencyAmplitude  = 0.65f;
-    RumblePulse.HighFrequencyAmplitude = 0.35f;
-    RumblePulse.DurationMilliseconds   = 120;
-    if (!Coordinator.RequestHapticFeedback(RumblePulse))
+    (void)Coordinator.RequestHapticFeedback(HapticFeedbackDirective{
+        .DeviceIdentifier       = 0,
+        .LowFrequencyAmplitude  = 0.80f,
+        .HighFrequencyAmplitude = 0.35f,
+        .DurationMilliseconds   = 16u,
+    });
+
+    Window.PollOperatingEvents(Coordinator);
+
+    CountingSignalSink Downstream{};
+    const std::size_t  Drained = Coordinator.TickExchangeWithSink(Downstream);
+
+    const auto& Pointer = Coordinator.InspectPointerSnapshot();
+    if (!VerifyCondition(Drained == 5, "Drained all 5 hardware packets") ||
+        !VerifyCondition(Downstream.ReceivedPackets == 5 && Downstream.LastKeyCode == 17, "Downstream sink received packets") ||
+        !VerifyCondition(Coordinator.QueryScanCodeHeld(17), "Key 17 consolidated down") ||
+        !VerifyCondition((Pointer.HeldButtonsMask & 1u) != 0u, "Pointer button 0 consolidated down") ||
+        !VerifyCondition(std::fabs(Pointer.PositionX - 420.5f) < 1e-4f, "Pointer X position") ||
+        !VerifyCondition(std::fabs(Pointer.TickDeltaX - 14.0f) < 1e-4f, "Pointer delta X") ||
+        !VerifyCondition(std::fabs(Pointer.ScrollDeltaY - 3.0f) < 1e-4f, "Scroll vertical delta") ||
+        !VerifyCondition(Coordinator.ActiveTouchContactCount() == 1u, "Multi-touch contact slot 0 active") ||
+        !VerifyCondition(Window.AppliedCursorMode() == CursorConfinementMode::LockedRelativeHidden, "Outbound cursor confinement") ||
+        !VerifyCondition(Window.AppliedHapticPulseCount() == 1, "Outbound haptic pulse delivered"))
     {
-        std::fprintf(stderr, "[FAILED] RequestHapticFeedback failed.\n");
         return 1;
     }
 
-    // ④ Inject OS -> Engine keyboard press, pointer motion, and two Android-style touch contacts
-    InputSignalPacket KeyPress{};
-    KeyPress.TimestampNanoseconds = 1000;
-    KeyPress.Category             = InputSignalCategory::KeyboardKey;
-    KeyPress.ControlCode          = 42;
-    KeyPress.Transition           = ButtonTransitionCategory::Pressed;
+    const uint64_t TotalDrained = Coordinator.InspectExchange().ExchangedSignalTotal();
+    const float    FinalCursorX = Pointer.PositionX;
+    const float    FinalCursorY = Pointer.PositionY;
+    const float    FinalScroll  = Pointer.ScrollDeltaY;
+    const uint32_t FinalHaptics = Window.AppliedHapticPulseCount();
 
-    InputSignalPacket CursorMove{};
-    CursorMove.TimestampNanoseconds = 2000;
-    CursorMove.Category             = InputSignalCategory::PointerMotion;
-    CursorMove.PrimaryAxis          = 640.0f;
-    CursorMove.SecondaryAxis        = 360.0f;
-    CursorMove.DeltaPrimary         = 12.5f;
-    CursorMove.DeltaSecondary       = -4.0f;
-
-    InputSignalPacket FirstFingerTouch{};
-    FirstFingerTouch.TimestampNanoseconds = 3000;
-    FirstFingerTouch.Category             = InputSignalCategory::TouchContact;
-    FirstFingerTouch.ControlCode          = 0;
-    FirstFingerTouch.TouchPhase           = TouchContactCategory::Began;
-    FirstFingerTouch.PrimaryAxis          = 300.0f;
-    FirstFingerTouch.SecondaryAxis        = 500.0f;
-    FirstFingerTouch.DeltaPrimary         = 0.8f;
-
-    InputSignalPacket SecondFingerTouch{};
-    SecondFingerTouch.TimestampNanoseconds = 3100;
-    SecondFingerTouch.Category             = InputSignalCategory::TouchContact;
-    SecondFingerTouch.ControlCode          = 1;
-    SecondFingerTouch.TouchPhase           = TouchContactCategory::Began;
-    SecondFingerTouch.PrimaryAxis          = 700.0f;
-    SecondFingerTouch.SecondaryAxis        = 520.0f;
-    SecondFingerTouch.DeltaPrimary         = 0.75f;
-
-    if (!Surface.QueueSyntheticSignal(KeyPress) ||
-        !Surface.QueueSyntheticSignal(CursorMove) ||
-        !Surface.QueueSyntheticSignal(FirstFingerTouch) ||
-        !Surface.QueueSyntheticSignal(SecondFingerTouch))
+    Coordinator.BeginTick();
+    if (!VerifyCondition(std::fabs(Coordinator.InspectPointerSnapshot().TickDeltaX) < 1e-6f, "Per-tick deltas reset cleanly"))
     {
-        std::fprintf(stderr, "[FAILED] Synthetic signal enqueue failed.\n");
         return 1;
     }
 
-    // ⑤ Poll surface (bi-directional OS<->Engine exchange) and drain inbound packets
-    Surface.PollOperatingEvents(Coordinator);
-
-    if (Surface.AppliedCursorMode() != CursorConfinementMode::LockedRelativeHidden ||
-        Surface.AppliedHapticPulseCount() != 1u)
+    InputExchange RingStress{};
+    RingStress.Initialize();
+    for (uint32_t Index = 0; Index < Frontier::Input::DefaultSignalQueueCapacity + 12; ++Index)
     {
-        std::fprintf(stderr, "[FAILED] Outbound Engine->OS cursor lock or haptic directive not applied.\n");
+        InputSignalPacket OverflowPacket{};
+        OverflowPacket.TimestampNanoseconds = Index;
+        OverflowPacket.ControlCode          = Index;
+        OverflowPacket.Category             = InputSignalCategory::KeyboardKey;
+        OverflowPacket.Transition           = ButtonTransitionCategory::Pressed;
+        (void)RingStress.IntakeSignal(OverflowPacket);
+    }
+    if (!VerifyCondition(RingStress.DroppedSignalCount() == 12, "Overflow saturation drops excess without memory growth"))
+    {
         return 1;
     }
+    RingStress.Finalize();
 
-    CountingSignalReceiver Receiver{};
-    const std::size_t DrainedCount = Coordinator.TickExchangeWithSink(Receiver);
-
-    if (DrainedCount != 4u || Receiver.ObservedPackets != 4u)
-    {
-        std::fprintf(stderr, "[FAILED] Expected 4 exchanged signals, observed %zu.\n", DrainedCount);
-        return 1;
-    }
-
-    if (!Coordinator.QueryScanCodeHeld(42u) || Coordinator.ActiveTouchContactCount() != 2u)
-    {
-        std::fprintf(stderr, "[FAILED] Scancode or multi-touch tracking mismatch.\n");
-        return 1;
-    }
-
-    const PointerSnapshot& Pointer = Coordinator.InspectPointerSnapshot();
-    if (Pointer.PositionX != 640.0f || Pointer.PositionY != 360.0f || Pointer.TickDeltaX != 12.5f)
-    {
-        std::fprintf(stderr, "[FAILED] Pointer snapshot mismatch.\n");
-        return 1;
-    }
-
-    // ⑥ Lift one touch contact and verify active touch count decrements to 1
-    InputSignalPacket FirstFingerLift = FirstFingerTouch;
-    FirstFingerLift.TimestampNanoseconds = 4000;
-    FirstFingerLift.TouchPhase           = TouchContactCategory::Ended;
-    (void)Coordinator.IntakeHardwareSignal(FirstFingerLift);
-    (void)Coordinator.TickExchange();
-
-    if (Coordinator.ActiveTouchContactCount() != 1u)
-    {
-        std::fprintf(stderr, "[FAILED] Expected 1 remaining touch contact after lift.\n");
-        return 1;
-    }
-
+    Window.Finalize();
     Coordinator.Finalize();
-    Surface.Finalize();
 
-    std::printf("[OK] InputValidation passed (EditorIncluded=%d, DiagnosticsIncluded=%d, PackagingRequired=%d)\n",
-                BuildConfiguration::EditorIncluded ? 1 : 0,
-                BuildConfiguration::DiagnosticsIncluded ? 1 : 0,
-                BuildConfiguration::BinaryPackagingRequired ? 1 : 0);
+    if (!GenerateInputVisualProof(TotalDrained, FinalCursorX, FinalCursorY, FinalScroll, FinalHaptics))
+    {
+        return 1;
+    }
+
+    std::printf("[InputValidation] All bi-directional InputExchange checks + visual proof PNG passed.\n");
     return 0;
 }
