@@ -98,5 +98,16 @@
 | `06-SplitShelfColourSlotAssignment.png` | Split-shelf drag-and-drop & double-click colour slot assignment |
 | `07-SceneWorkspacePrebakedThumbnailSheet.png` | `Scene` workspace pre-baked `1024×1024` `ThumbnailSheet` + Search & `Grid`/`List` vector icons |
 | `08-UVWorkspaceStrictCategoryMaskAndImported.png` | Strict `UV` 6-category mask (`Particles`/`Simulations` blocked) + quarantined `.gltf` import |
-| `09-LightThemeSearchAndListIcons.png` | `ThemePreset::Light` + `AccentPreset::Emerald` + active `"Standard"` search query + `CloseCross` clear + `LayoutList` view |
-| `10-NordThemeGridAndSearchIcons.png` | `ThemePreset::Nord` + `AccentPreset::Cyan` full Appearance surface/accent adaptation |
+| `09-LightThemeSearchAndListIcons.png` | `ThemePreset::Light` + `AccentPreset::Emerald` + synced Light workspace tab strips + unified `[ All Project Imported Engine ]` track + unrounded (`0.0f`) category/list selection |
+| `10-NordThemeGridAndSearchIcons.png` | `ThemePreset::Nord` + `AccentPreset::Cyan` + synced Nord workspace tab strips + unified `[ All Project Imported Engine ]` track + unrounded (`0.0f`) category rail selection |
+
+---
+
+## 6. ✔️ Theme-Synced Tab Strips, Unified Segmented Tracks & Sharp (`0.0f`) List Selection
+
+| Refinement | C++20 Engine (`FrontierEngine`) | HTML Reference (`:8095`) |
+| :--- | :--- | :--- |
+| **Workspace Tab Strips Sync with `ThemeRepository`** | `ConfigureImGuiWorkspaceTheme` (`WorkspaceTabStrip.cpp`) computes theme-aware `StripBackdrop`, `InactiveTabFill`, `DiscButtonFill`, and `DiscButtonHover` for Light & Dark presets, populates `ImGuiCol_Tab*` / `ImGuiCol_Button*` / `ImGuiCol_FrameBg*` / `ImGuiCol_Header*`, and immediately flushes `WindowPtr->DockStyle.Colors` across `ImGui::GetCurrentContext()->Windows` so docked trapezoidal tabs (`Outliner`, `Viewport`, `Inspector`, `+`) match `Light`, `Nord`, `Dark`, `OLED`, `Sepia`, `Dracula`, and `GitHub` on tick 0. | `Editor.jsx` + `Editor.css` bind `--ws-strip`, `--ws-dock`, `--ws-tab`, `--ws-tab-hover`, `--ws-text`, `--ws-muted`, and `--ws-gap` to `Settings.Theme`. |
+| **Single Recessed Outer Track (`[ All  Project  Imported  Engine ]`)** | `ConstructSegmentedTrack` + `ConstructSegmentedOption` (`ContentBrowserPanel.cpp`) group `[ All  Project  Imported  Engine ]`, `[ Scene  UV  Material  Simulation  Audio ]`, and `[ Grid  List ]` / `[ Grid  Vertical  Horizontal ]` inside unified recessed outer capsules (`15.0f` outer radius, `12.0f` inner active fill, zero border on unselected segments). | `.asset-origin-tabs`, `.asset-workspace-strip`, and `.asset-view-switch` (`AssetPanel.css`) share identical `border-radius: 20px` recessed outer tracks with inner highlight segments. |
+| **Unrounded (`0.0f`) Category Rail & List Selection** | Left-side `RailArea` category list (`CatBtn`) and `StandardRepositoryLayout::List` rows render with `0.0f` corner radius flush to the divider and a sharp `3.0f` (`0.0f`-radius) leading accent bar. | `.asset-category-rail button` (`AssetPanel.css`) uses `border-radius: 0` and a `3px` sharp left accent border when selected. |
+

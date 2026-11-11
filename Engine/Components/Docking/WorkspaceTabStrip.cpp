@@ -6,6 +6,7 @@
 #include "Engine/Components/Docking/WorkspaceTabStrip.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
 #include <cmath>
@@ -178,16 +179,25 @@ void ConfigureImGuiWorkspaceTheme(const WorkspaceTabMetrics &Metrics, const Them
     const ColorQuad        Darkest = Theme.QueryDarkestSurface();
 
     const bool      DarkPreset     = (Theme.QueryActiveTheme() == ThemePreset::Dark);
+    const bool      LightSurface   = (Set.MainBackground.Luminance() > 0.5f);
     const ColorQuad DockedPaneFill = DarkPreset
                                          ? ColorQuad{18.0f / 255.0f, 18.0f / 255.0f, 18.0f / 255.0f, 1.0f}
                                          : Set.PanelBackground;
     ColorQuad       StripBackdrop  = DarkPreset
                                          ? ColorQuad{10.0f / 255.0f, 10.0f / 255.0f, 10.0f / 255.0f, 1.0f}
-                                         : Darkest;
-    if (!DarkPreset && std::fabs(StripBackdrop.Luminance() - DockedPaneFill.Luminance()) < 0.015f)
+                                         : (LightSurface ? ColorQuad::Blend(Set.SubtleBackground, Set.TextMain, 0.08f) : Darkest);
+    if (!DarkPreset && std::fabs(StripBackdrop.Luminance() - DockedPaneFill.Luminance()) < 0.020f)
     {
-        StripBackdrop = ColorQuad::Blend(StripBackdrop, ColorQuad{0.0f, 0.0f, 0.0f, 1.0f}, 0.25f);
+        StripBackdrop = ColorQuad::Blend(StripBackdrop, ColorQuad{0.0f, 0.0f, 0.0f, 1.0f}, LightSurface ? 0.10f : 0.25f);
     }
+
+    const ColorQuad InactiveTabFill = DarkPreset
+                                          ? DockedPaneFill
+                                          : ColorQuad::Blend(StripBackdrop, DockedPaneFill, 0.58f);
+    const ColorQuad DiscButtonFill  = DarkPreset
+                                          ? ColorQuad{36.0f / 255.0f, 36.0f / 255.0f, 40.0f / 255.0f, 1.0f}
+                                          : ColorQuad::Blend(Set.SubtleBackground, Set.SectionBackground, 0.35f);
+    const ColorQuad DiscButtonHover = ColorQuad::Blend(DiscButtonFill, Accent, 0.28f);
 
     ImGuiStyle &Style                          = ImGui::GetStyle();
     ImVec4     *Colors                         = Style.Colors;
@@ -196,22 +206,57 @@ void ConfigureImGuiWorkspaceTheme(const WorkspaceTabMetrics &Metrics, const Them
     Colors[ImGuiCol_WindowBg]                  = QuadToImVec4(DockedPaneFill);
     Colors[ImGuiCol_ChildBg]                   = QuadToImVec4(Set.SectionBackground);
     Colors[ImGuiCol_Border]                    = QuadToImVec4(Set.SubtleBackground);
+    Colors[ImGuiCol_FrameBg]                   = QuadToImVec4(Set.SectionBackground);
+    Colors[ImGuiCol_FrameBgHovered]            = QuadToImVec4(Set.SubtleBackground);
+    Colors[ImGuiCol_FrameBgActive]             = QuadToImVec4(Set.ActiveBackground);
     Colors[ImGuiCol_TitleBg]                   = QuadToImVec4(StripBackdrop);
     Colors[ImGuiCol_TitleBgActive]             = QuadToImVec4(StripBackdrop);
     Colors[ImGuiCol_TitleBgCollapsed]          = QuadToImVec4(StripBackdrop);
+    Colors[ImGuiCol_Header]                    = QuadToImVec4(Set.SectionBackground);
+    Colors[ImGuiCol_HeaderHovered]             = QuadToImVec4(Set.SubtleBackground);
+    Colors[ImGuiCol_HeaderActive]              = QuadToImVec4(Set.ActiveBackground);
     Colors[ImGuiCol_Separator]                 = DarkPreset ? ImVec4(38.0f / 255.0f, 38.0f / 255.0f, 38.0f / 255.0f, 1.0f)
                                                             : QuadToImVec4(Set.SubtleBackground);
     Colors[ImGuiCol_SeparatorHovered]          = QuadToImVec4(Accent);
     Colors[ImGuiCol_SeparatorActive]           = QuadToImVec4(Accent);
-    Colors[ImGuiCol_Tab]                       = QuadToImVec4(DockedPaneFill);
-    Colors[ImGuiCol_TabHovered]                = QuadToImVec4(Set.SubtleBackground);
+    Colors[ImGuiCol_Button]                    = QuadToImVec4(DiscButtonFill);
+    Colors[ImGuiCol_ButtonHovered]             = QuadToImVec4(DiscButtonHover);
+    Colors[ImGuiCol_ButtonActive]              = QuadToImVec4(DockedPaneFill);
+    Colors[ImGuiCol_Tab]                       = QuadToImVec4(InactiveTabFill);
+    Colors[ImGuiCol_TabHovered]                = QuadToImVec4(DiscButtonHover);
     Colors[ImGuiCol_TabSelected]               = QuadToImVec4(DockedPaneFill);
     Colors[ImGuiCol_TabSelectedOverline]       = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-    Colors[ImGuiCol_TabDimmed]                 = QuadToImVec4(DockedPaneFill);
+    Colors[ImGuiCol_TabDimmed]                 = QuadToImVec4(InactiveTabFill);
     Colors[ImGuiCol_TabDimmedSelected]         = QuadToImVec4(DockedPaneFill);
     Colors[ImGuiCol_TabDimmedSelectedOverline] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
     Colors[ImGuiCol_DockingEmptyBg]            = QuadToImVec4(StripBackdrop);
     Colors[ImGuiCol_DockingPreview]            = ImVec4(Accent.Red, Accent.Green, Accent.Blue, 0.35f);
+
+    // Flush cached per-window DockStyle colors immediately so DockSpace tab strips never lag one tick behind theme switches
+    if (ImGuiContext *GuiSession = ImGui::GetCurrentContext(); GuiSession != nullptr)
+    {
+        constexpr std::array<ImGuiCol, ImGuiWindowDockStyleCol_COUNT> DockStyleSlots = {{
+            ImGuiCol_Text,
+            ImGuiCol_TabHovered,
+            ImGuiCol_Tab,
+            ImGuiCol_TabSelected,
+            ImGuiCol_TabSelectedOverline,
+            ImGuiCol_TabDimmed,
+            ImGuiCol_TabDimmedSelected,
+            ImGuiCol_TabDimmedSelectedOverline,
+            ImGuiCol_UnsavedMarker,
+        }};
+        for (int WinIdx = 0; WinIdx < GuiSession->Windows.Size; ++WinIdx)
+        {
+            if (ImGuiWindow *WindowPtr = GuiSession->Windows[WinIdx]; WindowPtr != nullptr)
+            {
+                for (int SlotIdx = 0; SlotIdx < ImGuiWindowDockStyleCol_COUNT; ++SlotIdx)
+                {
+                    WindowPtr->DockStyle.Colors[SlotIdx] = ImGui::ColorConvertFloat4ToU32(Colors[DockStyleSlots[static_cast<std::size_t>(SlotIdx)]]);
+                }
+            }
+        }
+    }
 }
 
 } // namespace Frontier::Components

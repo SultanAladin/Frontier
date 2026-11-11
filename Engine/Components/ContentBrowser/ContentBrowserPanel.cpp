@@ -166,6 +166,85 @@ bool ConstructCapsuleControl(
     return Hovered && Input.Pressed;
 }
 
+void ConstructSegmentedTrack(
+    PixelSpace&            Canvas,
+    Rectangle2D            TrackBounds,
+    const ControlColorSet& AppearanceColors) noexcept
+{
+    const ColorRgba TrackFill = AppearanceColors.LightSurface
+                                    ? BlendRgba(AppearanceColors.Inset, AppearanceColors.StrokeStrong, 0.48f)
+                                    : BlendRgba(AppearanceColors.Field, AppearanceColors.TabBackground, 0.55f);
+    const ColorRgba TrackBorder = AppearanceColors.Stroke.ToRgba8();
+    const float     Radius      = TrackBounds.Height * 0.5f;
+    Canvas.FillRectangle(TrackBounds, TrackFill, Radius);
+    Canvas.StrokeRectangle(TrackBounds, TrackBorder, Radius, 1.0f);
+}
+
+bool ConstructSegmentedOption(
+    PixelSpace&                       Canvas,
+    Rectangle2D                       Bounds,
+    const char*                       Label,
+    bool                              Selected,
+    const ContentBrowserPointerInput& Input,
+    const ControlColorSet&            AppearanceColors,
+    float                             FontSize    = 9.5f,
+    ControlIcon                       LeadingIcon = ControlIcon::Count)
+{
+    const Point2D Cursor{ Input.CursorX, Input.CursorY };
+    const bool    Hovered = Bounds.Contains(Cursor);
+    const float   Radius  = Bounds.Height * 0.5f;
+
+    ColorRgba Ink     = AppearanceColors.TextDim.ToRgba8();
+    ColorRgba IconInk = Ink;
+
+    if (Selected)
+    {
+        const ColorRgba ActiveFill   = BlendRgba(AppearanceColors.Selected, AppearanceColors.Accent, AppearanceColors.LightSurface ? 0.22f : 0.28f);
+        const ColorRgba ActiveBorder = BlendRgba(AppearanceColors.StrokeStrong, AppearanceColors.Accent, 0.45f);
+        Canvas.FillRectangle(Bounds, ActiveFill, Radius);
+        Canvas.StrokeRectangle(Bounds, ActiveBorder, Radius, 1.0f);
+        Ink     = AppearanceColors.Text.ToRgba8();
+        IconInk = BlendRgba(AppearanceColors.Accent, AppearanceColors.Text, 0.28f);
+    }
+    else if (Hovered)
+    {
+        Canvas.FillRectangle(Bounds, AppearanceColors.Raised.Faded(0.65f).ToRgba8(), Radius);
+        Ink     = AppearanceColors.Text.ToRgba8();
+        IconInk = Ink;
+    }
+
+    const bool LabelNonEmpty = (Label != nullptr && Label[0] != '\0');
+    if (LeadingIcon != ControlIcon::Count && LabelNonEmpty)
+    {
+        const float IconSize  = 12.5f;
+        const float TextWidth = Canvas.MeasureTextWidth(FontSize, Label);
+        const float TotalW    = IconSize + 6.0f + TextWidth;
+        const float StartX    = Bounds.X + std::max(8.0f, (Bounds.Width - TotalW) * 0.5f);
+
+        VectorIconRepository::ConstructControl(
+            Canvas,
+            LeadingIcon,
+            VectorIconPlacement{
+                StartX,
+                Bounds.Center().Y - IconSize * 0.5f,
+                IconSize,
+                IconInk,
+                1.90f,
+            });
+        Canvas.Text(
+            { StartX + IconSize + 6.0f, Bounds.Y + (Bounds.Height - FontSize) * 0.5f - 0.5f },
+            FontSize,
+            Ink,
+            Label);
+    }
+    else if (LabelNonEmpty)
+    {
+        Canvas.TextCentered(Bounds, FontSize, Ink, Label);
+    }
+
+    return Hovered && Input.Pressed;
+}
+
 constexpr std::array<ContentCategoryKind, 15> OrderedRailCategories = {{
     ContentCategoryKind::All,
     ContentCategoryKind::Materials,
@@ -933,8 +1012,7 @@ void ContentBrowserPanel::RenderNonColoursRepository(
 
     if (StandardLayout == StandardRepositoryLayout::List)
     {
-        const float RowRadius = std::min(12.0f, SectionRadius);
-        const float MaxScroll = std::max(0.0f, static_cast<float>(Filtered.size()) * 54.0f - RepositoryArea.Height);
+        const float MaxScroll = std::max(0.0f, static_cast<float>(Filtered.size()) * 52.0f - RepositoryArea.Height);
         RepositoryScrollY     = std::min(RepositoryScrollY, MaxScroll);
 
         for (std::size_t OrderIdx = 0u; OrderIdx < Filtered.size(); ++OrderIdx)
@@ -945,15 +1023,19 @@ void ContentBrowserPanel::RenderNonColoursRepository(
             {
                 continue;
             }
-            const Rectangle2D RowRect{ RepositoryArea.X, RepositoryArea.Y + static_cast<float>(OrderIdx) * 54.0f - RepositoryScrollY, RepositoryArea.Width, 48.0f };
+            const Rectangle2D RowRect{ RepositoryArea.X, RepositoryArea.Y + static_cast<float>(OrderIdx) * 52.0f - RepositoryScrollY, RepositoryArea.Width, 48.0f };
             if (RowRect.Bottom() < RepositoryArea.Y || RowRect.Y > RepositoryArea.Bottom())
             {
                 continue;
             }
             const bool Hovered  = RepositoryArea.Contains(Cursor) && RowRect.Contains(Cursor);
             const bool Selected = (SelectedContentIndex == EntryIdx);
-            Canvas.FillRectangle(RowRect, Selected ? SelectedFill : (Hovered ? HoverFill : IdleFill), RowRadius);
-            Canvas.StrokeRectangle(RowRect, Selected ? SelStroke : IdleStroke, RowRadius, Selected ? 1.2f : 1.0f);
+            Canvas.FillRectangle(RowRect, Selected ? SelectedFill : (Hovered ? HoverFill : IdleFill), 0.0f);
+            Canvas.StrokeRectangle(RowRect, Selected ? SelStroke : IdleStroke, 0.0f, 1.0f);
+            if (Selected)
+            {
+                Canvas.FillRectangle({ RowRect.X, RowRect.Y, 3.0f, RowRect.Height }, AppearanceColors.Accent.ToRgba8(), 0.0f);
+            }
 
             const ThumbnailUvQuad TileUv = ThumbnailRepository.QueryTileUv(EntryIdx);
             const Rectangle2D     IconBox{ RowRect.X + 8.0f, RowRect.Y + 6.0f, 36.0f, 36.0f };
@@ -1281,15 +1363,26 @@ void ContentBrowserPanel::RenderWithInput(
         { WorkspaceDomainKind::Simulation, "Simulation" },
         { WorkspaceDomainKind::Audio,      "Audio"      },
     }};
-    float WsX = DrawerRect.X + 240.0f;
+    float WsTotalW = 6.0f;
+    for (std::size_t Idx = 0u; Idx < QuickWorkspaces.size(); ++Idx)
+    {
+        WsTotalW += std::max(50.0f, Canvas.MeasureTextWidth(9.2f, QuickWorkspaces[Idx].second) + 18.0f);
+        if (Idx + 1u < QuickWorkspaces.size())
+        {
+            WsTotalW += 3.0f;
+        }
+    }
+    const Rectangle2D WsTrack{ DrawerRect.X + 240.0f, CurY + 4.0f, WsTotalW, 29.0f };
+    ConstructSegmentedTrack(Canvas, WsTrack, AppearanceColors);
+    float WsX = WsTrack.X + 3.0f;
     for (const auto& [WsKind, WsLabel] : QuickWorkspaces)
     {
-        const float CapsuleW = std::max(52.0f, Canvas.MeasureTextWidth(9.2f, WsLabel) + 20.0f);
-        if (ConstructCapsuleControl(Canvas, { WsX, CurY + 6.0f, CapsuleW, 25.0f }, WsLabel, ActiveWorkspace == WsKind, PointerInput, AppearanceColors, 9.2f))
+        const float SegmentW = std::max(50.0f, Canvas.MeasureTextWidth(9.2f, WsLabel) + 18.0f);
+        if (ConstructSegmentedOption(Canvas, { WsX, WsTrack.Y + 3.0f, SegmentW, 23.0f }, WsLabel, ActiveWorkspace == WsKind, PointerInput, AppearanceColors, 9.2f))
         {
             ConfigureWorkspaceDomain(WsKind);
         }
-        WsX += CapsuleW + 5.0f;
+        WsX += SegmentW + 3.0f;
     }
 
     float RightBtnX = DrawerRect.Right() - PadX;
@@ -1385,24 +1478,31 @@ void ContentBrowserPanel::RenderWithInput(
     Canvas.StrokeLine({ DrawerRect.X + PadX, CurY }, { DrawerRect.Right() - PadX, CurY }, AppearanceColors.Divider.ToRgba8(), 1.0f);
     CurY += 9.0f;
 
-    // 2. Origin Scope Tabs + Search Field (with SearchGlass & Clear icons) + Iconic Layout Switcher (Grid + List / Vertical / Horizontal)
+    // 2. Origin Scope Tabs (Unified Recessed Outer Track: [ All  Project  Imported  Engine ]) + Search + Unified Layout Switcher
     constexpr std::array<std::pair<ContentOriginFilter, const char*>, 4> Origins = {{
         { ContentOriginFilter::All,      "All"      },
         { ContentOriginFilter::Project,  "Project"  },
         { ContentOriginFilter::Imported, "Imported" },
         { ContentOriginFilter::Engine,   "Engine"   },
     }};
-    float OriginX = DrawerRect.X + PadX;
+    constexpr float OriginSegmentW = 68.0f;
+    constexpr float OriginGap      = 3.0f;
+    const float     OriginTrackW   = 6.0f + 4.0f * OriginSegmentW + 3.0f * OriginGap;
+    const Rectangle2D OriginTrack{ DrawerRect.X + PadX, CurY, OriginTrackW, 30.0f };
+    ConstructSegmentedTrack(Canvas, OriginTrack, AppearanceColors);
+
+    float OriginX = OriginTrack.X + 3.0f;
     for (const auto& [ScopeEnum, Label] : Origins)
     {
-        if (ConstructCapsuleControl(Canvas, { OriginX, CurY + 1.0f, 72.0f, 28.0f }, Label, OriginScope == ScopeEnum, PointerInput, AppearanceColors, 9.5f))
+        if (ConstructSegmentedOption(Canvas, { OriginX, OriginTrack.Y + 3.0f, OriginSegmentW, 24.0f }, Label, OriginScope == ScopeEnum, PointerInput, AppearanceColors, 9.5f))
         {
             ConfigureOriginFilter(ScopeEnum);
         }
-        OriginX += 78.0f;
+        OriginX += OriginSegmentW + OriginGap;
     }
+    OriginX = OriginTrack.Right();
 
-    const float LayoutClusterWidth = (Category == ContentCategoryKind::Colours) ? 294.0f : 168.0f;
+    const float LayoutClusterWidth = (Category == ContentCategoryKind::Colours) ? 286.0f : 165.0f;
     const float LayoutStartX       = DrawerRect.Right() - PadX - LayoutClusterWidth;
 
     // Interactive Search Capsule with leading SearchGlass icon and trailing CloseCross clear button
@@ -1510,47 +1610,47 @@ void ContentBrowserPanel::RenderWithInput(
             });
     }
 
-    // Layout View Switcher with dedicated Grid / List / Vertical / Horizontal vector icons
+    // Layout View Switcher inside unified recessed track with Grid / List / Vertical / Horizontal vector icons
+    const Rectangle2D LayoutTrack{ LayoutStartX, CurY, LayoutClusterWidth, 30.0f };
+    ConstructSegmentedTrack(Canvas, LayoutTrack, AppearanceColors);
+
     if (Category == ContentCategoryKind::Colours)
     {
-        float LayoutX = LayoutStartX;
-        if (ConstructCapsuleControl(
+        float LayoutX = LayoutTrack.X + 3.0f;
+        if (ConstructSegmentedOption(
                 Canvas,
-                { LayoutX, CurY + 1.0f, 80.0f, 28.0f },
+                { LayoutX, LayoutTrack.Y + 3.0f, 76.0f, 24.0f },
                 "Grid",
                 ColourLayout == ColourRepositoryLayout::GridCircles,
                 PointerInput,
                 AppearanceColors,
                 9.5f,
-                false,
                 ControlIcon::LayoutGrid))
         {
             ConfigureColourLayout(ColourRepositoryLayout::GridCircles);
         }
-        LayoutX += 86.0f;
-        if (ConstructCapsuleControl(
+        LayoutX += 79.0f;
+        if (ConstructSegmentedOption(
                 Canvas,
-                { LayoutX, CurY + 1.0f, 92.0f, 28.0f },
+                { LayoutX, LayoutTrack.Y + 3.0f, 92.0f, 24.0f },
                 "Vertical",
                 ColourLayout == ColourRepositoryLayout::VerticalStrips,
                 PointerInput,
                 AppearanceColors,
                 9.5f,
-                false,
                 ControlIcon::LayoutColumns))
         {
             ConfigureColourLayout(ColourRepositoryLayout::VerticalStrips);
         }
-        LayoutX += 98.0f;
-        if (ConstructCapsuleControl(
+        LayoutX += 95.0f;
+        if (ConstructSegmentedOption(
                 Canvas,
-                { LayoutX, CurY + 1.0f, 110.0f, 28.0f },
+                { LayoutX, LayoutTrack.Y + 3.0f, 106.0f, 24.0f },
                 "Horizontal",
                 ColourLayout == ColourRepositoryLayout::HorizontalStrips,
                 PointerInput,
                 AppearanceColors,
                 9.5f,
-                false,
                 ControlIcon::LayoutRows))
         {
             ConfigureColourLayout(ColourRepositoryLayout::HorizontalStrips);
@@ -1558,30 +1658,28 @@ void ContentBrowserPanel::RenderWithInput(
     }
     else
     {
-        float LayoutX = LayoutStartX;
-        if (ConstructCapsuleControl(
+        float LayoutX = LayoutTrack.X + 3.0f;
+        if (ConstructSegmentedOption(
                 Canvas,
-                { LayoutX, CurY + 1.0f, 80.0f, 28.0f },
+                { LayoutX, LayoutTrack.Y + 3.0f, 78.0f, 24.0f },
                 "Grid",
                 StandardLayout == StandardRepositoryLayout::Grid,
                 PointerInput,
                 AppearanceColors,
                 9.5f,
-                false,
                 ControlIcon::LayoutGrid))
         {
             ConfigureStandardLayout(StandardRepositoryLayout::Grid);
         }
-        LayoutX += 88.0f;
-        if (ConstructCapsuleControl(
+        LayoutX += 81.0f;
+        if (ConstructSegmentedOption(
                 Canvas,
-                { LayoutX, CurY + 1.0f, 80.0f, 28.0f },
+                { LayoutX, LayoutTrack.Y + 3.0f, 78.0f, 24.0f },
                 "List",
                 StandardLayout == StandardRepositoryLayout::List,
                 PointerInput,
                 AppearanceColors,
                 9.5f,
-                false,
                 ControlIcon::LayoutList))
         {
             ConfigureStandardLayout(StandardRepositoryLayout::List);
@@ -1673,19 +1771,19 @@ void ContentBrowserPanel::RenderWithInput(
             break;
         }
 
-        const Rectangle2D CatBtn{ RailArea.X, RailY, RailArea.Width - 10.0f, 25.0f };
+        const Rectangle2D CatBtn{ RailArea.X, RailY, RailArea.Width - 1.0f, 26.0f };
         const bool        ActiveCat = (Category == CategoryOption);
         const bool        Hovered   = CatBtn.Contains(Cursor);
         if (ActiveCat || Hovered)
         {
-            Canvas.FillRectangle(CatBtn, ActiveCat ? RailActiveFill : RailHoverFill, 8.0f);
+            Canvas.FillRectangle(CatBtn, ActiveCat ? RailActiveFill : RailHoverFill, 0.0f);
         }
         if (ActiveCat)
         {
-            Canvas.FillRectangle({ CatBtn.X + 2.0f, CatBtn.Y + 5.0f, 3.0f, CatBtn.Height - 10.0f }, RailAccentBar, 1.5f);
+            Canvas.FillRectangle({ CatBtn.X, CatBtn.Y, 3.0f, CatBtn.Height }, RailAccentBar, 0.0f);
         }
         Canvas.Text(
-            { CatBtn.X + 12.0f, CatBtn.Y + 6.0f },
+            { CatBtn.X + 12.0f, CatBtn.Y + 6.5f },
             10.2f,
             ActiveCat ? RailActiveInk : (Hovered ? RailActiveInk : RailIdleInk),
             ThumbnailSheetRepository::QueryCategoryTitle(CategoryOption));

@@ -192,10 +192,11 @@ img {
   gap: 2px;
   width: 100%;
   height: 100%;
-  background: #262626;
+  background: var(--ws-gap, #262626);
+  color: var(--ws-text, #f0f0f0);
 }
 .dock {
-  background: #121212;
+  background: var(--ws-dock, #121212);
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -214,7 +215,7 @@ img {
   display: flex;
   align-items: end;
   padding: 4px 4px 0 0;
-  background: #0a0a0a;
+  background: var(--ws-strip, #0a0a0a);
   overflow: hidden;
   gap: 0;
 }
@@ -222,7 +223,7 @@ img {
   height: 26px;
   min-width: 110px;
   padding: 0 14px 0 26px;
-  background: #26262c;
+  background: var(--ws-tab, #26262c);
   clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 100%, 0 100%);
   display: flex;
   align-items: center;
@@ -230,7 +231,7 @@ img {
   position: relative;
   cursor: default;
   font-size: 11px;
-  color: #999;
+  color: var(--ws-muted, #999);
   margin-left: -12px;
   user-select: none;
 }
@@ -238,15 +239,15 @@ img {
   margin-left: 0;
 }
 .document-tab.active {
-  background: #121212;
-  color: #f0f0f0;
+  background: var(--ws-dock, #121212);
+  color: var(--ws-text, #f0f0f0);
   z-index: 1;
 }
 .document-tab:hover {
-  background: #32323a;
+  background: var(--ws-tab-hover, #32323a);
 }
 .document-tab.active:hover {
-  background: #171717;
+  background: var(--ws-dock, #171717);
 }
 .document-tab button {
   border: 0;
@@ -258,7 +259,7 @@ img {
   background: transparent;
 }
 .document-tab button:hover {
-  background: #444;
+  background: var(--ws-tab-hover, #444);
 }
 .tab-add {
   height: 24px;
@@ -267,8 +268,8 @@ img {
   border-radius: 50%;
   padding: 0;
   margin: 0 0 3px 36px;
-  background: #26262c;
-  color: #bebec4;
+  background: var(--ws-tab, #26262c);
+  color: var(--ws-text, #bebec4);
   z-index: 2;
 }
 .outliner-heading {

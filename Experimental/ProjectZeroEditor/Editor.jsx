@@ -2012,6 +2012,16 @@ function App() {
     ActiveSlot && (!ActiveSlot.Element || ActiveSlot.Element.isConnected)
       ? ActiveSlot.Label
       : FallbackSlot?.Label || FocusedColourLabel;
+  const WorkspaceThemeTable = {
+    OLED: { Strip: "#040405", Dock: "#0a0a0c", Tab: "#16161a", TabHover: "#222228", Text: "#f2f2f5", Muted: "#8d9099", Gap: "#1e1e22" },
+    Dark: { Strip: "#0a0a0a", Dock: "#121212", Tab: "#26262c", TabHover: "#32323a", Text: "#f0f0f0", Muted: "#999999", Gap: "#262626" },
+    Light: { Strip: "#dfe4ec", Dock: "#f6f7fa", Tab: "#e9edf3", TabHover: "#d6dde8", Text: "#15171c", Muted: "#5e6470", Gap: "#cdd4df" },
+    Sepia: { Strip: "#e2d6c1", Dock: "#f5efe3", Tab: "#ebe0cd", TabHover: "#ded0b7", Text: "#2b2216", Muted: "#726149", Gap: "#d2c3aa" },
+    Dracula: { Strip: "#191a23", Dock: "#22232f", Tab: "#2d2f3f", TabHover: "#3a3d52", Text: "#f8f8f2", Muted: "#9ea4c2", Gap: "#343746" },
+    Nord: { Strip: "#1f242d", Dock: "#272c36", Tab: "#323946", TabHover: "#3d4656", Text: "#eceff4", Muted: "#9aa5b8", Gap: "#3b4252" },
+    GitHub: { Strip: "#080b10", Dock: "#0d1117", Tab: "#181e26", TabHover: "#222a35", Text: "#e6edf3", Muted: "#8b949e", Gap: "#21262d" },
+  };
+  const ActiveWsTheme = WorkspaceThemeTable[Settings.Theme] || WorkspaceThemeTable.Dark;
   return (
     <>
       <main
@@ -2019,7 +2029,17 @@ function App() {
         inert={
           Construct || Shade || AssetsBlocking || WindSubject ? "" : undefined
         }
-        style={{ "--left": LeftWidth + "px", "--right": RightWidth + "px" }}
+        style={{
+          "--left": LeftWidth + "px",
+          "--right": RightWidth + "px",
+          "--ws-strip": ActiveWsTheme.Strip,
+          "--ws-dock": ActiveWsTheme.Dock,
+          "--ws-tab": ActiveWsTheme.Tab,
+          "--ws-tab-hover": ActiveWsTheme.TabHover,
+          "--ws-text": ActiveWsTheme.Text,
+          "--ws-muted": ActiveWsTheme.Muted,
+          "--ws-gap": ActiveWsTheme.Gap,
+        }}
       >
         {["Left", "Centre", "Right"].map((Side) => (
           <section

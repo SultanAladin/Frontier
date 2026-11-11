@@ -415,7 +415,8 @@ bool ValidateAndRenderContentBrowserSnapshots()
 
     auto WriteCurrentSnapshot = [&](const char* FileName) -> bool
     {
-        SoftwareRasterCanvas Raster(CanvasWidth, CanvasHeight, RgbaColor8{ 16, 16, 18, 255 });
+        const ColorRgba      Backdrop = Theme.QueryDarkestSurface().ToRgba8();
+        SoftwareRasterCanvas Raster(CanvasWidth, CanvasHeight, RgbaColor8{ Backdrop.Red, Backdrop.Green, Backdrop.Blue, 255 });
         Raster.RasterizeImGuiBatches(ImGui::GetDrawData());
         return VerifyAssertion(Raster.WritePngFile(OutputDirectory / FileName), FileName);
     };
