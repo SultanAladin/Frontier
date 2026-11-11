@@ -3014,68 +3014,75 @@ body.pz-uv-theme #inspector-object-sub {
     color: #888888;
 }
 
-.pz-layer-stack {
-    display: flex;
-    flex-direction: column;
-    gap: 7px;
-}
-.pz-left-alloc-card.full-space {
-    min-height: 100%;
-    display: flex;
-    flex-direction: column;
-}
-.pz-uv-layer-card {
-    position: relative;
-    border-radius: 10px;
-    background: #181818;
-    border: 1px solid #2e2e2e;
-    border-left: 3px solid var(--layer-color, #eff4cf);
-    overflow: hidden;
+/* Frontier Editor Outliner '+' Header Button, Unrounded Colour-Coded Layer Boxes & Sticky Budget Footer */
+.pz-outliner-plus-btn {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border-radius: 0;
+    background: #1f1f1f;
+    border: 1px solid #333333;
+    color: #dadada;
+    font-size: 16px;
+    line-height: 1;
+    display: inline-grid;
+    place-items: center;
     cursor: pointer;
-    transition: border-color 110ms ease, background 110ms ease;
+    transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
-.pz-uv-layer-card:hover {
+.pz-outliner-plus-btn:hover {
+    background: #2a2a2a;
+    border-color: #4a4a4a;
+    color: #ffffff;
+}
+
+.pz-layer-stack,
+.pz-frontier-outliner-boxes {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 8px;
+}
+
+/* Sharp Unrounded (0px) Colour-Coded Outliner Entry Box — matches OutlinerPanel.cpp */
+.pz-uv-layer-card,
+.pz-frontier-layer-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 39px;
+    padding: 6px 8px 6px 10px;
+    border-radius: 0 !important;
+    background: #171717;
+    border: 1px solid #272727;
+    border-left: 3px solid var(--layer-color, #eff4cf);
+    cursor: pointer;
+    transition: background 100ms ease, border-color 100ms ease;
+}
+.pz-frontier-layer-box:hover {
     background: #1e1e1e;
-    border-color: #3f3f3f;
+    border-color: #343434;
     border-left-color: var(--layer-color, #eff4cf);
 }
-.pz-uv-layer-card.selected {
-    background: rgba(239, 244, 207, 0.09);
-    border-color: #eff4cf;
+.pz-frontier-layer-box.selected {
+    background: #262626;
+    border-color: #444444;
     border-left-color: var(--layer-color, #eff4cf);
 }
-.pz-uv-layer-card.base-layer {
+.pz-frontier-layer-box.base-layer {
     background: #141414;
     border-style: dashed;
     border-left-style: solid;
-    border-left-color: #6b6b6b;
+    border-left-color: #6e6e6e;
 }
 
-.pz-uv-layer-top {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    padding: 9px 10px 7px;
-}
-.pz-layer-idx-tag {
-    height: 18px;
-    padding: 0 5px;
-    border-radius: 4px;
-    background: #252525;
-    border: 1px solid #353535;
-    font-family: var(--mono);
-    font-size: 8.5px;
-    color: #a8a8a8;
-    display: inline-flex;
-    align-items: center;
-    flex-shrink: 0;
-}
-.pz-layer-swatch-btn {
+.pz-layer-sq-swatch {
     position: relative;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.30);
+    width: 12px;
+    height: 12px;
+    border-radius: 0;
+    border: 1px solid rgba(255, 255, 255, 0.28);
     padding: 0;
     cursor: pointer;
     flex-shrink: 0;
@@ -3085,129 +3092,131 @@ body.pz-uv-theme #inspector-object-sub {
 .pz-layer-color-native {
     position: absolute;
     inset: -4px;
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
     opacity: 0;
     cursor: pointer;
     border: 0;
     padding: 0;
 }
-.pz-layer-title-input {
+
+.pz-layer-box-copy {
     flex: 1;
     min-width: 0;
-    background: transparent;
-    border: 0;
-    outline: none;
-    color: #efefef;
-    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.pz-layer-box-title {
+    font-size: 11.5px;
     font-weight: 400;
-    padding: 2px 0;
+    color: #ebebeb;
+    line-height: 1.2;
+    overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
 }
-.pz-layer-title-input:focus {
-    border-bottom: 1px solid rgba(239, 244, 207, 0.55);
+.pz-frontier-layer-box.selected .pz-layer-box-title {
+    color: #ffffff;
 }
-.pz-layer-udim-select {
-    height: 22px;
-    padding: 0 6px;
-    border-radius: 5px;
-    background: #222222;
-    border: 1px solid #333333;
-    color: #dedede;
-    font-family: var(--mono);
-    font-size: 9.5px;
-    outline: none;
-    cursor: pointer;
-    flex-shrink: 0;
-}
-.pz-layer-udim-select:hover,
-.pz-layer-udim-select:focus {
-    border-color: rgba(239, 244, 207, 0.45);
-    color: #eff4cf;
-}
-.pz-layer-faceref-pill {
-    height: 20px;
-    padding: 0 6px;
-    border-radius: 4px;
-    background: #202020;
-    border: 1px solid #2c2c2c;
+.pz-layer-box-sub {
     font-family: var(--mono);
     font-size: 9px;
-    color: #a8a8a8;
+    color: #8a8a8a;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pz-layer-pct-box {
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 0;
+    background: #202020;
+    border: 1px solid #323232;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    color: #eff4cf;
     display: inline-flex;
     align-items: center;
     flex-shrink: 0;
 }
-.pz-layer-pct-pill {
-    font-family: var(--mono);
-    font-size: 11px;
-    font-weight: 500;
-    color: #eff4cf;
-    padding: 1px 6px;
-    border-radius: 5px;
-    background: rgba(239, 244, 207, 0.10);
-    flex-shrink: 0;
-}
-.pz-layer-pct-pill.warn {
+.pz-layer-pct-box.warn {
     color: #fbbf24;
-    background: rgba(245, 158, 11, 0.14);
+    border-color: rgba(245, 158, 11, 0.45);
 }
 
-/* Bottom-of-Layer Slider Bar */
-.pz-layer-bottom-bar {
+.pz-frontier-layer-box .pz-prio-act {
+    border-radius: 0;
+    width: 20px;
+    height: 20px;
+    opacity: 0.72;
+}
+.pz-frontier-layer-box:hover .pz-prio-act,
+.pz-frontier-layer-box.selected .pz-prio-act {
+    opacity: 1;
+}
+
+/* Sticky Outliner Footer: UDIM Space Budget (No redundant layer % text chips) */
+.pz-outliner-budget-footer {
+    margin-top: auto;
+    padding: 9px 12px 11px;
+    background: #151515;
+    border-top: 1px solid #292929;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    flex-shrink: 0;
+}
+.pz-budget-footer-top {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 8px;
-    padding: 6px 10px 8px;
-    background: #121212;
-    border-top: 1px solid #242424;
 }
-.pz-layer-bottom-slider {
-    -webkit-appearance: none;
-    appearance: none;
-    flex: 1;
-    height: 8px;
-    border-radius: 999px;
+.pz-budget-footer-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10.5px;
+    font-weight: 500;
+    color: #dcdcdc;
+}
+.pz-budget-footer-title svg {
+    width: 13px;
+    height: 13px;
+    stroke: #eff4cf;
+    fill: none;
+    stroke-width: 1.8;
+}
+.pz-budget-footer-fill {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: #a3a3a3;
+}
+.pz-outliner-budget-footer .allocation-spectrum {
+    height: 6px;
+    border-radius: 0;
+    margin: 0;
+}
+
+/* Inspector Layer Rename Text Input */
+.pz-inspector-text-input {
+    height: 28px;
+    min-width: 130px;
+    max-width: 185px;
+    padding: 0 9px;
+    border-radius: 6px;
+    background: #111111;
+    border: 1px solid #2c2c2c;
+    color: #ebebeb;
+    font-size: 11.5px;
     outline: none;
-    cursor: pointer;
-    background: linear-gradient(
-        90deg,
-        var(--layer-color, #eff4cf) 0 var(--layer-frac, 25%),
-        #262626 var(--layer-frac, 25%) 100%
-    );
 }
-.pz-layer-bottom-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: #f2f2f2;
-    border: 2px solid #121212;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.65);
-    cursor: grab;
-}
-.pz-layer-bottom-slider::-moz-range-thumb {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: #f2f2f2;
-    border: 2px solid #121212;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.65);
-    cursor: grab;
-}
-.pz-layer-base-gauge {
-    height: 5px;
-    width: 100%;
-    border-radius: 999px;
-    background: #242424;
-    overflow: hidden;
-}
-.pz-layer-base-gauge > span {
-    display: block;
-    height: 100%;
-    background: #787878;
-    border-radius: 999px;
+.pz-inspector-text-input:focus {
+    border-color: rgba(239, 244, 207, 0.55);
 }
 
 .pz-mat-subhead {

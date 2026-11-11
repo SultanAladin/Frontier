@@ -52,14 +52,14 @@
           <span class="outliner-subtitle" id="pz-outliner-node-summary">0 total islands</span>
         </div>
         <div class="outliner-heading-actions">
-          <button class="pz-folder-add-btn" id="pz-new-folder-btn" type="button" title="Create a Priority Layer from selected islands">+ Layer</button>
+          <button class="pz-outliner-plus-btn" id="pz-new-folder-btn" type="button" title="Add UV Layer" aria-label="Add UV Layer">+</button>
           <button class="icon-button" id="add-udim-quick" type="button" title="Add UDIM Tile" hidden></button>
         </div>
       </div>
 
       <label class="search">
         <span class="search-icon" id="search-icon"></span>
-        <input id="outliner-search" type="search" placeholder="Search layers or parts Ctrl+F">
+        <input id="outliner-search" type="search" placeholder="Search layers Ctrl+F">
         <kbd>Ctrl+F</kbd>
       </label>
 
@@ -76,13 +76,10 @@
       </div>
       <div class="udim-chip-strip" id="udim-chip-strip" hidden></div>
 
-      <!-- Scrollable UV Space Stack: UDIM Space Budget + 5 Infographic Cards + Layer Stack + Square Surface Parts -->
+      <!-- Scrollable UV Space Stack: 5 Infographic Cards + Frontier Editor Unrounded Layer Boxes -->
       <div class="panel-scroll outliner-scroll" id="outliner-scroll">
         <div class="panel-content" id="outliner-scroll-content">
-          <!-- 1. UDIM Space Budget Card (Moved from Pack) -->
-          <div class="hero-card pz-left-budget-hero" id="lp-udim-budget-card"></div>
-
-          <!-- 2. 5 Infographic Cards: 3 Pack Allocation Tiles + Stretch Caution (Amber) + Overlaps (Red) -->
+          <!-- 1. 5 Infographic Cards: 3 Pack Allocation Tiles + Stretch Caution (Amber) + Overlaps (Red) -->
           <div class="kpi-trio pz-left-kpi-trio">
             <button class="kpi-card highlight pz-kpi-btn" id="lp-kpi-util" type="button" title="Active UDIM tile pack utilization (click to open Pack settings)">
               <span class="kpi-label">Utilization</span>
@@ -114,7 +111,7 @@
             </button>
           </div>
 
-          <!-- 3. Cool Layer Stack (Importance Space Allocation) + Square Surface Part Blocks -->
+          <!-- 2. Frontier Editor Unrounded Colour-Coded Layer Boxes -->
           <div id="outliner-list"></div>
         </div>
       </div>
@@ -128,10 +125,9 @@
         <div class="preset-list" id="quick-unwrap-list"></div>
       </div>
 
-      <div class="left-footer">
-        <span class="footer-dot"></span>
-        <span id="left-footer-text">Click to select · Shift multi-select · Alt loop</span>
-      </div>
+      <!-- Sticky Footer: UDIM Space Budget (No redundant layer % text chips) -->
+      <footer class="pz-outliner-budget-footer" id="lp-udim-budget-card"></footer>
+      <span id="left-footer-text" hidden></span>
       <div class="pz-col-resizer pz-resizer-left" id="pz-resizer-left" title="Drag to resize Outliner"></div>
     </aside>
 

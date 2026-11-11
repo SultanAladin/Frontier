@@ -682,20 +682,23 @@ console.log('11. Testing Multi-Surface Engineering MatCaps, Stack Similar UVs, F
               !ShadingSlice.includes('pz-pbr-swatch-dots') && !ShadingSlice.includes('pz-finish-showcase'),
         'Shading Colour row must use C++-style [(circle) Colour Name · #HEX] picker with no extra swatch clutter');
 
+    const BudgetCardSlice = EditorJs.slice(EditorJs.indexOf('function RenderUdimSpaceBudgetCard'), EditorJs.indexOf('function UpdateHeaderAndHud'));
     const OutlinerSlice = EditorJs.slice(EditorJs.indexOf('function RenderOutliner'), EditorJs.indexOf('function RenderLegendStrip'));
     const PackSlice = EditorJs.slice(EditorJs.indexOf('function RenderPackingTab'), EditorJs.indexOf('function RenderUnwrapTab'));
-    assert.ok(EditorJs.includes('function RenderUdimSpaceBudgetCard') && IndexHtml.includes('id="lp-udim-budget-card"') &&
+    assert.ok(EditorJs.includes('function RenderUdimSpaceBudgetCard') &&
+              IndexHtml.includes('<footer class="pz-outliner-budget-footer" id="lp-udim-budget-card"></footer>') &&
+              !BudgetCardSlice.includes('alloc-chips-row') && !BudgetCardSlice.includes('alloc-chip') &&
               !PackSlice.includes('hero-card') && !PackSlice.includes('allocation-spectrum'),
-        'UDIM Space Budget must live in UV Space left panel and be removed from Pack');
+        'UDIM Space Budget must live in the UV Space footer with zero per-layer % text chips');
 
-    assert.ok(OutlinerSlice.includes('Importance Space Allocation') && OutlinerSlice.includes('pz-layer-stack') &&
-              OutlinerSlice.includes('pz-uv-layer-card') && OutlinerSlice.includes('pz-layer-color-native') &&
-              OutlinerSlice.includes('pz-layer-title-input') && OutlinerSlice.includes('pz-layer-udim-select') &&
-              OutlinerSlice.includes('pz-layer-bottom-slider') && OutlinerSlice.includes('SelectFaceGroupRef') &&
-              OutlinerSlice.includes('FastSyncSelectionViews') &&
+    assert.ok(IndexHtml.includes('class="pz-outliner-plus-btn" id="pz-new-folder-btn"') &&
+              OutlinerSlice.includes('pz-frontier-layer-box') && OutlinerSlice.includes('SelectFaceGroupRef') &&
+              OutlinerSlice.includes('FastSyncSelectionViews') && !OutlinerSlice.includes('pz-prio-add-btn') &&
               !OutlinerSlice.includes('Surface Parts') && !OutlinerSlice.includes('pz-part-square') &&
-              !OutlinerSlice.includes('pz-chart-row') && !PackSlice.includes('pz-layer-stack'),
-        'UV Space must use Layers ONLY (Colour, Name, UDIM, Share + saved FaceGroupRef, zero folders/Surface Parts)');
+              !OutlinerSlice.includes('pz-chart-row') &&
+              PackSlice.includes('Importance Space Allocation') && PackSlice.includes('SliderRow(AllocSec.Inner') &&
+              PackSlice.includes('pz-inspector-text-input') && PackSlice.includes('pz-cpp-color-picker'),
+        'UV Space must use unrounded colour-coded Frontier Editor Outliner boxes (+ in header), with Inspector SliderRow + rename in Pack');
 
     // Benchmark & verify saved FaceGroupRef (zero ExtractIslands re-iteration + cross-object face references!)
     {
