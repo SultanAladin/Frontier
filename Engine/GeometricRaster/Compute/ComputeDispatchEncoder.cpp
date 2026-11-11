@@ -67,9 +67,9 @@ void ComputeDispatchEncoder::TeardownEncoder() noexcept
             {
                 vkDestroyPipelineLayout(Dev, Prog.PipelineLayout, nullptr);
             }
-            if (Prog.SetLayout != VK_NULL_HANDLE)
+            if (Prog.BindingLayout != VK_NULL_HANDLE)
             {
-                vkDestroyDescriptorSetLayout(Dev, Prog.SetLayout, nullptr);
+                vkDestroyDescriptorSetLayout(Dev, Prog.BindingLayout, nullptr);
             }
             if (Prog.ShaderModule != VK_NULL_HANDLE)
             {
@@ -119,11 +119,11 @@ uint32_t ComputeDispatchEncoder::RegisterProgram(
         LayoutBindings[Idx].pImmutableSamplers = nullptr;
     }
 
-    VkDescriptorSetLayoutCreateInfo SetLayoutInfo {};
-    SetLayoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    SetLayoutInfo.bindingCount = static_cast<uint32_t>(LayoutBindings.size());
-    SetLayoutInfo.pBindings    = LayoutBindings.data();
-    if (vkCreateDescriptorSetLayout(Dev, &SetLayoutInfo, nullptr, &Prog.SetLayout) != VK_SUCCESS)
+    VkDescriptorSetLayoutCreateInfo BindingLayoutInfo {};
+    BindingLayoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    BindingLayoutInfo.bindingCount = static_cast<uint32_t>(LayoutBindings.size());
+    BindingLayoutInfo.pBindings    = LayoutBindings.data();
+    if (vkCreateDescriptorSetLayout(Dev, &BindingLayoutInfo, nullptr, &Prog.BindingLayout) != VK_SUCCESS)
     {
         vkDestroyShaderModule(Dev, Prog.ShaderModule, nullptr);
         return UINT32_MAX;
@@ -132,10 +132,10 @@ uint32_t ComputeDispatchEncoder::RegisterProgram(
     VkPipelineLayoutCreateInfo PipeLayoutInfo {};
     PipeLayoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     PipeLayoutInfo.setLayoutCount = 1u;
-    PipeLayoutInfo.pSetLayouts    = &Prog.SetLayout;
+    PipeLayoutInfo.pSetLayouts    = &Prog.BindingLayout;
     if (vkCreatePipelineLayout(Dev, &PipeLayoutInfo, nullptr, &Prog.PipelineLayout) != VK_SUCCESS)
     {
-        vkDestroyDescriptorSetLayout(Dev, Prog.SetLayout, nullptr);
+        vkDestroyDescriptorSetLayout(Dev, Prog.BindingLayout, nullptr);
         vkDestroyShaderModule(Dev, Prog.ShaderModule, nullptr);
         return UINT32_MAX;
     }
@@ -151,7 +151,7 @@ uint32_t ComputeDispatchEncoder::RegisterProgram(
     if (vkCreateComputePipelines(Dev, VK_NULL_HANDLE, 1u, &PipeCreate, nullptr, &Prog.Pipeline) != VK_SUCCESS)
     {
         vkDestroyPipelineLayout(Dev, Prog.PipelineLayout, nullptr);
-        vkDestroyDescriptorSetLayout(Dev, Prog.SetLayout, nullptr);
+        vkDestroyDescriptorSetLayout(Dev, Prog.BindingLayout, nullptr);
         vkDestroyShaderModule(Dev, Prog.ShaderModule, nullptr);
         return UINT32_MAX;
     }
@@ -190,7 +190,7 @@ bool ComputeDispatchEncoder::EncodeComputeDispatch(
     AllocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     AllocInfo.descriptorPool     = DescriptorPool;
     AllocInfo.descriptorSetCount = 1u;
-    AllocInfo.pSetLayouts        = &Prog.SetLayout;
+    AllocInfo.pSetLayouts        = &Prog.BindingLayout;
 
     VkDescriptorSet DescSet = VK_NULL_HANDLE;
     if (vkAllocateDescriptorSets(Dev, &AllocInfo, &DescSet) != VK_SUCCESS)

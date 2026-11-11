@@ -93,7 +93,11 @@ enum class ControlIcon : uint8_t
     QuestionCircle       = 43, // [-] - Contextual help question circle icon
     WrenchRepair         = 44, // [-] - Diagnostic repair wrench icon
     RefreshCycle         = 45, // [-] - Reimport / reload cycle arrows icon
-    Count                = 46, // [count] - Total control icons
+    LayoutGrid           = 46, // [-] - 2x2 rounded tile grid view icon
+    LayoutList           = 47, // [-] - Bulleted horizontal row list view icon
+    LayoutColumns        = 48, // [-] - Vertical colour-strip columns view icon
+    LayoutRows           = 49, // [-] - Horizontal colour-strip rows view icon
+    Count                = 50, // [count] - Total control icons
 };
 
 //------------------------------------------------------------------------------------------------------------------------

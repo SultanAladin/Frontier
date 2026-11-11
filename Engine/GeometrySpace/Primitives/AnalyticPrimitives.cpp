@@ -409,7 +409,7 @@ ConstructedSampleAsset ConstructSamplePolygonNetwork(SampleAssetPreset Preset)
     Result.Network.LinkOppositeEdges(true);
     Result.Network.RecomputeNormals();
     Result.Network.MarkDihedralSharpSeams(52.0f, false);
-    Result.Layers.SynchronizeReferences(Result.Network);
+    Result.Layers.SynchronizePartitions(Result.Network);
     return Result;
 }
 

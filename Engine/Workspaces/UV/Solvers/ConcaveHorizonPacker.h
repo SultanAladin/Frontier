@@ -12,7 +12,7 @@
 #include "Engine/Configuration/WorkspaceConfiguration.h"
 #include "Engine/GeometricRaster/Backend/VulkanDeviceContext.h"
 #include "Engine/GeometricRaster/Compute/ComputeDispatchEncoder.h"
-#include "Engine/GeometrySpace/Network/FaceGroupReference.h"
+#include "Engine/GeometrySpace/Network/FacePartitionRegister.h"
 #include "Engine/GeometrySpace/Network/PolygonNetwork.h"
 #include "Engine/Threading/Tasks/ExecutionChannels.h"
 
@@ -52,7 +52,7 @@ public:
     // weighting each layer's target share (e.g., 55%, 25%, Remainder 20%) and scoring concave horizons on GPU.
     ConcavePackReport PackConcaveSkyline(
         GeometrySpace::PolygonNetwork&               Network,
-        const GeometrySpace::PriorityLayerRegistry&  LayerRegistry,
+        const GeometrySpace::FacePartitionRegister&  LayerRegistry,
         const Configuration::UVWorkspacePreferences& Preferences,
         bool                                         AllowMultiUDIMOverflow = false,
         Threading::ExecutionChannels*                OptionalChannels       = nullptr);

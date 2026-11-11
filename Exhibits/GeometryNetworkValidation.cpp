@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                        GEOMETRYNETWORKVALIDATION.CPP
 ============================================================================================================================================*/
-// 🧩 Phase 1 validation suite for EngineConfiguration, AxisCoordinates, PolygonNetwork, GeometryInstance, FaceGroupReference & AnalyticPrimitives
+// 🧩 Phase 1 validation suite for EngineConfiguration, AxisCoordinates, PolygonNetwork, GeometryInstance, FacePartitionSpan & AnalyticPrimitives
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
@@ -14,7 +14,7 @@
 #include "Engine/Configuration/EngineConfiguration.h"
 #include "Engine/Configuration/WorkspaceConfiguration.h"
 #include "Engine/Constants/MathConstants.h"
-#include "Engine/GeometrySpace/Network/FaceGroupReference.h"
+#include "Engine/GeometrySpace/Network/FacePartitionRegister.h"
 #include "Engine/GeometrySpace/Network/GeometryInstance.h"
 #include "Engine/GeometrySpace/Network/PolygonNetwork.h"
 #include "Engine/GeometrySpace/Primitives/AnalyticPrimitives.h"
@@ -54,7 +54,7 @@ struct PhaseOneTelemetry
     uint32_t AeroEdgeCount            = 0u;  // [count] - AeroCoupeGT directed edge count
     uint32_t AeroFaceCount            = 0u;  // [count] - AeroCoupeGT face count
     uint32_t TotalSampleFacesVerified = 0u;  // [count] - Total faces across all 5 studio presets
-    double   AverageLayerSelectMicros = 0.0; // [us]    - Average O(1) FaceGroupReference lookup latency
+    double   AverageLayerSelectMicros = 0.0; // [us]    - Average O(1) FacePartitionSpan lookup latency
     uint32_t LiveInstancesRegistered  = 0u;  // [count] - Active GeometryInstance slots
     uint32_t RoundTripUVFloatCount    = 0u;  // [count] - Parameterized UV floats verified via UVCodec
 };
@@ -74,8 +74,8 @@ struct PhaseOneTelemetry
     {
         if (!VerifyCondition(DefaultConfig.QueryLaunchMode() == HostLaunchMode::FeatureSet, "Default launch mode is HostLaunchMode::FeatureSet") ||
             !VerifyCondition(DefaultConfig.QueryInteractiveUIEnabled(), "FeatureSet enables interactive UI") ||
-            !VerifyCondition(DefaultConfig.QueryDomainIncluded(WorkspaceDomainPreset::UVParameterization), "FeatureSet includes UVParameterization") ||
-            !VerifyCondition(DefaultConfig.QueryDomainIncluded(WorkspaceDomainPreset::GeometryAuthoring), "FeatureSet includes GeometryAuthoring") ||
+            !VerifyCondition(DefaultConfig.QueryWorkspaceIncluded(WorkspaceCategory::UV), "FeatureSet includes WorkspaceCategory::UV") ||
+            !VerifyCondition(DefaultConfig.QueryWorkspaceIncluded(WorkspaceCategory::GeometryCad), "FeatureSet includes WorkspaceCategory::GeometryCad") ||
             !VerifyCondition(DefaultConfig.QueryResolvedChannelLanes() >= 1u, "ExecutionChannels worker lane count >= 1"))
         {
             return false;
@@ -85,9 +85,9 @@ struct PhaseOneTelemetry
         const std::array<std::string_view, 2u> StandaloneArgs {{ "--standalone=uv", "--lanes=4" }};
         StandaloneConfig.ConfigureFromCommandLine(StandaloneArgs);
         if (!VerifyCondition(StandaloneConfig.QueryLaunchMode() == HostLaunchMode::StandaloneWorkspace, "CLI --standalone=uv selects StandaloneWorkspace") ||
-            !VerifyCondition(StandaloneConfig.QueryDomainPreset() == WorkspaceDomainPreset::UVParameterization, "CLI --standalone=uv maps to UVParameterization") ||
-            !VerifyCondition(StandaloneConfig.QueryDomainIncluded(WorkspaceDomainPreset::UVParameterization), "Standalone UV includes UVParameterization") ||
-            !VerifyCondition(!StandaloneConfig.QueryDomainIncluded(WorkspaceDomainPreset::SimulationAuthoring), "Standalone UV excludes unrelated workspaces") ||
+            !VerifyCondition(StandaloneConfig.QueryWorkspaceCategory() == WorkspaceCategory::UV, "CLI --standalone=uv maps to WorkspaceCategory::UV") ||
+            !VerifyCondition(StandaloneConfig.QueryWorkspaceIncluded(WorkspaceCategory::UV), "Standalone UV includes WorkspaceCategory::UV") ||
+            !VerifyCondition(!StandaloneConfig.QueryWorkspaceIncluded(WorkspaceCategory::Simulation), "Standalone UV excludes unrelated workspaces") ||
             !VerifyCondition(StandaloneConfig.QueryResolvedChannelLanes() == 4u, "CLI --lanes=4 configures 4 worker lanes"))
         {
             return false;
@@ -197,7 +197,7 @@ struct PhaseOneTelemetry
     const GeometryInstanceToken ChassisTok = InstanceReg.IssueInstance("AeroCoupe_Chassis", 0u);
     const GeometryInstanceToken CanopyTok  = InstanceReg.IssueInstance("AeroCoupe_Canopy", 0u, { { 0.0f, 0.64f, -0.18f }, {}, { 1.0f, 1.0f, 1.0f } });
     const GeometryInstanceToken WheelFLTok = InstanceReg.IssueInstance("AeroCoupe_WheelFL", 0u, { { -0.88f, 0.24f, 1.26f }, {}, { 1.0f, 1.0f, 1.0f } });
-    const GeometryInstanceToken TempTok    = InstanceReg.IssueInstance("EphemeralHelper", 0u);
+    const GeometryInstanceToken TempTok    = InstanceReg.IssueInstance("EphemeralProbe", 0u);
 
     if (!VerifyCondition(InstanceReg.AttachNestedInstance(ChassisTok, CanopyTok), "Attached Canopy nested under Chassis") ||
         !VerifyCondition(InstanceReg.AttachNestedInstance(ChassisTok, WheelFLTok), "Attached WheelFL nested under Chassis") ||
@@ -216,21 +216,21 @@ struct PhaseOneTelemetry
     }
     OutTelemetry.LiveInstancesRegistered = InstanceReg.QueryLiveInstanceCount();
 
-    // 3. Benchmark O(1) PriorityLayerRegistry::InspectLayerReference across 2,000 consecutive clicks (< 50 us ceiling)
+    // 3. Benchmark O(1) FacePartitionRegister::InspectPartitionSpan across 2,000 consecutive clicks (< 50 us ceiling)
     const auto  BenchStart       = std::chrono::steady_clock::now();
     std::size_t AccumulatedFaces = 0u;
     for (uint32_t Iter = 0u; Iter < 2000u; ++Iter)
     {
         const uint16_t            Ord = static_cast<uint16_t>(Iter % 3u);
-        const FaceGroupReference& Ref = OutAeroAsset.Layers.InspectLayerReference(OutAeroAsset.Network, Ord, ChassisTok);
+        const FacePartitionSpan& Ref = OutAeroAsset.Layers.InspectPartitionSpan(OutAeroAsset.Network, Ord, ChassisTok);
         AccumulatedFaces += Ref.FaceIndices.size();
     }
     const auto   BenchEnd    = std::chrono::steady_clock::now();
     const double TotalMicros = std::chrono::duration<double, std::micro>(BenchEnd - BenchStart).count();
     OutTelemetry.AverageLayerSelectMicros = TotalMicros / 2000.0;
 
-    if (!VerifyCondition(AccumulatedFaces > 0u, "PriorityLayerRegistry returned populated FaceGroupReferences") ||
-        !VerifyCondition(OutTelemetry.AverageLayerSelectMicros < 50.0, "O(1) FaceGroupReference lookup stays well under 0.05 ms (50 us)"))
+    if (!VerifyCondition(AccumulatedFaces > 0u, "FacePartitionRegister returned populated FacePartitionSpans") ||
+        !VerifyCondition(OutTelemetry.AverageLayerSelectMicros < 50.0, "O(1) FacePartitionSpan lookup stays well under 0.05 ms (50 us)"))
     {
         return false;
     }

@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                      TEXELDENSITYANDUDIMSOLVER.CPP
+                                                      TEXELDENSITYEQUALIZER.CPP
 ============================================================================================================================================*/
 // 🧩 Implementation of physical texel density equalization across seam-bounded PolygonNetwork UV islands
 
@@ -7,7 +7,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Workspaces/UV/Solvers/TexelDensityAndUDIMSolver.h"
+#include "Engine/Workspaces/UV/Solvers/TexelDensityEqualizer.h"
 
 #include "Engine/Workspaces/UV/Solvers/SeamCutGenerator.h"
 
@@ -17,7 +17,7 @@
 namespace Frontier::Workspaces
 {
 
-TexelDensityReport TexelDensityAndUDIMSolver::EqualizePhysicalTexelDensity(
+TexelDensityReport TexelDensityEqualizer::EqualizePhysicalTexelDensity(
     GeometrySpace::PolygonNetwork& Network,
     float                          TargetTexelsPerMeter,
     uint32_t                       ReferenceTilePixels)

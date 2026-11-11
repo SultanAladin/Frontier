@@ -44,9 +44,9 @@ void EngineConfiguration::Configure(EngineConfigurationDescriptor NewDescriptor)
     }
 
     if (NewDescriptor.LaunchMode == HostLaunchMode::StandaloneWorkspace &&
-        NewDescriptor.ActiveDomainPreset == WorkspaceDomainPreset::AllFeatureWorkspaces)
+        NewDescriptor.ActiveWorkspace == WorkspaceCategory::SceneWorld)
     {
-        NewDescriptor.ActiveDomainPreset = WorkspaceDomainPreset::UVParameterization;
+        NewDescriptor.ActiveWorkspace = WorkspaceCategory::UV;
     }
 
     const uint32_t HardwareThreads = std::max(1u, std::thread::hardware_concurrency());
@@ -65,15 +65,15 @@ void EngineConfiguration::ConfigureFromCommandLine(std::span<const std::string_v
     {
         if (Argument == "--standalone-uv" || Argument == "--standalone=uv" || Argument == "--workspace=uv")
         {
-            Modified.LaunchMode         = HostLaunchMode::StandaloneWorkspace;
-            Modified.ActiveDomainPreset = WorkspaceDomainPreset::UVParameterization;
-            Modified.ApplicationTitle   = "Frontier UV";
+            Modified.LaunchMode       = HostLaunchMode::StandaloneWorkspace;
+            Modified.ActiveWorkspace  = WorkspaceCategory::UV;
+            Modified.ApplicationTitle = "Frontier UV";
         }
         else if (Argument == "--feature-set" || Argument == "--workspace=all")
         {
-            Modified.LaunchMode         = HostLaunchMode::FeatureSet;
-            Modified.ActiveDomainPreset = WorkspaceDomainPreset::AllFeatureWorkspaces;
-            Modified.ApplicationTitle   = "Frontier";
+            Modified.LaunchMode       = HostLaunchMode::FeatureSet;
+            Modified.ActiveWorkspace  = WorkspaceCategory::SceneWorld;
+            Modified.ApplicationTitle = "Frontier";
         }
         else if (Argument == "--headless" || Argument == "--batch")
         {
@@ -114,27 +114,27 @@ void EngineConfiguration::ConfigureFromCommandLine(std::span<const std::string_v
 EngineConfigurationDescriptor EngineConfiguration::ConstructFeatureSetDefault() noexcept
 {
     EngineConfigurationDescriptor Result {};
-    Result.LaunchMode         = BuildConfiguration::EditorIncluded ? HostLaunchMode::FeatureSet : HostLaunchMode::HeadlessBatch;
-    Result.ActiveDomainPreset = WorkspaceDomainPreset::AllFeatureWorkspaces;
-    Result.ApplicationTitle   = "Frontier";
+    Result.LaunchMode       = BuildConfiguration::EditorIncluded ? HostLaunchMode::FeatureSet : HostLaunchMode::HeadlessBatch;
+    Result.ActiveWorkspace  = WorkspaceCategory::SceneWorld;
+    Result.ApplicationTitle = "Frontier";
     return Result;
 }
 
 EngineConfigurationDescriptor EngineConfiguration::ConstructStandaloneUVDefault() noexcept
 {
     EngineConfigurationDescriptor Result {};
-    Result.LaunchMode         = BuildConfiguration::EditorIncluded ? HostLaunchMode::StandaloneWorkspace : HostLaunchMode::HeadlessBatch;
-    Result.ActiveDomainPreset = WorkspaceDomainPreset::UVParameterization;
-    Result.ApplicationTitle   = "Frontier UV";
+    Result.LaunchMode       = BuildConfiguration::EditorIncluded ? HostLaunchMode::StandaloneWorkspace : HostLaunchMode::HeadlessBatch;
+    Result.ActiveWorkspace  = WorkspaceCategory::UV;
+    Result.ApplicationTitle = "Frontier UV";
     return Result;
 }
 
-EngineConfigurationDescriptor EngineConfiguration::ConstructHeadlessBatchDefault(WorkspaceDomainPreset TargetDomain) noexcept
+EngineConfigurationDescriptor EngineConfiguration::ConstructHeadlessBatchDefault(WorkspaceCategory TargetWorkspace) noexcept
 {
     EngineConfigurationDescriptor Result {};
-    Result.LaunchMode         = HostLaunchMode::HeadlessBatch;
-    Result.ActiveDomainPreset = TargetDomain;
-    Result.ApplicationTitle   = "Frontier Batch";
+    Result.LaunchMode       = HostLaunchMode::HeadlessBatch;
+    Result.ActiveWorkspace  = TargetWorkspace;
+    Result.ApplicationTitle = "Frontier Batch";
     return Result;
 }
 
@@ -161,9 +161,9 @@ HostLaunchMode EngineConfiguration::QueryLaunchMode() const noexcept
     return Descriptor.LaunchMode;
 }
 
-WorkspaceDomainPreset EngineConfiguration::QueryDomainPreset() const noexcept
+WorkspaceCategory EngineConfiguration::QueryWorkspaceCategory() const noexcept
 {
-    return Descriptor.ActiveDomainPreset;
+    return Descriptor.ActiveWorkspace;
 }
 
 uint32_t EngineConfiguration::QueryResolvedChannelLanes() const noexcept
@@ -176,14 +176,14 @@ bool EngineConfiguration::QueryInteractiveUIEnabled() const noexcept
     return BuildConfiguration::EditorIncluded && Descriptor.LaunchMode != HostLaunchMode::HeadlessBatch;
 }
 
-bool EngineConfiguration::QueryDomainIncluded(WorkspaceDomainPreset CandidateDomain) const noexcept
+bool EngineConfiguration::QueryWorkspaceIncluded(WorkspaceCategory CandidateWorkspace) const noexcept
 {
     if (Descriptor.LaunchMode == HostLaunchMode::FeatureSet ||
-        Descriptor.ActiveDomainPreset == WorkspaceDomainPreset::AllFeatureWorkspaces)
+        Descriptor.ActiveWorkspace == WorkspaceCategory::SceneWorld)
     {
         return true;
     }
-    return Descriptor.ActiveDomainPreset == CandidateDomain;
+    return Descriptor.ActiveWorkspace == CandidateWorkspace;
 }
 
 std::string_view EngineConfiguration::QueryLaunchModeLabel() const noexcept

@@ -109,7 +109,22 @@ Click(AssetHandle);
 await Tick();
 
 const Browser = document.querySelector(".asset-browser");
-assert.ok(Browser, "Asset Browser mounted");
+assert.ok(Browser, "ContentBrowser mounted");
+assert.match(
+  Browser.querySelector(".asset-browser-header h1").textContent,
+  /ContentBrowser/,
+  "Header renamed to ContentBrowser",
+);
+assert.equal(
+  Browser.querySelector(".colour-filters-bar"),
+  null,
+  "Colour Filters bar is hidden on Materials category",
+);
+assert.equal(
+  Browser.querySelectorAll(".asset-view-switch button").length,
+  2,
+  "Non-Colours category shows standard 2-way Grid/List switch",
+);
 assert.equal(
   Browser.querySelectorAll(".asset-cell").length,
   9,
@@ -123,10 +138,20 @@ assert.ok(ColoursCategoryBtn, "Colours category exists in rail");
 Click(ColoursCategoryBtn);
 await Tick();
 
+assert.ok(
+  Browser.querySelector(".colour-filters-bar"),
+  "Dedicated Colour Filters bar appears on Colours category",
+);
+assert.equal(
+  Browser.querySelectorAll(".colour-view-switch button").length,
+  3,
+  "Colours category shows 3-way Grid / Vertical List / Horizontal List switch",
+);
+
 const ColourCells = [...Browser.querySelectorAll(".asset-cell")];
 assert.ok(
-  ColourCells.length >= 24,
-  `Expected >=24 built-in ColourCodex entries, found ${ColourCells.length}`,
+  ColourCells.length >= 38,
+  `Expected >=38 built-in ColourCodex entries, found ${ColourCells.length}`,
 );
 
 for (const ExpectedAlias of [
@@ -329,6 +354,77 @@ assert.ok(
   "Imported .toml added 'Sunburst Gold' to ColourCodex",
 );
 
+// 6b. Verify Colour Filters ("August Beige & Brown") + Vertical & Horizontal Strip List Views
+Click(
+  [...Browser.querySelectorAll(".asset-origin-tabs button")].find(
+    (Btn) => Btn.textContent.trim() === "Engine",
+  ),
+);
+await Tick();
+
+const AugustFilterBtn = [
+  ...Browser.querySelectorAll(".colour-filter-chips button"),
+].find((Btn) => Btn.textContent.includes("August Beige & Brown"));
+assert.ok(AugustFilterBtn, "'August Beige & Brown' Colour Filter exists");
+Click(AugustFilterBtn);
+await Tick();
+
+const VerticalListBtn = Browser.querySelector(
+  'button[aria-label="vertical list colour view"]',
+);
+Click(VerticalListBtn);
+await Tick();
+
+const VerticalDeck = Browser.querySelector(".colour-strip-deck.list-vertical");
+assert.ok(VerticalDeck, "Vertical colour strip deck mounted");
+assert.equal(
+  VerticalDeck.querySelector(".colour-strip-banner")?.textContent,
+  "August Beige & Brown",
+);
+const VerticalHexLabels = [
+  ...VerticalDeck.querySelectorAll(".colour-strip-vertical-hex"),
+].map((Node) => Node.textContent.trim());
+for (const ExpectedHex of [
+  "FF7B00",
+  "FF8800",
+  "FF9500",
+  "FFA200",
+  "FFAA00",
+  "FFB700",
+  "FFC300",
+  "FFD000",
+  "FFDD00",
+  "FFEA00",
+]) {
+  assert.ok(
+    VerticalHexLabels.includes(ExpectedHex),
+    `Vertical strip list contains ${ExpectedHex}`,
+  );
+}
+const BlazeBand = Browser.querySelector(
+  'button[aria-label="Select asset August Blaze"]',
+);
+const MarigoldBand = Browser.querySelector(
+  'button[aria-label="Select asset August Marigold"]',
+);
+assert.equal(BlazeBand.style.color, "rgb(255, 255, 255)");
+assert.equal(MarigoldBand.style.color, "rgb(17, 17, 17)");
+
+const HorizontalListBtn = Browser.querySelector(
+  'button[aria-label="horizontal list colour view"]',
+);
+Click(HorizontalListBtn);
+await Tick();
+
+const HorizontalDeck = Browser.querySelector(
+  ".colour-strip-deck.list-horizontal",
+);
+assert.ok(HorizontalDeck, "Horizontal colour strip deck mounted");
+assert.ok(
+  HorizontalDeck.querySelectorAll(".colour-strip-band").length >= 10,
+  "Horizontal colour strip deck renders flush colour bands",
+);
+
 // 7. Verify TOML serialization & parsing round-trip
 const TomlSample = SerializeColourCodexToml([
   { Name: "Fig Purple", Hex: "#3B1F3A", Family: "Botanical" },
@@ -349,6 +445,6 @@ assert.deepEqual(RoundTripped[1].RGB, [246, 184, 0]);
 assert.deepEqual(RoundTripped[1].CMYK, [0, 25, 100, 4]);
 
 console.log(
-  "CheckColourCodex PASSED: 28 built-in ColourCodex aliases, flat circle swatches, reference-style flat swatch cards (white/black contrast ink), double-click assignment, drag-and-drop with auto-split reveal, and TOML round-trip verified.",
+  "CheckColourCodex PASSED: 38 built-in ColourCodex aliases, ContentBrowser rename, Colours-only Colour Filters, Grid / Vertical Strips / Horizontal Strips views, double-click & drag-and-drop assignment, and TOML round-trip verified.",
 );
 Dom.window.close();

@@ -124,6 +124,29 @@ int main()
             return 1;
         }
 
+        // Verify WorkspaceDocument::AccessViewportProjection() aspect-locked 1:1 planar bounds & ContentBrowser WorkspaceCategory::UV binding
+        Mathematics::UVAxes MinUV {};
+        Mathematics::UVAxes MaxUV {};
+        StandaloneHost.InspectSession().InspectViewportProjection().EvaluateAspectLockedPlanarBounds(800u, 400u, MinUV, MaxUV);
+        const float SpanAspect = (MaxUV.U - MinUV.U) / std::max(1.0e-5f, (MaxUV.V - MinUV.V));
+        if (!VerifyCondition(std::abs(SpanAspect - 2.0f) < 1.0e-3f, "ViewportProjection preserves 2:1 aspect ratio for square UDIM tiles"))
+        {
+            return 1;
+        }
+#if FRONTIER_EDITOR_ENABLED
+        const auto SavedLayer1Tint = StandaloneHost.InspectSession().Asset.Layers.InspectLayer(1u)->LinearTintRGB;
+        Editor::Explorer::ContentBrowser Browser {};
+        StandaloneHost.AttachContentBrowser(&Browser);
+        const auto BrowserReading = Browser.QueryPanel().InspectReading();
+        if (!VerifyCondition(BrowserReading.ActiveWorkspace == WorkspaceCategory::UV, "AttachContentBrowser configures WorkspaceCategory::UV") ||
+            !VerifyCondition(BrowserReading.PermittedCategoryCount == 6u, "WorkspaceCategory::UV exposes strictly 6 permitted UV asset categories") ||
+            !VerifyCondition(Browser.AccessPanel().ApplyColourIndexToSlot(0u, "uv.priority_layer.tint"), "ColourCodex swatch tints UV Priority Layer"))
+        {
+            return 1;
+        }
+        StandaloneHost.AccessSession().AssignSelectedLayerTint(SavedLayer1Tint);
+#endif
+
         // Verify share ceiling clamp (Layer 1 + Layer 2 <= 100%)
         StandaloneHost.AccessSession().SelectPriorityLayer(1u);
         StandaloneHost.AccessSession().AdjustSelectedLayerShare(95.0f); // Layer 2 has 25%, so Layer 1 must clamp to 75%

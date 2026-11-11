@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                             TRANSFORMGIZMO.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of Slate GizmoPRO 3D & 2D procedural mesh builder and skew-line / ray-plane / Ctrl-snap drag solver
+// 🧩 Implementation of Slate GizmoPRO 3D & 2D procedural geometry builder and skew-line / ray-plane / Ctrl-snap drag solver
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
@@ -262,7 +262,7 @@ void AppendBillboardTorusRing(
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                               CONFIGURATION & MESH STREAM
+//                                               CONFIGURATION & GEOMETRY STREAM
 //------------------------------------------------------------------------------------------------------------------------
 
 void TransformGizmo::ConfigureDimensionMode(GizmoDimensionMode Mode) noexcept

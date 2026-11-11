@@ -1,13 +1,13 @@
 /*============================================================================================================================================
-                                                           ASYNCREADBACKRING.CPP
+                                                           TIMELINETRANSFERREGISTER.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of AsyncReadbackRing encoding zero-stall GPU buffer/image transfers into 64B-aligned host-cached staging slots
+// 🧩 Implementation of TimelineTransferRegister encoding zero-stall GPU buffer/image transfers into 64B-aligned host-cached staging slots
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/GeometricRaster/Compute/AsyncReadbackRing.h"
+#include "Engine/GeometricRaster/Compute/TimelineTransferRegister.h"
 
 #include <cstring>
 
@@ -18,23 +18,23 @@ namespace Frontier::GeometricRaster
 //                                                      LIFECYCLE
 //------------------------------------------------------------------------------------------------------------------------
 
-AsyncReadbackRing::~AsyncReadbackRing()
+TimelineTransferRegister::~TimelineTransferRegister()
 {
-    TeardownRing();
+    TeardownRegister();
 }
 
-bool AsyncReadbackRing::InitializeRing(
+bool TimelineTransferRegister::InitializeRegister(
     VulkanDeviceContext* BoundContext,
     uint64_t             SlotCapacityBytes)
 {
-    TeardownRing();
+    TeardownRegister();
     if (BoundContext == nullptr || !BoundContext->Ready() || SlotCapacityBytes == 0ull)
     {
         return false;
     }
 
     Context = BoundContext;
-    for (StagingSlot& Slot : Slots)
+    for (TransferSlot& Slot : Slots)
     {
         Slot.Buffer = Context->AllocateBuffer(
             SlotCapacityBytes,
@@ -46,7 +46,7 @@ bool AsyncReadbackRing::InitializeRing(
 
         if (Slot.Buffer.BufferHandle == VK_NULL_HANDLE || Slot.Buffer.MappedPtr == nullptr)
         {
-            TeardownRing();
+            TeardownRegister();
             return false;
         }
     }
@@ -55,11 +55,11 @@ bool AsyncReadbackRing::InitializeRing(
     return true;
 }
 
-void AsyncReadbackRing::TeardownRing() noexcept
+void TimelineTransferRegister::TeardownRegister() noexcept
 {
     if (Context != nullptr)
     {
-        for (StagingSlot& Slot : Slots)
+        for (TransferSlot& Slot : Slots)
         {
             Context->ReleaseBuffer(Slot.Buffer);
             Slot.WriteCursor = 0ull;
@@ -69,10 +69,10 @@ void AsyncReadbackRing::TeardownRing() noexcept
     Context = nullptr;
 }
 
-void AsyncReadbackRing::AdvanceFrameSlot() noexcept
+void TimelineTransferRegister::AdvanceFrameSlot() noexcept
 {
     ActiveSlot = (ActiveSlot + 1u) % RingSlotCount;
-    StagingSlot& Next = Slots[ActiveSlot];
+    TransferSlot& Next = Slots[ActiveSlot];
     if (Context != nullptr && Next.LastSignal != 0ull)
     {
         (void)Context->AwaitTimelineValue(Next.LastSignal);
@@ -84,7 +84,7 @@ void AsyncReadbackRing::AdvanceFrameSlot() noexcept
 //                                                TRANSFER ENCODING & READBACK
 //------------------------------------------------------------------------------------------------------------------------
 
-ReadbackTicket AsyncReadbackRing::EncodeBufferReadback(
+ReadbackTicket TimelineTransferRegister::EncodeBufferReadback(
     VkCommandBuffer SourceCmdBuffer,
     VkBuffer        SourceDeviceBuffer,
     uint64_t        SourceOffsetBytes,
@@ -96,14 +96,14 @@ ReadbackTicket AsyncReadbackRing::EncodeBufferReadback(
         return Ticket;
     }
 
-    StagingSlot& Slot = Slots[ActiveSlot];
+    TransferSlot& Slot = Slots[ActiveSlot];
     const uint64_t AlignedOffset = (Slot.WriteCursor + 63ull) & ~63ull;
     if (AlignedOffset + CopyByteCount > Slot.Buffer.ByteCapacity)
     {
         AdvanceFrameSlot();
     }
 
-    StagingSlot& TargetSlot    = Slots[ActiveSlot];
+    TransferSlot& TargetSlot    = Slots[ActiveSlot];
     const uint64_t DestOffset  = (TargetSlot.WriteCursor + 63ull) & ~63ull;
     if (DestOffset + CopyByteCount > TargetSlot.Buffer.ByteCapacity)
     {
@@ -156,7 +156,7 @@ ReadbackTicket AsyncReadbackRing::EncodeBufferReadback(
     return Ticket;
 }
 
-ReadbackTicket AsyncReadbackRing::EncodeImageRegionReadback(
+ReadbackTicket TimelineTransferRegister::EncodeImageRegionReadback(
     VkCommandBuffer SourceCmdBuffer,
     VkImage         SourceImage,
     VkImageLayout   CurrentImageLayout,
@@ -173,13 +173,13 @@ ReadbackTicket AsyncReadbackRing::EncodeImageRegionReadback(
         return Ticket;
     }
 
-    StagingSlot& Slot = Slots[ActiveSlot];
+    TransferSlot& Slot = Slots[ActiveSlot];
     if (((Slot.WriteCursor + 63ull) & ~63ull) + TotalBytes > Slot.Buffer.ByteCapacity)
     {
         AdvanceFrameSlot();
     }
 
-    StagingSlot&   TargetSlot = Slots[ActiveSlot];
+    TransferSlot&   TargetSlot = Slots[ActiveSlot];
     const uint64_t DestOffset = (TargetSlot.WriteCursor + 63ull) & ~63ull;
     if (DestOffset + TotalBytes > TargetSlot.Buffer.ByteCapacity)
     {
@@ -255,7 +255,7 @@ ReadbackTicket AsyncReadbackRing::EncodeImageRegionReadback(
     return Ticket;
 }
 
-void AsyncReadbackRing::BindTicketTimelineSignal(ReadbackTicket& Ticket, uint64_t TimelineSignal) noexcept
+void TimelineTransferRegister::BindTicketTimelineSignal(ReadbackTicket& Ticket, uint64_t TimelineSignal) noexcept
 {
     Ticket.TimelineSignal = TimelineSignal;
     if (Ticket.SlotIndex < RingSlotCount)
@@ -264,12 +264,12 @@ void AsyncReadbackRing::BindTicketTimelineSignal(ReadbackTicket& Ticket, uint64_
     }
 }
 
-bool AsyncReadbackRing::QueryTicketReady(const ReadbackTicket& Ticket) const noexcept
+bool TimelineTransferRegister::QueryTicketReady(const ReadbackTicket& Ticket) const noexcept
 {
     return Context != nullptr && Ticket.Valid() && Context->QueryTimelineReached(Ticket.TimelineSignal);
 }
 
-bool AsyncReadbackRing::AwaitAndCopyBytes(const ReadbackTicket& Ticket, std::span<uint8_t> DestinationBytes) const noexcept
+bool TimelineTransferRegister::AwaitAndCopyBytes(const ReadbackTicket& Ticket, std::span<uint8_t> DestinationBytes) const noexcept
 {
     if (Context == nullptr || !Ticket.Valid() || DestinationBytes.size() < Ticket.ByteLength || Ticket.SlotIndex >= RingSlotCount)
     {
@@ -280,7 +280,7 @@ bool AsyncReadbackRing::AwaitAndCopyBytes(const ReadbackTicket& Ticket, std::spa
         return false;
     }
 
-    const StagingSlot& Slot = Slots[Ticket.SlotIndex];
+    const TransferSlot& Slot = Slots[Ticket.SlotIndex];
     if (Slot.Buffer.MappedPtr == nullptr || Ticket.ByteOffset + Ticket.ByteLength > Slot.Buffer.ByteCapacity)
     {
         return false;

@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                            ANALYTICPRIMITIVES.H
 ============================================================================================================================================*/
-// 🧩 Parametric solid builders and 5 multi-part studio sample PolygonNetwork constructors with clean UDIM UVs and PriorityLayerRegistry
+// 🧩 Parametric solid builders and 5 multi-part studio sample PolygonNetwork constructors with clean UDIM UVs and FacePartitionRegister
 
 #pragma once
 
@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/GeometrySpace/Network/FaceGroupReference.h"
+#include "Engine/GeometrySpace/Network/FacePartitionRegister.h"
 #include "Engine/GeometrySpace/Network/PolygonNetwork.h"
 #include "Engine/Mathematics/AxisCoordinates.h"
 
@@ -45,7 +45,7 @@ struct UVPatchBounds
 struct ConstructedSampleAsset
 {
     PolygonNetwork        Network    {};               // [-]    - Assembled half-edge PolygonNetwork
-    PriorityLayerRegistry Layers     {};               // [-]    - Pre-configured PriorityAllocationLayer registry
+    FacePartitionRegister Layers     {};               // [-]    - Pre-configured PriorityAllocationLayer registry
     std::vector<uint32_t> UDIMTiles  { 1001u };        // [code] - Active UDIM tile codes
 };
 

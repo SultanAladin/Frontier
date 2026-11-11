@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                            UVWORKSPACEHOST.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of UVWorkspaceHost registering either focused StandaloneWorkspace panes or multi-domain FeatureSet docked tabs
+// 🧩 Implementation of UVWorkspaceHost registering StandaloneWorkspace / FeatureSet docked tabs and ContentBrowser WorkspaceCategory::UV
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
@@ -9,6 +9,7 @@
 
 #include "Engine/Workspaces/UV/UVWorkspaceHost.h"
 
+#include <array>
 #include <imgui.h>
 
 namespace Frontier::Workspaces
@@ -31,6 +32,36 @@ bool UVWorkspaceHost::AttachVulkanRasterizer(GeometricRaster::UVWorkspaceRasteri
     return Session.AttachVulkanRasterizer(BoundRasterizer);
 }
 
+#if FRONTIER_EDITOR_ENABLED
+void UVWorkspaceHost::AttachContentBrowser(Editor::Explorer::ContentBrowser* TargetBrowser)
+{
+    BoundBrowser = TargetBrowser;
+    if (BoundBrowser == nullptr)
+    {
+        return;
+    }
+
+    // Enforce WorkspaceCategory::UV filter (exposes Geometries, Materials, Textures, Images, Colours; hides Simulations/Particles/Audio)
+    BoundBrowser->ConfigureWorkspaceDomain(WorkspaceCategory::UV);
+
+    BoundBrowser->AccessPanel().RegisterColourSlot(ColourSlotRegistration{
+        "uv.priority_layer.tint",
+        "Active UV Priority Layer Tint",
+        Rectangle2D{ 16.0f, 96.0f, 260.0f, 44.0f },
+        nullptr,
+        [this](ColorRgba AssignedRgba, const ColourCodexEntry&)
+        {
+            Session.AssignSelectedLayerTint({
+                static_cast<float>(AssignedRgba.Red) / 255.0f,
+                static_cast<float>(AssignedRgba.Green) / 255.0f,
+                static_cast<float>(AssignedRgba.Blue) / 255.0f,
+            });
+        },
+    });
+    BoundBrowser->AccessPanel().FocusColourSlot("uv.priority_layer.tint");
+}
+#endif
+
 void UVWorkspaceHost::RegisterDockPanes(Components::HeadlessWorkspaceDockContainer& DockContainer)
 {
     using Components::DockPlacementDirection;
@@ -48,7 +79,7 @@ void UVWorkspaceHost::RegisterDockPanes(Components::HeadlessWorkspaceDockContain
         [this]() { Outliner.PresentInImGuiPane(1.0 / 60.0, 1.0f); },
     });
 
-    // Center Pane: UV Parameterization Viewport (Split 2D UVTileCanvas + 3D ProjectionViewport)
+    // Center Pane: UV Parameterization Viewport (Reusable ViewportProjectionPane)
     (void)DockContainer.RegisterPane(WorkspaceDockPaneDescriptor{
         "UV",
         DockPlacementDirection::CenterTabGroup,

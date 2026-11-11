@@ -126,7 +126,7 @@ void UVOutlinerPanel::Render(
 
         Surface.Text({ LeftX + 32.0f, CurY + 7.0f }, 12.5f, Selected ? IvoryText : CrispText, Layer.LayerTitle.c_str());
 
-        const auto& Ref = Session->Asset.Layers.InspectLayerReference(
+        const auto& Ref = Session->Asset.Layers.InspectPartitionSpan(
             Session->Asset.Network,
             Layer.LayerOrdinal,
             Session->RootInstanceToken);
@@ -159,7 +159,7 @@ void UVOutlinerPanel::Render(
         Surface.FillRectangle(Swatch, { 132, 142, 158, 255 }, 3.0f);
         Surface.Text({ LeftX + 32.0f, CurY + 7.0f }, 12.0f, CrispText, "Unassigned Remainder");
 
-        const auto& RemRef = Session->Asset.Layers.InspectLayerReference(Session->Asset.Network, 0u, Session->RootInstanceToken);
+        const auto& RemRef = Session->Asset.Layers.InspectPartitionSpan(Session->Asset.Network, 0u, Session->RootInstanceToken);
         char RemSub[96]{};
         std::snprintf(RemSub, sizeof(RemSub), "%zu faces  |  Auto Share", RemRef.FaceIndices.size());
         Surface.Text({ LeftX + 32.0f, CurY + 23.0f }, 10.5f, MutedText, RemSub);
@@ -201,7 +201,7 @@ void UVOutlinerPanel::Render(
     // 5. GeometryInstance Non-Kinship Summary Footer
     if (CurY + 56.0f < Bounds.Bottom())
     {
-        Surface.Text({ LeftX, CurY }, 11.0f, MutedText, "GEOMETRYINSTANCES");
+        Surface.Text({ LeftX, CurY }, 11.0f, MutedText, "GEOMETRY INSTANCES");
         CurY += 18.0f;
         for (const auto& Tok : Session->Instances.EnumerateLiveInstances())
         {

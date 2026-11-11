@@ -10,7 +10,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometricRaster/Backend/VulkanDeviceContext.h"
-#include "Engine/GeometricRaster/Compute/AsyncReadbackRing.h"
+#include "Engine/GeometricRaster/Compute/TimelineTransferRegister.h"
 
 #include <cstdint>
 #include <cstring>
@@ -36,7 +36,7 @@ struct ComputeBindingDescriptor
 struct RegisteredComputeProgram
 {
     VkShaderModule        ShaderModule   = VK_NULL_HANDLE; // [-] - Compiled .slang SPIR-V module
-    VkDescriptorSetLayout SetLayout      = VK_NULL_HANDLE; // [-] - Set 0 descriptor layout
+    VkDescriptorSetLayout BindingLayout      = VK_NULL_HANDLE; // [-] - Set 0 descriptor layout
     VkPipelineLayout      PipelineLayout = VK_NULL_HANDLE; // [-] - Compute pipeline layout
     VkPipeline            Pipeline       = VK_NULL_HANDLE; // [-] - Compiled VkPipeline
     uint32_t              BindingCount   = 0u;             // [-] - Number of bindings in Set 0

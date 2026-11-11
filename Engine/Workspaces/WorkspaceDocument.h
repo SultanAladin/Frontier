@@ -12,6 +12,7 @@
 #include "Engine/Codecs/RevisionCodec.h"
 #include "Engine/Codecs/SpaceContainerCodec.h"
 #include "Engine/Constants/EngineConstants.h"
+#include "Engine/Editor/Viewports/ViewportProjection.h"
 #include "Engine/Workspaces/Revision/RevisionTracker.h"
 #include "Engine/Workspaces/WorkspaceToken.h"
 
@@ -55,6 +56,8 @@ public:
     [[nodiscard]] const RevisionTracker&              InspectRevisionTracker() const noexcept { return Revision; }
     [[nodiscard]] Codecs::SpaceContainerPayload&      AccessContainerPayload() noexcept { return Payload; }
     [[nodiscard]] const Codecs::SpaceContainerPayload& InspectContainerPayload() const noexcept { return Payload; }
+    [[nodiscard]] Editor::ViewportProjection&         AccessViewportProjection() noexcept { return Projection; }
+    [[nodiscard]] const Editor::ViewportProjection&   InspectViewportProjection() const noexcept { return Projection; }
 
     void AssignCanonicalPath(std::filesystem::path NewPath);
 
@@ -63,6 +66,7 @@ private:
     std::filesystem::path         ContainerPath {}; // [-] - Canonical PascalCase .Space file path
     Codecs::SpaceContainerPayload Payload       {}; // [-] - Two-Tier Hybrid manifest + binary sections
     RevisionTracker               Revision      ;   // [-] - Per-document 215 MiB parametric revision tracker
+    Editor::ViewportProjection    Projection    {}; // [-] - Reusable 3D spatial & 2D planar viewport projection
 };
 
 } // namespace Frontier::Workspaces

@@ -210,7 +210,7 @@ void ConcaveHorizonPacker::TeardownGPUKernel() noexcept
 
 ConcavePackReport ConcaveHorizonPacker::PackConcaveSkyline(
     GeometrySpace::PolygonNetwork&               Network,
-    const GeometrySpace::PriorityLayerRegistry&  LayerRegistry,
+    const GeometrySpace::FacePartitionRegister&  LayerRegistry,
     const Configuration::UVWorkspacePreferences& Preferences,
     bool                                         AllowMultiUDIMOverflow,
     Threading::ExecutionChannels*                OptionalChannels)

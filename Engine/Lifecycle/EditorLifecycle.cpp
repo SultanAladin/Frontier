@@ -207,7 +207,13 @@ void EditorLifecycle::PresentPrimaryEditorImGui(double Δt)
     CurrentStepSeconds    = SafeStep;
 
     Components::ConfigureImGuiWorkspaceTheme(DockContainer.ActiveTabMetrics(), ControlCentre.QueryThemeRepository());
+    ContentBrowserDrawer.AttachThemeRepository(&ControlCentre.QueryThemeRepository());
     DockContainer.PresentWindowImGuiPanes(Components::HostWindowToken{ 0u });
+
+    if (WorkspaceSessionPanes* ActivePanes = Workspaces.AccessActivePanes())
+    {
+        ContentBrowserDrawer.SynchronizeWorkspaceTargets(&ActivePanes->Outliner, &ActivePanes->Inspector);
+    }
 
     const Components::HostWindowReading HostReading = DockContainer.InspectHostWindow(Components::HostWindowToken{ 0u });
     if (HostReading.Active && HostReading.SurfaceExtent.PixelWidth > 0u && HostReading.SurfaceExtent.PixelHeight > 0u)
@@ -221,6 +227,10 @@ void EditorLifecycle::PresentPrimaryEditorImGui(double Δt)
         const float RefreshHz = HostReading.SurfaceExtent.RefreshRateHz > 0u
                                     ? static_cast<float>(HostReading.SurfaceExtent.RefreshRateHz)
                                     : 60.0f;
+        const float ScaleFactor = HostReading.SurfaceExtent.DpiScaleFactor > 0.5f
+                                      ? HostReading.SurfaceExtent.DpiScaleFactor
+                                      : 1.0f;
+        ContentBrowserDrawer.Render(Bounds, SafeStep, ScaleFactor);
         ControlCentre.Render(Bounds, SafeStep, RefreshHz);
     }
 }
@@ -289,6 +299,7 @@ EditorLifecycleReading EditorLifecycle::InspectReading() const noexcept
     Reading.OpenWorkspaceCount  = Workspaces.OpenSessionCount();
     Reading.GpuOverlayCount     = RegisteredOverlayHooks;
     Reading.ControlCentreOpen   = ControlCentre.QueryOpen();
+    Reading.ContentBrowserOpen  = ContentBrowserDrawer.QueryPanel().QueryOpen();
     Reading.AuthoringActive     = QueryActive();
     return Reading;
 }

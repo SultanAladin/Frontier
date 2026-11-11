@@ -199,7 +199,7 @@ bool UVWorkspaceRasterizer::InitializeRasterizer(
 
     Context = BoundContext;
     if (!ComputeEncoder.InitializeEncoder(Context, 256u) ||
-        !ReadbackRing.InitializeRing(Context, 16ull * 1024ull * 1024ull))
+        !TransferRegister.InitializeRegister(Context, 16ull * 1024ull * 1024ull))
     {
         TeardownRasterizer();
         return false;
@@ -208,7 +208,7 @@ bool UVWorkspaceRasterizer::InitializeRasterizer(
     if (!PickQuery.InitializePickQuery(
             Context,
             &ComputeEncoder,
-            &ReadbackRing,
+            &TransferRegister,
             CompiledShaderDirectory / "ViewportPickReduction.comp.spv"))
     {
         TeardownRasterizer();
@@ -228,7 +228,7 @@ bool UVWorkspaceRasterizer::InitializeRasterizer(
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
     }};
-    StretchComputeProgram = ComputeEncoder.RegisterProgram(CompiledShaderDirectory / "StretchAndOverlapCompute.comp.spv", StretchBindings);
+    StretchComputeProgram = ComputeEncoder.RegisterProgram(CompiledShaderDirectory / "UVDistortionInspection.comp.spv", StretchBindings);
 
     if (SelectionComputeProgram == UINT32_MAX || StretchComputeProgram == UINT32_MAX)
     {
@@ -392,7 +392,7 @@ void UVWorkspaceRasterizer::TeardownRasterizer() noexcept
     }
 
     PickQuery.TeardownPickQuery();
-    ReadbackRing.TeardownRing();
+    TransferRegister.TeardownRegister();
     ComputeEncoder.TeardownEncoder();
     Context = nullptr;
 }
@@ -421,11 +421,11 @@ bool UVWorkspaceRasterizer::CreateGraphicsPipeline(
         Bindings[Idx].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     }
 
-    VkDescriptorSetLayoutCreateInfo SetInfo {};
-    SetInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    SetInfo.bindingCount = static_cast<uint32_t>(Bindings.size());
-    SetInfo.pBindings    = Bindings.data();
-    if (vkCreateDescriptorSetLayout(Dev, &SetInfo, nullptr, &OutBundle.SetLayout) != VK_SUCCESS)
+    VkDescriptorSetLayoutCreateInfo BindingInfo {};
+    BindingInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    BindingInfo.bindingCount = static_cast<uint32_t>(Bindings.size());
+    BindingInfo.pBindings    = Bindings.data();
+    if (vkCreateDescriptorSetLayout(Dev, &BindingInfo, nullptr, &OutBundle.BindingLayout) != VK_SUCCESS)
     {
         return false;
     }
@@ -433,7 +433,7 @@ bool UVWorkspaceRasterizer::CreateGraphicsPipeline(
     VkPipelineLayoutCreateInfo LayoutInfo {};
     LayoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     LayoutInfo.setLayoutCount = 1u;
-    LayoutInfo.pSetLayouts    = &OutBundle.SetLayout;
+    LayoutInfo.pSetLayouts    = &OutBundle.BindingLayout;
     if (vkCreatePipelineLayout(Dev, &LayoutInfo, nullptr, &OutBundle.PipelineLayout) != VK_SUCCESS)
     {
         return false;
@@ -523,7 +523,7 @@ void UVWorkspaceRasterizer::DestroyGraphicsPipeline(GraphicsPipelineBundle& Bund
     VkDevice Dev = Context->AccessDevice();
     if (Bundle.Pipeline != VK_NULL_HANDLE)       { vkDestroyPipeline(Dev, Bundle.Pipeline, nullptr); Bundle.Pipeline = VK_NULL_HANDLE; }
     if (Bundle.PipelineLayout != VK_NULL_HANDLE) { vkDestroyPipelineLayout(Dev, Bundle.PipelineLayout, nullptr); Bundle.PipelineLayout = VK_NULL_HANDLE; }
-    if (Bundle.SetLayout != VK_NULL_HANDLE)      { vkDestroyDescriptorSetLayout(Dev, Bundle.SetLayout, nullptr); Bundle.SetLayout = VK_NULL_HANDLE; }
+    if (Bundle.BindingLayout != VK_NULL_HANDLE)      { vkDestroyDescriptorSetLayout(Dev, Bundle.BindingLayout, nullptr); Bundle.BindingLayout = VK_NULL_HANDLE; }
     if (Bundle.VertModule != VK_NULL_HANDLE)     { vkDestroyShaderModule(Dev, Bundle.VertModule, nullptr); Bundle.VertModule = VK_NULL_HANDLE; }
     if (Bundle.FragModule != VK_NULL_HANDLE)     { vkDestroyShaderModule(Dev, Bundle.FragModule, nullptr); Bundle.FragModule = VK_NULL_HANDLE; }
 }
@@ -845,19 +845,19 @@ std::vector<uint32_t> UVWorkspaceRasterizer::ReadbackSelectionBitmaskWords()
     }
 
     VkCommandBuffer Cmd    = Context->BeginSingleTimeCommands();
-    ReadbackTicket  Ticket = ReadbackRing.EncodeBufferReadback(Cmd, SelectionBitmaskBuffer.BufferHandle, 0ull, WordCount * sizeof(uint32_t));
+    ReadbackTicket  Ticket = TransferRegister.EncodeBufferReadback(Cmd, SelectionBitmaskBuffer.BufferHandle, 0ull, WordCount * sizeof(uint32_t));
     const uint64_t  Signal = Context->DispatchCommandBufferAsync(Cmd);
-    ReadbackRing.BindTicketTimelineSignal(Ticket, Signal);
-    (void)ReadbackRing.AwaitAndCopyTyped<uint32_t>(Ticket, Output);
+    TransferRegister.BindTicketTimelineSignal(Ticket, Signal);
+    (void)TransferRegister.AwaitAndCopyTyped<uint32_t>(Ticket, Output);
     vkFreeCommandBuffers(Context->AccessDevice(), Context->AccessCommandPool(), 1u, &Cmd);
     return Output;
 }
 
-GPUStretchOverlapSummary UVWorkspaceRasterizer::EvaluateGPUStretchAndOverlaps(
+GPUUVDistortionSummary UVWorkspaceRasterizer::EvaluateUVDistortionInspection(
     const GeometrySpace::PolygonNetwork& Network,
     bool                                 CheckOverlaps)
 {
-    GPUStretchOverlapSummary Summary {};
+    GPUUVDistortionSummary Summary {};
     const uint32_t FaceCount = static_cast<uint32_t>(Network.Faces.size());
     if (Context == nullptr || FaceCount == 0u)
     {
@@ -930,16 +930,16 @@ GPUStretchOverlapSummary UVWorkspaceRasterizer::EvaluateGPUStretchAndOverlaps(
     }};
     (void)ComputeEncoder.EncodeComputeDispatch(Cmd, StretchComputeProgram, Bindings, (FaceCount + 63u) / 64u);
 
-    ReadbackTicket CountsTicket  = ReadbackRing.EncodeBufferReadback(Cmd, StretchCountersBuffer.BufferHandle, 0ull, 12ull);
-    ReadbackTicket OutputsTicket = ReadbackRing.EncodeBufferReadback(Cmd, StretchOutputBuffer.BufferHandle, 0ull, FaceCount * sizeof(GPUFaceMetricOutput));
+    ReadbackTicket CountsTicket  = TransferRegister.EncodeBufferReadback(Cmd, StretchCountersBuffer.BufferHandle, 0ull, 12ull);
+    ReadbackTicket OutputsTicket = TransferRegister.EncodeBufferReadback(Cmd, StretchOutputBuffer.BufferHandle, 0ull, FaceCount * sizeof(GPUFaceMetricOutput));
     const uint64_t Signal        = Context->DispatchCommandBufferAsync(Cmd);
-    ReadbackRing.BindTicketTimelineSignal(CountsTicket, Signal);
-    ReadbackRing.BindTicketTimelineSignal(OutputsTicket, Signal);
+    TransferRegister.BindTicketTimelineSignal(CountsTicket, Signal);
+    TransferRegister.BindTicketTimelineSignal(OutputsTicket, Signal);
 
     std::array<uint32_t, 3u> RawCounts {{ 0u, 0u, 0u }};
     std::vector<GPUFaceMetricOutput> Outputs(FaceCount);
-    (void)ReadbackRing.AwaitAndCopyTyped<uint32_t>(CountsTicket, RawCounts);
-    (void)ReadbackRing.AwaitAndCopyTyped<GPUFaceMetricOutput>(OutputsTicket, Outputs);
+    (void)TransferRegister.AwaitAndCopyTyped<uint32_t>(CountsTicket, RawCounts);
+    (void)TransferRegister.AwaitAndCopyTyped<GPUFaceMetricOutput>(OutputsTicket, Outputs);
     vkFreeCommandBuffers(Context->AccessDevice(), Context->AccessCommandPool(), 1u, &Cmd);
 
     Summary.FlippedFaceCount = RawCounts[0u];
@@ -1027,7 +1027,7 @@ bool UVWorkspaceRasterizer::Rasterize3DViewport(
 
     // Allocate descriptor sets
     VkDescriptorSet SurfaceSet = VK_NULL_HANDLE;
-    VkDescriptorSetAllocateInfo SurfAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorPool, 1u, &SurfacePipeline.SetLayout };
+    VkDescriptorSetAllocateInfo SurfAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorPool, 1u, &SurfacePipeline.BindingLayout };
     vkAllocateDescriptorSets(Dev, &SurfAlloc, &SurfaceSet);
 
     const std::array<VkDescriptorBufferInfo, 3u> SurfBufs {{
@@ -1050,7 +1050,7 @@ bool UVWorkspaceRasterizer::Rasterize3DViewport(
     VkDescriptorSet GizmoSet = VK_NULL_HANDLE;
     if (GizmoVertCount > 0u)
     {
-        VkDescriptorSetAllocateInfo GizAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorPool, 1u, &GizmoDepthOffPipeline.SetLayout };
+        VkDescriptorSetAllocateInfo GizAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorPool, 1u, &GizmoDepthOffPipeline.BindingLayout };
         vkAllocateDescriptorSets(Dev, &GizAlloc, &GizmoSet);
         const std::array<VkDescriptorBufferInfo, 2u> GizBufs {{
             { Gizmo3DUniformBuffer.BufferHandle, 0u, sizeof(GPUGizmoUniforms) },
@@ -1112,7 +1112,7 @@ bool UVWorkspaceRasterizer::Rasterize3DViewport(
     ReadbackTicket ColorTicket {};
     if (OptionalOutRGBA != nullptr)
     {
-        ColorTicket = ReadbackRing.EncodeImageRegionReadback(
+        ColorTicket = TransferRegister.EncodeImageRegionReadback(
             Cmd,
             Target3D.ColorImage.ImageHandle,
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -1126,9 +1126,9 @@ bool UVWorkspaceRasterizer::Rasterize3DViewport(
     const uint64_t Signal = Context->DispatchCommandBufferAsync(Cmd);
     if (OptionalOutRGBA != nullptr)
     {
-        ReadbackRing.BindTicketTimelineSignal(ColorTicket, Signal);
+        TransferRegister.BindTicketTimelineSignal(ColorTicket, Signal);
         OptionalOutRGBA->resize(static_cast<std::size_t>(WidthPx) * static_cast<std::size_t>(HeightPx) * 4u);
-        (void)ReadbackRing.AwaitAndCopyBytes(ColorTicket, *OptionalOutRGBA);
+        (void)TransferRegister.AwaitAndCopyBytes(ColorTicket, *OptionalOutRGBA);
     }
     else
     {
@@ -1194,7 +1194,7 @@ bool UVWorkspaceRasterizer::Rasterize2DUVCanvas(
     VkDevice Dev = Context->AccessDevice();
 
     VkDescriptorSet CanvasSet = VK_NULL_HANDLE;
-    VkDescriptorSetAllocateInfo CanvAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorPool, 1u, &UVCanvasPipeline.SetLayout };
+    VkDescriptorSetAllocateInfo CanvAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorPool, 1u, &UVCanvasPipeline.BindingLayout };
     vkAllocateDescriptorSets(Dev, &CanvAlloc, &CanvasSet);
 
     const std::array<VkDescriptorBufferInfo, 3u> CanvBufs {{
@@ -1217,7 +1217,7 @@ bool UVWorkspaceRasterizer::Rasterize2DUVCanvas(
     VkDescriptorSet GizmoSet = VK_NULL_HANDLE;
     if (GizmoVertCount > 0u)
     {
-        VkDescriptorSetAllocateInfo GizAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorPool, 1u, &GizmoDepthOffPipeline.SetLayout };
+        VkDescriptorSetAllocateInfo GizAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorPool, 1u, &GizmoDepthOffPipeline.BindingLayout };
         vkAllocateDescriptorSets(Dev, &GizAlloc, &GizmoSet);
         const std::array<VkDescriptorBufferInfo, 2u> GizBufs {{
             { Gizmo2DUniformBuffer.BufferHandle, 0u, sizeof(GPUGizmoUniforms) },
@@ -1278,7 +1278,7 @@ bool UVWorkspaceRasterizer::Rasterize2DUVCanvas(
     ReadbackTicket ColorTicket {};
     if (OptionalOutRGBA != nullptr)
     {
-        ColorTicket = ReadbackRing.EncodeImageRegionReadback(
+        ColorTicket = TransferRegister.EncodeImageRegionReadback(
             Cmd,
             Target2D.ColorImage.ImageHandle,
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -1292,9 +1292,9 @@ bool UVWorkspaceRasterizer::Rasterize2DUVCanvas(
     const uint64_t Signal = Context->DispatchCommandBufferAsync(Cmd);
     if (OptionalOutRGBA != nullptr)
     {
-        ReadbackRing.BindTicketTimelineSignal(ColorTicket, Signal);
+        TransferRegister.BindTicketTimelineSignal(ColorTicket, Signal);
         OptionalOutRGBA->resize(static_cast<std::size_t>(WidthPx) * static_cast<std::size_t>(HeightPx) * 4u);
-        (void)ReadbackRing.AwaitAndCopyBytes(ColorTicket, *OptionalOutRGBA);
+        (void)TransferRegister.AwaitAndCopyBytes(ColorTicket, *OptionalOutRGBA);
     }
     else
     {

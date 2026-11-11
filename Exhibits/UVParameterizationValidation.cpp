@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                    UVSOLVERSANDCODECVALIDATION.CPP
+                                                    UVPARAMETERIZATIONVALIDATION.CPP
 ============================================================================================================================================*/
 // 🧩 Phase 4 end-to-end validation of parallel ConformalUnwrap, Vulkan StretchRelax & ConcaveHorizonPacker, WorkspaceThread & .UVSpace I/O
 
@@ -36,7 +36,7 @@ namespace
 {
     if (!ConditionMet)
     {
-        std::fprintf(stderr, "[UVSolversAndCodecValidation] FAILED: %s\n", Description);
+        std::fprintf(stderr, "[UVParameterizationValidation] FAILED: %s\n", Description);
         return false;
     }
     return true;
@@ -298,7 +298,7 @@ int main()
         char ShareStat[128]{};
         std::snprintf(ShareStat, sizeof(ShareStat), "Layer 1 UV Area: %.3f (30%%) -> %.3f (65%% Share)", HeroAreaAt30, HeroAreaAt65);
         Draw->AddText(ImVec2(640.0f, 722.0f), Emerald, ShareStat);
-        Draw->AddText(ImVec2(640.0f, 752.0f), Bright, "GPU StretchAndOverlapCompute (2D SAT): 0 Overlaps");
+        Draw->AddText(ImVec2(640.0f, 752.0f), Bright, "GPU UVDistortionInspection (2D SAT): 0 Overlaps");
         Draw->AddText(ImVec2(640.0f, 780.0f), Muted, "EqualizeIntraLayerScale = ON  |  90 deg Rotation Step");
 
         // Panel 3: 3D Studio View + Async WorkspaceThread & .UVSpace Persistence Telemetry
@@ -362,7 +362,7 @@ int main()
     VkCtx.TeardownContext();
 
     std::printf(
-        "[UVSolversAndCodecValidation] Phase 4 passed: GPU ConcaveSkyline (0 overlaps, 0 flips), Share 30%%->65%% (%.3f->%.3f), .UVSpace bit-exact.\n",
+        "[UVParameterizationValidation] Phase 4 passed: GPU ConcaveSkyline (0 overlaps, 0 flips), Share 30%%->65%% (%.3f->%.3f), .UVSpace bit-exact.\n",
         HeroAreaAt30,
         HeroAreaAt65);
     return 0;

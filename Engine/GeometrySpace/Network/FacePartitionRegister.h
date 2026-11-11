@@ -1,7 +1,7 @@
 /*============================================================================================================================================
-                                                           FACEGROUPREFERENCE.H
+                                                           FACEPARTITIONREGISTER.H
 ============================================================================================================================================*/
-// 🧩 PriorityAllocationLayer & UVRevision-stamped FaceGroupReference enabling O(1) GPU layer selection and sub-0.05ms CPU spans
+// 🧩 PriorityAllocationLayer & UVRevision-stamped FacePartitionSpan enabling O(1) GPU layer selection and sub-0.05ms CPU spans
 
 #pragma once
 
@@ -34,7 +34,7 @@ struct PriorityAllocationLayer
     uint32_t              TargetUDIMNumber   = 0u;                       // [code]  - 0 = Auto UDIM; >= 1001 = pinned UDIM tile
 };
 
-struct FaceGroupReference
+struct FacePartitionSpan
 {
     GeometryInstanceToken     OwnerInstance      {};     // [-]     - Bound GeometryInstance handle
     uint16_t                  LayerOrdinal       = 0u;   // [idx]   - 0 = Unassigned Remainder; 1..N = PriorityAllocationLayer
@@ -47,10 +47,10 @@ struct FaceGroupReference
     Mathematics::UVAxes       UVBoundsMax        {};     // [uv]    - Upper UV bounding corner
 };
 
-class PriorityLayerRegistry
+class FacePartitionRegister
 {
 public:
-    PriorityLayerRegistry() = default;
+    FacePartitionRegister() = default;
 
     [[nodiscard]] uint16_t ConstructLayer(
         std::string_view      Title,
@@ -64,11 +64,11 @@ public:
         std::span<const uint32_t> TargetFaceIndices,
         uint16_t                  LayerOrdinal) noexcept;
 
-    void SynchronizeReferences(
+    void SynchronizePartitions(
         const PolygonNetwork& Network,
         GeometryInstanceToken OwnerInstance = {});
 
-    [[nodiscard]] const FaceGroupReference& InspectLayerReference(
+    [[nodiscard]] const FacePartitionSpan& InspectPartitionSpan(
         const PolygonNetwork& Network,
         uint16_t              LayerOrdinal,
         GeometryInstanceToken OwnerInstance = {});
@@ -81,7 +81,7 @@ public:
 
 private:
     std::vector<PriorityAllocationLayer> Layers                {};   // [-]     - Active user-created UV priority layers
-    std::vector<FaceGroupReference>      IndexedReferences     {};   // [-]     - Slot 0 = Remainder; Slot k = LayerOrdinal k
+    std::vector<FacePartitionSpan>      IndexedPartitions     {};   // [-]     - Slot 0 = Remainder; Slot k = LayerOrdinal k
     uint64_t                             SynchronizedRevision  = 0ull; // [count] - Last synchronized PolygonNetwork::UVRevision
     uint16_t                             NextLayerOrdinal      = 1u; // [idx]   - Monotonic layer ordinal generator
 };

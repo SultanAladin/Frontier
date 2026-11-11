@@ -14,6 +14,7 @@
 
 struct ImDrawList;
 struct ImFont;
+struct ImTextureData;
 
 namespace Frontier
 {
@@ -103,6 +104,13 @@ public:
 
     void FillRectangle(Rectangle2D Bounds, ColorRgba Fill, float CornerRadius = 0.0f) noexcept;
     void FillRectangleBottomRounded(Rectangle2D Bounds, ColorRgba Fill, float CornerRadius) noexcept;
+    void FillTexturedRectangle(
+        Rectangle2D    Bounds,
+        ImTextureData* TextureSource,
+        Point2D        UvMin,
+        Point2D        UvMax,
+        float          CornerRadius = 0.0f,
+        ColorRgba      Modulation   = { 255u, 255u, 255u, 255u }) noexcept;
     void StrokeRectangle(Rectangle2D Bounds, ColorRgba Stroke, float CornerRadius = 0.0f, float Thickness = 1.0f) noexcept;
     void FillCircle(Point2D Center, float Radius, ColorRgba Fill) noexcept;
     void StrokeCircle(Point2D Center, float Radius, ColorRgba Stroke, float Thickness = 1.0f) noexcept;
@@ -115,6 +123,7 @@ public:
     [[nodiscard]] ImFont* QueryTypeface() const noexcept;
 
     void Text(Point2D Position, float PixelSize, ColorRgba Ink, const char* Utf8, const char* Utf8End = nullptr) noexcept;
+    void TextVerticalUp(Point2D BottomLeftAnchor, float PixelSize, ColorRgba Ink, const char* Utf8, const char* Utf8End = nullptr) noexcept;
     void TextCentered(Rectangle2D Bounds, float PixelSize, ColorRgba Ink, const char* Utf8) noexcept;
     void TextRightAligned(Rectangle2D Bounds, float PixelSize, ColorRgba Ink, const char* Utf8) noexcept;
     [[nodiscard]] float   MeasureTextWidth(float PixelSize, const char* Utf8, const char* Utf8End = nullptr) const noexcept;

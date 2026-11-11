@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                       TEXELDENSITYANDUDIMSOLVER.H
+                                                       TEXELDENSITYEQUALIZER.H
 ============================================================================================================================================*/
 // 🧩 Physical texel density equalizer (px/m) and multi-UDIM (1001..100N) tile distributor for PolygonNetwork
 
@@ -23,7 +23,7 @@ struct TexelDensityReport
     float    AchievedMeanTexelPerM   = 0.0f;  // [px/m]  - Achieved average texel density across islands
 };
 
-class TexelDensityAndUDIMSolver
+class TexelDensityEqualizer
 {
 public:
     // Rescales every seam-bounded UV island about its UV centroid so physical texel density matches TargetTexelsPerMeter

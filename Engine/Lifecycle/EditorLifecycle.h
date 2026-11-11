@@ -16,6 +16,7 @@
 #include "Engine/Components/Appearance/TypographyRepository.h"
 #include "Engine/Components/ControlCentre/ControlCentrePanel.h"
 #include "Engine/Components/Docking/WorkspaceDockContainer.h"
+#include "Engine/Editor/Explorer/ContentBrowser.h"
 #include "Engine/Input/InputExtension.h"
 #include "Engine/Lifecycle/LifecycleSequence.h"
 #include "Engine/Lifecycle/WorkspaceLifecycle.h"
@@ -51,6 +52,7 @@ struct EditorLifecycleReading
     uint32_t                       OpenWorkspaceCount  = 0u;                      // [count] - Open multi-document sessions
     uint32_t                       GpuOverlayCount     = 0u;                      // [count] - Registered GPU .slang overlay hooks
     bool                           ControlCentreOpen   = false;                   // [-]     - True while top Control Centre shade is open
+    bool                           ContentBrowserOpen  = false;                   // [-]     - True while bottom ContentBrowser drawer is open
     bool                           AuthoringActive     = false;                   // [-]     - True between Initialize and Finalize
 };
 
@@ -88,6 +90,7 @@ public:
     [[nodiscard]] EditorLifecycleReading                     InspectReading() const noexcept;
     [[nodiscard]] Components::HeadlessWorkspaceDockContainer& AccessDockContainer() noexcept;
     [[nodiscard]] ControlCentrePanel&                        AccessControlCentre() noexcept;
+    [[nodiscard]] Editor::Explorer::ContentBrowser&          AccessContentBrowser() noexcept;
     [[nodiscard]] WorkspaceLifecycle&                        AccessWorkspaces() noexcept;
     [[nodiscard]] Input::InputExtension&                     AccessInput() noexcept;
     [[nodiscard]] TypographyRepository&                      AccessTypography() noexcept;
@@ -100,6 +103,7 @@ private:
     Components::HeadlessWorkspaceDockContainer DockContainer          {};     // [-]     - Intra-app trapezoidal docking container
     TypographyRepository                       Typography             {};     // [-]     - .FontSpace typeface & 13px tab-strip faces
     ControlCentrePanel                         ControlCentre          {};     // [-]     - Pull-down Control Centre & settings shade
+    Editor::Explorer::ContentBrowser           ContentBrowserDrawer   {};     // [-]     - Pull-up ContentBrowser & ColourCodex drawer
     WorkspaceLifecycle                         Workspaces             {};     // [-]     - Multi-document workspace session loop
     Input::InputExtension                      InputCoordinator       {};     // [-]     - Hardware input & OS feedback coordinator
     LifecycleSequence                          EditorSequence         {};     // [-]     - Registered GPU .slang overlay & editor hooks
@@ -129,6 +133,11 @@ inline Components::HeadlessWorkspaceDockContainer& EditorLifecycle::AccessDockCo
 inline ControlCentrePanel& EditorLifecycle::AccessControlCentre() noexcept
 {
     return ControlCentre;
+}
+
+inline Editor::Explorer::ContentBrowser& EditorLifecycle::AccessContentBrowser() noexcept
+{
+    return ContentBrowserDrawer;
 }
 
 inline WorkspaceLifecycle& EditorLifecycle::AccessWorkspaces() noexcept

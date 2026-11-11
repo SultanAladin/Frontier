@@ -1,5 +1,11 @@
 # Compact Output Protocol
 
+🔴 **Chat vs. Markdown Studio Rule (NON-NEGOTIABLE):** Never write architectural plans, decision
+tables, implementation reports, or multi-section summaries in chat. Write them into
+`Documentation/Plans/*.md` (and/or `Documentation/Plans/SessionNotes.md`), rebuild
+`Documentation/Plans/MarkdownStudioViewer.html` (`python3 Automation/BuildMarkdownViewer.py`), and
+keep chat replies to **1–3 lines** pointing to the Markdown Studio document and status.
+
 Write for a skimmer, not a reader. **No essay explanations** of code or architecture — the user
 will not read them.
 

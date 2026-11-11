@@ -49,18 +49,18 @@ ViewportPickQuery::~ViewportPickQuery()
 bool ViewportPickQuery::InitializePickQuery(
     VulkanDeviceContext*         BoundContext,
     ComputeDispatchEncoder*      BoundComputeEncoder,
-    AsyncReadbackRing*           BoundReadbackRing,
+    TimelineTransferRegister*           BoundTransferRegister,
     const std::filesystem::path& PickReductionSpirvPath)
 {
     TeardownPickQuery();
-    if (BoundContext == nullptr || BoundComputeEncoder == nullptr || BoundReadbackRing == nullptr)
+    if (BoundContext == nullptr || BoundComputeEncoder == nullptr || BoundTransferRegister == nullptr)
     {
         return false;
     }
 
     Context        = BoundContext;
     ComputeEncoder = BoundComputeEncoder;
-    ReadbackRing   = BoundReadbackRing;
+    TransferRegister   = BoundTransferRegister;
 
     const std::array<VkDescriptorType, 4u> BindingTypes {{
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -90,7 +90,7 @@ void ViewportPickQuery::TeardownPickQuery() noexcept
     }
     Context                = nullptr;
     ComputeEncoder         = nullptr;
-    ReadbackRing           = nullptr;
+    TransferRegister           = nullptr;
     ReductionProgramHandle = UINT32_MAX;
 }
 
@@ -107,7 +107,7 @@ ViewportPickHit ViewportPickQuery::QuerySinglePixel(
     int32_t       CursorY)
 {
     ViewportPickHit Result {};
-    if (Context == nullptr || ReadbackRing == nullptr || ImageWidthPx == 0u || ImageHeightPx == 0u)
+    if (Context == nullptr || TransferRegister == nullptr || ImageWidthPx == 0u || ImageHeightPx == 0u)
     {
         return Result;
     }
@@ -116,7 +116,7 @@ ViewportPickHit ViewportPickQuery::QuerySinglePixel(
     const int32_t ClampedY = std::clamp(CursorY, 0, static_cast<int32_t>(ImageHeightPx) - 1);
 
     VkCommandBuffer Cmd = Context->BeginSingleTimeCommands();
-    ReadbackTicket Ticket = ReadbackRing->EncodeImageRegionReadback(
+    ReadbackTicket Ticket = TransferRegister->EncodeImageRegionReadback(
         Cmd,
         PickAttachmentImage,
         CurrentLayout,
@@ -127,10 +127,10 @@ ViewportPickHit ViewportPickQuery::QuerySinglePixel(
         16u); // R32G32B32A32_UINT = 16 bytes/pixel
 
     const uint64_t Signal = Context->DispatchCommandBufferAsync(Cmd);
-    ReadbackRing->BindTicketTimelineSignal(Ticket, Signal);
+    TransferRegister->BindTicketTimelineSignal(Ticket, Signal);
 
     std::array<uint32_t, 4u> RawChannels {{ 0u, GeometrySpace::InvalidNetworkIndex, GeometrySpace::InvalidNetworkIndex, 0u }};
-    if (ReadbackRing->AwaitAndCopyTyped<uint32_t>(Ticket, RawChannels))
+    if (TransferRegister->AwaitAndCopyTyped<uint32_t>(Ticket, RawChannels))
     {
         Result.InstanceSlot       = RawChannels[0u];
         Result.FaceIndex          = RawChannels[1u];
@@ -158,7 +158,7 @@ RegionPickSummary ViewportPickQuery::ExecuteRegionReduction(
     uint32_t      MaxFaceCount)
 {
     RegionPickSummary Summary {};
-    if (Context == nullptr || ComputeEncoder == nullptr || ReadbackRing == nullptr ||
+    if (Context == nullptr || ComputeEncoder == nullptr || TransferRegister == nullptr ||
         ImageWidthPx == 0u || ImageHeightPx == 0u)
     {
         return Summary;
@@ -246,12 +246,12 @@ RegionPickSummary ViewportPickQuery::ExecuteRegionReduction(
     }};
     (void)ComputeEncoder->EncodeComputeDispatch(Cmd, ReductionProgramHandle, Bindings, GroupX, GroupY, 1u);
 
-    ReadbackTicket Ticket = ReadbackRing->EncodeBufferReadback(Cmd, SummaryStorageBuffer.BufferHandle, 0ull, 12ull);
+    ReadbackTicket Ticket = TransferRegister->EncodeBufferReadback(Cmd, SummaryStorageBuffer.BufferHandle, 0ull, 12ull);
     const uint64_t Signal = Context->DispatchCommandBufferAsync(Cmd);
-    ReadbackRing->BindTicketTimelineSignal(Ticket, Signal);
+    TransferRegister->BindTicketTimelineSignal(Ticket, Signal);
 
     std::array<uint32_t, 3u> OutCounts {{ 0u, 0u, 0u }};
-    if (ReadbackRing->AwaitAndCopyTyped<uint32_t>(Ticket, OutCounts))
+    if (TransferRegister->AwaitAndCopyTyped<uint32_t>(Ticket, OutCounts))
     {
         Summary.HitPixelCount     = OutCounts[0u];
         Summary.FirstInstanceSlot = OutCounts[1u];

@@ -14,17 +14,18 @@
 #include "Engine/Configuration/WorkspaceConfiguration.h"
 #include "Engine/Editor/Viewports/TransformGizmo.h"
 #include "Engine/GeometricRaster/UV/UVWorkspaceRasterizer.h"
-#include "Engine/GeometrySpace/Network/FaceGroupReference.h"
+#include "Engine/GeometrySpace/Network/FacePartitionRegister.h"
 #include "Engine/GeometrySpace/Network/GeometryInstance.h"
 #include "Engine/GeometrySpace/Primitives/AnalyticPrimitives.h"
 #include "Engine/Threading/Tasks/ExecutionChannels.h"
 #include "Engine/Threading/Threads/Workspace/WorkspaceThread.h"
 #include "Engine/Workspaces/Revision/RevisionTracker.h"
+#include "Engine/Workspaces/WorkspaceDocument.h"
 #include "Engine/Workspaces/UV/Solvers/ConcaveHorizonPacker.h"
 #include "Engine/Workspaces/UV/Solvers/ConformalUnwrapSolver.h"
 #include "Engine/Workspaces/UV/Solvers/ProgressiveStretchRelaxer.h"
 #include "Engine/Workspaces/UV/Solvers/SeamCutGenerator.h"
-#include "Engine/Workspaces/UV/Solvers/TexelDensityAndUDIMSolver.h"
+#include "Engine/Workspaces/UV/Solvers/TexelDensityEqualizer.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -86,8 +87,14 @@ public:
 
     void     SelectPriorityLayer(uint16_t LayerOrdinal);
     uint16_t CreatePriorityLayer(std::string_view Title, Mathematics::Scalar3D LinearTint, float InitialSharePercent);
+    void     AssignSelectedLayerTint(Mathematics::Scalar3D LinearTint) noexcept;
     void     AdjustSelectedLayerShare(float RequestedSharePercent) noexcept;
     void     ApplyMatCapToActiveSelection(uint8_t MatCapSlot);
+
+    [[nodiscard]] WorkspaceDocument&                AccessDocument() noexcept { return ActiveDocument; }
+    [[nodiscard]] const WorkspaceDocument&          InspectDocument() const noexcept { return ActiveDocument; }
+    [[nodiscard]] Editor::ViewportProjection&       AccessViewportProjection() noexcept { return ActiveDocument.AccessViewportProjection(); }
+    [[nodiscard]] const Editor::ViewportProjection& InspectViewportProjection() const noexcept { return ActiveDocument.InspectViewportProjection(); }
 
     void                             QueueDirective(UVCommandDirective Directive) noexcept;
     [[nodiscard]] UVCommandDirective ConsumePendingDirective() noexcept;
@@ -120,7 +127,8 @@ public:
     GeometrySpace::GeometryInstanceRegistry  Instances            {};
     GeometrySpace::GeometryInstanceToken     RootInstanceToken    {};
     Configuration::WorkspaceConfiguration    WorkspaceConfig      {};
-    RevisionTracker                          RevisionHistory      {};
+    WorkspaceDocument                        ActiveDocument;
+    RevisionTracker&                         RevisionHistory;
     std::vector<float>                       BaselineUVPairs      {};
     uint64_t                                 RevisionStampCounter = 1ull;
 
@@ -139,7 +147,7 @@ public:
     Editor::TransformGizmo                   Gizmo2D              {};
     GeometricRaster::Viewport3DRenderOptions RenderOptions3D      {};
     GeometricRaster::Canvas2DRenderOptions   RenderOptions2D      {};
-    GeometricRaster::GPUStretchOverlapSummary LatestMetrics       {};
+    GeometricRaster::GPUUVDistortionSummary LatestMetrics       {};
     GeometricRaster::ViewportPickHit         LastHoverHit         {};
     std::string                              StatusBannerText     { "Ready  |  Zero Flips, Zero Overlaps" };
 

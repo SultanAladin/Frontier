@@ -1,13 +1,13 @@
 /*============================================================================================================================================
-                                                          FACEGROUPREFERENCE.CPP
+                                                          FACEPARTITIONREGISTER.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of PriorityLayerRegistry single-pass O(F) reference indexing and zero-re-extraction layer selection queries
+// 🧩 Implementation of FacePartitionRegister single-pass O(F) reference indexing and zero-re-extraction layer selection queries
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/GeometrySpace/Network/FaceGroupReference.h"
+#include "Engine/GeometrySpace/Network/FacePartitionRegister.h"
 
 #include <algorithm>
 #include <cmath>
@@ -20,7 +20,7 @@ namespace Frontier::GeometrySpace
 //                                                  LAYER LIFECYCLE & ASSIGNMENT
 //------------------------------------------------------------------------------------------------------------------------
 
-uint16_t PriorityLayerRegistry::ConstructLayer(
+uint16_t FacePartitionRegister::ConstructLayer(
     std::string_view      Title,
     Mathematics::Scalar3D LinearTintRGB,
     float                 TargetSharePercent,
@@ -39,7 +39,7 @@ uint16_t PriorityLayerRegistry::ConstructLayer(
     return AssignedOrdinal;
 }
 
-bool PriorityLayerRegistry::RemoveLayer(PolygonNetwork& Network, uint16_t LayerOrdinal)
+bool FacePartitionRegister::RemoveLayer(PolygonNetwork& Network, uint16_t LayerOrdinal)
 {
     const auto Found = std::find_if(
         Layers.begin(),
@@ -68,7 +68,7 @@ bool PriorityLayerRegistry::RemoveLayer(PolygonNetwork& Network, uint16_t LayerO
     return true;
 }
 
-void PriorityLayerRegistry::AssignFacesToLayer(
+void FacePartitionRegister::AssignFacesToLayer(
     PolygonNetwork&           Network,
     std::span<const uint32_t> TargetFaceIndices,
     uint16_t                  LayerOrdinal) noexcept
@@ -93,21 +93,21 @@ void PriorityLayerRegistry::AssignFacesToLayer(
 //                                                SINGLE-PASS REFERENCE INDEXING
 //------------------------------------------------------------------------------------------------------------------------
 
-void PriorityLayerRegistry::SynchronizeReferences(
+void FacePartitionRegister::SynchronizePartitions(
     const PolygonNetwork& Network,
     GeometryInstanceToken OwnerInstance)
 {
-    if (SynchronizedRevision == Network.UVRevision && !IndexedReferences.empty())
+    if (SynchronizedRevision == Network.UVRevision && !IndexedPartitions.empty())
     {
         return;
     }
 
     const std::size_t SlotCapacity = static_cast<std::size_t>(NextLayerOrdinal) + 1u;
-    IndexedReferences.assign(SlotCapacity, FaceGroupReference{});
+    IndexedPartitions.assign(SlotCapacity, FacePartitionSpan{});
 
     for (std::size_t Ord = 0u; Ord < SlotCapacity; ++Ord)
     {
-        FaceGroupReference& Ref = IndexedReferences[Ord];
+        FacePartitionSpan& Ref = IndexedPartitions[Ord];
         Ref.OwnerInstance       = OwnerInstance;
         Ref.LayerOrdinal        = static_cast<uint16_t>(Ord);
         Ref.CapturedUVRevision  = Network.UVRevision;
@@ -122,7 +122,7 @@ void PriorityLayerRegistry::SynchronizeReferences(
         const bool     KnownLayer  = RawOrd > 0u && RawOrd < SlotCapacity && ResolveLayer(RawOrd) != nullptr;
         const uint16_t EffectiveOrd = KnownLayer ? RawOrd : 0u;
 
-        FaceGroupReference& Ref = IndexedReferences[EffectiveOrd];
+        FacePartitionSpan& Ref = IndexedPartitions[EffectiveOrd];
         Ref.FaceIndices.push_back(FaceIdx);
         Ref.TotalArea3D += Network.EvaluateFaceArea3D(FaceIdx);
         Ref.TotalAreaUV += std::abs(Network.EvaluateFaceSignedAreaUV(FaceIdx));
@@ -145,7 +145,7 @@ void PriorityLayerRegistry::SynchronizeReferences(
         }
     }
 
-    for (FaceGroupReference& Ref : IndexedReferences)
+    for (FacePartitionSpan& Ref : IndexedPartitions)
     {
         if (Ref.FaceIndices.empty())
         {
@@ -162,20 +162,20 @@ void PriorityLayerRegistry::SynchronizeReferences(
 //                                                    INSPECTION QUERIES
 //------------------------------------------------------------------------------------------------------------------------
 
-const FaceGroupReference& PriorityLayerRegistry::InspectLayerReference(
+const FacePartitionSpan& FacePartitionRegister::InspectPartitionSpan(
     const PolygonNetwork& Network,
     uint16_t              LayerOrdinal,
     GeometryInstanceToken OwnerInstance)
 {
-    SynchronizeReferences(Network, OwnerInstance);
-    if (LayerOrdinal < IndexedReferences.size())
+    SynchronizePartitions(Network, OwnerInstance);
+    if (LayerOrdinal < IndexedPartitions.size())
     {
-        return IndexedReferences[LayerOrdinal];
+        return IndexedPartitions[LayerOrdinal];
     }
-    return IndexedReferences[0u];
+    return IndexedPartitions[0u];
 }
 
-PriorityAllocationLayer* PriorityLayerRegistry::ResolveLayer(uint16_t LayerOrdinal) noexcept
+PriorityAllocationLayer* FacePartitionRegister::ResolveLayer(uint16_t LayerOrdinal) noexcept
 {
     for (PriorityAllocationLayer& Entry : Layers)
     {
@@ -187,7 +187,7 @@ PriorityAllocationLayer* PriorityLayerRegistry::ResolveLayer(uint16_t LayerOrdin
     return nullptr;
 }
 
-const PriorityAllocationLayer* PriorityLayerRegistry::InspectLayer(uint16_t LayerOrdinal) const noexcept
+const PriorityAllocationLayer* FacePartitionRegister::InspectLayer(uint16_t LayerOrdinal) const noexcept
 {
     for (const PriorityAllocationLayer& Entry : Layers)
     {
@@ -199,12 +199,12 @@ const PriorityAllocationLayer* PriorityLayerRegistry::InspectLayer(uint16_t Laye
     return nullptr;
 }
 
-std::span<const PriorityAllocationLayer> PriorityLayerRegistry::InspectLayers() const noexcept
+std::span<const PriorityAllocationLayer> FacePartitionRegister::InspectLayers() const noexcept
 {
     return Layers;
 }
 
-float PriorityLayerRegistry::DeriveExplicitShareSum() const noexcept
+float FacePartitionRegister::DeriveExplicitShareSum() const noexcept
 {
     float Total = 0.0f;
     for (const PriorityAllocationLayer& Entry : Layers)
@@ -214,7 +214,7 @@ float PriorityLayerRegistry::DeriveExplicitShareSum() const noexcept
     return Total;
 }
 
-float PriorityLayerRegistry::DeriveRemainderSharePercent() const noexcept
+float FacePartitionRegister::DeriveRemainderSharePercent() const noexcept
 {
     return std::max(0.0f, 100.0f - DeriveExplicitShareSum());
 }

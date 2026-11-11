@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                            ASYNCREADBACKRING.H
+                                                            TIMELINETRANSFERREGISTER.H
 ============================================================================================================================================*/
 // 🧩 Reusable triple-buffered HOST_VISIBLE | HOST_CACHED GPU->CPU readback ring synchronized via Vulkan Timeline Semaphores
 
@@ -35,22 +35,22 @@ struct ReadbackTicket
     }
 };
 
-class AsyncReadbackRing
+class TimelineTransferRegister
 {
 public:
     static constexpr uint32_t RingSlotCount = 3u;
 
-    AsyncReadbackRing() = default;
-    ~AsyncReadbackRing();
+    TimelineTransferRegister() = default;
+    ~TimelineTransferRegister();
 
-    AsyncReadbackRing(const AsyncReadbackRing&)            = delete;
-    AsyncReadbackRing& operator=(const AsyncReadbackRing&) = delete;
+    TimelineTransferRegister(const TimelineTransferRegister&)            = delete;
+    TimelineTransferRegister& operator=(const TimelineTransferRegister&) = delete;
 
-    [[nodiscard]] bool InitializeRing(
+    [[nodiscard]] bool InitializeRegister(
         VulkanDeviceContext* BoundContext,
         uint64_t             SlotCapacityBytes = 8ull * 1024ull * 1024ull);
 
-    void TeardownRing() noexcept;
+    void TeardownRegister() noexcept;
 
     void AdvanceFrameSlot() noexcept;
 
@@ -86,7 +86,7 @@ public:
     }
 
 private:
-    struct StagingSlot
+    struct TransferSlot
     {
         DeviceBufferResource Buffer         {};   // [-]     - Host-visible cached staging buffer
         uint64_t             WriteCursor    = 0ull; // [B]   - Current 64-byte aligned write offset
@@ -94,7 +94,7 @@ private:
     };
 
     VulkanDeviceContext*                     Context      = nullptr; // [-]   - Non-owning device context
-    std::array<StagingSlot, RingSlotCount>   Slots        {};        // [-]   - Triple-buffered staging slots
+    std::array<TransferSlot, RingSlotCount>   Slots        {};        // [-]   - Triple-buffered staging slots
     uint32_t                                 ActiveSlot   = 0u;      // [idx] - Current ring write slot
 };
 

@@ -13,9 +13,13 @@ import {
 } from "./AssetDepot.js";
 import {
   ChooseCardInk,
+  ColourFilterCategories,
+  ColourSortModes,
+  MatchesColourFilter,
   NormalizeHex,
   PackColourDragData,
   ResolveColourEntry,
+  SortColourAssets,
   SplitCardHeading,
 } from "./ColourCodex.js";
 
@@ -91,6 +95,28 @@ function FilePreview({ Asset }) {
   );
 }
 
+const BrowserThemes = {
+  OLED: { Panel: "#080809", Section: "#121214", Inset: "#0d0d10", Raised: "#1e1e22", Selected: "#1b2434", Border: "rgba(255,255,255,0.08)", Text: "#f2f2f5", Muted: "#8d9099" },
+  Dark: { Panel: "#121214", Section: "#1b1b1f", Inset: "#151518", Raised: "#27272c", Selected: "#232d40", Border: "rgba(255,255,255,0.09)", Text: "#ededf0", Muted: "#9497a1" },
+  Light: { Panel: "#f4f5f7", Section: "#ffffff", Inset: "#eaecf0", Raised: "#e2e5eb", Selected: "#dbe7ff", Border: "rgba(18,22,30,0.12)", Text: "#15171c", Muted: "#5e6470" },
+  Sepia: { Panel: "#f2eadb", Section: "#fbf6ec", Inset: "#e7decb", Raised: "#dfd3bc", Selected: "#e5d5b5", Border: "rgba(56,42,20,0.14)", Text: "#2b2216", Muted: "#726149" },
+  Dracula: { Panel: "#1e1f29", Section: "#282a36", Inset: "#191a23", Raised: "#343746", Selected: "#383c56", Border: "rgba(255,255,255,0.10)", Text: "#f8f8f2", Muted: "#9ea4c2" },
+  Nord: { Panel: "#242933", Section: "#2e3440", Inset: "#1f242d", Raised: "#3b4252", Selected: "#3b4b5e", Border: "rgba(216,222,233,0.11)", Text: "#eceff4", Muted: "#9aa5b8" },
+  GitHub: { Panel: "#0d1117", Section: "#161b22", Inset: "#090d12", Raised: "#21262d", Selected: "#1f2d42", Border: "rgba(240,246,252,0.10)", Text: "#e6edf3", Muted: "#8b949e" },
+};
+
+function BrowserSvgIcon({ Name }) {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {Name === "search" && <><circle cx="11" cy="11" r="7" /><path d="m21 21-4.35-4.35" /></>}
+      {Name === "grid" && <><rect x="3" y="3" width="7" height="7" rx="1.4" /><rect x="14" y="3" width="7" height="7" rx="1.4" /><rect x="3" y="14" width="7" height="7" rx="1.4" /><rect x="14" y="14" width="7" height="7" rx="1.4" /></>}
+      {Name === "list" && <><path d="M4 6h.01M9 6h11M4 12h.01M9 12h11M4 18h.01M9 18h11" /></>}
+      {Name === "vertical" && <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9.5 4v16M14.5 4v16" /></>}
+      {Name === "horizontal" && <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9.5h18M3 14.5h18" /></>}
+    </svg>
+  );
+}
+
 export default function AssetPanel({
   Open,
   Toggle,
@@ -106,6 +132,7 @@ export default function AssetPanel({
   ActiveColourTargetLabel,
   StageChange,
   OnColourDragChange,
+  Appearance = {},
 }) {
   const BuiltIn = useMemo(() => EngineAssets(), []),
     Library = [...Assets, ...BuiltIn];
@@ -117,6 +144,9 @@ export default function AssetPanel({
     [Kind, ChooseKind] = useState("Materials"),
     [Query, Search] = useState(""),
     [View, Layout] = useState("grid"),
+    [ColourView, SetColourView] = useState("grid"),
+    [ColourFilter, SetColourFilter] = useState("All"),
+    [ColourSort, SetColourSort] = useState("spectrum"),
     [Selection, Select] = useState("engine-material-0"),
     [Message, Report] = useState(""),
     [Busy, Work] = useState(false),
@@ -147,15 +177,64 @@ export default function AssetPanel({
       window.removeEventListener("frontier:colour-applied", OnColourApplied);
   }, []);
 
-  const Visible = Library.filter(
-    (Asset) =>
-      (Origin === "All" || Asset.Origin === Origin) &&
-      (Kind === "All" || Asset.Kind === Kind) &&
-      (Asset.Name + " " + (Asset.Colour?.Hex || ""))
-        .toLowerCase()
-        .includes(Query.toLowerCase()),
+  const ColoursInOriginAndSearch = useMemo(
+    () =>
+      AllColours.filter(
+        (Asset) =>
+          (Origin === "All" || Asset.Origin === Origin) &&
+          (
+            Asset.Name +
+            " " +
+            (Asset.Colour?.Hex || "") +
+            " " +
+            (Asset.Colour?.Family || "")
+          )
+            .toLowerCase()
+            .includes(Query.toLowerCase()),
+      ),
+    [AllColours, Origin, Query],
   );
-  const Current = Library.find((Asset) => Asset.Id === Selection);
+
+  const ColourFilterCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        ColourFilterCategories.map((Category) => [
+          Category,
+          ColoursInOriginAndSearch.filter((Asset) =>
+            MatchesColourFilter(Asset.Colour, Category),
+          ).length,
+        ]),
+      ),
+    [ColoursInOriginAndSearch],
+  );
+
+  const Visible = useMemo(() => {
+    if (Kind === "Colours") {
+      const FilteredColours = ColoursInOriginAndSearch.filter((Asset) =>
+        MatchesColourFilter(Asset.Colour, ColourFilter),
+      );
+      return SortColourAssets(FilteredColours, ColourSort);
+    }
+    return Library.filter(
+      (Asset) =>
+        (Origin === "All" || Asset.Origin === Origin) &&
+        (Kind === "All" || Asset.Kind === Kind) &&
+        (Asset.Name + " " + (Asset.Colour?.Hex || ""))
+          .toLowerCase()
+          .includes(Query.toLowerCase()),
+    );
+  }, [
+    Kind,
+    ColoursInOriginAndSearch,
+    ColourFilter,
+    ColourSort,
+    Library,
+    Origin,
+    Query,
+  ]);
+
+  const Current =
+    Library.find((Asset) => Asset.Id === Selection) || Visible[0] || null;
   const Bound = Subject?.Panel === "geometry";
   const [TargetId, ChooseTarget] = useState(Bound ? Subject.Id : "");
   useEffect(() => {
@@ -230,6 +309,7 @@ export default function AssetPanel({
     Store((Previous) => [...Previous, Asset]);
     ChooseOrigin("Project");
     ChooseKind("Colours");
+    SetColourFilter("All");
     Search("");
     Select(Asset.Id);
     Report(`Created ${Unique} (${Colour.Hex})`);
@@ -313,6 +393,7 @@ export default function AssetPanel({
           ? Added[0].Kind
           : "All",
       );
+      SetColourFilter("All");
       Search("");
       Select(Added[0].Id);
     }
@@ -342,14 +423,34 @@ export default function AssetPanel({
       ? ChooseCardInk(Current.Colour.Hex)
       : null;
 
+  const ActiveCatalogueMode = Kind === "Colours" ? ColourView : View;
+  const FirstStripInk =
+    Kind === "Colours" && Visible[0]?.Colour
+      ? ChooseCardInk(Visible[0].Colour.Hex)
+      : null;
+
+  const ThemeSpec = BrowserThemes[Appearance?.Theme] || BrowserThemes.Dark;
+  const BrowserThemeVars = {
+    "--cb-panel": ThemeSpec.Panel,
+    "--cb-section": ThemeSpec.Section,
+    "--cb-inset": ThemeSpec.Inset,
+    "--cb-raised": ThemeSpec.Raised,
+    "--cb-selected": ThemeSpec.Selected,
+    "--cb-border": ThemeSpec.Border,
+    "--cb-text": ThemeSpec.Text,
+    "--cb-muted": ThemeSpec.Muted,
+    "--cb-accent": Appearance?.Accent || "#3b82f6",
+    "--cb-radius": (Appearance?.["Corner radius"] ?? 16) + "px",
+  };
+
   return (
     <DrawerPanel
       Edge="bottom"
       Open={Open}
       Toggle={Toggle}
       Activate={Activate}
-      Label="Asset Browser"
-      Name="Asset Browser notch"
+      Label="ContentBrowser"
+      Name="ContentBrowser notch"
       ClassName="asset-drawer"
       RequestedRest={RequestedRest}
       StageChange={(NextStage) => {
@@ -357,12 +458,12 @@ export default function AssetPanel({
         StageChange?.(NextStage);
       }}
     >
-      <div className="asset-browser">
+      <div className="asset-browser" aria-label="ContentBrowser" style={BrowserThemeVars}>
         <header className="asset-browser-header drawer-drag-zone">
           <div>
             <span className="asset-eyebrow">CONTENT / LIBRARY</span>
             <h1>
-              Asset Browser <small>{Library.length} assets</small>
+              ContentBrowser <small>{Library.length} items</small>
             </h1>
           </div>
           <div className="asset-header-actions">
@@ -420,17 +521,15 @@ export default function AssetPanel({
             />
             <button
               className="asset-split-toggle"
-              aria-label="Toggle split asset shelf"
+              aria-label="Toggle split content shelf"
               aria-pressed={DrawerStage === "half"}
-              title="Dock Asset Browser to bottom half so scene colour slots stay visible above"
-              onClick={() =>
-                SnapDrawerTo(DrawerStage === "half" ? 1 : 0.46)
-              }
+              title="Dock ContentBrowser to bottom half so scene colour slots stay visible above"
+              onClick={() => SnapDrawerTo(DrawerStage === "half" ? 1 : 0.46)}
             >
               {DrawerStage === "half" ? "⬜ Full" : "⬒ Split"}
             </button>
             <button
-              aria-label="Close Asset Browser"
+              aria-label="Close ContentBrowser"
               onClick={() => Toggle(false)}
             >
               ×
@@ -453,26 +552,119 @@ export default function AssetPanel({
               </button>
             ))}
           </div>
-          <input
-            type="search"
-            aria-label="Search assets"
-            placeholder="Search this library…"
-            value={Query}
-            onChange={(Event) => Search(Event.target.value)}
-          />
-          <div className="asset-view-switch">
-            {["grid", "list"].map((Name) => (
+          <div className="asset-search-wrap">
+            <BrowserSvgIcon Name="search" />
+            <input
+              type="search"
+              aria-label="Search assets"
+              placeholder="Search ContentBrowser…"
+              value={Query}
+              onChange={(Event) => Search(Event.target.value)}
+            />
+            {Query && (
               <button
-                key={Name}
-                aria-label={Name + " asset view"}
-                aria-pressed={View === Name}
-                onClick={() => Layout(Name)}
+                type="button"
+                className="asset-search-clear"
+                aria-label="Clear search"
+                onClick={() => Search("")}
               >
-                {Name === "grid" ? "▦" : "☷"}
+                ×
               </button>
-            ))}
+            )}
           </div>
+          {Kind === "Colours" ? (
+            <div
+              className="asset-view-switch colour-view-switch"
+              role="group"
+              aria-label="Colour layout"
+            >
+              <button
+                aria-label="grid asset view"
+                title="Grid view (circle swatches)"
+                aria-pressed={ColourView === "grid"}
+                onClick={() => SetColourView("grid")}
+              >
+                <BrowserSvgIcon Name="grid" />
+                <span>Grid</span>
+              </button>
+              <button
+                aria-label="vertical list colour view"
+                title="List view · Vertical colour strips"
+                aria-pressed={ColourView === "list-vertical"}
+                onClick={() => SetColourView("list-vertical")}
+              >
+                <BrowserSvgIcon Name="vertical" />
+                <span>Vertical</span>
+              </button>
+              <button
+                aria-label="horizontal list colour view"
+                title="List view · Horizontal colour strips"
+                aria-pressed={ColourView === "list-horizontal"}
+                onClick={() => SetColourView("list-horizontal")}
+              >
+                <BrowserSvgIcon Name="horizontal" />
+                <span>Horizontal</span>
+              </button>
+            </div>
+          ) : (
+            <div
+              className="asset-view-switch"
+              role="group"
+              aria-label="Content layout"
+            >
+              {["grid", "list"].map((Name) => (
+                <button
+                  key={Name}
+                  aria-label={Name + " asset view"}
+                  aria-pressed={View === Name}
+                  onClick={() => Layout(Name)}
+                >
+                  <BrowserSvgIcon Name={Name} />
+                  <span>{Name === "grid" ? "Grid" : "List"}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
+        {Kind === "Colours" && (
+          <div
+            className="colour-filters-bar"
+            role="region"
+            aria-label="Colour Filters"
+          >
+            <span className="colour-filters-title">Colour Filters</span>
+            <div
+              className="colour-filter-chips"
+              role="group"
+              aria-label="Colour filter family"
+            >
+              {ColourFilterCategories.map((Category) => (
+                <button
+                  key={Category}
+                  aria-pressed={ColourFilter === Category}
+                  onClick={() => SetColourFilter(Category)}
+                >
+                  <span>{Category}</span>
+                  <small>{ColourFilterCounts[Category]}</small>
+                </button>
+              ))}
+            </div>
+            <label className="colour-sort-select">
+              Sort
+              <select
+                aria-label="Sort colours"
+                value={ColourSort}
+                onChange={(Event) => SetColourSort(Event.target.value)}
+              >
+                {ColourSortModes.map((Mode) => (
+                  <option key={Mode.Id} value={Mode.Id}>
+                    {Mode.Label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
         <div className="asset-browser-body">
           <nav
             className="asset-category-rail"
@@ -500,112 +692,222 @@ export default function AssetPanel({
             <p>
               Engine files are read-only.
               <br />
-              Project and imported assets stay in this browser.
+              Project and imported items stay in this browser.
             </p>
           </nav>
           <section className="asset-results">
             <header className="drawer-drag-zone">
-              <h2>{Kind === "All" ? "All assets" : Kind}</h2>
+              <h2>
+                {Kind === "All"
+                  ? "All content"
+                  : Kind === "Colours" && ColourFilter !== "All"
+                    ? `Colours · ${ColourFilter}`
+                    : Kind}
+              </h2>
               <span>{Visible.length} results</span>
             </header>
-            <div className={"asset-catalogue " + View} data-drawer-scroll>
-              {Visible.map((Asset) => (
-                <button
-                  className={
-                    "asset-cell " +
-                    (Asset.Id === Selection ? "selected " : "") +
-                    (Asset.Kind === "Colours" ? "colour-asset-cell" : "")
-                  }
-                  key={Asset.Id}
-                  data-asset-id={Asset.Id}
-                  aria-label={"Select asset " + Asset.Name}
-                  aria-pressed={Asset.Id === Selection}
-                  draggable={Asset.Kind === "Colours"}
-                  onDragStart={
-                    Asset.Kind === "Colours"
-                      ? (Event) => BeginColourDrag(Event, Asset.Colour)
-                      : undefined
-                  }
-                  onDragEnd={
-                    Asset.Kind === "Colours" ? EndColourDrag : undefined
-                  }
-                  onClick={() => {
-                    Select(Asset.Id);
-                    RenameDraft("");
-                  }}
-                  onDoubleClick={() => {
-                    Select(Asset.Id);
-                    if (Asset.Kind === "Materials" && Asset.Origin !== "Engine")
-                      EditMaterial(Asset.Id);
-                    else if (Asset.Kind === "Colours")
-                      TriggerDoubleClickColour(Asset);
-                  }}
-                >
-                  <span className="asset-thumbnail">
-                    {Asset.Kind === "Materials" ? (
-                      <span
-                        className="asset-material-orb"
-                        style={{ "--orb": Asset.Material.Channels.colour.Fill }}
-                      />
-                    ) : Asset.Kind === "Colours" ? (
-                      <span
-                        className="asset-colour-circle"
-                        style={{ backgroundColor: Asset.Colour.Hex }}
-                      />
-                    ) : Asset.Kind === "Fonts" ? (
-                      <span className="asset-font-icon">Aa</span>
-                    ) : (Asset.Thumbnail || Asset.Data) &&
-                      ["Images", "Icons"].includes(Asset.Kind) ? (
-                      <img
-                        src={Asset.Thumbnail || Asset.Data}
-                        alt=""
-                        loading="lazy"
-                      />
-                    ) : (
-                      <span className="asset-kind-icon">
-                        {Asset.Kind === "Models"
-                          ? "◇"
-                          : Asset.Kind === "Code"
-                            ? "{ }"
-                            : "▤"}
-                      </span>
-                    )}
-                  </span>
-                  <span className="asset-cell-name">
-                    {Asset.Name}
-                    <small>
-                      {Asset.Kind === "Colours"
-                        ? `${Asset.Colour.Hex} · ${Asset.Origin}`
-                        : `${Asset.Kind} · ${Asset.Origin}`}
-                    </small>
-                  </span>
-                </button>
-              ))}
-              {!Visible.length && (
-                <div className="asset-empty">
-                  <h3>No assets found</h3>
-                  <p>
-                    Change the filters, import files or create a material or
-                    colour.
-                  </p>
+            {Kind === "Colours" &&
+            (ActiveCatalogueMode === "list-vertical" ||
+              ActiveCatalogueMode === "list-horizontal") ? (
+              <div
+                className={
+                  "asset-catalogue colour-strip-deck " + ActiveCatalogueMode
+                }
+                data-drawer-scroll
+                aria-label={
+                  ActiveCatalogueMode === "list-vertical"
+                    ? "Vertical colour strip list"
+                    : "Horizontal colour strip list"
+                }
+              >
+                {ActiveCatalogueMode === "list-vertical" &&
+                  Visible.length > 0 &&
+                  FirstStripInk && (
+                    <span
+                      className="colour-strip-banner"
+                      style={{ color: FirstStripInk.text }}
+                    >
+                      {ColourFilter === "All"
+                        ? "ColourCodex Spectrum"
+                        : ColourFilter}
+                    </span>
+                  )}
+                {Visible.map((Asset) => {
+                  const StripInk = ChooseCardInk(Asset.Colour.Hex);
+                  const IsSelected = Current?.Id === Asset.Id;
+                  return (
+                    <button
+                      key={Asset.Id}
+                      data-asset-id={Asset.Id}
+                      className={
+                        "colour-strip-band " + (IsSelected ? "selected" : "")
+                      }
+                      aria-label={"Select asset " + Asset.Name}
+                      aria-pressed={IsSelected}
+                      draggable
+                      onDragStart={(Event) =>
+                        BeginColourDrag(Event, Asset.Colour)
+                      }
+                      onDragEnd={EndColourDrag}
+                      onClick={() => {
+                        Select(Asset.Id);
+                        RenameDraft("");
+                      }}
+                      onDoubleClick={() => {
+                        Select(Asset.Id);
+                        TriggerDoubleClickColour(Asset);
+                      }}
+                      style={{
+                        backgroundColor: Asset.Colour.Hex,
+                        color: StripInk.text,
+                      }}
+                      title={`${Asset.Name} · ${Asset.Colour.Hex} (Drag to colour slot or double-click)`}
+                    >
+                      {ActiveCatalogueMode === "list-vertical" ? (
+                        <span className="colour-strip-vertical-hex">
+                          {Asset.Colour.CompactHex}
+                        </span>
+                      ) : (
+                        <>
+                          <strong className="colour-strip-horizontal-name">
+                            {Asset.Name}
+                          </strong>
+                          <span className="colour-strip-horizontal-meta">
+                            <b>{Asset.Colour.CompactHex}</b>
+                            <small style={{ color: StripInk.muted }}>
+                              RGB {Asset.Colour.RGB.join(", ")}
+                            </small>
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  );
+                })}
+                {!Visible.length && (
+                  <div className="asset-empty">
+                    <h3>No colours match filter</h3>
+                    <p>Choose another Colour Filter or clear search.</p>
+                    <button
+                      onClick={() => {
+                        Search("");
+                        SetColourFilter("All");
+                        ChooseOrigin("All");
+                      }}
+                    >
+                      Clear filters
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div
+                className={"asset-catalogue " + ActiveCatalogueMode}
+                data-drawer-scroll
+              >
+                {Visible.map((Asset) => (
                   <button
+                    className={
+                      "asset-cell " +
+                      (Current?.Id === Asset.Id ? "selected " : "") +
+                      (Asset.Kind === "Colours" ? "colour-asset-cell" : "")
+                    }
+                    key={Asset.Id}
+                    data-asset-id={Asset.Id}
+                    aria-label={"Select asset " + Asset.Name}
+                    aria-pressed={Current?.Id === Asset.Id}
+                    draggable={Asset.Kind === "Colours"}
+                    onDragStart={
+                      Asset.Kind === "Colours"
+                        ? (Event) => BeginColourDrag(Event, Asset.Colour)
+                        : undefined
+                    }
+                    onDragEnd={
+                      Asset.Kind === "Colours" ? EndColourDrag : undefined
+                    }
                     onClick={() => {
-                      Search("");
-                      ChooseKind("All");
-                      ChooseOrigin("All");
+                      Select(Asset.Id);
+                      RenameDraft("");
+                    }}
+                    onDoubleClick={() => {
+                      Select(Asset.Id);
+                      if (
+                        Asset.Kind === "Materials" &&
+                        Asset.Origin !== "Engine"
+                      )
+                        EditMaterial(Asset.Id);
+                      else if (Asset.Kind === "Colours")
+                        TriggerDoubleClickColour(Asset);
                     }}
                   >
-                    Clear filters
+                    <span className="asset-thumbnail">
+                      {Asset.Kind === "Materials" ? (
+                        <span
+                          className="asset-material-orb"
+                          style={{
+                            "--orb": Asset.Material.Channels.colour.Fill,
+                          }}
+                        />
+                      ) : Asset.Kind === "Colours" ? (
+                        <span
+                          className="asset-colour-circle"
+                          style={{ backgroundColor: Asset.Colour.Hex }}
+                        />
+                      ) : Asset.Kind === "Fonts" ? (
+                        <span className="asset-font-icon">Aa</span>
+                      ) : (Asset.Thumbnail || Asset.Data) &&
+                        ["Images", "Icons"].includes(Asset.Kind) ? (
+                        <img
+                          src={Asset.Thumbnail || Asset.Data}
+                          alt=""
+                          loading="lazy"
+                        />
+                      ) : (
+                        <span className="asset-kind-icon">
+                          {Asset.Kind === "Models"
+                            ? "◇"
+                            : Asset.Kind === "Code"
+                              ? "{ }"
+                              : "▤"}
+                        </span>
+                      )}
+                    </span>
+                    <span className="asset-cell-name">
+                      {Asset.Name}
+                      <small>
+                        {Asset.Kind === "Colours"
+                          ? `${Asset.Colour.Hex} · ${Asset.Origin}`
+                          : `${Asset.Kind} · ${Asset.Origin}`}
+                      </small>
+                    </span>
                   </button>
-                </div>
-              )}
-            </div>
+                ))}
+                {!Visible.length && (
+                  <div className="asset-empty">
+                    <h3>No content found</h3>
+                    <p>
+                      Change the filters, import files or create a material or
+                      colour.
+                    </p>
+                    <button
+                      onClick={() => {
+                        Search("");
+                        SetColourFilter("All");
+                        ChooseKind("All");
+                        ChooseOrigin("All");
+                      }}
+                    >
+                      Clear filters
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </section>
           <aside className="asset-preview" data-drawer-scroll>
             {Current ? (
               <>
                 <div className="asset-preview-heading">
-                  <span className="asset-eyebrow">ASSET DETAILS</span>
+                  <span className="asset-eyebrow">CONTENT DETAILS</span>
                   <span className="asset-origin-label">{Current.Origin}</span>
                 </div>
                 {Current.Kind === "Colours" && Current.Colour && CardInk ? (
@@ -653,8 +955,8 @@ export default function AssetPanel({
                     <dl>
                       <dt>Type</dt>
                       <dd>ColourCodex</dd>
-                      <dt>Family</dt>
-                      <dd>{Current.Colour.Family}</dd>
+                      <dt>Filter</dt>
+                      <dd>{Current.Colour.FilterGroup}</dd>
                       <dt>Target slot</dt>
                       <dd>{ActiveColourTargetLabel || "Selected item"}</dd>
                     </dl>
@@ -896,7 +1198,7 @@ export default function AssetPanel({
               </>
             ) : (
               <div className="asset-empty">
-                <h3>Select an asset</h3>
+                <h3>Select content</h3>
                 <p>Inspect its source and preview here.</p>
               </div>
             )}
@@ -906,10 +1208,10 @@ export default function AssetPanel({
           <span role="status">
             {Message ||
               (Kind === "Colours"
-                ? "Drag any colour circle onto a colour slot or double-click to apply"
+                ? "Drag any colour swatch/strip onto a colour slot or double-click to apply"
                 : "Drag the header or page grip to close · scroll the catalogue independently")}
           </span>
-          <span>HTML LIBRARY · NO NATIVE ASSET PIPELINE</span>
+          <span>CONTENTBROWSER · HTML PREVIEW</span>
         </footer>
       </div>
     </DrawerPanel>

@@ -1,6 +1,6 @@
 # Native C++20 & `.slang` UV Workspace Architecture Plan
 
-> **TL;DR:** Implement the UV Workspace natively in **ISO C++20 + GPU `.slang`** across four ordered milestones: **① `EngineConfiguration` (`HostLaunchMode::FeatureSet` + `StandaloneWorkspace`) & `PolygonNetwork` / `GeometryInstance` Structures** → **② GPU `.slang` Viewport Rasterization, Unified 3D/2D `TransformGizmo` (Slate GizmoPRO), GPU Picking & Reusable `ComputeDispatchEncoder` + `AsyncReadbackRing`** → **③ Modular Frontier-Styled UV Editor Panes** → **④ Parallel GPU/`WorkspaceThread` UV Solvers, `.UVSpace` Codec & `215/750 MiB` Parametric Revision**. Uses **`Axis3D` / `Axis2D`** with zero-cost **`Scalar3D` / `Scalar2D`** `using` aliases alongside a dedicated **`UVAxes`** (`{ U, V }`) struct.
+> **TL;DR:** Implement the UV Workspace natively in **ISO C++20 + GPU `.slang`** across four ordered milestones: **① `EngineConfiguration` (`HostLaunchMode::FeatureSet` + `StandaloneWorkspace`) & `PolygonNetwork` / `GeometryInstance` Structures** → **② GPU `.slang` Viewport Rasterization, Unified 3D/2D `TransformGizmo` (Slate GizmoPRO), GPU Picking & Reusable `ComputeDispatchEncoder` + `TimelineTransferRegister`** → **③ Modular Frontier-Styled UV Editor Panes** → **④ Parallel GPU/`WorkspaceThread` UV Solvers, `.UVSpace` Codec & `215/750 MiB` Parametric Revision**. Uses **`Axis3D` / `Axis2D`** with zero-cost **`Scalar3D` / `Scalar2D`** `using` aliases alongside a dedicated **`UVAxes`** (`{ U, V }`) struct.
 
 ---
 
@@ -44,7 +44,7 @@
 
 | Bottleneck in HTML Prototype | What Actually Happened on Every Layer Click | Cost | Native C++20 + `.slang` Elimination |
 | :--- | :--- | :---: | :--- |
-| **① `ComputeInspectorSelectionInfo()`** | Iterated **every selected face** on CPU computing UV signed area, 3D triangle stretch, and allocating JS `Set`s synchronously inside the click callback. | `4–18 ms` | **Eliminated:** Stretch/area totals are pre-reduced on GPU via `StretchAndOverlapCompute.slang` + cached per `FaceGroupReference` (`UVRevision`-gated). |
+| **① `ComputeInspectorSelectionInfo()`** | Iterated **every selected face** on CPU computing UV signed area, 3D triangle stretch, and allocating JS `Set`s synchronously inside the click callback. | `4–18 ms` | **Eliminated:** Stretch/area totals are pre-reduced on GPU via `UVDistortionInspection.slang` + cached per `FacePartitionSpan` (`UVRevision`-gated). |
 | **② Full DOM `RebuildInspector()`** | Destroyed and recreated the entire right-hand Inspector widget tree on every click. | `6–22 ms` | **Eliminated:** ImGui `UVInspectorPanel` reads bound `PriorityAllocationLayer` scalars directly in `< 0.02 ms` with zero allocation. |
 | **③ Full RGBA Selection Texture Rewrite** | Zeroed and re-uploaded the entire `W × H × 4` RGBA texture + rebuilt edge/vertex mask arrays across *all* triangles over WebGL. | `3–12 ms` | **Eliminated:** Each `Face` carries `PriorityLayerOrdinal` in VRAM; clicking a layer either pushes a **4-byte `ActiveLayerOrdinal` push-constant** or dispatches `SelectionMaskCompute.slang` (`1 bit/face` `PackedBits` in VRAM, **zero CPU face loop!**). |
 | **④ CPU 2D `<canvas>` Redraw** | Re-stroked thousands of 2D polygons on CPU `CanvasRenderingContext2D`. | `5–20 ms` | **Eliminated:** 2D `UVTileCanvas` is **100% GPU `.slang` (`UVTileRasterization.slang`)** sharing the exact same VRAM buffers as the 3D viewport. |
@@ -58,7 +58,7 @@ EditorThread / WorkspaceThread                 RenderThread (ComputeDispatchEnco
 ──────────────────────────────                 ─────────────────────────────────────             ─────────────────────────────
 EnqueueComputeOperation(Descriptor) ─────────► Encode .slang Dispatch + Storage Buffers ───────► [1] SelectionMaskCompute.slang
   • Target shader & threadgroupXYZ             Signal Vulkan Timeline Semaphore (Ticket N)       [2] ViewportPickReduction.slang
-  • PushConstants (64 B)                       Copy compact result -> AsyncReadbackRing[N % 3]   [3] StretchAndOverlapCompute.slang
+  • PushConstants (64 B)                       Copy compact result -> TimelineTransferRegister[N % 3]   [3] UVDistortionInspection.slang
   • Optional ReadbackByteCount                                                                   [4] StretchRelaxCompute.slang
                                                                                                  [5] ConcaveHorizonCompute.slang
 PollCompletedReadback(Ticket N) ◄────────────── Zero CPU stalls (NO vkWaitForFences!) ◄────────── Host-cached 64B-aligned ring slot
@@ -68,9 +68,9 @@ PollCompletedReadback(Ticket N) ◄────────────── Ze
 | Modular GPU Compute Unit | Workspace Consumers | GPU Workload & Compact Readback Payload |
 | :--- | :--- | :--- |
 | **`ComputeDispatchEncoder.{h,cpp}`** | **All Workspaces** | Generic `.slang` compute encoder binding storage buffer slots, `64 B` push-constants, memory barriers, and indirect dispatch counts. |
-| **`AsyncReadbackRing.{h,cpp}`** | **All Workspaces** | Triple-buffered `HOST_VISIBLE | HOST_CACHED` ring tracked by **Vulkan Timeline Semaphores (`ReadbackTicket`)** — zero render stalls, zero blocking waits. |
+| **`TimelineTransferRegister.{h,cpp}`** | **All Workspaces** | Triple-buffered `HOST_VISIBLE | HOST_CACHED` ring tracked by **Vulkan Timeline Semaphores (`ReadbackTicket`)** — zero render stalls, zero blocking waits. |
 | **`SelectionMaskCompute.slang`** | `UV`, `Geometry`, `Fracture`, `Paint` | Evaluates layer click (`FaceLayerOrdinal == LayerId`), box frustum, brush sphere, coplanar/similar tolerances **entirely in VRAM**; writes `FaceSelectionBits` (`1 bit/face`) and reads back `16 B` (`SelectedFaceCount`, `SelectedIslandCount`, `Bounds`). |
-| **`StretchAndOverlapCompute.slang`** | `UV`, `Texture` | Parallel per-face angle/area stretch, texel density `[px/m]`, flipped winding, and UDIM spatial-hash overlap count; writes GPU heatmap buffer + `64 B` KPI summary via `AsyncReadbackRing`. |
+| **`UVDistortionInspection.slang`** | `UV`, `Texture` | Parallel per-face angle/area stretch, texel density `[px/m]`, flipped winding, and UDIM spatial-hash overlap count; writes GPU heatmap buffer + `64 B` KPI summary via `TimelineTransferRegister`. |
 | **`StretchRelaxCompute.slang`** | `UV` | Parallel Jacobi / Red-Black area-preserving UV spring relaxation in VRAM during interactive brush/Tier 3 slack; reads back `ParameterUV` stream only when recording a revision step in `OperationRecorder`. |
 | **`ConcaveHorizonCompute.slang`** | `UV` | Evaluates rotated island upper/lower raster horizons across `0°/90°/45°/15°` candidates in parallel on GPU for `IslandLayoutPacker`. |
 
@@ -83,7 +83,7 @@ Works identically across `ProjectionViewport` (3D) and `UVTileCanvas` / `VectorC
 | Picking Component | Mechanism |
 | :--- | :--- |
 | **`ViewportPickRasterization.{h,cpp}` + `.slang`** | Rasterizes `R32G32B32A32_UINT` visibility IDs (`R = InstanceToken`, `G = FaceIndex`, `B = DirectedEdgeIndex`, `A = GizmoHandleOrdinal | ComponentTag`) with hardware depth occlusion in 3D and UDIM coordinate projection in 2D. |
-| **Hover & Single Click (`1×1` GPU Copy)** | Copies the `16 B` texel under cursor `(CursorX, CursorY)` into `AsyncReadbackRing` (`< 0.02 ms`) — immediately resolves hovered `TransformGizmo` handle, `Face`, `DirectedEdge` seam, or `Vertex` without any CPU ray-triangle loop. |
+| **Hover & Single Click (`1×1` GPU Copy)** | Copies the `16 B` texel under cursor `(CursorX, CursorY)` into `TimelineTransferRegister` (`< 0.02 ms`) — immediately resolves hovered `TransformGizmo` handle, `Face`, `DirectedEdge` seam, or `Vertex` without any CPU ray-triangle loop. |
 | **Marquee Box & Paint Brush (`ViewportPickReduction.slang`)** | `8×8` compute workgroups scan the screen-space box or brush disc inside the `R32G32B32A32_UINT` ID target, atomically setting `FaceSelectionBits` / `EdgeSelectionBits` in VRAM so the selection highlight renders **on the very same frame** prior to CPU readback. |
 
 ---
@@ -235,12 +235,12 @@ public:
 ### Phase 1 — `EngineConfiguration` (`FeatureSet` / `Standalone`) & `PolygonNetwork` Structures
 1. `Engine/Configuration/{EngineConfiguration,WorkspaceConfiguration}.{h,cpp}` (`HostLaunchMode::FeatureSet`, `StandaloneWorkspace`, `HeadlessBatch`; CMake `FRONTIER_BUILD_STANDALONE_UV` option).
 2. `Engine/Mathematics/AxisCoordinates.h` (`Axis3D`, `Axis2D`, `using Scalar3D = Axis3D`, `using Scalar2D = Axis2D`, separate `UVAxes`, `SpatialTransform`, `alignas(16)` GPU parity `static_assert`s).
-3. `Engine/GeometrySpace/Network/{PolygonNetwork,GeometryInstance,FaceGroupReference}.{h,cpp}` (`Vertex`, `DirectedEdge`, `Face`, `32 B` `GeometryInstance`, `PriorityAllocationLayer`, `FaceGroupReference` with `O(1)` GPU layer ordinal + sorted `FaceIndices`).
+3. `Engine/GeometrySpace/Network/{PolygonNetwork,GeometryInstance,FacePartitionSpan}.{h,cpp}` (`Vertex`, `DirectedEdge`, `Face`, `32 B` `GeometryInstance`, `PriorityAllocationLayer`, `FacePartitionSpan` with `O(1)` GPU layer ordinal + sorted `FaceIndices`).
 4. `Engine/GeometrySpace/Primitives/AnalyticPrimitives.{h,cpp}` (5 procedural sample `PolygonNetwork` assets with clean initial UVs & per-part MatCaps).
 5. `Exhibits/GeometryNetworkValidation.cpp` → CTest + `.png` visual proof in `Exhibits/Images/Geometry/`.
 
 ### Phase 2 — Workspace GPU `.slang` Renders, Modular Compute/Readback, GPU Picking & 3D/2D `TransformGizmo`
-1. **Modular Compute & Readback (`Engine/GeometricRaster/Compute/`)**: `ComputeDispatchEncoder.{h,cpp}` + `AsyncReadbackRing.{h,cpp}` (Vulkan timeline semaphores, zero stalls) + `SelectionMaskCompute.slang` & `StretchAndOverlapCompute.slang`.
+1. **Modular Compute & Readback (`Engine/GeometricRaster/Compute/`)**: `ComputeDispatchEncoder.{h,cpp}` + `TimelineTransferRegister.{h,cpp}` (Vulkan timeline semaphores, zero stalls) + `SelectionMaskCompute.slang` & `UVDistortionInspection.slang`.
 2. **Unified 3D/2D GPU Picking (`Engine/GeometricRaster/Picking/`)**: `ViewportPickRasterization.{h,cpp}` + `ViewportPickQuery.{h,cpp}` + `ViewportPickRasterization.slang` & `ViewportPickReduction.slang` (1×1 hover/click + GPU box marquee & paint brush).
 3. **Modular 3D & 2D GizmoPRO (`Engine/Editor/Viewports/TransformGizmo.{h,cpp}` + `GizmoRasterization.{h,cpp,.slang}`)**: Faithful Slate `Gizmo.html` 3D & 2D handles (cones, inboard scale cylinders, dual-edge translucent plane quads, `31°` flat arc bars, white billboarded center ring, `Ctrl` snapping) reusable across all workspaces.
 4. **3D & 2D UV Workspace Shaders (`Engine/Shaders/` & `Engine/GeometricRaster/Rasterization/`)**:

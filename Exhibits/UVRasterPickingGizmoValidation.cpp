@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                     UVRASTERPICKINGGIZMOVALIDATION.CPP
 ============================================================================================================================================*/
-// 🧩 Phase 2 validation suite for Vulkan .slang Renders, Timeline Semaphore AsyncReadbackRing, 3D/2D GPU Picking, and 3D/2D TransformGizmo
+// 🧩 Phase 2 validation suite for Vulkan .slang Renders, Timeline Semaphore TimelineTransferRegister, 3D/2D GPU Picking, and 3D/2D TransformGizmo
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
@@ -171,7 +171,7 @@ int main()
     }
 
     // 1. Validate O(1) SelectionMaskCompute.slang on VRAM
-    const FaceGroupReference& HeroLayerRef = AeroAsset.Layers.InspectLayerReference(AeroAsset.Network, 1u);
+    const FacePartitionSpan& HeroLayerRef = AeroAsset.Layers.InspectPartitionSpan(AeroAsset.Network, 1u);
     if (!VerifyCondition(Rasterizer.DispatchGPUSelection(GPUSelectionOperation::SelectByLayer, 1u, false), "Dispatched SelectionMaskCompute for Layer 1"))
     {
         return 1;
@@ -180,16 +180,16 @@ int main()
     const uint32_t              GPUSelectedBits = CountPopulatedBits(Layer1MaskWords);
     if (!VerifyCondition(
             GPUSelectedBits == static_cast<uint32_t>(HeroLayerRef.FaceIndices.size()),
-            "SelectionMaskCompute VRAM bit count matches PriorityLayerRegistry Layer 1 face count"))
+            "SelectionMaskCompute VRAM bit count matches FacePartitionRegister Layer 1 face count"))
     {
         return 1;
     }
 
-    // 2. Validate StretchAndOverlapCompute.slang + AsyncReadbackRing
-    const GPUStretchOverlapSummary Metrics = Rasterizer.EvaluateGPUStretchAndOverlaps(AeroAsset.Network, true);
-    if (!VerifyCondition(Metrics.FlippedFaceCount == 0u, "GPU StretchAndOverlapCompute verified 0 flipped UV faces") ||
-        !VerifyCondition(Metrics.OverlapFaceCount == 0u, "GPU StretchAndOverlapCompute verified 0 overlapping UV islands") ||
-        !VerifyCondition(Metrics.MeanL2Stretch > 0.2f && Metrics.MeanL2Stretch < 5.0f, "GPU StretchAndOverlapCompute produced valid L2 stretch"))
+    // 2. Validate UVDistortionInspection.slang + TimelineTransferRegister
+    const GPUUVDistortionSummary Metrics = Rasterizer.EvaluateUVDistortionInspection(AeroAsset.Network, true);
+    if (!VerifyCondition(Metrics.FlippedFaceCount == 0u, "GPU UVDistortionInspection verified 0 flipped UV faces") ||
+        !VerifyCondition(Metrics.OverlapFaceCount == 0u, "GPU UVDistortionInspection verified 0 overlapping UV islands") ||
+        !VerifyCondition(Metrics.MeanL2Stretch > 0.2f && Metrics.MeanL2Stretch < 5.0f, "GPU UVDistortionInspection produced valid L2 stretch"))
     {
         return 1;
     }
@@ -383,7 +383,7 @@ int main()
             ScaleHud.c_str(),
             RotHud.c_str());
         Draw->AddText(ImVec2(38.0f, 796.0f), AccentBlue, LineC);
-        Draw->AddText(ImVec2(38.0f, 826.0f), TextMuted, "Zero VkFence Stalls: All GPU->CPU Readbacks Synchronized Strictly via Vulkan 1.2 Timeline Semaphores (AsyncReadbackRing)");
+        Draw->AddText(ImVec2(38.0f, 826.0f), TextMuted, "Zero VkFence Stalls: All GPU->CPU Readbacks Synchronized Strictly via Vulkan 1.2 Timeline Semaphores (TimelineTransferRegister)");
 
         ImGui::End();
         ImGui::Render();

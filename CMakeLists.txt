@@ -167,7 +167,11 @@ set(FRONTIER_UI_COMPONENT_SOURCES
     Engine/Components/Panes/OutlinerPanel.cpp
     Engine/Components/Panes/InspectorPanel.cpp
     Engine/Components/Panes/ViewportPanel.cpp
+    Engine/Components/Panes/ViewportProjectionPane.cpp
     Engine/Components/ControlCentre/ControlCentrePanel.cpp
+    Engine/Components/ContentBrowser/ColourCodex.cpp
+    Engine/Components/ContentBrowser/ThumbnailSheetRepository.cpp
+    Engine/Components/ContentBrowser/ContentBrowserPanel.cpp
     Engine/Workspaces/UV/UVOutlinerPanel.cpp
     Engine/Workspaces/UV/UVInspectorPanel.cpp
     Engine/Workspaces/UV/UVViewportHost.cpp
@@ -228,7 +232,7 @@ frontier_compile_slang_stage(GizmoRasterization.slang       VertexEntry   vertex
 frontier_compile_slang_stage(GizmoRasterization.slang       FragmentEntry fragment GizmoRasterization.frag.spv)
 frontier_compile_slang_stage(SelectionMaskCompute.slang     ComputeEntry  compute  SelectionMaskCompute.comp.spv)
 frontier_compile_slang_stage(ViewportPickReduction.slang    ComputeEntry  compute  ViewportPickReduction.comp.spv)
-frontier_compile_slang_stage(StretchAndOverlapCompute.slang ComputeEntry  compute  StretchAndOverlapCompute.comp.spv)
+frontier_compile_slang_stage(UVDistortionInspection.slang   ComputeEntry  compute  UVDistortionInspection.comp.spv)
 frontier_compile_slang_stage(StretchRelaxCompute.slang      ComputeEntry  compute  StretchRelaxCompute.comp.spv)
 frontier_compile_slang_stage(ConcaveHorizonCompute.slang    ComputeEntry  compute  ConcaveHorizonCompute.comp.spv)
 
@@ -239,11 +243,12 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/Configuration/WorkspaceConfiguration.cpp
     Engine/GeometrySpace/Network/PolygonNetwork.cpp
     Engine/GeometrySpace/Network/GeometryInstance.cpp
-    Engine/GeometrySpace/Network/FaceGroupReference.cpp
+    Engine/GeometrySpace/Network/FacePartitionRegister.cpp
     Engine/GeometrySpace/Primitives/AnalyticPrimitives.cpp
     Engine/Editor/Viewports/TransformGizmo.cpp
+    Engine/Editor/Viewports/ViewportProjection.cpp
     Engine/GeometricRaster/Backend/VulkanDeviceContext.cpp
-    Engine/GeometricRaster/Compute/AsyncReadbackRing.cpp
+    Engine/GeometricRaster/Compute/TimelineTransferRegister.cpp
     Engine/GeometricRaster/Compute/ComputeDispatchEncoder.cpp
     Engine/GeometricRaster/Picking/ViewportPickQuery.cpp
     Engine/GeometricRaster/UV/UVWorkspaceRasterizer.cpp
@@ -256,6 +261,7 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/Threading/Tasks/ExecutionChannels.cpp
     Engine/Threading/Tasks/TaskScheduler.cpp
     Engine/Threading/Threads/Workspace/WorkspaceThread.cpp
+    Engine/Threading/Threads/Streaming/AssetStreamThread.cpp
     Engine/Codecs/SpaceContainerCodec.cpp
     Engine/Codecs/RevisionCodec.cpp
     Engine/Codecs/ProjectCodec.cpp
@@ -280,14 +286,17 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/Workspaces/UV/Solvers/ConformalUnwrapSolver.cpp
     Engine/Workspaces/UV/Solvers/ProgressiveStretchRelaxer.cpp
     Engine/Workspaces/UV/Solvers/ConcaveHorizonPacker.cpp
-    Engine/Workspaces/UV/Solvers/TexelDensityAndUDIMSolver.cpp
+    Engine/Workspaces/UV/Solvers/TexelDensityEqualizer.cpp
     Engine/Workspaces/UV/UVWorkspaceSession.cpp
 )
 if(NOT ANDROID)
     list(APPEND FRONTIER_ENGINE_SOURCES Engine/Windowing/PlatformWindowDesktop.cpp)
 endif()
 if(FRONTIER_PROFILE STREQUAL "Editor")
-    list(APPEND FRONTIER_ENGINE_SOURCES Engine/Lifecycle/EditorLifecycle.cpp)
+    list(APPEND FRONTIER_ENGINE_SOURCES
+        Engine/Editor/Explorer/ContentBrowser.cpp
+        Engine/Lifecycle/EditorLifecycle.cpp
+    )
 endif()
 if(NOT FRONTIER_PROFILE STREQUAL "Shipping")
     list(APPEND FRONTIER_ENGINE_SOURCES ${FRONTIER_UI_COMPONENT_SOURCES})
@@ -344,8 +353,9 @@ if(BUILD_TESTING)
     frontier_register_exhibit(WorkspacePanesValidation    Exhibits/WorkspacePanesValidation.cpp)
     frontier_register_exhibit(LifecycleValidation            Exhibits/LifecycleValidation.cpp)
     frontier_register_exhibit(WorkspaceRevisionValidation    Exhibits/WorkspaceRevisionValidation.cpp)
+    frontier_register_exhibit(ContentBrowserValidation       Exhibits/ContentBrowserValidation.cpp)
     frontier_register_exhibit(GeometryNetworkValidation      Exhibits/GeometryNetworkValidation.cpp)
     frontier_register_exhibit(UVRasterPickingGizmoValidation Exhibits/UVRasterPickingGizmoValidation.cpp)
     frontier_register_exhibit(UVWorkspaceUIValidation        Exhibits/UVWorkspaceUIValidation.cpp)
-    frontier_register_exhibit(UVSolversAndCodecValidation    Exhibits/UVSolversAndCodecValidation.cpp)
+    frontier_register_exhibit(UVParameterizationValidation   Exhibits/UVParameterizationValidation.cpp)
 endif()

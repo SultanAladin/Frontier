@@ -118,6 +118,29 @@ void PixelSpace::FillRectangleBottomRounded(Rectangle2D Bounds, ColorRgba Fill, 
                             ImDrawFlags_RoundCornersBottom);
 }
 
+void PixelSpace::FillTexturedRectangle(
+    Rectangle2D    Bounds,
+    ImTextureData* TextureSource,
+    Point2D        UvMin,
+    Point2D        UvMax,
+    float          CornerRadius,
+    ColorRgba      Modulation) noexcept
+{
+    if (!CanvasBuffer || !TextureSource || Bounds.Width <= 0.0f || Bounds.Height <= 0.0f || Modulation.Alpha == 0)
+        return;
+    const Rectangle2D Phys = ToPhysical(Bounds);
+    const float       MaxR = 0.5f * std::min(Phys.Width, Phys.Height);
+    const float       Rad  = std::clamp(CornerRadius * Scale, 0.0f, MaxR);
+    CanvasBuffer->AddImageRounded(
+        TextureSource->GetTexRef(),
+        ImVec2(Phys.X, Phys.Y),
+        ImVec2(Phys.Right(), Phys.Bottom()),
+        ImVec2(UvMin.X, UvMin.Y),
+        ImVec2(UvMax.X, UvMax.Y),
+        PackColor(Modulation),
+        Rad);
+}
+
 void PixelSpace::StrokeRectangle(Rectangle2D Bounds, ColorRgba Stroke, float CornerRadius, float Thickness) noexcept
 {
     if (!CanvasBuffer || Bounds.Width <= 0.0f || Bounds.Height <= 0.0f || Stroke.Alpha == 0 || Thickness <= 0.0f)
@@ -208,6 +231,34 @@ void PixelSpace::Text(Point2D Position, float PixelSize, ColorRgba Ink, const ch
         return;
     const Point2D Phys = ToPhysical(Position);
     CanvasBuffer->AddText(Font, PixelSize * Scale, ImVec2(Phys.X, Phys.Y), PackColor(Ink), Utf8, Utf8End);
+}
+
+void PixelSpace::TextVerticalUp(
+    Point2D     BottomLeftAnchor,
+    float       PixelSize,
+    ColorRgba   Ink,
+    const char* Utf8,
+    const char* Utf8End) noexcept
+{
+    if (!CanvasBuffer || !Utf8 || Ink.Alpha == 0 || PixelSize <= 0.0f)
+    {
+        return;
+    }
+    ImFont* Font = ActiveTypeface ? ActiveTypeface : ImGui::GetFont();
+    if (!Font)
+    {
+        return;
+    }
+    const Point2D Phys        = ToPhysical(BottomLeftAnchor);
+    const int     StartVertex = CanvasBuffer->VtxBuffer.Size;
+    CanvasBuffer->AddText(Font, PixelSize * Scale, ImVec2(Phys.X, Phys.Y), PackColor(Ink), Utf8, Utf8End);
+    for (int Index = StartVertex; Index < CanvasBuffer->VtxBuffer.Size; ++Index)
+    {
+        const float Dx = CanvasBuffer->VtxBuffer[Index].pos.x - Phys.X;
+        const float Dy = CanvasBuffer->VtxBuffer[Index].pos.y - Phys.Y;
+        CanvasBuffer->VtxBuffer[Index].pos.x = Phys.X + Dy;
+        CanvasBuffer->VtxBuffer[Index].pos.y = Phys.Y - Dx;
+    }
 }
 
 void PixelSpace::TextCentered(Rectangle2D Bounds, float PixelSize, ColorRgba Ink, const char *Utf8) noexcept

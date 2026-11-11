@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                             UVVIEWPORTHOST.H
 ============================================================================================================================================*/
-// 🧩 Central UV Workspace viewport pane combining UVOperationToolbar, 2D UDIM UVTileCanvas, and 3D ProjectionViewport
+// 🧩 UV Workspace viewport host binding UVWorkspaceSession's WorkspaceDocument onto reusable ViewportProjectionPane
 
 #pragma once
 
@@ -9,10 +9,8 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Panes/WorkspaceAppearance.h"
+#include "Engine/Components/Panes/ViewportProjectionPane.h"
 #include "Engine/Workspaces/UV/UVWorkspaceSession.h"
-
-#include <imgui.h>
 
 namespace Frontier::Workspaces
 {
@@ -28,6 +26,9 @@ public:
 
     void AttachSession(UVWorkspaceSession* TargetSession) noexcept;
 
+    [[nodiscard]] ViewportProjectionPane&       AccessProjectionPane() noexcept { return ProjectionPane; }
+    [[nodiscard]] const ViewportProjectionPane& InspectProjectionPane() const noexcept { return ProjectionPane; }
+
     void Render(
         PixelSpace&             Surface,
         Rectangle2D             Bounds,
@@ -37,11 +38,10 @@ public:
     void PresentInImGuiPane(double Δt, float ScaleFactor = 1.0f);
 
 private:
-    void SyncImGuiTexture(ImTextureData& TexData, const std::vector<uint8_t>& RgbaBytes, uint32_t WidthPx, uint32_t HeightPx, uint64_t TexIdTag);
+    void SynchronizeProjectionPolicy() noexcept;
 
-    UVWorkspaceSession* Session     = nullptr;
-    ImTextureData       Texture3D   {};
-    ImTextureData       Texture2D   {};
+    UVWorkspaceSession*    Session        = nullptr;
+    ViewportProjectionPane ProjectionPane {};
 };
 
 } // namespace Frontier::Workspaces

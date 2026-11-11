@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                             UVWORKSPACEHOST.H
 ============================================================================================================================================*/
-// 🧩 Dual-deployment UV Workspace host mounting StandaloneWorkspace (FrontierUV) or FeatureSet docked panes via EngineConfiguration
+// 🧩 Dual-deployment UV Workspace host mounting StandaloneWorkspace (FrontierUV) or FeatureSet docked panes + ContentBrowser integration
 
 #pragma once
 
@@ -10,11 +10,16 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Components/Docking/WorkspaceDockContainer.h"
+#include "Engine/Configuration/BuildConfiguration.h"
 #include "Engine/Configuration/EngineConfiguration.h"
 #include "Engine/Workspaces/UV/UVInspectorPanel.h"
 #include "Engine/Workspaces/UV/UVOutlinerPanel.h"
 #include "Engine/Workspaces/UV/UVViewportHost.h"
 #include "Engine/Workspaces/UV/UVWorkspaceSession.h"
+
+#if FRONTIER_EDITOR_ENABLED
+#include "Engine/Editor/Explorer/ContentBrowser.h"
+#endif
 
 namespace Frontier::Workspaces
 {
@@ -26,6 +31,10 @@ public:
 
     void ConfigureLaunchPolicy(const Configuration::EngineConfiguration& Config) noexcept;
     [[nodiscard]] bool AttachVulkanRasterizer(GeometricRaster::UVWorkspaceRasterizer* BoundRasterizer);
+
+#if FRONTIER_EDITOR_ENABLED
+    void AttachContentBrowser(Editor::Explorer::ContentBrowser* TargetBrowser);
+#endif
 
     void RegisterDockPanes(Components::HeadlessWorkspaceDockContainer& DockContainer);
 
@@ -43,6 +52,9 @@ private:
     UVViewportHost                     ViewportHost       {};
     UVInspectorPanel                   Inspector          {};
     uint32_t                           RegisteredTabCount = 0u;
+#if FRONTIER_EDITOR_ENABLED
+    Editor::Explorer::ContentBrowser*  BoundBrowser       = nullptr;
+#endif
 };
 
 } // namespace Frontier::Workspaces

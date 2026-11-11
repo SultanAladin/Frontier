@@ -1,7 +1,7 @@
 //============================================================================================================================================
-//                                                        STRETCHANDOVERLAPCOMPUTE.SLANG
+//                                                        UVDISTORTIONINSPECTION.SLANG
 //============================================================================================================================================
-// Parallel GPU UV distortion, signed UV area, winding-flip & exact 2D SAT triangle-overlap evaluator feeding AsyncReadbackRing
+// Parallel GPU UV distortion, signed UV area, winding-flip & exact 2D SAT triangle-overlap evaluator feeding TimelineTransferRegister
 
 struct FaceMetricInput
 {

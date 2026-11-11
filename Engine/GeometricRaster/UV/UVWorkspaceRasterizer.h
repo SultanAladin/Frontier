@@ -11,7 +11,7 @@
 
 #include "Engine/Editor/Viewports/TransformGizmo.h"
 #include "Engine/GeometricRaster/Backend/VulkanDeviceContext.h"
-#include "Engine/GeometricRaster/Compute/AsyncReadbackRing.h"
+#include "Engine/GeometricRaster/Compute/TimelineTransferRegister.h"
 #include "Engine/GeometricRaster/Compute/ComputeDispatchEncoder.h"
 #include "Engine/GeometricRaster/Picking/ViewportPickQuery.h"
 #include "Engine/GeometrySpace/Network/PolygonNetwork.h"
@@ -91,7 +91,7 @@ struct Canvas2DRenderOptions
     uint32_t            HoveredFaceIndex    = GeometrySpace::InvalidNetworkIndex;
 };
 
-struct GPUStretchOverlapSummary
+struct GPUUVDistortionSummary
 {
     float               MeanL2Stretch    = 1.0f; // [-]     - Average normalized L2 stretch (1.0 = isometric)
     uint32_t            FlippedFaceCount = 0u;   // [count] - Faces with SignedAreaUV <= 0
@@ -125,7 +125,7 @@ public:
 
     [[nodiscard]] std::vector<uint32_t> ReadbackSelectionBitmaskWords();
 
-    [[nodiscard]] GPUStretchOverlapSummary EvaluateGPUStretchAndOverlaps(
+    [[nodiscard]] GPUUVDistortionSummary EvaluateUVDistortionInspection(
         const GeometrySpace::PolygonNetwork& Network,
         bool                                 CheckOverlaps = true);
 
@@ -162,14 +162,14 @@ public:
         float                     CursorY) noexcept;
 
     [[nodiscard]] ComputeDispatchEncoder& AccessComputeEncoder() noexcept { return ComputeEncoder; }
-    [[nodiscard]] AsyncReadbackRing&      AccessReadbackRing() noexcept   { return ReadbackRing; }
+    [[nodiscard]] TimelineTransferRegister&      AccessTransferRegister() noexcept   { return TransferRegister; }
 
 private:
     struct GraphicsPipelineBundle
     {
         VkShaderModule        VertModule     = VK_NULL_HANDLE;
         VkShaderModule        FragModule     = VK_NULL_HANDLE;
-        VkDescriptorSetLayout SetLayout      = VK_NULL_HANDLE;
+        VkDescriptorSetLayout BindingLayout      = VK_NULL_HANDLE;
         VkPipelineLayout      PipelineLayout = VK_NULL_HANDLE;
         VkPipeline            Pipeline       = VK_NULL_HANDLE;
     };
@@ -198,7 +198,7 @@ private:
 
     VulkanDeviceContext*    Context                 = nullptr;
     ComputeDispatchEncoder  ComputeEncoder          {};
-    AsyncReadbackRing       ReadbackRing            {};
+    TimelineTransferRegister       TransferRegister            {};
     ViewportPickQuery       PickQuery               {};
     VkRenderPass            DualTargetRenderPass    = VK_NULL_HANDLE;
     VkDescriptorPool        GraphicsDescriptorPool  = VK_NULL_HANDLE;

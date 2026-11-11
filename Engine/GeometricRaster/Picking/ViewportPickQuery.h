@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/GeometricRaster/Compute/AsyncReadbackRing.h"
+#include "Engine/GeometricRaster/Compute/TimelineTransferRegister.h"
 #include "Engine/GeometricRaster/Compute/ComputeDispatchEncoder.h"
 #include "Engine/GeometrySpace/Network/PolygonNetwork.h"
 
@@ -60,7 +60,7 @@ public:
     [[nodiscard]] bool InitializePickQuery(
         VulkanDeviceContext*         BoundContext,
         ComputeDispatchEncoder*      BoundComputeEncoder,
-        AsyncReadbackRing*           BoundReadbackRing,
+        TimelineTransferRegister*           BoundTransferRegister,
         const std::filesystem::path& PickReductionSpirvPath);
 
     void TeardownPickQuery() noexcept;
@@ -93,7 +93,7 @@ private:
 
     VulkanDeviceContext*    Context                = nullptr;    // [-] - Vulkan device context
     ComputeDispatchEncoder* ComputeEncoder         = nullptr;    // [-] - Modular compute dispatcher
-    AsyncReadbackRing*      ReadbackRing           = nullptr;    // [-] - Timeline Semaphore readback ring
+    TimelineTransferRegister*      TransferRegister           = nullptr;    // [-] - Timeline Semaphore readback ring
     uint32_t                ReductionProgramHandle = UINT32_MAX; // [idx] - ViewportPickReduction.comp.spv handle
     DeviceBufferResource    ParamsUniformBuffer    {};           // [-] - PickReductionParams constant buffer
     DeviceBufferResource    FlattenedPickBuffer    {};           // [-] - Width*Height*16B buffer copy for region reduction
