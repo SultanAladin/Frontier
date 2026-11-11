@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 #include <vector>
 
 namespace Frontier
@@ -247,6 +248,71 @@ void ConstructScrollIndicator(PixelSpace &Surface, Rectangle2D ViewBounds, float
     ColorQuad Ink = ActiveColorSet.TextFaint;
     Ink.Alpha *= 0.55f * Opacity;
     Surface.FillRectangle({ViewBounds.Right() - 5.0f, ThumbY, 3.0f, ThumbH}, Ink.ToRgba8(), 1.5f);
+}
+
+namespace
+{
+
+struct DeferredTooltipRecord
+{
+    Rectangle2D      Anchor      {};
+    std::string      TitleBuffer {};
+    std::string      TextBuffer  {};
+    std::string      TagBuffer   {};
+    TooltipDirection Direction   = TooltipDirection::Automatic;
+    TooltipSeverity  Severity    = TooltipSeverity::Neutral;
+    ControlIcon      LeadingIcon = ControlIcon::Count;
+    bool             Pending     = false;
+};
+
+DeferredTooltipRecord PendingTooltip{};
+
+} // namespace
+
+void RecordHoveredTooltip(Rectangle2D AnchorBounds, const OptionalTooltip &Tooltip) noexcept
+{
+    if (!Tooltip.Enabled)
+    {
+        return;
+    }
+    const bool NonEmptyTitle = (Tooltip.Title != nullptr && Tooltip.Title[0] != '\0');
+    const bool NonEmptyText  = (Tooltip.Text != nullptr && Tooltip.Text[0] != '\0');
+    if (!NonEmptyTitle && !NonEmptyText)
+    {
+        return;
+    }
+
+    PendingTooltip.Anchor      = AnchorBounds;
+    PendingTooltip.TitleBuffer = Tooltip.Title != nullptr ? Tooltip.Title : "";
+    PendingTooltip.TextBuffer  = Tooltip.Text != nullptr ? Tooltip.Text : "";
+    PendingTooltip.TagBuffer   = Tooltip.HeaderTag != nullptr ? Tooltip.HeaderTag : "";
+    PendingTooltip.Direction   = Tooltip.Direction;
+    PendingTooltip.Severity    = Tooltip.Severity;
+    PendingTooltip.LeadingIcon = Tooltip.LeadingIcon;
+    PendingTooltip.Pending     = true;
+}
+
+bool ConsumeHoveredTooltip(Rectangle2D &OutAnchorBounds, OptionalTooltip &OutTooltip) noexcept
+{
+    if (!PendingTooltip.Pending)
+    {
+        return false;
+    }
+    OutAnchorBounds        = PendingTooltip.Anchor;
+    OutTooltip.Title       = PendingTooltip.TitleBuffer.c_str();
+    OutTooltip.Text        = PendingTooltip.TextBuffer.c_str();
+    OutTooltip.HeaderTag   = PendingTooltip.TagBuffer.c_str();
+    OutTooltip.Direction   = PendingTooltip.Direction;
+    OutTooltip.Severity    = PendingTooltip.Severity;
+    OutTooltip.LeadingIcon = PendingTooltip.LeadingIcon;
+    OutTooltip.Enabled     = true;
+    PendingTooltip.Pending = false;
+    return true;
+}
+
+void ClearHoveredTooltip() noexcept
+{
+    PendingTooltip.Pending = false;
 }
 
 } // namespace ControlAppearance

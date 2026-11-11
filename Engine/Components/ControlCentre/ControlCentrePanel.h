@@ -15,6 +15,7 @@
 #include "Engine/Components/Controls/CapsuleButton.h"
 #include "Engine/Components/Controls/ConfirmationDialogue.h"
 #include "Engine/Components/Controls/ControlAppearance.h"
+#include "Engine/Components/Controls/ControlTooltip.h"
 #include "Engine/Components/Controls/DropdownSelector.h"
 #include "Engine/Components/Controls/NotificationSequence.h"
 #include "Engine/Components/Controls/ScalarSlider.h"

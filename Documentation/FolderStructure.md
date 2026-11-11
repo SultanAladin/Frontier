@@ -62,8 +62,9 @@ Frontier/
 │   ├── InputValidation.cpp                    // Deterministic Input & BuildConfiguration verification
 │   ├── WindowValidation.cpp                   // Splash, windowed, maximized & fullscreen mode verification
 │   ├── DockingValidation.cpp                  // Trapezoidal multi-window & intra-app docking verification
-│   ├── ControlCentreValidation.cpp            // Control Centre, reusable Controls & .projectspace verification
-│   └── WorkspacePanesValidation.cpp           // Outliner/LayerStack, Showcase Folder/Entry Inspector & Viewport verification
+│   ├── ControlCentreValidation.cpp            // Control Centre, Controls, Tooltips & .projectspace verification
+│   ├── WorkspacePanesValidation.cpp           // Outliner/LayerStack, Showcase Folder/Entry Inspector & Viewport verification
+│   └── LifecycleValidation.cpp                // LifecycleSequence, RuntimeLifecycle, WorkspaceLifecycle & EditorLifecycle verification
 │
 ├── Experimental/                              // HTML/JS reference UIs & studios for C++20 conversion
 │   ├── FrontierEditor/                        // Initial HTML/Vite scene inspector, CAD & icon lab UI
@@ -293,6 +294,12 @@ Frontier/
     │       ├── MemoryDebugger.{h,cpp}         // Allocation leak tracker and region visualizer
     │       └── GPUCaptureRecorder.{h,cpp}     // RenderDoc / PIX programmatic capture recorder
     │
+    ├── Lifecycle/                             // Deterministic sequence, game runtime, workspace & editor loops
+    │   ├── LifecycleSequence.h                // C++20 concept & reverse-order teardown sequence (Editor/Dev/Shipping)
+    │   ├── RuntimeLifecycle.{h,cpp}           // Standalone game/runtime main loop (Development/Shipping Game)
+    │   ├── WorkspaceLifecycle.{h,cpp}         // Multi-document session & revision loop (Editor/Development)
+    │   └── EditorLifecycle.{h,cpp}            // Authoring main loop & GPU overlay hooks (FRONTIER_PROFILE_EDITOR only)
+    │
     ├── Components/                            // Reusable UI controls, themes, typography, motion & panels
     │   ├── PixelSpace.{h,cpp}                 // Logical-to-physical 2D drawing surface & group transforms
     │   ├── Appearance/                        // Themes, semantic swatches & .FontSpace typography
@@ -313,7 +320,8 @@ Frontier/
     │   ├── ControlCentre/                     // Pull-down Control Centre & settings pages
     │   │   └── ControlCentrePanel.{h,cpp}     // Quick Controls, Appearance, Input, Notifications & Workspace
     │   ├── Controls/                          // Reusable studio UI control primitives
-    │   │   ├── ControlAppearance.{h,cpp}      // Shared color set, smoothstep cross-fade & section containers
+    │   │   ├── ControlAppearance.{h,cpp}      // Shared color set, OptionalTooltip, smoothstep & section containers
+    │   │   ├── ControlTooltip.{h,cpp}         // Light/dark, 4-direction speech tails & diagnostic SplitHeader tooltips
     │   │   ├── ScalarSlider.{h,cpp}           // Capsule slider & split numeric/unit readout
     │   │   ├── ExclusiveSelector.{h,cpp}      // Standard bordered & compact borderless exclusive switches
     │   │   ├── CapsuleButton.{h,cpp}          // Primary/Secondary/Danger buttons, chips, segmented bars & discs

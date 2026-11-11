@@ -22,13 +22,14 @@ namespace DropdownSelector
 //------------------------------------------------------------------------------------------------------------------------
 
 ControlContact ConstructButton(
-    PixelSpace&           Surface,
-    Rectangle2D           Bounds,
-    const char*           CurrentLabel,
-    bool                  Open,
-    const ControlPointer& Pointer,
-    float                 Opacity,
-    ControlIcon           LeadingIcon) noexcept
+    PixelSpace&            Surface,
+    Rectangle2D            Bounds,
+    const char*            CurrentLabel,
+    bool                   Open,
+    const ControlPointer&  Pointer,
+    float                  Opacity,
+    ControlIcon            LeadingIcon,
+    const OptionalTooltip& Tooltip) noexcept
 {
     const ControlColorSet& Colors = ControlAppearance::Colors();
     ControlContact         Contact{};
@@ -84,6 +85,10 @@ ControlContact ConstructButton(
         IconSize,
         Colors.TextDim.Faded(Opacity),
         Open ? ControlIcon::ChevronUp : ControlIcon::ChevronDown);
+    if (Contact.Hovered && !Open && Tooltip.Enabled)
+    {
+        ControlAppearance::RecordHoveredTooltip(Bounds, Tooltip);
+    }
     return Contact;
 }
 

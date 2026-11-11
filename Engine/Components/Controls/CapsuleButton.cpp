@@ -74,6 +74,10 @@ ControlContact Construct(PixelSpace &Surface, Rectangle2D Bounds, const ButtonDe
     if (OutlineEnabled)
         ControlAppearance::ConstructRoundedOutline(Surface, Bounds, Border.Faded(Alpha), Radius);
     ControlAppearance::TextCentered(Surface, Bounds, Ink.Faded(Alpha), Button.Label, Button.FontSize);
+    if (Contact.Hovered && Button.Tooltip.Enabled)
+    {
+        ControlAppearance::RecordHoveredTooltip(Bounds, Button.Tooltip);
+    }
     return Contact;
 }
 
@@ -99,7 +103,7 @@ ControlContact ConstructChip(PixelSpace &Surface, Rectangle2D Bounds, const char
 }
 
 ControlContact ConstructRoundIcon(PixelSpace &Surface, float CenterX, float CenterY, ControlIcon Icon,
-                             const ControlPointer &Pointer, float Opacity) noexcept
+                             const ControlPointer &Pointer, float Opacity, const OptionalTooltip &Tooltip) noexcept
 {
     const ControlColorSet &Colors = ControlAppearance::Colors();
     const float            Radius  = ControlMetrics::RoundIconDiameter * 0.5f;
@@ -116,6 +120,10 @@ ControlContact ConstructRoundIcon(PixelSpace &Surface, float CenterX, float Cent
         const ColorQuad Wash = Colors.LightSurface ? ColorQuad{0.0f, 0.0f, 0.0f, 0.05f}
                                                     : ColorQuad{1.0f, 1.0f, 1.0f, 0.05f};
         ControlAppearance::ConstructCircleFill(Surface, CenterX, CenterY, Radius, Wash.Faded(Opacity));
+        if (Tooltip.Enabled)
+        {
+            ControlAppearance::RecordHoveredTooltip(Bounds, Tooltip);
+        }
     }
     ControlAppearance::ConstructCircleOutline(Surface, CenterX, CenterY, Radius - 0.5f, Colors.Stroke.Faded(Opacity), 1.0f);
     ControlAppearance::ConstructIcon(Surface, CenterX - 8.0f, CenterY - 8.0f, 16.0f, Colors.TextDim.Faded(Opacity), Icon, 2.0f);

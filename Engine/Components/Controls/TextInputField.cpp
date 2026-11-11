@@ -217,7 +217,7 @@ namespace TextInputField
 {
 
 ControlContact Construct(PixelSpace &Surface, Rectangle2D Bounds, TextEditBuffer &Editor, const ControlPointer &Pointer,
-                    float FontSize, float Opacity) noexcept
+                    float FontSize, float Opacity, const OptionalTooltip &Tooltip) noexcept
 {
     const ControlColorSet &Colors = ControlAppearance::Colors();
     ControlContact         Contact{};
@@ -269,6 +269,10 @@ ControlContact Construct(PixelSpace &Surface, Rectangle2D Bounds, TextEditBuffer
     }
 
     Surface.PopClip();
+    if (Contact.Hovered && !Editor.Active && Tooltip.Enabled)
+    {
+        ControlAppearance::RecordHoveredTooltip(Bounds, Tooltip);
+    }
     return Contact;
 }
 

@@ -658,6 +658,18 @@ void ControlCentrePanel::Render(Rectangle2D HostBoundsPhysical, double Δt, floa
 
     Notifications.ConstructToastOverlay(Foreground, { 0.0f, 0.0f, LogicalWidth, LogicalHeight }, Pointer, Δt);
 
+    if (!Dialogue.QueryOpen())
+    {
+        (void)ControlTooltip::PresentHoveredControlTooltip(
+            Foreground,
+            { 0.0f, 0.0f, LogicalWidth, LogicalHeight },
+            Pointer);
+    }
+    else
+    {
+        ControlAppearance::ClearHoveredTooltip();
+    }
+
     if (Dialogue.QueryOpen())
     {
         ControlPointer ModalPointer{};

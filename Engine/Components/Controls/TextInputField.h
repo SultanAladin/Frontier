@@ -61,12 +61,13 @@ namespace TextInputField
 {
 
 [[nodiscard]] ControlContact Construct(
-    PixelSpace&           Surface,
-    Rectangle2D           Bounds,
-    TextEditBuffer&       Editor,
-    const ControlPointer& Pointer,
-    float                 FontSize = 13.0f,
-    float                 Opacity  = 1.0f) noexcept;
+    PixelSpace&            Surface,
+    Rectangle2D            Bounds,
+    TextEditBuffer&        Editor,
+    const ControlPointer&  Pointer,
+    float                  FontSize = 13.0f,
+    float                  Opacity  = 1.0f,
+    const OptionalTooltip& Tooltip  = {}) noexcept;
 
 } // namespace TextInputField
 

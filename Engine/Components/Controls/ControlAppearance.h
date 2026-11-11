@@ -49,8 +49,70 @@ struct ControlMetrics
 };
 
 //------------------------------------------------------------------------------------------------------------------------
+//                                                      ENUMERATIONS
+//------------------------------------------------------------------------------------------------------------------------
+
+enum class TooltipDirection : uint8_t
+{
+    Automatic = 0, // [-] - Automatically select non-clipping side around anchor bounds
+    Above     = 1, // [-] - Place tooltip above anchor (pointer tail on bottom edge)
+    Below     = 2, // [-] - Place tooltip below anchor (pointer tail on top edge)
+    Left      = 3, // [-] - Place tooltip left of anchor (pointer tail on right edge)
+    Right     = 4, // [-] - Place tooltip right of anchor (pointer tail on left edge)
+};
+
+enum class TooltipSeverity : uint8_t
+{
+    Neutral       = 0, // [-] - Standard neutral tooltip surface
+    Informational = 1, // [-] - Informational blue accent & notice icon
+    Caution       = 2, // [-] - Caution yellow-amber accent & octagon alert icon
+    Warning       = 3, // [-] - Warning orange-amber accent & triangle alert icon
+    Error         = 4, // [-] - Error crimson accent & critical alert icon
+    Success       = 5, // [-] - Verified emerald accent & check circle icon
+};
+
+//------------------------------------------------------------------------------------------------------------------------
 //                                                       STRUCTURES
 //------------------------------------------------------------------------------------------------------------------------
+
+struct OptionalTooltip
+{
+    const char*      Title       = "";                          // [-] - Optional bold tooltip heading
+    const char*      Text        = "";                          // [-] - Primary tooltip body description
+    const char*      HeaderTag   = "";                          // [-] - Optional secondary header tag (SplitHeader mode)
+    TooltipDirection Direction   = TooltipDirection::Automatic; // [-] - Preferred placement side relative to control
+    TooltipSeverity  Severity    = TooltipSeverity::Neutral;    // [-] - Semantic severity tone
+    ControlIcon      LeadingIcon = ControlIcon::Count;          // [-] - Optional leading vector icon
+    bool             Enabled     = false;                       // [-] - Tooltip activation toggle
+
+    [[nodiscard]] static constexpr OptionalTooltip FromText(
+        const char*      BodyText,
+        TooltipDirection Placement = TooltipDirection::Automatic) noexcept
+    {
+        OptionalTooltip Result{};
+        Result.Text      = BodyText != nullptr ? BodyText : "";
+        Result.Direction = Placement;
+        Result.Enabled   = (BodyText != nullptr && BodyText[0] != '\0');
+        return Result;
+    }
+
+    [[nodiscard]] static constexpr OptionalTooltip FromTitled(
+        const char*      HeadingText,
+        const char*      BodyText,
+        TooltipDirection Placement = TooltipDirection::Automatic,
+        TooltipSeverity  Tone      = TooltipSeverity::Neutral,
+        ControlIcon      Icon      = ControlIcon::Count) noexcept
+    {
+        OptionalTooltip Result{};
+        Result.Title       = HeadingText != nullptr ? HeadingText : "";
+        Result.Text        = BodyText != nullptr ? BodyText : "";
+        Result.Direction   = Placement;
+        Result.Severity    = Tone;
+        Result.LeadingIcon = Icon;
+        Result.Enabled     = (Result.Title[0] != '\0') || (Result.Text[0] != '\0');
+        return Result;
+    }
+};
 
 struct ControlPointer
 {
@@ -164,6 +226,10 @@ float                     ConstructSectionHeading(
 
 [[nodiscard]] float AdvanceScrollOffset(float Offset, float WheelDelta, float ContentHeight, float ViewHeight) noexcept;
 void                ConstructScrollIndicator(PixelSpace& Surface, Rectangle2D ViewBounds, float Offset, float ContentHeight, float Opacity = 1.0f) noexcept;
+
+void                RecordHoveredTooltip(Rectangle2D AnchorBounds, const OptionalTooltip& Tooltip) noexcept;
+[[nodiscard]] bool  ConsumeHoveredTooltip(Rectangle2D& OutAnchorBounds, OptionalTooltip& OutTooltip) noexcept;
+void                ClearHoveredTooltip() noexcept;
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                 INLINE IMPLEMENTATIONS

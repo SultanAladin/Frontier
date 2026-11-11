@@ -12,7 +12,7 @@ namespace ExclusiveSelector
 {
 
 ControlContact Construct(PixelSpace &Surface, float X, float Y, bool Active, const ControlPointer &Pointer,
-                    float Opacity) noexcept
+                    float Opacity, const OptionalTooltip &Tooltip) noexcept
 {
     const ControlColorSet &Colors = ControlAppearance::Colors();
     const Rectangle2D      Bounds{X, Y, ControlMetrics::SwitchWidth, ControlMetrics::SwitchHeight};
@@ -30,11 +30,15 @@ ControlContact Construct(PixelSpace &Surface, float X, float Y, bool Active, con
     const float KnobLeft = X + 3.0f + (Active ? 20.0f : 0.0f);
     ControlAppearance::ConstructCircleFill(Surface, KnobLeft + 10.0f, Y + 13.0f, 10.0f,
                                  (Active ? Colors.AccentInk : Colors.SwitchKnobOff).Faded(Opacity));
+    if (Contact.Hovered && Tooltip.Enabled)
+    {
+        ControlAppearance::RecordHoveredTooltip(Bounds, Tooltip);
+    }
     return Contact;
 }
 
 ControlContact ConstructCompact(PixelSpace &Surface, Rectangle2D Bounds, bool Active, const ControlPointer &Pointer,
-                           float Opacity) noexcept
+                           float Opacity, const OptionalTooltip &Tooltip) noexcept
 {
     const ControlColorSet &Colors = ControlAppearance::Colors();
     ControlContact         Contact{};
@@ -49,6 +53,10 @@ ControlContact ConstructCompact(PixelSpace &Surface, Rectangle2D Bounds, bool Ac
     const float KnobLeft = Bounds.X + (Active ? Bounds.Width - 22.0f : 2.0f);
     ControlAppearance::ConstructCircleFill(Surface, KnobLeft + 10.0f, Bounds.Y + Bounds.Height * 0.5f, 10.0f,
                                  ColorQuad{1.0f, 1.0f, 1.0f, Opacity});
+    if (Contact.Hovered && Tooltip.Enabled)
+    {
+        ControlAppearance::RecordHoveredTooltip(Bounds, Tooltip);
+    }
     return Contact;
 }
 

@@ -149,8 +149,8 @@ void PixelSpace::FillPolygon(std::span<const Point2D> Vertices, ColorRgba Fill) 
 {
     if (!CanvasBuffer || Vertices.size() < 3u || Fill.Alpha == 0)
         return;
-    ImVec2 StackPoints[64];
-    const std::size_t Count = std::min<std::size_t>(Vertices.size(), 64u);
+    ImVec2 StackPoints[128];
+    const std::size_t Count = std::min<std::size_t>(Vertices.size(), 128u);
     for (std::size_t Index = 0; Index < Count; ++Index)
     {
         const Point2D Phys = ToPhysical(Vertices[Index]);

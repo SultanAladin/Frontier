@@ -22,17 +22,18 @@ namespace ScalarSlider
 //------------------------------------------------------------------------------------------------------------------------
 
 [[nodiscard]] ControlContact Construct(
-    PixelSpace&           Surface,
-    Rectangle2D           Bounds,
-    float                 Minimum,
-    float                 Maximum,
-    float                 CurrentPosition,
-    bool                  DraggingActive,
-    const ControlPointer& Pointer,
-    float&                UpdatedPosition,
-    float                 Opacity      = 1.0f,
-    float                 RailHeight   = ControlMetrics::SliderHeight,
-    float                 KnobDiameter = ControlMetrics::SliderThumbDiameter) noexcept;
+    PixelSpace&            Surface,
+    Rectangle2D            Bounds,
+    float                  Minimum,
+    float                  Maximum,
+    float                  CurrentPosition,
+    bool                   DraggingActive,
+    const ControlPointer&  Pointer,
+    float&                 UpdatedPosition,
+    float                  Opacity      = 1.0f,
+    float                  RailHeight   = ControlMetrics::SliderHeight,
+    float                  KnobDiameter = ControlMetrics::SliderThumbDiameter,
+    const OptionalTooltip& Tooltip      = {}) noexcept;
 
 void ConstructReadoutCapsule(
     PixelSpace& Surface,
@@ -45,17 +46,18 @@ void ConstructReadoutCapsule(
     float       UnitCellWidth = ControlMetrics::ReadoutUnitWidth) noexcept;
 
 [[nodiscard]] ControlContact ConstructWithReadout(
-    PixelSpace&           Surface,
-    Rectangle2D           RowBounds,
-    const char*           NumberText,
-    const char*           UnitText,
-    float                 Minimum,
-    float                 Maximum,
-    float                 CurrentPosition,
-    bool                  DraggingActive,
-    const ControlPointer& Pointer,
-    float&                UpdatedPosition,
-    float                 Opacity = 1.0f) noexcept;
+    PixelSpace&            Surface,
+    Rectangle2D            RowBounds,
+    const char*            NumberText,
+    const char*            UnitText,
+    float                  Minimum,
+    float                  Maximum,
+    float                  CurrentPosition,
+    bool                   DraggingActive,
+    const ControlPointer&  Pointer,
+    float&                 UpdatedPosition,
+    float                  Opacity = 1.0f,
+    const OptionalTooltip& Tooltip = {}) noexcept;
 
 } // namespace ScalarSlider
 

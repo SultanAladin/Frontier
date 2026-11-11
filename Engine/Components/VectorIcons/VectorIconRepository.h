@@ -88,7 +88,12 @@ enum class ControlIcon : uint8_t
     CameraBody           = 38, // [-] - Camera body icon
     LayersSlabs          = 39, // [-] - Stacked slabs icon
     SaveDisk             = 40, // [-] - Save disk icon
-    Count                = 41, // [count] - Total control icons
+    ExternalOpen         = 41, // [-] - External launch box-and-arrow icon
+    LightbulbHint        = 42, // [-] - Hint lightbulb icon
+    QuestionCircle       = 43, // [-] - Contextual help question circle icon
+    WrenchRepair         = 44, // [-] - Diagnostic repair wrench icon
+    RefreshCycle         = 45, // [-] - Reimport / reload cycle arrows icon
+    Count                = 46, // [count] - Total control icons
 };
 
 //------------------------------------------------------------------------------------------------------------------------

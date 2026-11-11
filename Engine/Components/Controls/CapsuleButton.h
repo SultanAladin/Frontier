@@ -33,12 +33,13 @@ enum class ButtonTone : uint8_t
 
 struct ButtonDescriptor
 {
-    const char* Label    = "";                    // [-]  - Button caption text
-    ButtonTone  Tone     = ButtonTone::Secondary; // [-]  - Visual tone style
-    float       FontSize = 13.5f;                 // [px] - Caption font size
-    float       PaddingX = 20.0f;                 // [px] - Horizontal text padding
-    bool        Disabled = false;                 // [-]  - Disabled interaction toggle
-    ColorQuad   Tint     = {};                    // [-]  - Custom fill color when Tone == ButtonTone::Tinted
+    const char*     Label    = "";                    // [-]  - Button caption text
+    ButtonTone      Tone     = ButtonTone::Secondary; // [-]  - Visual tone style
+    float           FontSize = 13.5f;                 // [px] - Caption font size
+    float           PaddingX = 20.0f;                 // [px] - Horizontal text padding
+    bool            Disabled = false;                 // [-]  - Disabled interaction toggle
+    ColorQuad       Tint     = {};                    // [-]  - Custom fill color when Tone == ButtonTone::Tinted
+    OptionalTooltip Tooltip  = {};                    // [-]  - Optional hover tooltip descriptor
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -66,12 +67,13 @@ namespace CapsuleButton
     float                 Opacity = 1.0f) noexcept;
 
 [[nodiscard]] ControlContact ConstructRoundIcon(
-    PixelSpace&           Surface,
-    float                 CenterX,
-    float                 CenterY,
-    ControlIcon           Icon,
-    const ControlPointer& Pointer,
-    float                 Opacity = 1.0f) noexcept;
+    PixelSpace&            Surface,
+    float                  CenterX,
+    float                  CenterY,
+    ControlIcon            Icon,
+    const ControlPointer&  Pointer,
+    float                  Opacity = 1.0f,
+    const OptionalTooltip& Tooltip = {}) noexcept;
 
 [[nodiscard]] ControlContact ConstructSegmented(
     PixelSpace&           Surface,

@@ -22,19 +22,21 @@ namespace ExclusiveSelector
 //------------------------------------------------------------------------------------------------------------------------
 
 [[nodiscard]] ControlContact Construct(
-    PixelSpace&           Surface,
-    float                 X,
-    float                 Y,
-    bool                  Active,
-    const ControlPointer& Pointer,
-    float                 Opacity = 1.0f) noexcept;
+    PixelSpace&            Surface,
+    float                  X,
+    float                  Y,
+    bool                   Active,
+    const ControlPointer&  Pointer,
+    float                  Opacity = 1.0f,
+    const OptionalTooltip& Tooltip = {}) noexcept;
 
 [[nodiscard]] ControlContact ConstructCompact(
-    PixelSpace&           Surface,
-    Rectangle2D           Bounds,
-    bool                  Active,
-    const ControlPointer& Pointer,
-    float                 Opacity = 1.0f) noexcept;
+    PixelSpace&            Surface,
+    Rectangle2D            Bounds,
+    bool                   Active,
+    const ControlPointer&  Pointer,
+    float                  Opacity = 1.0f,
+    const OptionalTooltip& Tooltip = {}) noexcept;
 
 } // namespace ExclusiveSelector
 

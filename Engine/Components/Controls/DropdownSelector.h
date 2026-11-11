@@ -40,13 +40,14 @@ namespace DropdownSelector
 //------------------------------------------------------------------------------------------------------------------------
 
 [[nodiscard]] ControlContact ConstructButton(
-    PixelSpace&           Surface,
-    Rectangle2D           Bounds,
-    const char*           CurrentLabel,
-    bool                  Open,
-    const ControlPointer& Pointer,
-    float                 Opacity     = 1.0f,
-    ControlIcon           LeadingIcon = ControlIcon::Count) noexcept;
+    PixelSpace&            Surface,
+    Rectangle2D            Bounds,
+    const char*            CurrentLabel,
+    bool                   Open,
+    const ControlPointer&  Pointer,
+    float                  Opacity     = 1.0f,
+    ControlIcon            LeadingIcon = ControlIcon::Count,
+    const OptionalTooltip& Tooltip     = {}) noexcept;
 
 [[nodiscard]] Rectangle2D QuerySheetBounds(Rectangle2D ButtonBounds, uint32_t OptionCount) noexcept;
 

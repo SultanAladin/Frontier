@@ -151,6 +151,7 @@ set(FRONTIER_UI_COMPONENT_SOURCES
     Engine/Components/Motion/SpringIntegrator.cpp
     Engine/Components/Notch/PanelExpansionTab.cpp
     Engine/Components/Controls/ControlAppearance.cpp
+    Engine/Components/Controls/ControlTooltip.cpp
     Engine/Components/Controls/ScalarSlider.cpp
     Engine/Components/Controls/ExclusiveSelector.cpp
     Engine/Components/Controls/CapsuleButton.cpp
@@ -168,15 +169,20 @@ set(FRONTIER_UI_COMPONENT_SOURCES
     Engine/Components/ControlCentre/ControlCentrePanel.cpp
     Engine/Configuration/InputSettings.cpp
     Engine/Configuration/ProjectSpaceRepository.cpp
+    Engine/Lifecycle/WorkspaceLifecycle.cpp
 )
 
 set(FRONTIER_ENGINE_SOURCES
     Engine/Input/InputExchange.cpp
     Engine/Input/InputExtension.cpp
+    Engine/Lifecycle/RuntimeLifecycle.cpp
     Engine/Windowing/PlatformWindowStub.cpp
 )
 if(NOT ANDROID)
     list(APPEND FRONTIER_ENGINE_SOURCES Engine/Windowing/PlatformWindowDesktop.cpp)
+endif()
+if(FRONTIER_PROFILE STREQUAL "Editor")
+    list(APPEND FRONTIER_ENGINE_SOURCES Engine/Lifecycle/EditorLifecycle.cpp)
 endif()
 if(NOT FRONTIER_PROFILE STREQUAL "Shipping")
     list(APPEND FRONTIER_ENGINE_SOURCES ${FRONTIER_UI_COMPONENT_SOURCES})
@@ -222,4 +228,5 @@ if(BUILD_TESTING)
     frontier_register_exhibit(DockingValidation        Exhibits/DockingValidation.cpp        ${FRONTIER_SHIPPING_UI_SOURCES})
     frontier_register_exhibit(ControlCentreValidation  Exhibits/ControlCentreValidation.cpp  ${FRONTIER_SHIPPING_UI_SOURCES})
     frontier_register_exhibit(WorkspacePanesValidation Exhibits/WorkspacePanesValidation.cpp ${FRONTIER_SHIPPING_UI_SOURCES})
+    frontier_register_exhibit(LifecycleValidation      Exhibits/LifecycleValidation.cpp      ${FRONTIER_SHIPPING_UI_SOURCES})
 endif()

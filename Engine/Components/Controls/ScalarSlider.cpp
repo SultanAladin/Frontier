@@ -16,7 +16,7 @@ namespace ScalarSlider
 
 ControlContact Construct(PixelSpace &Surface, Rectangle2D Bounds, float Minimum, float Maximum, float CurrentPosition,
                     bool DraggingActive, const ControlPointer &Pointer, float &UpdatedPosition, float Opacity,
-                    float RailHeight, float KnobDiameter) noexcept
+                    float RailHeight, float KnobDiameter, const OptionalTooltip &Tooltip) noexcept
 {
     ControlContact        Contact{};
     const ControlColorSet &Colors = ControlAppearance::Colors();
@@ -52,9 +52,11 @@ ControlContact Construct(PixelSpace &Surface, Rectangle2D Bounds, float Minimum,
     }
 
     const float ThumbRadius = ThumbDiameter * 0.5f * (Contact.Dragging && Pointer.Down ? 1.12f : 1.0f);
-    ControlAppearance::ConstructCircleFill(Surface, ThumbCenterX, CenterY + 1.0f, ThumbRadius,
-                                 ColorQuad{0.0f, 0.0f, 0.0f, 0.5f * Opacity});
     ControlAppearance::ConstructCircleFill(Surface, ThumbCenterX, CenterY, ThumbRadius, Colors.SliderThumb.Faded(Opacity));
+    if (Contact.Hovered && Tooltip.Enabled)
+    {
+        ControlAppearance::RecordHoveredTooltip(Track, Tooltip);
+    }
     return Contact;
 }
 
@@ -89,14 +91,20 @@ void ConstructReadoutCapsule(PixelSpace &Surface, float X, float Y, const char *
 
 ControlContact ConstructWithReadout(PixelSpace &Surface, Rectangle2D RowBounds, const char *NumberText, const char *UnitText,
                                float Minimum, float Maximum, float CurrentPosition, bool DraggingActive,
-                               const ControlPointer &Pointer, float &UpdatedPosition, float Opacity) noexcept
+                               const ControlPointer &Pointer, float &UpdatedPosition, float Opacity,
+                               const OptionalTooltip &Tooltip) noexcept
 {
     ConstructReadoutCapsule(Surface, RowBounds.X, RowBounds.Y, NumberText, UnitText, Opacity);
     const float SliderLeft = RowBounds.X + ControlMetrics::ReadoutCapsuleWidth + ControlMetrics::RowGap;
     const Rectangle2D SliderBounds{SliderLeft, RowBounds.Y, std::max(1.0f, RowBounds.Right() - SliderLeft),
                                    RowBounds.Height};
-    return Construct(Surface, SliderBounds, Minimum, Maximum, CurrentPosition, DraggingActive, Pointer, UpdatedPosition,
-                Opacity);
+    const ControlContact Contact = Construct(
+        Surface, SliderBounds, Minimum, Maximum, CurrentPosition, DraggingActive, Pointer, UpdatedPosition, Opacity);
+    if (Tooltip.Enabled && ControlAppearance::QueryPointerOver(RowBounds, Pointer))
+    {
+        ControlAppearance::RecordHoveredTooltip(RowBounds, Tooltip);
+    }
+    return Contact;
 }
 
 } // namespace ScalarSlider
