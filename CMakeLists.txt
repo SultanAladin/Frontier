@@ -41,6 +41,7 @@ message(STATUS "Frontier active profile: ${FRONTIER_PROFILE}")
 #                                          PINNED DEPENDENCY & PATCH VERIFICATION
 #------------------------------------------------------------------------------------------------------------------------
 
+find_package(Threads REQUIRED)
 find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
 execute_process(
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Automation/PrepareDependencies.py" --verify
@@ -160,9 +161,9 @@ set(FRONTIER_UI_COMPONENT_SOURCES
     Engine/Components/Controls/TextInputField.cpp
     Engine/Components/Controls/ConfirmationDialogue.cpp
     Engine/Components/Controls/NotificationSequence.cpp
-    Engine/Components/Docking/WorkspaceTab.cpp
+    Engine/Components/Docking/WorkspaceTabStrip.cpp
     Engine/Components/Docking/WorkspaceDockContainer.cpp
-    Engine/Components/Panes/WorkspacePaneAppearance.cpp
+    Engine/Components/Panes/WorkspaceAppearance.cpp
     Engine/Components/Panes/OutlinerPanel.cpp
     Engine/Components/Panes/InspectorPanel.cpp
     Engine/Components/Panes/ViewportPanel.cpp
@@ -177,6 +178,31 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/Input/InputExtension.cpp
     Engine/Lifecycle/RuntimeLifecycle.cpp
     Engine/Windowing/PlatformWindowStub.cpp
+    Engine/Threading/Sync/HeartbeatMonitor.cpp
+    Engine/Threading/Tasks/TaskChannel.cpp
+    Engine/Threading/Tasks/ExecutionCluster.cpp
+    Engine/Threading/Tasks/TaskScheduler.cpp
+    Engine/Threading/Threads/Workspace/WorkspaceThread.cpp
+    Engine/Codecs/SpaceContainerCodec.cpp
+    Engine/Codecs/RevisionCodec.cpp
+    Engine/Codecs/ProjectCodec.cpp
+    Engine/Codecs/ColourCodec.cpp
+    Engine/Codecs/FontCodec.cpp
+    Engine/Codecs/UVCodec.cpp
+    Engine/Codecs/ImageCodec.cpp
+    Engine/Codecs/TextureCodec.cpp
+    Engine/Codecs/MaterialCodec.cpp
+    Engine/Codecs/VectorCodec.cpp
+    Engine/Workspaces/Revision/ContentRegion.cpp
+    Engine/Workspaces/Revision/NonLinearHistory.cpp
+    Engine/Workspaces/Revision/OperationRecorder.cpp
+    Engine/Workspaces/Revision/CursorResolution.cpp
+    Engine/Workspaces/Revision/RevisionTracker.cpp
+    Engine/Workspaces/Revision/RevisionExtension.cpp
+    Engine/Workspaces/WorkspaceDocument.cpp
+    Engine/Workspaces/WorkspaceRegistry.cpp
+    Engine/Workspaces/WorkspaceExchange.cpp
+    Engine/Workspaces/WorkspaceExtension.cpp
 )
 if(NOT ANDROID)
     list(APPEND FRONTIER_ENGINE_SOURCES Engine/Windowing/PlatformWindowDesktop.cpp)
@@ -196,7 +222,7 @@ target_include_directories(FrontierEngine PUBLIC
     "${CMAKE_SOURCE_DIR}/ExternalPackages/volk"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include"
 )
-target_link_libraries(FrontierEngine PUBLIC FrontierCompileSettings)
+target_link_libraries(FrontierEngine PUBLIC FrontierCompileSettings Threads::Threads)
 if(NOT FRONTIER_PROFILE STREQUAL "Shipping")
     target_link_libraries(FrontierEngine PUBLIC FrontierImGui)
 endif()
@@ -210,23 +236,29 @@ endif()
 #------------------------------------------------------------------------------------------------------------------------
 
 if(BUILD_TESTING)
+    if(FRONTIER_PROFILE STREQUAL "Shipping")
+        add_library(FrontierShippingExhibitUi STATIC EXCLUDE_FROM_ALL ${FRONTIER_UI_COMPONENT_SOURCES})
+        target_include_directories(FrontierShippingExhibitUi PUBLIC "${CMAKE_SOURCE_DIR}")
+        target_link_libraries(FrontierShippingExhibitUi PUBLIC FrontierEngine FrontierImGui)
+    endif()
+
     function(frontier_register_exhibit EXHIBIT_NAME EXHIBIT_SOURCE)
         add_executable(${EXHIBIT_NAME} ${EXHIBIT_SOURCE} ${ARGN})
         target_include_directories(${EXHIBIT_NAME} PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
         target_compile_definitions(${EXHIBIT_NAME} PRIVATE "FRONTIER_REPO_ROOT_DIR=\"${CMAKE_SOURCE_DIR}\"")
-        target_link_libraries(${EXHIBIT_NAME} PRIVATE FrontierEngine FrontierImGui)
+        if(FRONTIER_PROFILE STREQUAL "Shipping")
+            target_link_libraries(${EXHIBIT_NAME} PRIVATE FrontierShippingExhibitUi FrontierEngine FrontierImGui)
+        else()
+            target_link_libraries(${EXHIBIT_NAME} PRIVATE FrontierEngine FrontierImGui)
+        endif()
         add_test(NAME ${EXHIBIT_NAME} COMMAND ${EXHIBIT_NAME})
     endfunction()
 
-    set(FRONTIER_SHIPPING_UI_SOURCES "")
-    if(FRONTIER_PROFILE STREQUAL "Shipping")
-        set(FRONTIER_SHIPPING_UI_SOURCES ${FRONTIER_UI_COMPONENT_SOURCES})
-    endif()
-
-    frontier_register_exhibit(InputValidation          Exhibits/InputValidation.cpp          ${FRONTIER_SHIPPING_UI_SOURCES})
-    frontier_register_exhibit(WindowValidation         Exhibits/WindowValidation.cpp         ${FRONTIER_SHIPPING_UI_SOURCES})
-    frontier_register_exhibit(DockingValidation        Exhibits/DockingValidation.cpp        ${FRONTIER_SHIPPING_UI_SOURCES})
-    frontier_register_exhibit(ControlCentreValidation  Exhibits/ControlCentreValidation.cpp  ${FRONTIER_SHIPPING_UI_SOURCES})
-    frontier_register_exhibit(WorkspacePanesValidation Exhibits/WorkspacePanesValidation.cpp ${FRONTIER_SHIPPING_UI_SOURCES})
-    frontier_register_exhibit(LifecycleValidation      Exhibits/LifecycleValidation.cpp      ${FRONTIER_SHIPPING_UI_SOURCES})
+    frontier_register_exhibit(InputValidation             Exhibits/InputValidation.cpp)
+    frontier_register_exhibit(WindowValidation            Exhibits/WindowValidation.cpp)
+    frontier_register_exhibit(DockingValidation           Exhibits/DockingValidation.cpp)
+    frontier_register_exhibit(ControlCentreValidation     Exhibits/ControlCentreValidation.cpp)
+    frontier_register_exhibit(WorkspacePanesValidation    Exhibits/WorkspacePanesValidation.cpp)
+    frontier_register_exhibit(LifecycleValidation         Exhibits/LifecycleValidation.cpp)
+    frontier_register_exhibit(WorkspaceRevisionValidation Exhibits/WorkspaceRevisionValidation.cpp)
 endif()

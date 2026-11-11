@@ -10,7 +10,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Components/Controls/TextInputField.h"
-#include "Engine/Components/Panes/WorkspacePaneAppearance.h"
+#include "Engine/Components/Panes/WorkspaceAppearance.h"
 
 #include <cstdint>
 #include <span>

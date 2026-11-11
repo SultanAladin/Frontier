@@ -44,16 +44,31 @@ All banned terms (`RasterPasses` → `Rasterization`, `Pipeline` → `ExecutionS
 
 ```text
 Engine/
-├── MetricSpace/                                   // Coordinate spaces, tolerances, projections & spatial math
+├── Constants/                                     // Shared compile-time physical, mathematical, engine & time constants
+│   ├── MathConstants.h                            // Pi, Tau, Epsilon, DegToRad, RadToDeg & IEEE-754 bounds
+│   ├── PhysicsConstants.h                         // Gravity, AirDensity, WaterDensity & FrictionLimits
+│   ├── EngineConstants.h                          // MaxPlayers, DefaultTickRate, BufferCapacities & Limits
+│   ├── TimeConstants.h                            // FixedDeltaTime, MicrosecondsPerSecond & WatchdogThresholds
+│   ├── OpticalConstants.h                         // VacuumLightSpeed, PlanckConstant, CIEWhitePoints & IOR
+│   └── AcousticConstants.h                        // ReferenceSoundPressure, DryAirSoundSpeed & OctaveBands
+│
+├── Mathematics/                                   // Shared algebraic, polynomial, sparse-linear & deterministic math
+│   ├── ScalarFunctions.h                          // Branchless clamp, saturate, smoothstep, remap & fast reciprocal/rsqrt
+│   ├── LinearAlgebra.h                            // SIMD-aligned 2D/3D/4D vector and matrix types
+│   ├── VectorAlgebra.{h,cpp}                      // Dot, cross, Gram-Schmidt orthonormalization, reflection & refraction
+│   ├── MatrixOperations.{h,cpp}                   // Affine, projective, inverse, transpose & normal-transpose solvers
+│   ├── QuaternionRotation.{h,cpp}                 // Unit quaternions, spherical slerp & orthogonal basis conversion
+│   ├── PolynomialCurves.{h,cpp}                   // Analytic Bézier, Hermite, Catmull-Rom, B-spline & root solvers
+│   ├── SparseLinearSolver.{h,cpp}                 // Conjugate gradient & sparse Cholesky solvers (shared by UV & physics)
+│   ├── TrigonometricFunctions.h                   // SIMD minimax sine, cosine, atan2 & spherical coordinate conversions
+│   └── DeterministicRandom.h                      // Seeded PCG / SplitMix64 repeatable generator for parametric replay
+│
+├── MetricSpace/                                   // Coordinate spaces, tolerances, projections & spatial intersections
 │   ├── MetricTolerance.h                          // Linear, angular, UV-weld & watertight sewing tolerances
 │   ├── CoordinateSpace.h                          // Right-handed world, local & parameter-tile basis transforms
 │   ├── CoordinateProjection.h                     // Orthographic, perspective & 2D viewport tile projections
 │   ├── DistanceMetric.h                           // Euclidean, Manhattan, Chebyshev & geodesic metrics
 │   ├── SpatialExtent.h                            // Axis-aligned and oriented bounding extents
-│   ├── LinearAlgebra.h                            // SIMD-aligned vector and matrix primitives
-│   ├── VectorAlgebra.{h,cpp}                      // 2D/3D/4D vector operations
-│   ├── MatrixOperations.{h,cpp}                   // Affine, projective & normal-transpose matrix solvers
-│   ├── QuaternionRotation.{h,cpp}                 // Unit quaternions, spherical slerp & orthogonal basis conversion
 │   └── IntersectionSolver.{h,cpp}                 // Ray-facet, ray-volume, plane-cut & volume intersections
 │
 ├── ColourSpace/                                   // Tristimulus spaces, chromaticity & transfer curves
@@ -123,6 +138,7 @@ Engine/
 │   ├── DescriptorSlotRegister.{h,cpp}             // Descriptor layout and push-constant slot register
 │   │
 │   ├── Rasterization/                             // Dedicated GPU rasterization & projection units
+│   │   ├── DirectionalLitRasterization.{h,cpp}    // Fast directional key/hemisphere lit viewport rasterization
 │   │   ├── UVTileRasterization.{h,cpp}            // 2D UVTile grid, boundary lines, UDIM indices & tile fills
 │   │   ├── EdgeHighlightRasterization.{h,cpp}     // Seam lines, sharp creases & active wireframe borders
 │   │   ├── GroundPlaneRasterization.{h,cpp}       // Viewport reference plane rasterization
@@ -144,6 +160,10 @@ Engine/
 │   │   ├── ShaderCompiler.{h,cpp}
 │   │   ├── ShaderReflection.{h,cpp}
 │   │   └── ShaderPermutationIndex.{h,cpp}
+│   ├── Raster/
+│   │   ├── DirectionalLitShading.slang            // Fast viewport directional key/rim/hemisphere lit shader
+│   │   ├── MicrofacetShading.slang                // Physical microfacet PBR shader
+│   │   └── DepthPreRaster.slang                   // Early-Z depth pre-rasterization shader
 │   └── UV/
 │       ├── UVTileRasterization.slang              // 2D UVTile coordinates, checker patterns & stretch heat
 │       ├── EdgeHighlightRasterization.slang       // Screen-space anti-aliased wireframes & seam lines
@@ -167,7 +187,7 @@ Engine/
 │   ├── UV/                                        // Headless UV workspace runtime (Non-UI)
 │   │   ├── UVWorkspaceLifecycle.{h,cpp}           // Headless lifecycle: Initialize → Tick → Finalize
 │   │   ├── UVWorkspaceDocument.{h,cpp}            // Editable UV layers, UDIM sets & UVTiles
-│   │   ├── UVRevisionJournal.{h,cpp}              // Parametric UV operation recording & replay
+│   │   ├── RevisionTracker.{h,cpp}                // Selected revision tracker: cursor tracking & parametric replay
 │   │   └── Operations/                            // Procedural non-UI execution logic
 │   │       ├── UVUnwrapOperations.{h,cpp}         // Conformal unwrap, planar, box & spherical projections
 │   │       ├── UVPackOperations.{h,cpp}           // Island packing, rotation alignment & border margins
@@ -218,3 +238,42 @@ Engine/
         ├── Volumetric/                            // Modular Volumetric Editor UI (panels, toolbars, interactions)
         └── Particle/                              // Modular Particle Editor UI (panels, toolbars, interactions)
 ```
+
+---
+
+## 4. Mechanism-First Naming Replacements
+
+*(Legend — Mechanism Clarity & 6-Gate Compliance: 🔴 = highest/best, 🚩 = moderate, ✔️ = lowest)*
+
+### 4.1 Replacing `UVRevisionJournal.{h,cpp}` (`Engine/Workspaces/UV/`)
+
+| Rank | Candidate | Physical Mechanism | Clarity | Notes |
+| :---: | :--- | :--- | :---: | :--- |
+| 🏆 🥇 | **`UVRevisionReplay.{h,cpp}`** | Replays parametric UV operations from baseline through active cursor and folds prefixes at any texel target | 🔴 | Applied in folder tree; pairs cleanly with `Workspaces/Revision/OperationRecorder.{h,cpp}` |
+| 🥈 | **`UVOperationSequence.{h,cpp}`** | Ordered parametric UV operation sequence bound to `UVWorkspaceDocument` | 🔴 | Uses approved `Sequence` noun |
+| 🥉 | **`UVOperationHistory.{h,cpp}`** | Branching UV operation history linked to `RevisionExtension` | 🚩 | Slightly overlaps `NonLinearHistory` |
+
+### 4.2 Replacing `SnapshotReplicator.{h,cpp}` (`Engine/NetworkingSpace/`)
+
+| Rank | Candidate | Physical Mechanism | Clarity | Notes |
+| :---: | :--- | :--- | :---: | :--- |
+| 🏆 🥇 | **`DifferentialWorldEncoder.{h,cpp}`** | Quantizes and bit-encodes changed world instance properties against each endpoint's acknowledged baseline | 🔴 | Applied in folder tree; aligns with Frontier's `Encoder` terminology |
+| 🥈 | **`QuantizedInstanceSync.{h,cpp}`** | Synchronizes quantized instance transforms and simulation readings across endpoints | 🔴 | Direct instance-level focus |
+| 🥉 | **`BaselineDeltaSerializer.{h,cpp}`** | Serializes per-tick differential world payloads relative to prior baselines | 🚩 | Overlaps `PacketSerializer` suffix |
+
+### 4.3 Replacing `PeerSessionRegistry.{h,cpp}` (`Engine/NetworkingSpace/`)
+
+| Rank | Candidate | Physical Mechanism | Clarity | Notes |
+| :---: | :--- | :--- | :---: | :--- |
+| 🏆 🥇 | **`NetworkEndpointRegister.{h,cpp}`** | Contiguous register of connected socket endpoints, round-trip latency readings, and monotonic clock offsets | 🔴 | Applied in folder tree; uses approved `Register` noun and avoids web `Session` / `Peer` |
+| 🥈 | **`EndpointClockAlignment.{h,cpp}`** | Tracks remote socket timing windows, packet acknowledgements, and clock-offset alignment | 🔴 | Highlights timing synchronization |
+| 🥉 | **`RemoteEndpointDirectory.{h,cpp}`** | Indexed directory of authenticated remote socket addresses and link metrics | 🚩 | Slightly broader than `Register` |
+
+### 4.4 Replacing `AcousticMixer.{h,cpp}` (`Engine/AudioSpace/`)
+
+| Rank | Candidate | Physical Mechanism | Clarity | Notes |
+| :---: | :--- | :--- | :---: | :--- |
+| 🏆 🥇 | **`AudioBusAccumulator.{h,cpp}`** | Sums polyphonic PCM voice streams across routed buses with gain envelopes, biquad IIR filtering, and resampling | 🔴 | Applied in folder tree; names exact floating-point bus accumulation rather than DJ `Mixer` |
+| 🥈 | **`VoiceBusSumming.{h,cpp}`** | Sums active voice channels into output and sub-group buses with per-bus biquad filtering | 🔴 | Direct DSP summing term |
+| 🥉 | **`WaveformBusRouter.{h,cpp}`** | Routes and weights decoded waveform channels across filtered output buses | 🚩 | Emphasizes routing over summing |
+

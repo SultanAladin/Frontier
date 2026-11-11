@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Docking/WorkspaceTab.h"
+#include "Engine/Components/Docking/WorkspaceTabStrip.h"
 
 #include <imgui.h>
 

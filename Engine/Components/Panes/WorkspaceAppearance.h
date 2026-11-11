@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                         WORKSPACEPANEAPPEARANCE.H
+                                                         WORKSPACEAPPEARANCE.H
 ============================================================================================================================================*/
 // 🧩 Shared surface color tokens, VisualToken, VectorGraphic, Workspace icons, indicators, signs, and symbols
 
@@ -150,7 +150,7 @@ struct PaneInputReading
 //                                                  FUNCTION PROTOTYPES
 //------------------------------------------------------------------------------------------------------------------------
 
-namespace WorkspacePaneAppearance
+namespace WorkspaceAppearance
 {
 
 [[nodiscard]] PaneInputReading CaptureImGuiPaneInput(Rectangle2D ScreenBounds, float ScaleFactor) noexcept;
@@ -318,6 +318,6 @@ void ConstructResetSymbol(
     ColorRgba   Ink,
     float       Thickness = 1.35f) noexcept;
 
-} // namespace WorkspacePaneAppearance
+} // namespace WorkspaceAppearance
 
 } // namespace Frontier

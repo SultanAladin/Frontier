@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                        WORKSPACEPANEAPPEARANCE.CPP
+                                                        WORKSPACEAPPEARANCE.CPP
 ============================================================================================================================================*/
 // 🧩 Shared surface color tokens, VisualToken, VectorGraphic, Workspace icons, indicators, signs, and symbols
 
@@ -7,7 +7,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Panes/WorkspacePaneAppearance.h"
+#include "Engine/Components/Panes/WorkspaceAppearance.h"
 
 #include "imgui.h"
 
@@ -15,7 +15,7 @@
 #include <array>
 #include <cmath>
 
-namespace Frontier::WorkspacePaneAppearance
+namespace Frontier::WorkspaceAppearance
 {
 
 namespace
@@ -1268,4 +1268,4 @@ void ConstructResetSymbol(
     Surface.StrokePolyline(Head, Ink, Thickness, false);
 }
 
-} // namespace Frontier::WorkspacePaneAppearance
+} // namespace Frontier::WorkspaceAppearance

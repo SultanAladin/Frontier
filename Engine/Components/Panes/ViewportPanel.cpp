@@ -218,8 +218,8 @@ void ViewportPanel::RenderCanvasPane(
             Surface.StrokeRectangle(PaneBounds.Inset(0.5f), ColorRgba{ 191, 162, 122, 115 }, 0.0f, 1.0f);
         }
 
-        const char*       ProjName = WorkspacePaneAppearance::QueryProjectionPresetLabel(Projection);
-        const float       ChipW    = std::max(132.0f, WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.5f, ProjName) + 56.0f);
+        const char*       ProjName = WorkspaceAppearance::QueryProjectionPresetLabel(Projection);
+        const float       ChipW    = std::max(132.0f, WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.5f, ProjName) + 56.0f);
         const Rectangle2D ProjChip{ PaneBounds.X + 10.0f, PaneBounds.Y + 10.0f, ChipW, 30.0f };
 
         const ControlContact ChipHit = DropdownSelector::ConstructButton(Surface, ProjChip, ProjName, false, Input.PrimaryPointer);
@@ -247,18 +247,18 @@ void ViewportPanel::RenderCanvasPane(
     {
         const char* LineOne = "No constructed entries";
         const char* LineTwo = "Ctrl+A to construct";
-        const float W1      = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 12.5f, LineOne);
-        const float W2      = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.5f, LineTwo);
+        const float W1      = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 12.5f, LineOne);
+        const float W2      = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.5f, LineTwo);
         const float MidY    = PaneBounds.Center().Y;
 
-        WorkspacePaneAppearance::ConstructWeightedText(
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { PaneBounds.Center().X - W1 * 0.5f, MidY - 12.0f },
             12.5f,
             ColorRgba{ 118, 118, 118, 255 },
             LineOne);
-        WorkspacePaneAppearance::ConstructWeightedText(
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { PaneBounds.Center().X - W2 * 0.5f, MidY + 8.0f },
@@ -275,8 +275,8 @@ void ViewportPanel::RenderCanvasPane(
             "%u constructed %s in workspace",
             ConstructedCount,
             (ConstructedCount == 1u) ? "entry" : "entries");
-        const float SumW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.5f, SummaryLine);
-        WorkspacePaneAppearance::ConstructWeightedText(
+        const float SumW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.5f, SummaryLine);
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { PaneBounds.Center().X - SumW * 0.5f, PaneBounds.Center().Y - 6.0f },
@@ -288,7 +288,7 @@ void ViewportPanel::RenderCanvasPane(
     // Bottom-left analytical caption (matching reference layout)
     if (PaneIndex == 0u)
     {
-        WorkspacePaneAppearance::ConstructWeightedText(
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { PaneBounds.X + 12.0f, PaneBounds.Bottom() - 20.0f },
@@ -298,7 +298,7 @@ void ViewportPanel::RenderCanvasPane(
     }
 
     // Bottom-right 3D X/Y/Z orientation triad sign
-    WorkspacePaneAppearance::ConstructOrientationAxesSign(Surface, PaneBounds, Projection);
+    WorkspaceAppearance::ConstructOrientationAxesSign(Surface, PaneBounds, Projection);
 
     Surface.PopClip();
 }
@@ -338,15 +338,15 @@ void ViewportPanel::RenderDiagnosticsPanel(
         DiagnosticsVisible = false;
     }
 
-    WorkspacePaneAppearance::ConstructDiagnosticsIcon(Surface, { CloseBtn.Right() + 10.0f, Panel.Y + 19.0f }, 15.0f, ColorRgba{ 166, 185, 151, 255 });
-    WorkspacePaneAppearance::ConstructWeightedText(
+    WorkspaceAppearance::ConstructDiagnosticsIcon(Surface, { CloseBtn.Right() + 10.0f, Panel.Y + 19.0f }, 15.0f, ColorRgba{ 166, 185, 151, 255 });
+    WorkspaceAppearance::ConstructWeightedText(
         Surface,
         FontWeightClass::Regular,
         { CloseBtn.Right() + 31.0f, Panel.Y + 19.5f },
         12.0f,
         ColorRgba{ 214, 216, 209, 255 },
         "Diagnostics");
-    WorkspacePaneAppearance::ConstructWeightedText(
+    WorkspaceAppearance::ConstructWeightedText(
         Surface,
         FontWeightClass::Medium,
         { Panel.Right() - 32.0f, Panel.Y + 22.0f },
@@ -369,8 +369,8 @@ void ViewportPanel::RenderDiagnosticsPanel(
             const bool        Selected = (DiagnosticsCategory == Tabs[Idx].second);
             Surface.FillRectangle(TabRect, Selected ? ColorRgba{ 62, 68, 56, 255 } : ColorRgba{ 43, 45, 40, 255 }, 12.5f);
             Surface.StrokeRectangle(TabRect, Selected ? ColorRgba{ 166, 185, 151, 115 } : ColorRgba{ 255, 255, 255, 14 }, 12.5f, 1.0f);
-            const float TW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, Tabs[Idx].first);
-            WorkspacePaneAppearance::ConstructWeightedText(
+            const float TW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, Tabs[Idx].first);
+            WorkspaceAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Regular,
                 { TabRect.Center().X - TW * 0.5f, TabRect.Y + 6.5f },
@@ -396,7 +396,7 @@ void ViewportPanel::RenderDiagnosticsPanel(
         const float CurMs = IntervalHistoryMs[(HistoryWriteCursor + IntervalHistoryMs.size() - 1u) % IntervalHistoryMs.size()];
 
         Surface.FillRectangle({ Panel.X + 21.0f, BodyY + 2.0f, 3.0f, 14.0f }, ColorRgba{ 88, 153, 121, 255 }, 1.5f);
-        WorkspacePaneAppearance::ConstructWeightedText(
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { Panel.X + 31.0f, BodyY },
@@ -406,15 +406,15 @@ void ViewportPanel::RenderDiagnosticsPanel(
 
         char BigMs[24]{};
         std::snprintf(BigMs, sizeof(BigMs), "%.1f", CurMs);
-        WorkspacePaneAppearance::ConstructWeightedText(
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Light,
             { Panel.X + 21.0f, BodyY + 22.0f },
             44.0f,
             ColorRgba{ 214, 216, 209, 255 },
             BigMs);
-        const float BigW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Light, 44.0f, BigMs);
-        WorkspacePaneAppearance::ConstructWeightedText(
+        const float BigW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Light, 44.0f, BigMs);
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Light,
             { Panel.X + 28.0f + BigW, BodyY + 48.0f },
@@ -453,32 +453,32 @@ void ViewportPanel::RenderDiagnosticsPanel(
                 break;
             }
             Surface.StrokeLine({ Panel.X + 21.0f, StatY }, { Panel.Right() - 21.0f, StatY }, ColorRgba{ 255, 255, 255, 15 }, 1.0f);
-            WorkspacePaneAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Panel.X + 21.0f, StatY + 5.0f }, 10.0f, ColorRgba{ 144, 153, 134, 255 }, Name);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Panel.X + 21.0f, StatY + 5.0f }, 10.0f, ColorRgba{ 144, 153, 134, 255 }, Name);
             char ValStr[24]{};
             std::snprintf(ValStr, sizeof(ValStr), "%.2f ms", Val);
-            const float VW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, ValStr);
-            WorkspacePaneAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Panel.Right() - 21.0f - VW, StatY + 5.0f }, 10.0f, ColorRgba{ 193, 202, 180, 255 }, ValStr);
+            const float VW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, ValStr);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Panel.Right() - 21.0f - VW, StatY + 5.0f }, 10.0f, ColorRgba{ 193, 202, 180, 255 }, ValStr);
             StatY += 22.0f;
         }
     }
     else if (DiagnosticsCategory == DiagnosticsTabCategory::Scene)
     {
-        WorkspacePaneAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Panel.X + 21.0f, BodyY }, 12.5f, ColorRgba{ 214, 216, 209, 255 }, "Scene inventory");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Panel.X + 21.0f, BodyY }, 12.5f, ColorRgba{ 214, 216, 209, 255 }, "Scene inventory");
         char BigCnt[24]{};
         std::snprintf(BigCnt, sizeof(BigCnt), "%u", ConstructedCount);
-        WorkspacePaneAppearance::ConstructWeightedText(Surface, FontWeightClass::Light, { Panel.X + 21.0f, BodyY + 24.0f }, 44.0f, ColorRgba{ 214, 216, 209, 255 }, BigCnt);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Light, { Panel.X + 21.0f, BodyY + 24.0f }, 44.0f, ColorRgba{ 214, 216, 209, 255 }, BigCnt);
 
         char VisSummary[64]{};
         std::snprintf(VisSummary, sizeof(VisSummary), "Visible: %u   Hidden: %u", VisibleCount, ConstructedCount - VisibleCount);
-        WorkspacePaneAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Panel.X + 21.0f, BodyY + 80.0f }, 11.0f, ColorRgba{ 158, 168, 148, 255 }, VisSummary);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Panel.X + 21.0f, BodyY + 80.0f }, 11.0f, ColorRgba{ 158, 168, 148, 255 }, VisSummary);
     }
     else
     {
-        WorkspacePaneAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Panel.X + 21.0f, BodyY }, 12.5f, ColorRgba{ 214, 216, 209, 255 }, "Render configuration");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Panel.X + 21.0f, BodyY }, 12.5f, ColorRgba{ 214, 216, 209, 255 }, "Render configuration");
         char ScaleText[48]{};
         std::snprintf(ScaleText, sizeof(ScaleText), "%.0f%%", DisplaySettings.RenderScalePercent);
-        WorkspacePaneAppearance::ConstructWeightedText(Surface, FontWeightClass::Light, { Panel.X + 21.0f, BodyY + 24.0f }, 44.0f, ColorRgba{ 214, 216, 209, 255 }, ScaleText);
-        WorkspacePaneAppearance::ConstructWeightedText(
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Light, { Panel.X + 21.0f, BodyY + 24.0f }, 44.0f, ColorRgba{ 214, 216, 209, 255 }, ScaleText);
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { Panel.X + 21.0f, BodyY + 80.0f },
@@ -493,7 +493,7 @@ void ViewportPanel::RenderDiagnosticsPanel(
 
     const Rectangle2D PauseBtn{ Panel.X + 21.0f, FooterY, 58.0f, 24.0f };
     Surface.FillRectangle(PauseBtn, ColorRgba{ 43, 45, 40, 255 }, 12.0f);
-    WorkspacePaneAppearance::ConstructWeightedText(
+    WorkspaceAppearance::ConstructWeightedText(
         Surface,
         FontWeightClass::Regular,
         { PauseBtn.X + 13.0f, PauseBtn.Y + 6.0f },
@@ -505,7 +505,7 @@ void ViewportPanel::RenderDiagnosticsPanel(
         DiagnosticsPaused = !DiagnosticsPaused;
     }
 
-    WorkspacePaneAppearance::ConstructWeightedText(
+    WorkspaceAppearance::ConstructWeightedText(
         Surface,
         FontWeightClass::Regular,
         { Panel.Right() - 84.0f, FooterY + 7.0f },
@@ -537,9 +537,9 @@ void ViewportPanel::RenderConstructDialog(
     Overlay.PushClip(Dialog);
 
     // Header + Search
-    WorkspacePaneAppearance::ConstructConstructIcon(Overlay, { Dialog.X + 18.0f, Dialog.Y + 16.0f }, 18.0f, WorkspaceSurfaceColors::PrimaryInk);
-    WorkspacePaneAppearance::ConstructWeightedText(Overlay, FontWeightClass::Regular, { Dialog.X + 44.0f, Dialog.Y + 16.0f }, 14.0f, WorkspaceSurfaceColors::PrimaryInk, "Construct");
-    WorkspacePaneAppearance::ConstructWeightedText(Overlay, FontWeightClass::Regular, { Dialog.X + 118.0f, Dialog.Y + 19.0f }, 9.5f, WorkspaceSurfaceColors::FaintInk, "Ctrl+A");
+    WorkspaceAppearance::ConstructConstructIcon(Overlay, { Dialog.X + 18.0f, Dialog.Y + 16.0f }, 18.0f, WorkspaceSurfaceColors::PrimaryInk);
+    WorkspaceAppearance::ConstructWeightedText(Overlay, FontWeightClass::Regular, { Dialog.X + 44.0f, Dialog.Y + 16.0f }, 14.0f, WorkspaceSurfaceColors::PrimaryInk, "Construct");
+    WorkspaceAppearance::ConstructWeightedText(Overlay, FontWeightClass::Regular, { Dialog.X + 118.0f, Dialog.Y + 19.0f }, 9.5f, WorkspaceSurfaceColors::FaintInk, "Ctrl+A");
 
     const Rectangle2D CloseBtn{ Dialog.Right() - 38.0f, Dialog.Y + 12.0f, 26.0f, 26.0f };
     if (CloseBtn.Contains(Cursor))
@@ -571,7 +571,7 @@ void ViewportPanel::RenderConstructDialog(
         {
             Overlay.FillRectangle(RailRow, Active ? ColorRgba{ 44, 44, 44, 255 } : ColorRgba{ 33, 33, 33, 255 }, 8.0f);
         }
-        WorkspacePaneAppearance::ConstructWeightedText(
+        WorkspaceAppearance::ConstructWeightedText(
             Overlay,
             FontWeightClass::Regular,
             { RailRow.X + 10.0f, RailRow.Y + 7.5f },
@@ -643,7 +643,7 @@ void ViewportPanel::RenderConstructDialog(
         Overlay.StrokeRectangle(Cell, Hovered ? WorkspaceSurfaceColors::SelectionAmber : ColorRgba{ 58, 58, 58, 255 }, 12.0f, 1.0f);
 
         const float IconSide = std::clamp(TileSide * 0.38f, 28.0f, 46.0f);
-        WorkspacePaneAppearance::ConstructSlotCategoryIcon(
+        WorkspaceAppearance::ConstructSlotCategoryIcon(
             Overlay,
             Choices[Idx].Category,
             { Cell.Center().X - IconSide * 0.5f, Cell.Y + TileSide * 0.16f },
@@ -652,8 +652,8 @@ void ViewportPanel::RenderConstructDialog(
         const float LabelMaxW = TileSide - 14.0f;
         const float LabelW    = std::min(
             LabelMaxW,
-            WorkspacePaneAppearance::MeasureWeightedTextWidth(Overlay, FontWeightClass::Regular, 11.5f, Choices[Idx].Label));
-        WorkspacePaneAppearance::ConstructTruncatedText(
+            WorkspaceAppearance::MeasureWeightedTextWidth(Overlay, FontWeightClass::Regular, 11.5f, Choices[Idx].Label));
+        WorkspaceAppearance::ConstructTruncatedText(
             Overlay,
             FontWeightClass::Regular,
             { Cell.Center().X - LabelW * 0.5f, Cell.Bottom() - 34.0f },
@@ -664,8 +664,8 @@ void ViewportPanel::RenderConstructDialog(
 
         const float CapW = std::min(
             LabelMaxW,
-            WorkspacePaneAppearance::MeasureWeightedTextWidth(Overlay, FontWeightClass::Regular, 9.0f, Choices[Idx].Caption));
-        WorkspacePaneAppearance::ConstructTruncatedText(
+            WorkspaceAppearance::MeasureWeightedTextWidth(Overlay, FontWeightClass::Regular, 9.0f, Choices[Idx].Caption));
+        WorkspaceAppearance::ConstructTruncatedText(
             Overlay,
             FontWeightClass::Regular,
             { Cell.Center().X - CapW * 0.5f, Cell.Bottom() - 18.0f },
@@ -710,7 +710,7 @@ void ViewportPanel::RenderSettingsSheet(
     Overlay.FillRectangle(Sheet, WorkspaceSurfaceColors::OverlaySheet, 16.0f);
     Overlay.StrokeRectangle(Sheet, ColorRgba{ 255, 255, 255, 30 }, 16.0f, 1.0f);
 
-    WorkspacePaneAppearance::ConstructWeightedText(
+    WorkspaceAppearance::ConstructWeightedText(
         Overlay,
         FontWeightClass::Medium,
         { Sheet.X + 16.0f, Sheet.Y + 14.0f },
@@ -729,8 +729,8 @@ void ViewportPanel::RenderSettingsSheet(
             const bool        Active = (DisplaySettings.QualityTier == Tier);
             Overlay.FillRectangle(Capsule, Active ? ColorRgba{ 62, 62, 62, 255 } : ColorRgba{ 36, 36, 36, 255 }, 12.0f);
             Overlay.StrokeRectangle(Capsule, Active ? WorkspaceSurfaceColors::PreviewGoldInk : ColorRgba{ 255, 255, 255, 16 }, 12.0f, 1.0f);
-            const float TW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Overlay, FontWeightClass::Regular, 9.5f, ShortLabels[Tier]);
-            WorkspacePaneAppearance::ConstructWeightedText(
+            const float TW = WorkspaceAppearance::MeasureWeightedTextWidth(Overlay, FontWeightClass::Regular, 9.5f, ShortLabels[Tier]);
+            WorkspaceAppearance::ConstructWeightedText(
                 Overlay,
                 FontWeightClass::Regular,
                 { Capsule.Center().X - TW * 0.5f, Capsule.Y + 6.0f },
@@ -748,7 +748,7 @@ void ViewportPanel::RenderSettingsSheet(
     // ExclusiveSelector rows for Global Illumination, Reflections, Anti-Aliasing, Raytracing
     auto ConstructToggleRow = [&](const char* Label, bool& ToggleRef)
     {
-        WorkspacePaneAppearance::ConstructWeightedText(
+        WorkspaceAppearance::ConstructWeightedText(
             Overlay,
             FontWeightClass::Regular,
             { Sheet.X + 16.0f, RowY + 5.0f },
@@ -770,11 +770,11 @@ void ViewportPanel::RenderSettingsSheet(
 
     // Render Scale slider (50% .. 200%)
     RowY += 4.0f;
-    WorkspacePaneAppearance::ConstructWeightedText(Overlay, FontWeightClass::Regular, { Sheet.X + 16.0f, RowY + 4.0f }, 11.0f, WorkspaceSurfaceColors::SecondaryInk, "Render Scale");
+    WorkspaceAppearance::ConstructWeightedText(Overlay, FontWeightClass::Regular, { Sheet.X + 16.0f, RowY + 4.0f }, 11.0f, WorkspaceSurfaceColors::SecondaryInk, "Render Scale");
     char ScaleLabel[24]{};
     std::snprintf(ScaleLabel, sizeof(ScaleLabel), "%.0f%%", DisplaySettings.RenderScalePercent);
-    const float SW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Overlay, FontWeightClass::Regular, 10.5f, ScaleLabel);
-    WorkspacePaneAppearance::ConstructWeightedText(Overlay, FontWeightClass::Regular, { Sheet.Right() - 16.0f - SW, RowY + 4.0f }, 10.5f, WorkspaceSurfaceColors::PrimaryInk, ScaleLabel);
+    const float SW = WorkspaceAppearance::MeasureWeightedTextWidth(Overlay, FontWeightClass::Regular, 10.5f, ScaleLabel);
+    WorkspaceAppearance::ConstructWeightedText(Overlay, FontWeightClass::Regular, { Sheet.Right() - 16.0f - SW, RowY + 4.0f }, 10.5f, WorkspaceSurfaceColors::PrimaryInk, ScaleLabel);
 
     const Rectangle2D ScaleTrack{ Sheet.X + 16.0f, RowY + 24.0f, Sheet.Width - 32.0f, 14.0f };
     const float       NormScale = std::clamp((DisplaySettings.RenderScalePercent - 50.0f) / 150.0f, 0.0f, 1.0f);
@@ -857,7 +857,7 @@ void ViewportPanel::Render(
     const bool    OverlayOpenBefore = ConstructSheetOpen || SettingsSheetOpen || ProjectionDropdownOpen;
 
     PushDiagnosticsSample(Δt);
-    WorkspacePaneAppearance::ForwardInputToTextBuffer(ConstructSearchEditor, Input, Δt);
+    WorkspaceAppearance::ForwardInputToTextBuffer(ConstructSearchEditor, Input, Δt);
     if (Input.EscapePressed)
     {
         ConstructSheetOpen     = false;
@@ -869,7 +869,7 @@ void ViewportPanel::Render(
     const uint32_t VisibleCount     = (AttachedOutliner != nullptr) ? AttachedOutliner->QueryVisibleCount() : 0u;
 
     Surface.PushClip(Bounds);
-    Surface.FillRectangle(Bounds, WorkspacePaneAppearance::QueryDockedPaneBackground());
+    Surface.FillRectangle(Bounds, WorkspaceAppearance::QueryDockedPaneBackground());
 
     // 1. Viewport Toolbar (.viewport-toolbar: 51px heading row + 40px secondary toolbar row)
     const float ToolbarLeft  = Bounds.X + 12.0f;
@@ -877,8 +877,8 @@ void ViewportPanel::Render(
     const float HeadingY     = Bounds.Y;
 
     // 1a. Left Scene Identity (24px Showcase folder-scene icon + "Scene" / "0 constructed" + PREVIEW tag)
-    WorkspacePaneAppearance::ConstructShowcaseFolderIcon(Surface, { ToolbarLeft, HeadingY + 13.5f }, 24.0f, WorkspaceSurfaceColors::ShowcaseSage, 1.0f);
-    WorkspacePaneAppearance::ConstructWeightedText(
+    WorkspaceAppearance::ConstructShowcaseFolderIcon(Surface, { ToolbarLeft, HeadingY + 13.5f }, 24.0f, WorkspaceSurfaceColors::ShowcaseSage, 1.0f);
+    WorkspaceAppearance::ConstructWeightedText(
         Surface,
         FontWeightClass::Regular,
         { ToolbarLeft + 34.0f, HeadingY + 11.0f },
@@ -888,7 +888,7 @@ void ViewportPanel::Render(
 
     char ConstructedCaption[64]{};
     std::snprintf(ConstructedCaption, sizeof(ConstructedCaption), "%u constructed", ConstructedCount);
-    WorkspacePaneAppearance::ConstructWeightedText(
+    WorkspaceAppearance::ConstructWeightedText(
         Surface,
         FontWeightClass::Regular,
         { ToolbarLeft + 34.0f, HeadingY + 28.0f },
@@ -896,8 +896,8 @@ void ViewportPanel::Render(
         WorkspaceSurfaceColors::FaintInk,
         ConstructedCaption);
 
-    const float SceneNameW  = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 13.0f, SceneTitle);
-    const float SubCaptionW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.0f, ConstructedCaption);
+    const float SceneNameW  = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 13.0f, SceneTitle);
+    const float SubCaptionW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.0f, ConstructedCaption);
     const float TagX        = ToolbarLeft + 34.0f + std::max(SceneNameW, SubCaptionW) + 12.0f;
 
     if (TagX + 58.0f < ToolbarRight - 210.0f)
@@ -905,7 +905,7 @@ void ViewportPanel::Render(
         const Rectangle2D PreviewTag{ TagX, HeadingY + 15.0f, 52.0f, 20.0f };
         Surface.FillRectangle(PreviewTag, ColorRgba{ 185, 151, 86, 22 }, 5.0f);
         Surface.StrokeRectangle(PreviewTag, ColorRgba{ 185, 151, 86, 52 }, 5.0f, 1.0f);
-        WorkspacePaneAppearance::ConstructWeightedText(
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { PreviewTag.X + 7.5f, PreviewTag.Y + 5.5f },
@@ -947,22 +947,22 @@ void ViewportPanel::Render(
             const Point2D   IconPos{ Capsule.X + 9.0f, Capsule.Y + 6.5f };
             if (IconSelector == 0)
             {
-                WorkspacePaneAppearance::ConstructEditIcon(Surface, IconPos, 12.0f, Ink);
+                WorkspaceAppearance::ConstructEditIcon(Surface, IconPos, 12.0f, Ink);
             }
             else if (IconSelector == 1)
             {
-                WorkspacePaneAppearance::ConstructSimulateIcon(Surface, IconPos, 12.0f, Ink, CapsuleBg);
+                WorkspaceAppearance::ConstructSimulateIcon(Surface, IconPos, 12.0f, Ink, CapsuleBg);
             }
             else if (IconSelector == 2)
             {
-                WorkspacePaneAppearance::ConstructPlayIcon(Surface, IconPos, 12.0f, Ink);
+                WorkspaceAppearance::ConstructPlayIcon(Surface, IconPos, 12.0f, Ink);
             }
             else
             {
-                WorkspacePaneAppearance::ConstructPauseIcon(Surface, IconPos, 12.0f, WorkspaceSurfaceColors::SelectionAmber);
+                WorkspaceAppearance::ConstructPauseIcon(Surface, IconPos, 12.0f, WorkspaceSurfaceColors::SelectionAmber);
             }
 
-            WorkspacePaneAppearance::ConstructWeightedText(
+            WorkspaceAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Regular,
                 { Capsule.X + 25.0f, Capsule.Y + 7.0f },
@@ -1006,12 +1006,12 @@ void ViewportPanel::Render(
             15.5f);
         Surface.StrokeRectangle(ConstructBtn, ColorRgba{ 238, 238, 235, 255 }, 15.5f, 1.0f);
 
-        WorkspacePaneAppearance::ConstructConstructIcon(
+        WorkspaceAppearance::ConstructConstructIcon(
             Surface,
             { ConstructBtn.X + 12.0f, ConstructBtn.Y + 7.5f },
             16.0f,
             WorkspaceSurfaceColors::ConstructDarkInk);
-        WorkspacePaneAppearance::ConstructWeightedText(
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { ConstructBtn.X + 34.0f, ConstructBtn.Y + 8.5f },
@@ -1024,7 +1024,7 @@ void ViewportPanel::Render(
             { ConstructBtn.X + 91.0f, ConstructBtn.Bottom() - 8.0f },
             ColorRgba{ 0, 0, 0, 36 },
             1.0f);
-        WorkspacePaneAppearance::ConstructWeightedText(
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { ConstructBtn.X + 98.0f, ConstructBtn.Y + 10.0f },
@@ -1044,7 +1044,7 @@ void ViewportPanel::Render(
         const bool Hovered = !OverlayOpenBefore && FocusBtn.Contains(Cursor);
         Surface.FillRectangle(FocusBtn, Hovered ? ColorRgba{ 43, 43, 43, 255 } : ColorRgba{ 26, 26, 26, 255 }, 15.5f);
         Surface.StrokeRectangle(FocusBtn, ColorRgba{ 255, 255, 255, 20 }, 15.5f, 1.0f);
-        WorkspacePaneAppearance::ConstructFocusIcon(
+        WorkspaceAppearance::ConstructFocusIcon(
             Surface,
             { FocusBtn.X + 11.5f, FocusBtn.Y + 7.5f },
             16.0f,
@@ -1071,7 +1071,7 @@ void ViewportPanel::Render(
         const ControlContact ProjHit = DropdownSelector::ConstructButton(
             Surface,
             ProjectionBtn,
-            WorkspacePaneAppearance::QueryProjectionPresetLabel(ActivePreset),
+            WorkspaceAppearance::QueryProjectionPresetLabel(ActivePreset),
             ProjectionDropdownOpen,
             ProjPointer,
             1.0f,
@@ -1115,7 +1115,7 @@ void ViewportPanel::Render(
             SplitBtn,
             SplitViewportEnabled,
             [&](Point2D Origin, ColorRgba Ink, ColorRgba BtnBg)
-            { WorkspacePaneAppearance::ConstructSplitViewportIcon(Surface, Origin, 16.0f, Ink, BtnBg); }))
+            { WorkspaceAppearance::ConstructSplitViewportIcon(Surface, Origin, 16.0f, Ink, BtnBg); }))
     {
         ConfigureSplitViewport(!SplitViewportEnabled);
     }
@@ -1124,7 +1124,7 @@ void ViewportPanel::Render(
             DiagnosticsBtn,
             DiagnosticsVisible,
             [&](Point2D Origin, ColorRgba Ink, ColorRgba /*BtnBg*/)
-            { WorkspacePaneAppearance::ConstructDiagnosticsIcon(Surface, Origin, 16.0f, Ink); }))
+            { WorkspaceAppearance::ConstructDiagnosticsIcon(Surface, Origin, 16.0f, Ink); }))
     {
         DiagnosticsVisible = !DiagnosticsVisible;
     }
@@ -1133,7 +1133,7 @@ void ViewportPanel::Render(
             SettingsBtn,
             SettingsSheetOpen,
             [&](Point2D Origin, ColorRgba Ink, ColorRgba BtnBg)
-            { WorkspacePaneAppearance::ConstructViewportSettingsIcon(Surface, Origin, 16.0f, Ink, BtnBg); }))
+            { WorkspaceAppearance::ConstructViewportSettingsIcon(Surface, Origin, 16.0f, Ink, BtnBg); }))
     {
         ConfigureSettingsSheetOpen(!SettingsSheetOpen);
         if (!SettingsSheetOpen)
@@ -1192,8 +1192,8 @@ void ViewportPanel::Render(
             StatusInk  = PlayPaused ? WorkspaceSurfaceColors::SelectionAmber : WorkspaceSurfaceColors::StatusGreen;
         }
 
-        WorkspacePaneAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { FootX, FootY }, 10.0f, StatusInk, StatusWord);
-        FootX += WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, StatusWord) + 8.0f;
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { FootX, FootY }, 10.0f, StatusInk, StatusWord);
+        FootX += WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, StatusWord) + 8.0f;
 
         char TailSummary[160]{};
         std::snprintf(
@@ -1204,7 +1204,7 @@ void ViewportPanel::Render(
             VisibleCount,
             QueryQualityTierName(DisplaySettings.QualityTier),
             SplitViewportEnabled ? "  -  SPLIT VIEW" : "");
-        WorkspacePaneAppearance::ConstructTruncatedText(
+        WorkspaceAppearance::ConstructTruncatedText(
             Surface,
             FontWeightClass::Regular,
             { FootX, FootY },
@@ -1314,7 +1314,7 @@ void ViewportPanel::PresentInImGuiPane(double Δt, float ScaleFactor)
     PixelSpace WindowSurface(ImGui::GetWindowDrawList(), { ScreenBounds.X, ScreenBounds.Y }, SafeScale);
     PixelSpace ForegroundSurface(ImGui::GetForegroundDrawList(), { ScreenBounds.X, ScreenBounds.Y }, SafeScale);
 
-    const PaneInputReading Input = WorkspacePaneAppearance::CaptureImGuiPaneInput(ScreenBounds, SafeScale);
+    const PaneInputReading Input = WorkspaceAppearance::CaptureImGuiPaneInput(ScreenBounds, SafeScale);
     Render(WindowSurface, LogicalBounds, Input, Δt, &ForegroundSurface);
 }
 

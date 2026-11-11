@@ -1,9 +1,9 @@
 /*============================================================================================================================================
-                                                               WORKSPACETAB.CPP
+                                                               WORKSPACETABSTRIP.CPP
 ============================================================================================================================================*/
 // 🧩 Unrounded (0.0f) trapezoidal docking tab geometry and patched Dear ImGui theme synchronization.
 
-#include "Engine/Components/Docking/WorkspaceTab.h"
+#include "Engine/Components/Docking/WorkspaceTabStrip.h"
 
 #include <imgui.h>
 
