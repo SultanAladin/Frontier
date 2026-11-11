@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Builds Documentation/Plans/MarkdownStudioViewer.html — a Visual Studio Dark .md viewer
-embedding all repository Markdown documents so they can be browsed offline in one place."""
+"""Builds Documentation/Plans/MarkdownStudioViewer.html — Visual Studio Dark .md Studio
+that dynamically browses live files via relative /api/tree & /api/file when served by
+Automation/ServeMarkdownStudio.py, with embedded fallback when opened offline."""
 
 from __future__ import annotations
 
@@ -10,54 +11,62 @@ import pathlib
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUTPUT_HTML = REPO_ROOT / "Documentation" / "Plans" / "MarkdownStudioViewer.html"
 
+EXCLUDED_DIRS = {
+    ".git",
+    "ExternalPackages",
+    "build",
+    ".cache",
+    "node_modules",
+    "__pycache__",
+}
 
-def collect_markdown_documents() -> list[dict[str, str]]:
-    ordered_paths: list[pathlib.Path] = []
+
+def collect_markdown_documents(include_content: bool = True) -> list[dict[str, object]]:
+    found: list[pathlib.Path] = []
 
     plans_dir = REPO_ROOT / "Documentation" / "Plans"
     if plans_dir.exists():
-        # Put active focused plan first, then remaining plans alphabetically
         preferred = plans_dir / "DocumentSpacesAndRevisionPlan.md"
         if preferred.exists():
-            ordered_paths.append(preferred)
-        for p in sorted(plans_dir.glob("*.md")):
-            if p not in ordered_paths:
-                ordered_paths.append(p)
+            found.append(preferred)
+        for p in sorted(plans_dir.rglob("*.md")):
+            if p not in found:
+                found.append(p)
 
-    doc_dir = REPO_ROOT / "Documentation"
-    for p in sorted(doc_dir.glob("*.md")):
-        ordered_paths.append(p)
+    for p in sorted(REPO_ROOT.rglob("*.md")):
+        rel_parts = p.relative_to(REPO_ROOT).parts
+        if any(part in EXCLUDED_DIRS for part in rel_parts):
+            continue
+        if p not in found:
+            found.append(p)
 
-    skills_dir = doc_dir / "AgenticInstructions"
-    if skills_dir.exists():
-        for p in sorted(skills_dir.glob("*.md")):
-            ordered_paths.append(p)
-
-    for root_name in ("README.md", "CLAUDE.md", "AGENTS.md"):
-        rp = REPO_ROOT / root_name
-        if rp.exists():
-            ordered_paths.append(rp)
-
-    docs: list[dict[str, str]] = []
-    for path in ordered_paths:
+    docs: list[dict[str, object]] = []
+    for path in found:
         rel = path.relative_to(REPO_ROOT).as_posix()
         parts = rel.split("/")
         if rel.startswith("Documentation/Plans/"):
-            group = "Plans"
+            sub_dir = "/".join(parts[2:-1])
+            group = f"Plans/{sub_dir}" if sub_dir else "Plans"
         elif rel.startswith("Documentation/AgenticInstructions/"):
-            group = "AgenticInstructions"
+            group = "Documentation/AgenticInstructions"
         elif rel.startswith("Documentation/"):
             group = "Documentation"
+        elif len(parts) > 1:
+            group = "/".join(parts[:-1])
         else:
             group = "Repository Root"
-        docs.append(
-            {
-                "path": rel,
-                "name": parts[-1],
-                "group": group,
-                "content": path.read_text(encoding="utf-8"),
-            }
-        )
+
+        stat = path.stat()
+        entry: dict[str, object] = {
+            "path": rel,
+            "name": parts[-1],
+            "group": group,
+            "size": stat.st_size,
+            "mtime": round(stat.st_mtime, 3),
+        }
+        if include_content:
+            entry["content"] = path.read_text(encoding="utf-8")
+        docs.append(entry)
     return docs
 
 
@@ -66,10 +75,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Frontier Markdown Studio — Documentation &amp; Plans</title>
+<title>Frontier Markdown Studio — Plans &amp; Documentation</title>
 <style>
   :root {
-    --vs-activity: #181818;
     --vs-sidebar: #181818;
     --vs-editor: #1e1e1e;
     --vs-header: #181818;
@@ -90,7 +98,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     --syn-quote: #6a9955;
     --syn-table: #4ec9b0;
     --syn-link: #4fc1ff;
-    --syn-comment: #6a9955;
     --doc-scale: 1;
     --font-ui: "Segoe UI", "Inter", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
     --font-mono: "Cascadia Code", "Consolas", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -120,7 +127,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     width: 100vw;
   }
 
-  /* Top Visual Studio Title / Command Bar */
+  /* Top Visual Studio Command Bar */
   .titlebar {
     background: var(--vs-header);
     border-bottom: 1px solid var(--vs-border);
@@ -128,14 +135,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     align-items: center;
     justify-content: space-between;
     padding: 0 12px;
-    gap: 12px;
+    gap: 10px;
     user-select: none;
   }
 
   .titlebar-left {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     min-width: 0;
   }
 
@@ -151,6 +158,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     font-family: var(--font-mono);
     font-size: 11px;
     font-weight: 700;
+    flex-shrink: 0;
   }
 
   .app-title {
@@ -160,8 +168,19 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     white-space: nowrap;
   }
 
+  .live-indicator {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    border: 1px solid #2ea043;
+    color: #56d364;
+    background: rgba(46, 160, 67, 0.12);
+    white-space: nowrap;
+  }
+
   .search-shell {
-    flex: 0 1 380px;
+    flex: 0 1 360px;
     display: flex;
     align-items: center;
     background: #242424;
@@ -217,6 +236,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     display: inline-flex;
     align-items: center;
     gap: 5px;
+    white-space: nowrap;
   }
 
   .mode-btn + .mode-btn {
@@ -248,7 +268,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   /* Main Workbench */
   .workbench {
     display: grid;
-    grid-template-columns: 270px 1fr 230px;
+    grid-template-columns: 292px 1fr 230px;
     min-height: 0;
     overflow: hidden;
   }
@@ -258,7 +278,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   }
 
   .workbench.hide-outline {
-    grid-template-columns: 270px 1fr 0px;
+    grid-template-columns: 292px 1fr 0px;
   }
 
   .workbench.hide-sidebar.hide-outline {
@@ -278,7 +298,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
   .pane-caption {
     height: 32px;
-    padding: 0 12px;
+    padding: 0 10px 0 12px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -291,6 +311,66 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     flex-shrink: 0;
   }
 
+  .explorer-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--vs-border);
+    background: #151515;
+    flex-shrink: 0;
+  }
+
+  .scope-switch {
+    display: inline-flex;
+    border: 1px solid var(--vs-border-strong);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .scope-btn {
+    appearance: none;
+    border: none;
+    background: #202020;
+    color: var(--vs-text-dim);
+    font-family: var(--font-ui);
+    font-size: 11.5px;
+    padding: 3px 8px;
+    cursor: pointer;
+  }
+
+  .scope-btn + .scope-btn {
+    border-left: 1px solid var(--vs-border-strong);
+  }
+
+  .scope-btn:hover {
+    color: #ffffff;
+    background: var(--vs-hover);
+  }
+
+  .scope-btn.active {
+    background: var(--vs-accent);
+    color: #ffffff;
+  }
+
+  .mini-btn {
+    appearance: none;
+    border: 1px solid var(--vs-border-strong);
+    background: #202020;
+    color: var(--vs-text);
+    font-family: var(--font-ui);
+    font-size: 11.5px;
+    padding: 3px 7px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .mini-btn:hover {
+    background: var(--vs-hover);
+    color: #ffffff;
+  }
+
   .tree-scroll {
     overflow-y: auto;
     flex: 1;
@@ -300,7 +380,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .folder-header {
     display: flex;
     align-items: center;
-    gap: 6px;
+    justify-content: space-between;
     padding: 5px 10px;
     cursor: pointer;
     color: var(--vs-text-bright);
@@ -312,12 +392,27 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     background: var(--vs-hover);
   }
 
+  .folder-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .folder-count {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--vs-text-dim);
+  }
+
   .caret {
     display: inline-block;
     width: 12px;
     text-align: center;
     color: var(--vs-text-dim);
     font-size: 10px;
+    flex-shrink: 0;
   }
 
   .folder-items.collapsed {
@@ -328,7 +423,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     display: flex;
     align-items: center;
     gap: 7px;
-    padding: 5px 12px 5px 26px;
+    padding: 5px 12px 5px 24px;
     cursor: pointer;
     color: var(--vs-text);
     font-size: 12.5px;
@@ -726,9 +821,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <!-- TOP VISUAL STUDIO BAR -->
   <header class="titlebar">
     <div class="titlebar-left">
-      <button class="tool-btn active" id="btnToggleSidebar" title="Toggle Solution Explorer">Explorer</button>
+      <button class="tool-btn active" id="btnToggleSidebar" title="Toggle File Browser">Files</button>
       <span class="vs-mark">MD</span>
       <span class="app-title">Frontier Markdown Studio</span>
+      <span class="live-indicator" id="serverModeBadge">Embedded</span>
     </div>
 
     <div class="search-shell">
@@ -737,6 +833,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     </div>
 
     <div class="toolbar-right">
+      <input type="file" id="localFileInput" accept=".md,.markdown,.txt" multiple class="hidden">
+      <button class="tool-btn" id="btnOpenLocal" title="Browse local .md file from your computer">Open .md…</button>
       <div class="mode-group">
         <button class="mode-btn active" data-mode="preview" onclick="setViewMode('preview', this)">Preview</button>
         <button class="mode-btn" data-mode="split" onclick="setViewMode('split', this)">Split</button>
@@ -752,11 +850,18 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <!-- WORKBENCH -->
   <div class="workbench" id="workbench">
 
-    <!-- LEFT EXPLORER -->
+    <!-- LEFT FILE BROWSER -->
     <aside class="sidebar" id="sidebar">
       <div class="pane-caption">
-        <span>Solution Documents (.md)</span>
+        <span>File Browser (.md)</span>
         <span id="docCountLabel">0</span>
+      </div>
+      <div class="explorer-controls">
+        <div class="scope-switch">
+          <button class="scope-btn" id="scopePlansBtn" onclick="setFolderScope('plans')">Plans Only</button>
+          <button class="scope-btn active" id="scopeAllBtn" onclick="setFolderScope('all')">All Docs</button>
+        </div>
+        <button class="mini-btn" id="btnRefreshTree" title="Refresh live directory tree from disk">↻ Refresh</button>
       </div>
       <div class="tree-scroll" id="treeContainer"></div>
     </aside>
@@ -806,25 +911,27 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <script id="embeddedDocs" type="application/json">__DOCUMENTS_JSON__</script>
 <script>
 (function() {
-  const DOCS = JSON.parse(document.getElementById('embeddedDocs').textContent);
+  let DOCS = JSON.parse(document.getElementById('embeddedDocs').textContent);
   const docByPath = new Map(DOCS.map(d => [d.path, d]));
 
+  let liveServerConnected = false;
+  let folderScope = 'all'; // 'plans' | 'all'
   let openTabs = [];
   let activePath = '';
   let viewMode = 'preview';
   let zoomScale = 1.0;
   let searchQuery = '';
-  const collapsedGroups = new Set();
+  const collapsedGroups = new Set(['Experimental']);
 
-  // Pre-open the Plans in tabs so switching is instant
-  DOCS.filter(d => d.group === 'Plans').forEach(d => openTabs.push(d.path));
+  // Pre-open Documentation/Plans/*.md tabs first
+  DOCS.filter(d => String(d.group).startsWith('Plans')).forEach(d => openTabs.push(d.path));
   if (openTabs.length === 0 && DOCS.length > 0) {
     openTabs.push(DOCS[0].path);
   }
   activePath = openTabs[0] || '';
 
   function escapeHtml(str) {
-    return str
+    return String(str)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
@@ -835,7 +942,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     if (!searchQuery || searchQuery.length < 2) return htmlText;
     const escapedQ = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const re = new RegExp('(' + escapedQ + ')', 'gi');
-    // Only highlight outside HTML tags
     return htmlText.replace(/(>[^<]*<)/g, seg => {
       const inner = seg.slice(1, -1);
       return '>' + inner.replace(re, '<mark>$1</mark>') + '<';
@@ -856,7 +962,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   }
 
   function formatInline(raw, currentDocPath) {
-    // Split inline code spans first so inner symbols are untouched
     const tokens = [];
     let s = escapeHtml(raw);
     s = s.replace(/`([^`]+)`/g, (_, code) => {
@@ -864,7 +969,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       return '\x00TOK' + idx + '\x00';
     });
 
-    // Links [label](href)
     s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => {
       const resolved = resolveRelativePath(currentDocPath, href);
       if (resolved) {
@@ -873,7 +977,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       return '<a href="' + href + '" target="_blank" rel="noopener">' + label + '</a>';
     });
 
-    // Bold & Italic
     s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
 
@@ -882,8 +985,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   }
 
   function parseMarkdown(md, currentDocPath) {
-    // Strip optional HTML comments at top (like PARSE:EMOJI-RULES)
-    const cleaned = md.replace(/<!--[\s\S]*?-->/g, '');
+    const cleaned = String(md || '').replace(/<!--[\s\S]*?-->/g, '');
     const lines = cleaned.replace(/\r\n/g, '\n').split('\n');
     let html = '';
     const headings = [];
@@ -892,7 +994,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     while (i < lines.length) {
       const line = lines[i];
 
-      // Fenced code block
       if (line.trimStart().startsWith('```')) {
         i++;
         const buf = [];
@@ -900,19 +1001,17 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           buf.push(escapeHtml(lines[i]));
           i++;
         }
-        i++; // skip closing fence
+        i++;
         html += '<pre><code>' + buf.join('\n') + '</code></pre>';
         continue;
       }
 
-      // Horizontal rule
       if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) {
         html += '<hr>';
         i++;
         continue;
       }
 
-      // Heading
       const hMatch = line.match(/^(#{1,6})\s+(.*)$/);
       if (hMatch) {
         const level = hMatch[1].length;
@@ -926,7 +1025,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         continue;
       }
 
-      // GFM Table
       if (line.includes('|') && i + 1 < lines.length && /^\s*\|?[\s:-]+\|[\s|:-]*$/.test(lines[i + 1])) {
         const splitRow = r => {
           let t = r.trim();
@@ -960,7 +1058,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         continue;
       }
 
-      // Blockquote
       if (line.trimStart().startsWith('>')) {
         const qLines = [];
         while (i < lines.length && lines[i].trimStart().startsWith('>')) {
@@ -971,7 +1068,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         continue;
       }
 
-      // Unordered list
       if (/^\s*[-*+]\s+/.test(line)) {
         html += '<ul>';
         while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
@@ -983,7 +1079,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         continue;
       }
 
-      // Ordered list
       if (/^\s*\d+\.\s+/.test(line)) {
         html += '<ol>';
         while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
@@ -995,13 +1090,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         continue;
       }
 
-      // Blank line
       if (line.trim() === '') {
         i++;
         continue;
       }
 
-      // Paragraph
       const pLines = [];
       while (
         i < lines.length &&
@@ -1032,24 +1125,48 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     return s;
   }
 
+  function orderedGroups() {
+    const seen = [];
+    for (const d of DOCS) {
+      if (!seen.includes(d.group)) seen.push(d.group);
+    }
+    return seen.sort((a, b) => {
+      const rank = g => {
+        if (g === 'Plans' || g.startsWith('Plans/')) return 0;
+        if (g === 'Local Opened Files') return 1;
+        if (g === 'Documentation') return 2;
+        if (g === 'Documentation/AgenticInstructions') return 3;
+        if (g === 'Repository Root') return 4;
+        return 5;
+      };
+      return rank(a) - rank(b) || a.localeCompare(b);
+    });
+  }
+
   function renderTree() {
     const container = document.getElementById('treeContainer');
     const q = searchQuery.toLowerCase();
-    const groups = ['Plans', 'Documentation', 'AgenticInstructions', 'Repository Root'];
+    const groups = orderedGroups();
     let visibleTotal = 0;
     let out = '';
 
     for (const grp of groups) {
+      if (folderScope === 'plans' && !grp.startsWith('Plans') && grp !== 'Local Opened Files') {
+        continue;
+      }
       const items = DOCS.filter(d => d.group === grp && (
-        !q || d.name.toLowerCase().includes(q) || d.content.toLowerCase().includes(q)
+        !q ||
+        d.name.toLowerCase().includes(q) ||
+        d.path.toLowerCase().includes(q) ||
+        String(d.content || '').toLowerCase().includes(q)
       ));
       if (items.length === 0) continue;
       visibleTotal += items.length;
       const collapsed = collapsedGroups.has(grp);
       out += '<div class="folder-block">';
-      out += '<div class="folder-header" data-group="' + grp + '">';
-      out += '<span class="caret">' + (collapsed ? '▸' : '▾') + '</span>';
-      out += '<span>' + escapeHtml(grp) + '</span>';
+      out += '<div class="folder-header" data-group="' + escapeHtml(grp) + '">';
+      out += '<span class="folder-left"><span class="caret">' + (collapsed ? '▸' : '▾') + '</span><span>' + escapeHtml(grp) + '</span></span>';
+      out += '<span class="folder-count">' + items.length + '</span>';
       out += '</div>';
       out += '<div class="folder-items' + (collapsed ? ' collapsed' : '') + '">';
       for (const doc of items) {
@@ -1062,7 +1179,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       out += '</div></div>';
     }
 
-    container.innerHTML = out;
+    container.innerHTML = out || '<div style="padding:14px;color:#858585;font-size:12px;">No matching .md files in this view.</div>';
     document.getElementById('docCountLabel').textContent = String(visibleTotal);
   }
 
@@ -1096,14 +1213,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     previewPane.classList.toggle('hidden', viewMode === 'source');
 
     if (!doc) {
-      mdBody.innerHTML = '<p style="color:#858585;">Select a Markdown document from the Solution Explorer on the left.</p>';
+      mdBody.innerHTML = '<p style="color:#858585;">Select any Markdown document from the File Browser on the left.</p>';
       sourcePane.innerHTML = '';
       outlineList.innerHTML = '';
       breadcrumb.textContent = '';
       return;
     }
 
-    // Breadcrumb
+    const content = String(doc.content || '');
     const segs = doc.path.split('/');
     breadcrumb.innerHTML = segs.map((s, idx) =>
       idx + 1 === segs.length
@@ -1111,26 +1228,22 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         : '<span>' + escapeHtml(s) + '</span><span class="sep">›</span>'
     ).join('');
 
-    // Source lines
-    const rawLines = doc.content.replace(/\r\n/g, '\n').split('\n');
+    const rawLines = content.replace(/\r\n/g, '\n').split('\n');
     sourcePane.innerHTML = rawLines.map((ln, idx) =>
       '<div class="source-line"><span class="line-num">' + (idx + 1) + '</span><span class="line-code">' +
       highlightQuery(colorizeSourceLine(ln)) + '</span></div>'
     ).join('');
 
-    // Rendered Markdown
-    const parsed = parseMarkdown(doc.content, doc.path);
+    const parsed = parseMarkdown(content, doc.path);
     mdBody.innerHTML = highlightQuery('<div>' + parsed.html + '</div>');
 
-    // Outline
     outlineList.innerHTML = parsed.headings.map(h =>
       '<div class="outline-entry lvl-' + h.level + '" data-jump="' + h.slug + '" title="' + escapeHtml(h.text) + '">' +
       escapeHtml(h.text) + '</div>'
     ).join('');
 
-    // Status bar metrics
-    const words = doc.content.trim().split(/\s+/).filter(Boolean).length;
-    const kb = (new Blob([doc.content]).size / 1024).toFixed(1);
+    const words = content.trim() ? content.trim().split(/\s+/).filter(Boolean).length : 0;
+    const kb = (new Blob([content]).size / 1024).toFixed(1);
     document.getElementById('statusPath').textContent = doc.path;
     document.getElementById('statusLines').textContent = rawLines.length + ' lines';
     document.getElementById('statusWords').textContent = words + ' words';
@@ -1138,19 +1251,81 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     if (searchQuery && searchQuery.length >= 2) {
       const re = new RegExp(searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-      const count = (doc.content.match(re) || []).length;
+      const count = (content.match(re) || []).length;
       document.getElementById('matchInfo').textContent = count + (count === 1 ? ' match' : ' matches');
     } else {
       document.getElementById('matchInfo').textContent = '';
     }
   }
 
-  function openDocument(path) {
+  async function ensureFreshFileContent(path, preserveScroll) {
+    const existing = docByPath.get(path);
+    if (!liveServerConnected || !existing || existing.localOnly) return;
+    try {
+      const resp = await fetch('api/file?path=' + encodeURIComponent(path), { cache: 'no-store' });
+      if (!resp.ok) return;
+      const fresh = await resp.json();
+      if (existing.content !== fresh.content || existing.mtime !== fresh.mtime) {
+        existing.content = fresh.content;
+        existing.mtime = fresh.mtime;
+        existing.size = fresh.size;
+        if (path === activePath) {
+          const prevPreviewTop = document.getElementById('previewPane').scrollTop;
+          const prevSourceTop = document.getElementById('sourcePane').scrollTop;
+          renderActiveDocument();
+          if (preserveScroll) {
+            document.getElementById('previewPane').scrollTop = prevPreviewTop;
+            document.getElementById('sourcePane').scrollTop = prevSourceTop;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  async function syncLiveTree(preserveScroll) {
+    try {
+      const resp = await fetch('api/tree', { cache: 'no-store' });
+      if (!resp.ok) return;
+      const payload = await resp.json();
+      if (!payload || !Array.isArray(payload.files)) return;
+
+      liveServerConnected = true;
+      document.getElementById('serverModeBadge').textContent = '● Live Disk';
+
+      const localDocs = DOCS.filter(d => d.localOnly);
+      const merged = [];
+      for (const item of payload.files) {
+        const prev = docByPath.get(item.path);
+        const entry = {
+          path: item.path,
+          name: item.name,
+          group: item.group,
+          size: item.size,
+          mtime: item.mtime,
+          content: prev ? prev.content : ''
+        };
+        docByPath.set(entry.path, entry);
+        merged.push(entry);
+      }
+      for (const loc of localDocs) {
+        merged.push(loc);
+      }
+      DOCS = merged;
+      renderTree();
+      renderTabs();
+      if (activePath) {
+        await ensureFreshFileContent(activePath, preserveScroll);
+      }
+    } catch (_) {}
+  }
+
+  async function openDocument(path) {
     if (!docByPath.has(path)) return;
     if (!openTabs.includes(path)) openTabs.push(path);
     activePath = path;
     renderTree();
     renderTabs();
+    await ensureFreshFileContent(path, false);
     renderActiveDocument();
     document.getElementById('previewPane').scrollTop = 0;
     document.getElementById('sourcePane').scrollTop = 0;
@@ -1165,6 +1340,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     renderTabs();
     renderActiveDocument();
   }
+
+  window.setFolderScope = function(scope) {
+    folderScope = scope;
+    document.getElementById('scopePlansBtn').classList.toggle('active', scope === 'plans');
+    document.getElementById('scopeAllBtn').classList.toggle('active', scope === 'all');
+    renderTree();
+  };
 
   window.setViewMode = function(mode, btn) {
     viewMode = mode;
@@ -1185,7 +1367,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     document.getElementById('zoomLabel').textContent = '100%';
   };
 
-  // Event delegation
   document.getElementById('treeContainer').addEventListener('click', e => {
     const folder = e.target.closest('[data-group]');
     if (folder) {
@@ -1243,9 +1424,44 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     this.classList.toggle('active', !hidden);
   });
 
+  document.getElementById('btnRefreshTree').addEventListener('click', () => {
+    syncLiveTree(true);
+  });
+
+  document.getElementById('btnOpenLocal').addEventListener('click', () => {
+    document.getElementById('localFileInput').click();
+  });
+
+  document.getElementById('localFileInput').addEventListener('change', async e => {
+    const files = Array.from(e.target.files || []);
+    for (const f of files) {
+      const text = await f.text();
+      const virtualPath = 'Local/' + f.name;
+      const entry = {
+        path: virtualPath,
+        name: f.name,
+        group: 'Local Opened Files',
+        size: f.size,
+        mtime: Date.now() / 1000,
+        content: text,
+        localOnly: true
+      };
+      docByPath.set(virtualPath, entry);
+      if (!DOCS.some(d => d.path === virtualPath)) DOCS.unshift(entry);
+      openDocument(virtualPath);
+    }
+    e.target.value = '';
+  });
+
   renderTree();
   renderTabs();
   renderActiveDocument();
+
+  // Connect to live server if running on HTTP preview
+  syncLiveTree(true);
+  setInterval(() => {
+    if (liveServerConnected) syncLiveTree(true);
+  }, 3000);
 })();
 </script>
 </body>
@@ -1253,14 +1469,18 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 """
 
 
-def main() -> None:
-    docs = collect_markdown_documents()
-    # Prevent accidental </script> sequence termination inside embedded JSON
+def render_viewer_html() -> str:
+    docs = collect_markdown_documents(include_content=True)
     payload = json.dumps(docs, ensure_ascii=False).replace("</", "<\\/")
-    html_out = HTML_TEMPLATE.replace("__DOCUMENTS_JSON__", payload)
+    return HTML_TEMPLATE.replace("__DOCUMENTS_JSON__", payload)
+
+
+def main() -> None:
+    html_out = render_viewer_html()
     OUTPUT_HTML.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT_HTML.write_text(html_out, encoding="utf-8")
-    print(f"[BuildMarkdownViewer] Embedded {len(docs)} .md documents -> {OUTPUT_HTML.relative_to(REPO_ROOT)}")
+    docs_count = len(collect_markdown_documents(include_content=False))
+    print(f"[BuildMarkdownViewer] Embedded {docs_count} .md documents -> {OUTPUT_HTML.relative_to(REPO_ROOT)}")
 
 
 if __name__ == "__main__":
