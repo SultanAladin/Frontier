@@ -52,8 +52,8 @@
           <span class="outliner-subtitle" id="pz-outliner-node-summary">Showcase · 0 charts</span>
         </div>
         <div class="outliner-heading-actions">
-          <button class="pz-folder-add-btn" id="pz-new-folder-btn" type="button" title="Group selected charts into a Folder">+ Folder</button>
-          <button class="icon-button" id="add-udim-quick" type="button" title="Add UDIM Tile"></button>
+          <button class="pz-folder-add-btn" id="pz-new-folder-btn" type="button" title="Group selected charts into a Priority Category">+ Category</button>
+          <button class="icon-button" id="add-udim-quick" type="button" title="Add UDIM Tile" hidden></button>
         </div>
       </div>
 
@@ -79,16 +79,16 @@
       <div class="scene-filters" id="outliner-filters">
         <button class="active" data-filter="all" type="button">All</button>
         <button data-filter="selected" type="button">Selected</button>
-        <button data-filter="grouped" type="button">Prioritized</button>
+        <button data-filter="grouped" type="button">Categories</button>
         <button data-filter="issues" type="button">Issues</button>
       </div>
 
-      <!-- UDIM Strip -->
-      <div class="udim-strip-header">
+      <!-- Legacy UDIM Strip Hidden (UDIM management lives exclusively in the UDIM Tab) -->
+      <div class="udim-strip-header" hidden>
         <span>UDIM TILES</span>
         <button class="text-pill-btn" id="frame-udims-btn" type="button">Frame</button>
       </div>
-      <div class="udim-chip-strip" id="udim-chip-strip"></div>
+      <div class="udim-chip-strip" id="udim-chip-strip" hidden></div>
 
       <!-- Scrollable Island Outliner -->
       <div class="panel-scroll outliner-scroll" id="outliner-scroll">
@@ -166,12 +166,12 @@
 
         <span class="bar-divider"></span>
 
-        <!-- Dropdown 1: Surface Shading (Fast PBR + MatCap + Unlit Flat Modes) -->
+        <!-- Dropdown 1: Surface Shading (Studio Material + MatCap + Unlit Flat Modes) -->
         <div class="select-pill-wrap vp-compact-select">
           <select id="mesh-shade-select" title="3D Surface Shading (Z)">
-            <option value="fast-pbr" selected>Fast PBR (Lit)</option>
+            <option value="fast-pbr" selected>Surface Material</option>
             <option value="multi-matcap">MatCap (Per-Face)</option>
-            <option value="lit-matcap">Lit + MatCap</option>
+            <option value="lit-matcap">Material + MatCap</option>
             <option value="lit-eon">Studio Clay</option>
             <option value="flat">Flat · UV Charts</option>
             <option value="flat-slots">Flat · Face Slots</option>
@@ -328,9 +328,9 @@
             <span id="mesh-object-pill" class="udim-caption-pill">Aero Coupe GT</span>
           </div>
           <div class="mesh-camera-bar pz-compact-hidden">
-            <button class="pill-btn active" data-shade3d="fast-pbr" type="button">Fast PBR</button>
+            <button class="pill-btn active" data-shade3d="fast-pbr" type="button">Material</button>
             <button class="pill-btn" data-shade3d="multi-matcap" type="button">MatCap</button>
-            <button class="pill-btn" data-shade3d="lit-matcap" type="button">Lit+MatCap</button>
+            <button class="pill-btn" data-shade3d="lit-matcap" type="button">Mat+Cap</button>
             <button class="pill-btn" data-shade3d="checker" type="button">Checker</button>
             <button class="pill-btn" data-cam="Persp" type="button">Persp</button>
             <button class="pill-btn" data-cam="Front" type="button">Front</button>

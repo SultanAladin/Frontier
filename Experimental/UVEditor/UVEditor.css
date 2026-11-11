@@ -1963,18 +1963,19 @@ body.pz-uv-theme input.pill-range::-webkit-slider-thumb {
 .pz-folder-add-btn {
     height: 26px;
     min-height: 26px;
-    padding: 0 10px;
+    padding: 0 11px;
     border-radius: 999px;
-    border: 1px dashed #3d3d42;
-    background: transparent;
-    color: #9a9da6;
+    border: 1px solid rgba(239, 244, 207, 0.34);
+    background: rgba(239, 244, 207, 0.11);
+    color: #eff4cf;
     font-size: 10px;
+    font-weight: 500;
     cursor: pointer;
 }
 .pz-folder-add-btn:hover {
-    border-color: #777;
-    color: #f0f0f0;
-    background: #1b1b1e;
+    border-color: rgba(239, 244, 207, 0.58);
+    color: #eff4cf;
+    background: rgba(239, 244, 207, 0.20);
 }
 
 body.pz-uv-theme .scene-stat.pz-bento-stat {
@@ -1983,8 +1984,8 @@ body.pz-uv-theme .scene-stat.pz-bento-stat {
     transition: border-color 140ms, background 140ms;
 }
 body.pz-uv-theme .scene-stat.pz-bento-stat:hover {
-    background: #202022;
-    border-color: #3b3b40;
+    background: #222222;
+    border-color: #3a3a3a;
 }
 .pz-warn-triangle-symbol {
     width: 22px;
@@ -1994,7 +1995,7 @@ body.pz-uv-theme .scene-stat.pz-bento-stat:hover {
     justify-content: center;
     clip-path: polygon(50% 8%, 96% 90%, 4% 90%);
     border-radius: 3px !important;
-    background: #2b2b2f !important;
+    background: #2b2b2b !important;
     color: #777777 !important;
     font: 700 11px/1 "DM Sans", sans-serif;
     padding-top: 3px;
@@ -2050,12 +2051,12 @@ body.pz-uv-theme .scene-stat.pz-bento-stat:hover {
     width: 24px;
     height: 24px;
     border-radius: 7px;
-    background: #202124;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: #232323;
+    border: 1px solid #323232;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    color: var(--folder-tint, #9ca3af);
+    color: var(--folder-tint, #a3a3a3);
     flex: none;
 }
 .pz-folder-icon svg {
@@ -2343,12 +2344,12 @@ body.pz-uv-theme #inspector-object-sub {
     text-transform: none;
 }
 
-/* Visual Bento Shading Hero + 0bab...jpg Asymmetric Icon-and-Metric Tiles */
+/* Visual Bento Shading Hero + Asymmetric Icon-and-Metric Tiles (Exact Check Section Neutral Charcoal Palette) */
 .pz-shading-hero {
     padding: 16px 18px 15px;
     border-radius: 22px;
-    background: radial-gradient(120% 130% at 85% 15%, #262930 0%, #191a1d 58%, #151517 100%);
-    border: 1px solid rgba(255, 255, 255, 0.075);
+    background: linear-gradient(135deg, #252525, #202020);
+    border: 1px solid #343434;
     margin-bottom: 10px;
 }
 .pz-hero-top {
@@ -2361,7 +2362,7 @@ body.pz-uv-theme #inspector-object-sub {
 .pz-hero-eyebrow {
     display: block;
     font-size: 10.5px;
-    color: #a8aab2;
+    color: #9e9e9e;
     margin-bottom: 4px;
 }
 .pz-hero-big {
@@ -2369,14 +2370,14 @@ body.pz-uv-theme #inspector-object-sub {
     font-weight: 300;
     letter-spacing: -1px;
     line-height: 1;
-    color: #f4f4f6;
+    color: #f2f2f2;
     font-variant-numeric: tabular-nums;
 }
 .pz-hero-big small {
     font-size: 14px;
     font-weight: 300;
     letter-spacing: 0;
-    color: #7c7f88;
+    color: #7d7d7d;
     margin-left: 5px;
 }
 .pz-hero-orb-stack {
@@ -2387,7 +2388,7 @@ body.pz-uv-theme #inspector-object-sub {
     width: 26px;
     height: 26px;
     border-radius: 50%;
-    border: 2px solid #18191c;
+    border: 2px solid #202020;
     margin-left: -7px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
@@ -2395,7 +2396,7 @@ body.pz-uv-theme #inspector-object-sub {
 .pz-hero-bar {
     height: 6px;
     border-radius: 999px;
-    background: #26272b;
+    background: #151515;
     overflow: hidden;
     display: flex;
     gap: 2px;
@@ -2409,7 +2410,7 @@ body.pz-uv-theme #inspector-object-sub {
     display: flex;
     justify-content: space-between;
     font-size: 9.5px;
-    color: #7d8089;
+    color: #828282;
 }
 
 .pz-bento-grid {
@@ -2422,8 +2423,8 @@ body.pz-uv-theme #inspector-object-sub {
     height: 76px;
     padding: 11px 14px;
     border-radius: 19px;
-    background: #19191b;
-    border: 1px solid rgba(255, 255, 255, 0.055);
+    background: #1e1e1e;
+    border: 1px solid #303030;
     position: relative;
 }
 .pz-bento-icon {
@@ -2585,8 +2586,8 @@ body.pz-uv-theme #inspector-object-sub {
     gap: 4px;
     padding: 4px;
     border-radius: 11px;
-    background: #121215;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: #161616;
+    border: 1px solid #2c2c2c;
 }
 .pz-icon-btn {
     flex: 1 1 28px;
@@ -2595,9 +2596,9 @@ body.pz-uv-theme #inspector-object-sub {
     min-height: 30px;
     padding: 0 5px;
     border-radius: 8px;
-    background: #1a1a1e;
+    background: #202020;
     border: 1px solid rgba(255, 255, 255, 0.06);
-    color: #d4d6dc;
+    color: #d4d4d4;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -2616,7 +2617,7 @@ body.pz-uv-theme #inspector-object-sub {
     flex: none;
 }
 .pz-icon-btn:hover:not(:disabled) {
-    background: #27282e;
+    background: #2b2b2b;
     border-color: rgba(255, 255, 255, 0.18);
     color: #ffffff;
 }
@@ -2669,182 +2670,115 @@ body.pz-uv-theme #inspector-object-sub {
     flex: none;
 }
 
-/* Redesigned Spatial UDIM Atlas Matrix + Per-Tile Resolution Deck */
-.pz-udim-atlas-shell {
-    background: radial-gradient(120% 110% at 50% 0%, rgba(56, 189, 248, 0.06), rgba(14, 14, 18, 0.96));
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 14px;
-    padding: 10px;
-    margin-bottom: 10px;
-}
-.pz-udim-atlas-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 8px;
-    font-size: 9.5px;
-    color: #8d939e;
-}
-.pz-udim-atlas-top strong {
-    color: #eceef2;
-    font-size: 10.5px;
-    font-weight: 500;
-    letter-spacing: 0.3px;
-}
-.pz-udim-coord-wrap {
-    display: grid;
-    grid-template-columns: 20px 1fr;
-    gap: 6px;
-    align-items: stretch;
-}
-.pz-udim-v-rail {
-    display: grid;
-    gap: 6px;
-}
-.pz-udim-v-rail span {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: var(--mono);
-    font-size: 8.5px;
-    color: #6b7280;
-    border-right: 1px dashed rgba(255, 255, 255, 0.08);
-    padding-right: 3px;
-}
-.pz-udim-spatial-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 6px;
-}
-.pz-udim-u-rail {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
-    margin-left: 26px;
-    margin-top: 5px;
-}
-.pz-udim-u-rail span {
-    text-align: center;
-    font-family: var(--mono);
-    font-size: 8.5px;
-    color: #6b7280;
-}
-.pz-udim-tile-card {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    gap: 4px;
-    padding: 6px;
-    min-height: 76px;
-    border-radius: 10px;
-    background: rgba(20, 21, 26, 0.92);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    text-align: left;
-    cursor: pointer;
-    transition: border-color 130ms, background 130ms, box-shadow 130ms;
-}
-.pz-udim-tile-card.empty {
-    background: rgba(15, 16, 20, 0.55);
-    border-style: dashed;
-    border-color: rgba(255, 255, 255, 0.08);
-    opacity: 0.78;
-}
-.pz-udim-tile-card:hover {
-    background: #1d1f27;
-    border-color: rgba(255, 255, 255, 0.22);
-    opacity: 1;
-}
-.pz-udim-tile-card.active {
-    background: linear-gradient(180deg, rgba(239, 244, 207, 0.12), rgba(24, 26, 32, 0.95));
-    border-color: rgba(239, 244, 207, 0.65);
-    box-shadow: 0 0 0 1px rgba(239, 244, 207, 0.18), 0 6px 16px rgba(0, 0, 0, 0.35);
-    opacity: 1;
-}
-.pz-udim-cell-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 3px;
-    width: 100%;
-}
-.pz-udim-cell-id {
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 600;
-    color: #e6e8ec;
-}
-.pz-udim-tile-card.active .pz-udim-cell-id {
-    color: #eff4cf;
-}
-.pz-udim-res-badge {
-    padding: 1px 4px;
-    border-radius: 5px;
-    font-family: var(--mono);
-    font-size: 8px;
-    font-weight: 600;
-    letter-spacing: 0.2px;
-    border: 1px solid transparent;
-    cursor: pointer;
-}
-.pz-udim-res-badge.res-8k { background: rgba(245, 158, 11, 0.20); border-color: rgba(245, 158, 11, 0.45); color: #fcd34d; }
-.pz-udim-res-badge.res-4k { background: rgba(56, 189, 248, 0.18); border-color: rgba(56, 189, 248, 0.42); color: #7dd3fc; }
-.pz-udim-res-badge.res-2k { background: rgba(52, 211, 153, 0.16); border-color: rgba(52, 211, 153, 0.38); color: #6ee7b7; }
-.pz-udim-res-badge.res-1k { background: rgba(156, 163, 175, 0.16); border-color: rgba(156, 163, 175, 0.32); color: #d1d5db; }
-.pz-udim-mini-canvas {
-    width: 100%;
-    height: 34px;
-    border-radius: 5px;
-    background: #0c0d10;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    display: block;
-}
-.pz-udim-empty-plus {
-    height: 34px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 9px;
-    color: #5c616d;
-    font-family: var(--mono);
-}
-.pz-udim-cell-foot {
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-}
-.pz-udim-cell-meta {
-    display: flex;
-    justify-content: space-between;
-    font-size: 8.5px;
-    font-family: var(--mono);
-    color: #8b909a;
-}
-.pz-udim-occ-track {
-    width: 100%;
-    height: 3px;
-    border-radius: 99px;
-    background: rgba(255, 255, 255, 0.07);
+/* Clean Neutral UDIM Tile Table (Matches Check Section & Priority Layer Palette — Zero Blue Tint!) */
+.pz-udim-table {
+    background: #171717;
+    border: 1px solid #2e2e2e;
+    border-radius: 12px;
     overflow: hidden;
 }
-.pz-udim-occ-fill {
-    height: 100%;
-    border-radius: 99px;
-    background: linear-gradient(90deg, #38bdf8, #eff4cf);
+.pz-udim-colhead {
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr) 58px 46px 24px;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    background: #1c1c1c;
+    border-bottom: 1px solid #2b2b2b;
+    font-size: 8.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: #777777;
+}
+.pz-udim-colhead span:nth-child(3),
+.pz-udim-colhead span:nth-child(4) {
+    text-align: right;
+}
+.pz-udim-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr) 58px 46px 24px;
+    align-items: center;
+    gap: 6px;
+    height: 38px;
+    padding: 0 10px;
+    border-bottom: 1px solid #252525;
+    cursor: pointer;
+    transition: background 110ms ease;
+}
+.pz-udim-row:last-child { border-bottom: 0; }
+.pz-udim-row:hover { background: #1f1f1f; }
+.pz-udim-row.active {
+    background: rgba(239, 244, 207, 0.08);
+}
+.pz-udim-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #525252;
+    justify-self: center;
+}
+.pz-udim-row.active .pz-udim-dot {
+    background: #eff4cf;
+    box-shadow: 0 0 0 3px rgba(239, 244, 207, 0.16);
+}
+.pz-udim-id-cell {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+}
+.pz-udim-id-cell strong {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: #ececec;
+}
+.pz-udim-row.active .pz-udim-id-cell strong {
+    color: #eff4cf;
+}
+.pz-udim-id-cell small {
+    font-size: 10px;
+    color: #7e7e7e;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pz-udim-occ-cell {
+    text-align: right;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: #a6a6a6;
+}
+.pz-udim-res-chip {
+    justify-self: end;
+    height: 22px;
+    padding: 0 7px;
+    border-radius: 6px;
+    background: #242424;
+    border: 1px solid #363636;
+    color: #dedede;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    cursor: pointer;
+}
+.pz-udim-res-chip:hover {
+    background: #eff4cf;
+    border-color: #eff4cf;
+    color: #17190e;
 }
 .pz-udim-res-pills {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
     gap: 5px;
-    margin: 6px 0 10px;
+    margin: 2px 0 12px;
 }
 .pz-udim-res-pill {
     height: 32px;
     border-radius: 9px;
-    background: #17181c;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    color: #a4a8b3;
+    background: #191919;
+    border: 1px solid #2e2e2e;
+    color: #a6a6a6;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -2852,14 +2786,15 @@ body.pz-uv-theme #inspector-object-sub {
     line-height: 1.1;
     cursor: pointer;
 }
-.pz-udim-res-pill strong { font-size: 10.5px; font-family: var(--mono); color: #e5e7eb; }
-.pz-udim-res-pill small { font-size: 7.5px; color: #6e737e; }
-.pz-udim-res-pill:hover { background: #22242b; border-color: rgba(255, 255, 255, 0.18); }
+.pz-udim-res-pill strong { font-size: 10.5px; font-family: var(--mono); color: #e5e5e5; }
+.pz-udim-res-pill small { font-size: 7.5px; color: #727272; }
+.pz-udim-res-pill:hover { background: #242424; border-color: #444444; }
 .pz-udim-res-pill.active {
-    background: rgba(239, 244, 207, 0.15);
-    border-color: rgba(239, 244, 207, 0.58);
+    background: #eff4cf;
+    border-color: #eff4cf;
 }
-.pz-udim-res-pill.active strong { color: #eff4cf; }
+.pz-udim-res-pill.active strong { color: #17190e; }
+.pz-udim-res-pill.active small { color: rgba(23, 25, 14, 0.68); }
 
 /*==========================================================================================================================================
                                     FAST SIMPLIFIED PBR COLOUR STRIP & REDESIGNED IMPORTANCE ALLOCATOR
@@ -2912,8 +2847,8 @@ body.pz-uv-theme #inspector-object-sub {
     height: 24px;
     padding: 0 7px 0 4px;
     border-radius: 7px;
-    background: #141519;
-    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: #161616;
+    border: 1px solid #2f2f2f;
     cursor: pointer;
 }
 .pz-pbr-color-well input[type="color"] {
@@ -2939,7 +2874,46 @@ body.pz-uv-theme #inspector-object-sub {
     letter-spacing: 0.2px;
 }
 
-/* Combined Surface Shading Subheaders & Action Bar */
+/* Distinct Studio Material Preview Header & Priority Layer Table (Neutral Check Palette) */
+.pz-finish-showcase {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    margin: 8px 0 10px;
+    border-radius: 14px;
+    background: #181818;
+    border: 1px solid #2d2d2d;
+}
+.pz-finish-sphere {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.55), inset 0 -4px 8px rgba(0, 0, 0, 0.45);
+}
+.pz-finish-meta {
+    flex: 1;
+    min-width: 0;
+}
+.pz-finish-meta strong {
+    display: block;
+    font-size: 12px;
+    font-weight: 400;
+    color: #efefef;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pz-finish-meta span {
+    display: block;
+    font-size: 9.5px;
+    font-family: var(--mono);
+    color: #848484;
+    margin-top: 2px;
+}
+
 .pz-mat-subhead {
     display: flex;
     align-items: center;
@@ -2947,17 +2921,17 @@ body.pz-uv-theme #inspector-object-sub {
     font-size: 9.5px;
     text-transform: uppercase;
     letter-spacing: 0.65px;
-    color: #838894;
+    color: #848484;
     margin: 10px 0 6px;
     padding-top: 8px;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    border-top: 1px solid #2c2c2c;
 }
 .pz-mat-subhead span {
     font-family: var(--mono);
     font-size: 9px;
     text-transform: none;
     letter-spacing: 0;
-    color: #9ea3af;
+    color: #a0a0a0;
 }
 .pz-mat-scope-actions {
     display: flex;
@@ -2965,21 +2939,22 @@ body.pz-uv-theme #inspector-object-sub {
     gap: 4px;
 }
 .pz-mini-pill-btn {
-    height: 20px;
-    padding: 0 7px;
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: #cfd2da;
+    height: 21px;
+    padding: 0 8px;
+    border-radius: 6px;
+    background: #232323;
+    border: 1px solid #343434;
+    color: #d0d0d0;
     font-size: 9.5px;
     cursor: pointer;
 }
 .pz-mini-pill-btn:hover {
-    background: rgba(239, 244, 207, 0.16);
-    color: #eff4cf;
+    background: #eff4cf;
+    border-color: #eff4cf;
+    color: #17190e;
 }
 
-/* Clean Minimal Project-Zero Priority Layer Table (Pack -> Importance Space Allocation) */
+/* Clean Minimal Project-Zero Priority Layer Table (Neutral Charcoal — Zero Blue Tint) */
 .pz-prio-toolbar {
     display: flex;
     align-items: center;
@@ -3015,8 +2990,8 @@ body.pz-uv-theme #inspector-object-sub {
     gap: 4px;
 }
 .pz-prio-table {
-    background: #131418;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: #171717;
+    border: 1px solid #2e2e2e;
     border-radius: 11px;
     overflow: hidden;
 }
@@ -3026,12 +3001,12 @@ body.pz-uv-theme #inspector-object-sub {
     align-items: center;
     gap: 6px;
     padding: 5px 9px;
-    background: rgba(255, 255, 255, 0.025);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    background: #1c1c1c;
+    border-bottom: 1px solid #2a2a2a;
     font-size: 8.5px;
     text-transform: uppercase;
     letter-spacing: 0.7px;
-    color: #6f7480;
+    color: #777777;
 }
 .pz-prio-colhead span:nth-child(3),
 .pz-prio-colhead span:nth-child(4) {
@@ -3045,21 +3020,21 @@ body.pz-uv-theme #inspector-object-sub {
     gap: 6px;
     height: 35px;
     padding: 0 9px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+    border-bottom: 1px solid #242424;
     transition: background 110ms ease;
 }
 .pz-prio-row:last-child {
     border-bottom: 0;
 }
 .pz-prio-row:hover {
-    background: rgba(255, 255, 255, 0.03);
+    background: #1f1f1f;
 }
 .pz-prio-row.auto-row {
-    background: rgba(0, 0, 0, 0.18);
+    background: #131313;
     cursor: pointer;
 }
 .pz-prio-row.auto-row:hover {
-    background: rgba(255, 255, 255, 0.04);
+    background: #1b1b1b;
 }
 .pz-prio-dot {
     width: 9px;
@@ -3076,7 +3051,7 @@ body.pz-uv-theme #inspector-object-sub {
     background: transparent;
     border: 0;
     outline: none;
-    color: #e9ebf0;
+    color: #eaeaea;
     font-size: 11.5px;
     padding: 2px 0;
     text-overflow: ellipsis;
@@ -3090,9 +3065,9 @@ body.pz-uv-theme #inspector-object-sub {
     height: 20px;
     padding: 0 6px;
     border-radius: 5px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    color: #b5bac4;
+    background: #222222;
+    border: 1px solid #303030;
+    color: #bababa;
     font-size: 9.5px;
     font-family: var(--mono);
     cursor: pointer;
@@ -3108,8 +3083,8 @@ body.pz-uv-theme #inspector-object-sub {
     height: 23px;
     padding: 0 5px;
     border-radius: 6px;
-    background: #0d0e11;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #111111;
+    border: 1px solid #2d2d2d;
     cursor: ew-resize;
 }
 .pz-prio-pct-box:focus-within {
@@ -3130,14 +3105,14 @@ body.pz-uv-theme #inspector-object-sub {
 .pz-prio-pct-box small {
     font-size: 8.5px;
     font-family: var(--mono);
-    color: #797e8a;
+    color: #7c7c7c;
     margin-left: 2px;
 }
 .pz-prio-auto-pct {
     text-align: right;
     font-size: 10.5px;
     font-family: var(--mono);
-    color: #9ea3af;
+    color: #9e9e9e;
     padding-right: 4px;
 }
 .pz-prio-auto-pct.warn {
@@ -3156,7 +3131,7 @@ body.pz-uv-theme #inspector-object-sub {
     border-radius: 5px;
     background: transparent;
     border: 0;
-    color: #7f8490;
+    color: #808080;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -3178,6 +3153,101 @@ body.pz-uv-theme #inspector-object-sub {
     height: 1.5px;
     pointer-events: none;
     opacity: 0.72;
+}
+
+/* Scalable O(1) Category & Surface-Part Outliner (Handles 1M+ Seam Islands with Zero DOM Bloat) */
+.pz-outliner-sec-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 6px 5px;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.85px;
+    color: #787878;
+}
+.pz-outliner-sec-head span:last-child {
+    font-family: var(--mono);
+    letter-spacing: 0;
+    text-transform: none;
+    color: #666666;
+}
+.pz-cat-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+.pz-cat-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 5px 9px;
+    border-radius: 11px;
+    background: #1a1a1a;
+    border: 1px solid #2b2b2b;
+    cursor: pointer;
+    transition: background 110ms ease, border-color 110ms ease;
+}
+.pz-cat-row:hover {
+    background: #222222;
+    border-color: #3a3a3a;
+}
+.pz-cat-row.selected {
+    background: rgba(239, 244, 207, 0.10);
+    border-color: rgba(239, 244, 207, 0.48);
+}
+.pz-cat-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.pz-cat-copy {
+    flex: 1;
+    min-width: 0;
+}
+.pz-cat-copy strong {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 400;
+    color: #ebebeb;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pz-cat-row.selected .pz-cat-copy strong {
+    color: #eff4cf;
+}
+.pz-cat-copy small {
+    display: block;
+    font-size: 9.5px;
+    font-family: var(--mono);
+    color: #7c7c7c;
+}
+.pz-cat-pct-badge {
+    height: 20px;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: rgba(239, 244, 207, 0.13);
+    border: 1px solid rgba(239, 244, 207, 0.30);
+    color: #eff4cf;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+.pz-cat-empty {
+    padding: 10px 11px;
+    border-radius: 11px;
+    background: #161616;
+    border: 1px dashed #2d2d2d;
+    font-size: 10.5px;
+    color: #7c7c7c;
+    line-height: 1.4;
+    margin-bottom: 8px;
 }
 
 

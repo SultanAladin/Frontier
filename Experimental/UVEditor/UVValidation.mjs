@@ -672,12 +672,31 @@ console.log('11. Testing Multi-Surface Engineering MatCaps, Stack Similar UVs, F
               !CheckSlice.includes('RenderStudioPreviewAndFlatDebugCard'),
         'Check menu must match exact UV Integrity & Repair layout from a874c93');
 
+    const UdimSlice = EditorJs.slice(EditorJs.indexOf('function RenderUdimTab'), EditorJs.indexOf('function RenderDiagnosticsTab'));
+    assert.ok(UdimSlice.includes('MetricTrio') && UdimSlice.includes('pz-udim-table') &&
+              !UdimSlice.includes('pz-udim-atlas-shell') && !UdimSlice.includes('Spatial UDIM Matrix'),
+        'UDIM menu must use Check-style MetricTrio + clean UDIM Tile Table instead of Spatial UDIM Matrix');
+
+    assert.ok(!ShadingSlice.includes('Fast PBR') && ShadingSlice.includes('Surface Material') && ShadingSlice.includes('pz-finish-showcase'),
+        'Shading menu must use clean Surface Material naming and live finish showcase sphere');
+
+    const OutlinerSlice = EditorJs.slice(EditorJs.indexOf('function RenderOutliner'), EditorJs.indexOf('function RenderLegendStrip'));
+    assert.ok(OutlinerSlice.includes('Priority Categories') && OutlinerSlice.includes('Surface Parts') &&
+              !OutlinerSlice.includes('pz-chart-row') && IndexHtml.includes('id="udim-chip-strip" hidden'),
+        'Outliner must aggregate into Priority Categories + Surface Parts with hidden UDIM strip and zero raw per-island rows');
+
+    const EditorCss = ReadText('UVEditor.css');
+    for (const BlueHex of ['#262930', '#191a1d', '#131418', '#0d0e11', 'rgba(56, 189, 248'])
+    {
+        assert.ok(!EditorCss.includes(BlueHex), `UVEditor.css must not contain blue-tinted card background ${BlueHex}`);
+    }
+
     assert.ok(EditorJs.includes('pz-prio-table') && EditorJs.includes('pz-prio-row') && !EditorJs.includes('pz-budget-rail-wrap'),
         'Pack menu must use clean minimal Project-Zero Priority Layer Table');
     assert.ok(Vp3dJs.includes('this.showSeams = false;') && EditorJs.includes('showSeams: false'),
         'Seam debug overlay must default to false');
 
-    console.log(`   OK: Per-face PBR+MatCap Apply/Fill, combined Shading card, tab order (${TabOrder.join('->')}), minimal Priority Table & ${DistinctSlots.size} MatCaps verified.`);
+    console.log(`   OK: Clean UDIM Table, neutral Check card palette, Surface Material showcase, scalable Category Outliner & ${DistinctSlots.size} MatCaps verified.`);
 }
 
 console.log('\nALL UV STUDIO VALIDATIONS PASSED SUCCESSFULLY.');

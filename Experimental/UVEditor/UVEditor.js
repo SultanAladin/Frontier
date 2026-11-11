@@ -514,7 +514,7 @@ function ComputeInspectorSelectionInfo(Doc)
     }
 
     const FooterLeft = Viewport3D?.shadingMode === 'fast-pbr'
-        ? `Fast PBR · M${Math.round((Viewport3D.pbrMetallic ?? 0.55) * 100)} R${Math.round((Viewport3D.pbrRoughness ?? 0.28) * 100)}`
+        ? `Material · M${Math.round((Viewport3D.pbrMetallic ?? 0.55) * 100)} R${Math.round((Viewport3D.pbrRoughness ?? 0.28) * 100)}`
         : DistinctSlots > 1
             ? `${DistinctSlots} MatCaps (${DominantSpec.short}+)`
             : `MatCap: ${DominantSpec.label}`;
@@ -641,33 +641,8 @@ function RenderDocumentTabs()
 function RenderUdimChipStrip(Doc)
 {
     const Strip = document.getElementById('udim-chip-strip');
+    if (!Strip || Strip.hidden) return;
     Strip.textContent = '';
-    const OccMap = new Map();
-    const CntMap = new Map();
-    for (const Isl of Doc.islands)
-    {
-        if (Isl.hidden) continue;
-        OccMap.set(Isl.udimTile, (OccMap.get(Isl.udimTile) || 0) + Isl.areaUV);
-        CntMap.set(Isl.udimTile, (CntMap.get(Isl.udimTile) || 0) + 1);
-    }
-    for (const Tile of Doc.udimTiles)
-    {
-        const ResLabel = Tile.resolution >= 1024 ? `${Tile.resolution / 1024}K` : `${Tile.resolution}`;
-        const Occ = Math.min(100, (OccMap.get(Tile.id) || 0) * 100);
-        const Chip = Construct('button', 'udim-chip' + (Tile.id === Doc.activeUdim ? ' active' : ''), [
-            Construct('strong', null, `${Tile.id} · ${ResLabel}`),
-            Construct('small', null, `${CntMap.get(Tile.id) || 0} isl · ${Occ.toFixed(0)}%`)
-        ]);
-        Chip.type = 'button';
-        Chip.addEventListener('click', () =>
-        {
-            Doc.activeUdim = Tile.id;
-            const O = UdimOrigin(Tile.id);
-            Canvas2D.FrameBounds(O.u, O.v, O.u + 1, O.v + 1, 0.12);
-            SyncAllViews(true);
-        });
-        Strip.append(Chip);
-    }
 }
 
 let _lastOutlinerSig = null;
@@ -679,29 +654,44 @@ function BuildFolderSvg()
     return Svg;
 }
 
-function SemanticFolderKeyForIsland(Isl)
+function SemanticPartBucketForIsland(Isl)
 {
-    const Tag = `${Isl.displayName || ''} ${Isl.materialName || ''}`.toLowerCase();
-    if (/tyre|tire|rubber|tread/.test(Tag)) return { key: 'part-tyres', title: 'Wheels & Tyres', color: '#a78bfa' };
-    if (/rim|wheel|spoke|caliper|disc|hub/.test(Tag)) return { key: 'part-rims', title: 'Rims & Brakes', color: '#60a5fa' };
-    if (/glass|visor|windshield|canopy|lens/.test(Tag)) return { key: 'part-glass', title: 'Glass & Optics', color: '#38bdf8' };
-    if (/body|hood|door|fender|roof|bumper|chest|torso|helm|hull|wall|facade/.test(Tag)) return { key: 'part-body', title: 'Primary Bodywork', color: '#f59e0b' };
-    if (/trim|latch|strap|handle|grille|spoiler|pauldron|pillar|arch/.test(Tag)) return { key: 'part-trim', title: 'Trim & Hardware', color: '#34d399' };
-    return { key: `udim-${Isl.udimTile}`, title: `UDIM ${Isl.udimTile} · Surface`, color: '#9ca3af' };
+    const RawPart = (Isl.materialName || '').trim();
+    const Tag = `${Isl.displayName || ''} ${RawPart}`.toLowerCase();
+    if (/tyre|tire|rubber|tread/.test(Tag)) return { key: 'part-tyres', title: 'Wheels & Tyres', color: '#c4b5fd' };
+    if (/\b(rim|wheel|spoke|caliper|disc|hub)\b/.test(Tag)) return { key: 'part-rims', title: 'Rims & Brakes', color: '#93c5fd' };
+    if (/glass|visor|windshield|canopy|lens/.test(Tag)) return { key: 'part-glass', title: 'Glass & Optics', color: '#7dd3fc' };
+    if (/body|hood|door|fender|roof|bumper|chest|torso|helm|hull|wall|facade/.test(Tag)) return { key: 'part-body', title: 'Primary Bodywork', color: '#fcd34d' };
+    if (/trim|latch|strap|handle|grille|spoiler|pauldron|pillar|arch/.test(Tag)) return { key: 'part-trim', title: 'Trim & Hardware', color: '#6ee7b7' };
+    if (RawPart)
+    {
+        const Slug = RawPart.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 28) || 'surface';
+        return { key: `mat-${Slug}`, title: RawPart, color: '#a3a3a3' };
+    }
+    return { key: 'part-main', title: 'Main Surface', color: '#a3a3a3' };
+}
+
+function FrameIslandGroupBounds(IslList)
+{
+    if (!IslList.length) return;
+    let MinU = Infinity, MinV = Infinity, MaxU = -Infinity, MaxV = -Infinity;
+    for (const Isl of IslList)
+    {
+        if (Isl.bounds.minU < MinU) MinU = Isl.bounds.minU;
+        if (Isl.bounds.minV < MinV) MinV = Isl.bounds.minV;
+        if (Isl.bounds.maxU > MaxU) MaxU = Isl.bounds.maxU;
+        if (Isl.bounds.maxV > MaxV) MaxV = Isl.bounds.maxV;
+    }
+    if (Number.isFinite(MinU)) Canvas2D.FrameBounds(MinU, MinV, MaxU, MaxV, 0.18);
 }
 
 function RenderOutliner(Doc)
 {
-    if (!Doc.collapsedFolders) Doc.collapsedFolders = new Set();
-    if (!Doc.customFolders) Doc.customFolders = [];
-
-    const SelIslList = [...Doc.surface.selectedIslands].sort((a, b) => a - b).join(',');
     const GrpSig = Doc.importanceGroups.map(G => `${G.id}:${G.name}:${G.targetPercent}:${G.color}`).join(';');
-    const CustomSig = Doc.customFolders.map(F => `${F.id}:${F.name}:${F.islandIds.join(',')}`).join(';');
-    const ColSig = [...Doc.collapsedFolders].sort().join(',');
-    const PinSig = Doc.surface.pinned.size;
+    const SelCount = Doc.surface.selectedIslands.size;
+    const FirstSel = SelCount ? [...Doc.surface.selectedIslands][0] : -1;
     const SurfSig = typeof Doc.surface.ComputeDataSignature === 'function' ? Doc.surface.ComputeDataSignature() : `${Doc.islands.length}`;
-    const OutlinerSig = `${Doc.id}|${StudioState.outlinerFilter}|${StudioState.searchQuery.trim()}|${SurfSig}|${GrpSig}|${CustomSig}|${ColSig}|${PinSig}|${SelIslList}|${Doc.diagnostics?.overlapCount || 0}|${Doc.diagnostics?.flippedCount || 0}`;
+    const OutlinerSig = `${Doc.id}|${StudioState.outlinerFilter}|${StudioState.searchQuery.trim()}|${SurfSig}|${GrpSig}|${SelCount}:${FirstSel}|${Doc.diagnostics?.overlapCount || 0}|${Doc.diagnostics?.flippedCount || 0}`;
     if (_lastOutlinerSig === OutlinerSig) return;
     _lastOutlinerSig = OutlinerSig;
 
@@ -710,225 +700,216 @@ function RenderOutliner(Doc)
     const Query = StudioState.searchQuery.trim().toLowerCase();
     const GroupMap = new Map(Doc.importanceGroups.map(G => [G.id, G]));
 
-    const Matches = Isl =>
-    {
-        if (StudioState.outlinerFilter === 'selected' && !Doc.surface.selectedIslands.has(Isl.id)) return false;
-        if (StudioState.outlinerFilter === 'grouped' && !Isl.importanceGroupId) return false;
-        if (StudioState.outlinerFilter === 'issues')
-        {
-            const Health = ClassifyIslandHealth(Doc, Isl);
-            if (Health !== 'error' && Health !== 'caution') return false;
-        }
-        if (Query)
-        {
-            const GrpName = GroupMap.get(Isl.importanceGroupId)?.name || '';
-            const Hay = `${Isl.displayName} ${Isl.materialName} ${Isl.udimTile} ${GrpName}`.toLowerCase();
-            if (!Hay.includes(Query)) return false;
-        }
-        return true;
-    };
+    // Single linear O(N) aggregation pass — renders < 25 aggregate rows even on 1,000,000 seam-split 1-face islands!
+    const CategoryBuckets = new Map(Doc.importanceGroups.map(G => [G.id, {
+        group: G,
+        islands: [],
+        faceCount: 0,
+        selectedCount: 0,
+        issueCount: 0
+    }]));
+    const PartBuckets = new Map();
 
-    // Build Collapsible Project-Zero Folders (Custom -> Priority -> Semantic Part / Batched UDIM Folders)
-    const ClaimedIds = new Set();
-    const Folders = [];
-
-    for (const Cf of Doc.customFolders)
-    {
-        const IdSet = new Set(Cf.islandIds);
-        const List = Doc.islands.filter(I => IdSet.has(I.id) && Matches(I));
-        for (const I of List) ClaimedIds.add(I.id);
-        if (List.length) Folders.push({ id: Cf.id, title: Cf.name, color: Cf.color || '#eab308', islands: List });
-    }
-
-    for (const Grp of Doc.importanceGroups)
-    {
-        const List = Doc.islands.filter(I => !ClaimedIds.has(I.id) && I.importanceGroupId === Grp.id && Matches(I));
-        for (const I of List) ClaimedIds.add(I.id);
-        if (List.length) Folders.push({ id: `prio-${Grp.id}`, title: `${Grp.name} (${Grp.targetPercent}%)`, color: Grp.color, islands: List });
-    }
-
-    const SemanticMap = new Map();
     for (const Isl of Doc.islands)
     {
-        if (ClaimedIds.has(Isl.id) || !Matches(Isl)) continue;
-        const Spec = SemanticFolderKeyForIsland(Isl);
-        if (!SemanticMap.has(Spec.key)) SemanticMap.set(Spec.key, { ...Spec, list: [] });
-        SemanticMap.get(Spec.key).list.push(Isl);
-    }
+        const IsSel = Doc.surface.selectedIslands.has(Isl.id);
+        if (StudioState.outlinerFilter === 'selected' && !IsSel) continue;
+        if (StudioState.outlinerFilter === 'grouped' && !Isl.importanceGroupId) continue;
 
-    for (const [, Entry] of SemanticMap)
-    {
-        if (Entry.list.length <= 24)
+        const Health = ClassifyIslandHealth(Doc, Isl);
+        const HasIssue = Health === 'error' || Health === 'caution';
+        if (StudioState.outlinerFilter === 'issues' && !HasIssue) continue;
+
+        const FacesLen = Isl.faceIndices ? Isl.faceIndices.length : 1;
+        if (Isl.importanceGroupId && CategoryBuckets.has(Isl.importanceGroupId))
         {
-            Folders.push({ id: Entry.key, title: Entry.title, color: Entry.color, islands: Entry.list });
+            const B = CategoryBuckets.get(Isl.importanceGroupId);
+            if (Query && !`${B.group.name} ${Isl.materialName || ''}`.toLowerCase().includes(Query)) continue;
+            B.islands.push(Isl);
+            B.faceCount += FacesLen;
+            if (IsSel) B.selectedCount++;
+            if (HasIssue) B.issueCount++;
         }
         else
         {
-            // Sub-batch large groups into clean 20-chart folders so Outliner never floods vertically
-            let BatchIdx = 1;
-            for (let i = 0; i < Entry.list.length; i += 20)
+            const Spec = SemanticPartBucketForIsland(Isl);
+            if (Query && !`${Spec.title} ${Isl.materialName || ''}`.toLowerCase().includes(Query)) continue;
+            let B = PartBuckets.get(Spec.key);
+            if (!B)
             {
-                const Slice = Entry.list.slice(i, i + 20);
-                Folders.push({
-                    id: `${Entry.key}-b${BatchIdx}`,
-                    title: `${Entry.title} · Set ${String(BatchIdx).padStart(2, '0')}`,
-                    color: Entry.color,
-                    islands: Slice
-                });
-                BatchIdx++;
+                B = { ...Spec, islands: [], faceCount: 0, selectedCount: 0, issueCount: 0 };
+                PartBuckets.set(Spec.key, B);
             }
+            B.islands.push(Isl);
+            B.faceCount += FacesLen;
+            if (IsSel) B.selectedCount++;
+            if (HasIssue) B.issueCount++;
         }
     }
 
-    // Collapse all Outliner folders by default on initial load so Outliner starts clean & compact
-    if (!Doc.foldersInitialized)
+    // 1. Priority Categories (Synced 1:1 with Pack -> Importance Space Allocation)
+    Container.append(Construct('div', 'pz-outliner-sec-head', [
+        Construct('span', null, 'Priority Categories'),
+        Construct('span', null, `${Doc.importanceGroups.length} active`)
+    ]));
+
+    if (Doc.importanceGroups.length === 0)
     {
-        Doc.foldersInitialized = true;
-        Folders.forEach(F => Doc.collapsedFolders.add(F.id));
+        Container.append(Construct('div', 'pz-cat-empty',
+            'Select islands in 2D/3D and click + Category to group them for Importance Space Allocation.'));
     }
-
-    const ChartPalette = ['#60a5fa', '#f59e0b', '#34d399', '#a78bfa', '#f472b6', '#38bdf8'];
-
-    for (let FiIdx = 0; FiIdx < Folders.length; FiIdx++)
+    else
     {
-        const Folder = Folders[FiIdx];
-        const IsCollapsed = !Query && StudioState.outlinerFilter === 'all' && Doc.collapsedFolders.has(Folder.id);
-        const AllSelected = Folder.islands.length > 0 && Folder.islands.every(I => Doc.surface.selectedIslands.has(I.id));
-        const FolderIssues = Folder.islands.filter(I =>
+        const CatList = Construct('div', 'pz-cat-list');
+        for (const Grp of Doc.importanceGroups)
         {
-            const H = ClassifyIslandHealth(Doc, I);
-            return H === 'error' || H === 'caution';
-        }).length;
+            const B = CategoryBuckets.get(Grp.id);
+            if (!B) continue;
+            if ((StudioState.outlinerFilter !== 'all' || Query) && B.islands.length === 0) continue;
 
-        const GroupEl = Construct('div', `pz-folder-group${IsCollapsed ? ' collapsed' : ''}`);
-        const Chev = Construct('span', 'pz-folder-chevron', [ConstructGlyph('ChevronDown')]);
-        const FIcon = Construct('span', 'pz-folder-icon', [BuildFolderSvg()]);
-        FIcon.style.setProperty('--folder-tint', Folder.color);
+            const AllSel = B.islands.length > 0 && B.selectedCount === B.islands.length;
+            const Dot = Construct('span', 'pz-cat-dot');
+            Dot.style.background = Grp.color;
 
-        const SubText = FolderIssues > 0
-            ? `${Folder.islands.length} items · ${FolderIssues} warning${FolderIssues > 1 ? 's' : ''}`
-            : `${Folder.islands.length} item${Folder.islands.length === 1 ? '' : 's'}`;
-
-        const FolderStatusBadge = FolderIssues > 0
-            ? Construct('span', 'pz-status-badge caution', '!')
-            : null;
-
-        const HeaderBtn = Construct('button', `pz-folder-header${AllSelected ? ' selected' : ''}`, [
-            Chev,
-            FIcon,
-            Construct('div', 'pz-folder-copy', [
-                Construct('strong', null, Folder.title),
-                Construct('small', null, SubText)
-            ]),
-            FolderStatusBadge
-        ]);
-        HeaderBtn.type = 'button';
-
-        Chev.addEventListener('click', E =>
-        {
-            E.stopPropagation();
-            if (Doc.collapsedFolders.has(Folder.id)) Doc.collapsedFolders.delete(Folder.id);
-            else Doc.collapsedFolders.add(Folder.id);
-            _lastOutlinerSig = null;
-            RenderOutliner(Doc);
-        });
-
-        HeaderBtn.addEventListener('click', E =>
-        {
-            if (E.shiftKey || E.ctrlKey)
-            {
-                if (!E.shiftKey) Doc.surface.ClearSelection();
-                for (const Isl of Folder.islands) Doc.surface.SelectIsland(Isl.id, true);
-                SyncAllViews(true);
-                return;
-            }
-            if (Doc.collapsedFolders.has(Folder.id)) Doc.collapsedFolders.delete(Folder.id);
-            else Doc.collapsedFolders.add(Folder.id);
-            _lastOutlinerSig = null;
-            RenderOutliner(Doc);
-        });
-        HeaderBtn.addEventListener('dblclick', () =>
-        {
-            Doc.surface.ClearSelection();
-            for (const Isl of Folder.islands) Doc.surface.SelectIsland(Isl.id, true);
-            SyncAllViews(true);
-        });
-
-        const ChildrenWrap = Construct('div', 'pz-folder-children');
-        for (const Isl of Folder.islands)
-        {
-            const IsSel = Doc.surface.selectedIslands.has(Isl.id);
-            const Health = ClassifyIslandHealth(Doc, Isl);
-            const Cx = 0.5 * (Isl.bounds.minU + Isl.bounds.maxU);
-            const Cy = 0.5 * (Isl.bounds.minV + Isl.bounds.maxV);
-            const RowTint = Folder.color || ChartPalette[Isl.id % ChartPalette.length];
-
-            const GlyphSeat = Construct('span', 'pz-chart-glyph', [ConstructGlyph('Island')]);
-            GlyphSeat.style.setProperty('--chart-tint', RowTint);
-
-            let StatusBadge;
-            if (Health === 'error')
-            {
-                StatusBadge = Construct('span', 'pz-status-badge error', '!');
-                StatusBadge.title = 'Error: UV Overlap or Flipped Winding';
-            }
-            else if (Health === 'caution')
-            {
-                StatusBadge = Construct('span', 'pz-status-badge caution', '!');
-                StatusBadge.title = `Caution: High UV Stretch (${Math.round((Isl.angleStretch || 0) * 100)}%)`;
-            }
-            else if (Health === 'pinned')
-            {
-                StatusBadge = Construct('span', 'pz-status-badge pinned', 'P');
-                StatusBadge.title = 'Contains Pinned UV Coordinates';
-            }
-            else
-            {
-                StatusBadge = Construct('span', 'pz-status-badge ok', '✓');
-                StatusBadge.title = 'Clean UV Chart (0 overlaps, 0 flips)';
-            }
-
-            const EyeBtn = Construct('button', 'pz-row-eye', ConstructGlyph(Isl.hidden ? 'EyeOff' : 'Eye'));
-            EyeBtn.type = 'button';
-            EyeBtn.title = Isl.hidden ? 'Show Chart' : 'Hide Chart';
-            EyeBtn.addEventListener('click', E =>
+            const Sub = `${B.islands.length.toLocaleString()} chart${B.islands.length === 1 ? '' : 's'} · ${B.faceCount.toLocaleString()} faces${B.issueCount ? ` · ${B.issueCount} !` : ''}`;
+            const PctBadge = Construct('button', 'pz-cat-pct-badge', `${Grp.targetPercent}%`);
+            PctBadge.type = 'button';
+            PctBadge.title = 'Open Importance Space Allocation in Pack tab';
+            PctBadge.addEventListener('click', E =>
             {
                 E.stopPropagation();
-                Doc.surface.SetIslandHidden(Isl.id, !Isl.hidden);
-                SyncAllViews();
+                ActivateInspectorTab('packing');
             });
 
-            const Row = Construct('div', `pz-chart-row${IsSel ? ' selected' : ''}${Isl.hidden ? ' is-hidden' : ''}`, [
-                GlyphSeat,
-                Construct('div', 'pz-chart-copy', [
-                    Construct('div', 'pz-chart-title', Isl.displayName),
-                    Construct('div', 'pz-chart-pos', `Position ${Cx.toFixed(2)}, ${Cy.toFixed(2)} · UDIM ${Isl.udimTile}`)
+            const AssignBtn = Construct('button', 'pz-prio-act', [ConstructGlyph('Plus')]);
+            AssignBtn.type = 'button';
+            AssignBtn.title = 'Add currently selected islands into this Category';
+            AssignBtn.addEventListener('click', E =>
+            {
+                E.stopPropagation();
+                AssignSelectedToGroup(Grp.id);
+            });
+
+            const DelBtn = Construct('button', 'pz-prio-act danger', [ConstructGlyph('Close')]);
+            DelBtn.type = 'button';
+            DelBtn.title = 'Dissolve Category (returns islands to Surface Parts)';
+            DelBtn.addEventListener('click', E =>
+            {
+                E.stopPropagation();
+                RemoveImportanceGroup(Grp.id);
+            });
+
+            const Row = Construct('div', `pz-cat-row${AllSel ? ' selected' : ''}`, [
+                Dot,
+                Construct('div', 'pz-cat-copy', [
+                    Construct('strong', null, Grp.name),
+                    Construct('small', null, Sub)
                 ]),
-                StatusBadge,
-                EyeBtn
+                PctBadge,
+                AssignBtn,
+                DelBtn
             ]);
             Row.addEventListener('click', E =>
             {
-                Doc.surface.SelectIsland(Isl.id, E.shiftKey || E.ctrlKey);
+                if (!E.shiftKey && !E.ctrlKey) Doc.surface.ClearSelection();
+                for (const Isl of B.islands) Doc.surface.SelectIsland(Isl.id, true);
                 SyncAllViews(true);
             });
             Row.addEventListener('dblclick', () =>
             {
-                Doc.surface.SelectIsland(Isl.id, false);
-                Canvas2D.FrameBounds(Isl.bounds.minU, Isl.bounds.minV, Isl.bounds.maxU, Isl.bounds.maxV, 0.25);
+                Doc.surface.ClearSelection();
+                for (const Isl of B.islands) Doc.surface.SelectIsland(Isl.id, true);
+                FrameIslandGroupBounds(B.islands);
                 SyncAllViews(true);
             });
-
-            ChildrenWrap.append(Row);
+            CatList.append(Row);
         }
-
-        GroupEl.append(HeaderBtn, ChildrenWrap);
-        Container.append(GroupEl);
+        if (CatList.childElementCount) Container.append(CatList);
     }
 
-    if (!Folders.length)
+    // 2. Aggregated Surface Parts (Bounded O(Parts) summary — never lists raw individual seam islands or UDIMs!)
+    if (StudioState.outlinerFilter !== 'grouped')
     {
-        Container.append(Construct('p', 'property-hint', 'No UV charts match the active filter.'));
+        let Parts = [...PartBuckets.values()].sort((A, B) => B.faceCount - A.faceCount);
+        if (Parts.length > 20)
+        {
+            const Head = Parts.slice(0, 19);
+            const Tail = Parts.slice(19);
+            const Overflow = {
+                key: 'part-overflow',
+                title: `Other Parts (${Tail.length})`,
+                color: '#737373',
+                islands: Tail.flatMap(T => T.islands),
+                faceCount: Tail.reduce((S, T) => S + T.faceCount, 0),
+                selectedCount: Tail.reduce((S, T) => S + T.selectedCount, 0),
+                issueCount: Tail.reduce((S, T) => S + T.issueCount, 0)
+            };
+            Parts = [...Head, Overflow];
+        }
+
+        Container.append(Construct('div', 'pz-outliner-sec-head', [
+            Construct('span', null, 'Surface Parts'),
+            Construct('span', null, `${Parts.length} group${Parts.length === 1 ? '' : 's'}`)
+        ]));
+
+        const PartList = Construct('div', 'pz-cat-list');
+        for (const Part of Parts)
+        {
+            const AllSel = Part.islands.length > 0 && Part.selectedCount === Part.islands.length;
+            const AllHidden = Part.islands.length > 0 && Part.islands.every(I => I.hidden);
+            const FIcon = Construct('span', 'pz-folder-icon', [BuildFolderSvg()]);
+            FIcon.style.setProperty('--folder-tint', Part.color);
+
+            const Sub = `${Part.islands.length.toLocaleString()} chart${Part.islands.length === 1 ? '' : 's'} · ${Part.faceCount.toLocaleString()} faces${Part.issueCount ? ` · ${Part.issueCount} !` : ''}`;
+
+            const PromoteBtn = Construct('button', 'pz-prio-act', [ConstructGlyph('Plus')]);
+            PromoteBtn.type = 'button';
+            PromoteBtn.title = `Promote "${Part.title}" into a Priority Category for Importance Space Allocation`;
+            PromoteBtn.addEventListener('click', E =>
+            {
+                E.stopPropagation();
+                Doc.surface.ClearSelection();
+                for (const Isl of Part.islands) Doc.surface.SelectIsland(Isl.id, true);
+                AssignSelectedIslandsToNewGroup(StudioState.pendingGroupPct, Part.title);
+            });
+
+            const EyeBtn = Construct('button', 'pz-prio-act', [ConstructGlyph(AllHidden ? 'EyeOff' : 'Eye')]);
+            EyeBtn.type = 'button';
+            EyeBtn.title = AllHidden ? 'Show Surface Part' : 'Hide Surface Part';
+            EyeBtn.addEventListener('click', E =>
+            {
+                E.stopPropagation();
+                for (const Isl of Part.islands) Doc.surface.SetIslandHidden(Isl.id, !AllHidden);
+                SyncAllViews();
+            });
+
+            const Row = Construct('div', `pz-cat-row${AllSel ? ' selected' : ''}`, [
+                FIcon,
+                Construct('div', 'pz-cat-copy', [
+                    Construct('strong', null, Part.title),
+                    Construct('small', null, Sub)
+                ]),
+                PromoteBtn,
+                EyeBtn
+            ]);
+            Row.addEventListener('click', E =>
+            {
+                if (!E.shiftKey && !E.ctrlKey) Doc.surface.ClearSelection();
+                for (const Isl of Part.islands) Doc.surface.SelectIsland(Isl.id, true);
+                SyncAllViews(true);
+            });
+            Row.addEventListener('dblclick', () =>
+            {
+                Doc.surface.ClearSelection();
+                for (const Isl of Part.islands) Doc.surface.SelectIsland(Isl.id, true);
+                FrameIslandGroupBounds(Part.islands);
+                SyncAllViews(true);
+            });
+            PartList.append(Row);
+        }
+
+        if (PartList.childElementCount) Container.append(PartList);
+        else Container.append(Construct('p', 'property-hint', 'No surface groups match the active filter.'));
     }
 }
 
@@ -1018,7 +999,7 @@ function ResolveSelectedIslandIds(Doc)
     return [];
 }
 
-function AssignSelectedIslandsToNewGroup(Pct = StudioState.pendingGroupPct)
+function AssignSelectedIslandsToNewGroup(Pct = StudioState.pendingGroupPct, CustomName = '')
 {
     const Doc = ActiveDoc();
     if (!Doc) return;
@@ -1028,7 +1009,7 @@ function AssignSelectedIslandsToNewGroup(Pct = StudioState.pendingGroupPct)
     const Color = GroupColorPalette[NextIdx % GroupColorPalette.length];
     const NewGroup = {
         id: `grp-${Date.now().toString(36)}`,
-        name: `Priority ${NextIdx + 1}`,
+        name: CustomName || `Category ${NextIdx + 1}`,
         targetPercent: Math.max(1, Math.min(95, Number(Pct) || 25)),
         color: Color,
         udimTarget: 'auto'
@@ -1044,6 +1025,20 @@ function AssignSelectedIslandsToNewGroup(Pct = StudioState.pendingGroupPct)
     {
         Toast(`Added "${NewGroup.name}" (${NewGroup.targetPercent}%) — select charts and click +`);
     }
+    SyncAllViews(true);
+}
+
+function RemoveImportanceGroup(GroupId)
+{
+    const Doc = ActiveDoc();
+    if (!Doc) return;
+    const Grp = Doc.importanceGroups.find(G => G.id === GroupId);
+    if (!Grp) return;
+    const MemberIds = Doc.islands.filter(I => I.importanceGroupId === GroupId).map(I => I.id);
+    Doc.surface.PushUndo('Delete Priority Category');
+    if (MemberIds.length) Doc.surface.AssignImportanceGroup(MemberIds, null, Doc.islands);
+    Doc.importanceGroups = Doc.importanceGroups.filter(G => G.id !== GroupId);
+    Toast(`Removed "${Grp.name}"`);
     SyncAllViews(true);
 }
 
@@ -2058,9 +2053,9 @@ function RenderShadingTab(Body, Doc)
     const IsMatcapMode = ['multi-matcap', 'lit-matcap', 'matcap', 'matcap-satin'].includes(CurMode);
     const IsPbrMode = ['fast-pbr', 'lit-matcap'].includes(CurMode);
     const ModePretty = {
-        'fast-pbr': 'Fast PBR (Lit)',
+        'fast-pbr': 'Surface Material',
         'multi-matcap': 'MatCap (Per-Face)',
-        'lit-matcap': 'Lit + MatCap',
+        'lit-matcap': 'Material + MatCap',
         'lit-eon': 'Studio Clay',
         flat: 'Flat · UV Charts',
         'flat-slots': 'Flat · Face Slots',
@@ -2187,20 +2182,20 @@ function RenderShadingTab(Body, Doc)
     const Brush = StudioState.materialBrush;
     const CardTitle = CurMode === 'multi-matcap'
         ? 'Per-Face MatCap Studio'
-        : (CurMode === 'lit-matcap' ? 'Surface Shading · PBR + MatCap' : 'Surface Shading · Fast PBR');
+        : (CurMode === 'lit-matcap' ? 'Surface Finish · Material + MatCap' : 'Surface Finish');
     const MatSec = SectionCard(Body, {
         Id: 'unified-surface-shading',
         Title: CardTitle,
         Glyph: 'Sparkles',
-        Badge: Sel.hasSelection ? `${Sel.faceCount} SEL` : (IsMatcapMode ? 'MATCAP' : 'FAST LIT')
+        Badge: Sel.hasSelection ? `${Sel.faceCount} SEL` : (IsMatcapMode ? 'MATCAP' : 'SURFACE')
     });
 
     SelectRow(MatSec.Inner, {
         Label: 'Shader',
         Options: [
-            ['Fast PBR (Lit)', 'fast-pbr'],
+            ['Surface Material', 'fast-pbr'],
             ['MatCap (Per-Face)', 'multi-matcap'],
-            ['Lit + MatCap', 'lit-matcap'],
+            ['Material + MatCap', 'lit-matcap'],
             ['Studio Clay', 'lit-eon'],
             ['Flat · UV Charts', 'flat'],
             ['Flat · Face Slots', 'flat-slots'],
@@ -2370,20 +2365,13 @@ function RenderShadingTab(Body, Doc)
         }
     }
 
-    // Sub-section B: Simplified Fast PBR Lit (Colour, Metallic, Roughness, Specular ONLY — NO GGX!)
+    // Sub-section B: Studio Surface Finish (Distinct Live-Shaded Sphere Preview + Colour, Metallic, Roughness, Specular)
     if (IsPbrMode)
     {
-        MatSec.Inner.append(Construct('div', 'pz-mat-subhead', [
-            document.createTextNode('Fast PBR · Lit'),
-            Construct('span', null, 'No GGX')
-        ]));
-
         const CurHex = (Brush.pbrColor || '#4c7dc9').toLowerCase();
-        const SwatchDots = Construct('div', 'pz-pbr-swatch-dots');
-        const HexLabel = Construct('span', 'pz-pbr-color-hex', CurHex.toUpperCase());
-        const ColorInput = Construct('input');
-        ColorInput.type = 'color';
-        ColorInput.value = CurHex;
+        const FinishSphere = Construct('span', 'pz-finish-sphere');
+        const FinishTitle = Construct('strong', null, 'Custom Finish');
+        const FinishReadout = Construct('span', null, '');
 
         const PbrSwatches = [
             ['Steel Blue', '#4c7dc9'],
@@ -2393,6 +2381,33 @@ function RenderShadingTab(Body, Doc)
             ['Turned Brass', '#d9a448'],
             ['CAD Sage', '#7b9478']
         ];
+
+        const SyncFinishPreview = () =>
+        {
+            const Hex = (Brush.pbrColor || '#4c7dc9').toLowerCase();
+            const Met = Brush.pbrMetallic ?? 0.60;
+            const Rgh = Brush.pbrRoughness ?? 0.24;
+            const Spc = Brush.pbrSpecular ?? 0.68;
+            const SpecStop = Math.round(8 + Rgh * 34);
+            const SpecAlpha = (0.18 + (1.0 - Rgh * 0.72) * (0.35 + Spc * 0.45)).toFixed(2);
+            const Matched = PbrSwatches.find(([, H]) => H === Hex);
+            FinishSphere.style.background = `radial-gradient(circle at 33% 28%, rgba(255,255,255,${SpecAlpha}) 0%, ${Hex} ${SpecStop}%, #0c0c0c 96%)`;
+            FinishTitle.textContent = Matched ? Matched[0] : `Surface ${Hex.toUpperCase()}`;
+            FinishReadout.textContent = `Metal ${Math.round(Met * 100)}% · Rough ${Math.round(Rgh * 100)}% · Spec ${Math.round(Spc * 100)}%`;
+        };
+        SyncFinishPreview();
+
+        MatSec.Inner.append(Construct('div', 'pz-finish-showcase', [
+            FinishSphere,
+            Construct('div', 'pz-finish-meta', [FinishTitle, FinishReadout])
+        ]));
+
+        const SwatchDots = Construct('div', 'pz-pbr-swatch-dots');
+        const HexLabel = Construct('span', 'pz-pbr-color-hex', CurHex.toUpperCase());
+        const ColorInput = Construct('input');
+        ColorInput.type = 'color';
+        ColorInput.value = CurHex;
+
         const DotEls = [];
         const SetBrushPbrColor = HexVal =>
         {
@@ -2401,6 +2416,7 @@ function RenderShadingTab(Body, Doc)
             HexLabel.textContent = Norm.toUpperCase();
             for (const [El, SwHex] of DotEls) El.classList.toggle('active', SwHex === Norm);
             LivePreviewSelectedOnly({ pbrColor: Norm });
+            SyncFinishPreview();
         };
 
         for (const [SwName, SwHex] of PbrSwatches)
@@ -2416,7 +2432,7 @@ function RenderShadingTab(Body, Doc)
 
         ColorInput.addEventListener('input', () => SetBrushPbrColor(ColorInput.value));
         const ColorWell = Construct('label', 'pz-pbr-color-well', [ColorInput, HexLabel]);
-        ColorWell.title = 'Pick Fast PBR Base Colour';
+        ColorWell.title = 'Pick Surface Base Colour';
 
         MatSec.Inner.append(Construct('div', 'pz-pbr-color-row', [
             Construct('span', 'pz-pbr-color-label', 'Colour'),
@@ -2430,7 +2446,7 @@ function RenderShadingTab(Body, Doc)
             Step: 0.01,
             Digits: 2,
             Read: () => Brush.pbrMetallic ?? 0.60,
-            Write: Val => LivePreviewSelectedOnly({ pbrMetallic: Val })
+            Write: Val => { LivePreviewSelectedOnly({ pbrMetallic: Val }); SyncFinishPreview(); }
         });
 
         SliderRow(MatSec.Inner, {
@@ -2440,7 +2456,7 @@ function RenderShadingTab(Body, Doc)
             Step: 0.01,
             Digits: 2,
             Read: () => Brush.pbrRoughness ?? 0.24,
-            Write: Val => LivePreviewSelectedOnly({ pbrRoughness: Val })
+            Write: Val => { LivePreviewSelectedOnly({ pbrRoughness: Val }); SyncFinishPreview(); }
         });
 
         SliderRow(MatSec.Inner, {
@@ -2450,7 +2466,7 @@ function RenderShadingTab(Body, Doc)
             Step: 0.01,
             Digits: 2,
             Read: () => Brush.pbrSpecular ?? 0.68,
-            Write: Val => LivePreviewSelectedOnly({ pbrSpecular: Val })
+            Write: Val => { LivePreviewSelectedOnly({ pbrSpecular: Val }); SyncFinishPreview(); }
         });
     }
 }
@@ -2987,65 +3003,10 @@ function RenderUnwrapTab(Body, Doc)
     });
 }
 
-function DrawMiniUdimBlueprint(CanvasEl, Doc, TileId, TileIslands)
-{
-    const W = 96, H = 56;
-    CanvasEl.width = W;
-    CanvasEl.height = H;
-    const Ctx = CanvasEl.getContext('2d');
-    if (!Ctx) return;
-
-    Ctx.fillStyle = '#0b0c10';
-    Ctx.fillRect(0, 0, W, H);
-    Ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-    Ctx.lineWidth = 1;
-    for (let g = 1; g < 4; g++)
-    {
-        Ctx.beginPath(); Ctx.moveTo((W * g) / 4, 0); Ctx.lineTo((W * g) / 4, H); Ctx.stroke();
-        Ctx.beginPath(); Ctx.moveTo(0, (H * g) / 4); Ctx.lineTo(W, (H * g) / 4); Ctx.stroke();
-    }
-
-    const Orig = UdimOrigin(TileId);
-    const GroupColors = new Map(Doc.importanceGroups.map(G => [G.id, G.color]));
-    for (const Isl of TileIslands)
-    {
-        if (Isl.hidden) continue;
-        const IsSel = Doc.surface.selectedIslands.has(Isl.id);
-        const FillCol = IsSel ? 'rgba(239, 244, 207, 0.72)' : (GroupColors.get(Isl.importanceGroupId) ? `${GroupColors.get(Isl.importanceGroupId)}88` : 'rgba(96, 165, 250, 0.45)');
-        Ctx.fillStyle = FillCol;
-        const Step = Math.max(1, Math.floor(Isl.faceIndices.length / 80));
-        for (let idx = 0; idx < Isl.faceIndices.length; idx += Step)
-        {
-            const Cr = Doc.surface.faces[Isl.faceIndices[idx]]?.corners;
-            if (!Cr || Cr.length < 3) continue;
-            Ctx.beginPath();
-            for (let k = 0; k < Cr.length; k++)
-            {
-                const Uv = Doc.surface.uvCoords[Cr[k].uv];
-                const Px = (Uv[0] - Orig.u) * W;
-                const Py = (1.0 - (Uv[1] - Orig.v)) * H;
-                if (k === 0) Ctx.moveTo(Px, Py);
-                else Ctx.lineTo(Px, Py);
-            }
-            Ctx.closePath();
-            Ctx.fill();
-        }
-    }
-}
-
 function RenderUdimTab(Body, Doc)
 {
-    const TileMap = new Map(Doc.udimTiles.map(T => [T.id, T]));
     const IslandsByTile = new Map();
     const OccByTile = new Map();
-    let MaxRowUsed = 2;
-    for (const T of Doc.udimTiles)
-    {
-        const R = Math.floor(Math.max(0, T.id - 1001) / 10);
-        if (R > MaxRowUsed) MaxRowUsed = R;
-    }
-    const NumRows = Math.max(StudioState.udimMatrixRows || 3, MaxRowUsed + 1);
-
     for (const Isl of Doc.islands)
     {
         if (!IslandsByTile.has(Isl.udimTile)) IslandsByTile.set(Isl.udimTile, []);
@@ -3053,129 +3014,176 @@ function RenderUdimTab(Body, Doc)
         if (!Isl.hidden) OccByTile.set(Isl.udimTile, (OccByTile.get(Isl.udimTile) || 0) + Isl.areaUV);
     }
 
+    const ActiveTile = Doc.udimTiles.find(T => T.id === Doc.activeUdim) || Doc.udimTiles[0];
     const TotalMpx = Doc.udimTiles.reduce((S, T) => S + ((T.resolution || 2048) * (T.resolution || 2048)) / 1e6, 0);
+    const GlobalAvgDen = Doc.islands.length
+        ? Doc.islands.reduce((S, I) => S + I.texelDensity, 0) / Doc.islands.length
+        : 0;
 
-    // 1. Spatial Mari / Foundry UDIM Matrix with Live Mini UV Blueprints + Resolution Tier Badges
-    const Shell = Construct('section', 'pz-udim-atlas-shell');
-    const AddRowBtn = Construct('button', 'text-pill-btn', '+ V Row');
-    AddRowBtn.type = 'button';
-    AddRowBtn.title = 'Expand UDIM matrix vertically (1031+)';
-    AddRowBtn.addEventListener('click', () =>
-    {
-        StudioState.udimMatrixRows = NumRows + 1;
-        RebuildInspector();
+    // 1. Check-Style Neutral Metric Trio (#eff4cf cream-olive highlight + #1a1a1a neutral cards)
+    MetricTrio(Body, [
+        {
+            Label: 'Active UDIM',
+            Highlight: true,
+            Read: () =>
+            {
+                const Res = ActiveTile?.resolution || 2048;
+                const Tag = Res >= 1024 ? `${Res / 1024}K` : `${Res}px`;
+                return { value: `${ActiveTile ? ActiveTile.id : 1001}`, sub: `${Tag} · ${((Res * Res) / 1e6).toFixed(1)} MP` };
+            }
+        },
+        {
+            Label: 'Atlas Tiles',
+            Read: () => ({ value: `${Doc.udimTiles.length}`, sub: `${TotalMpx.toFixed(1)} MP total` })
+        },
+        {
+            Label: 'Texel Density',
+            Read: () => ({ value: `${GlobalAvgDen.toFixed(1)}`, sub: 'px/cm average' })
+        }
+    ]);
+
+    // 2. Clean Neutral UDIM Tile Table (Matches Check & Priority Layer — zero Spatial Matrix clutter or blue cast!)
+    const AtlasSec = SectionCard(Body, {
+        Id: 'udim-atlas-list',
+        Title: 'UDIM Tiles',
+        Glyph: 'Grid',
+        Badge: `${Doc.udimTiles.length} TILE${Doc.udimTiles.length === 1 ? '' : 'S'}`
     });
 
-    Shell.append(Construct('div', 'pz-udim-atlas-top', [
-        Construct('strong', null, `Spatial UDIM Matrix · ${Doc.udimTiles.length} Tiles`),
-        Construct('div', null, [
-            Construct('span', null, `${TotalMpx.toFixed(1)} MP · `),
-            AddRowBtn
-        ])
+    const AddTileBtn = Construct('button', 'pz-prio-add-btn', [ConstructGlyph('Plus'), Construct('span', null, 'Add UDIM Tile')]);
+    AddTileBtn.type = 'button';
+    AddTileBtn.title = 'Allocate the next sequential UDIM tile (1002, 1003, ...)';
+    AddTileBtn.addEventListener('click', () => AddNextUdimTile());
+
+    const MoveSelBtn = Construct('button', 'pz-icon-btn', ConstructGlyph('Move'));
+    MoveSelBtn.type = 'button';
+    MoveSelBtn.title = `Move selected UV charts into active UDIM ${Doc.activeUdim}`;
+    MoveSelBtn.addEventListener('click', () => RunWithUndo('Move to UDIM', () =>
+    {
+        if (!Doc.surface.selectedIslands.size) { Toast('Select UV charts first'); return; }
+        const Moved = Doc.surface.MoveIslandsToUdim([...Doc.surface.selectedIslands], Doc.activeUdim, Doc.islands);
+        Toast(`Moved ${Moved} chart(s) to UDIM ${Doc.activeUdim}`);
+    }));
+
+    const MatchDenBtn = Construct('button', 'pz-icon-btn', ConstructGlyph('Gauge'));
+    MatchDenBtn.type = 'button';
+    MatchDenBtn.title = 'Equalize texel density across mixed-resolution UDIM tiles';
+    MatchDenBtn.addEventListener('click', () => RunWithUndo('Cross-UDIM Density Match', () =>
+    {
+        const TileResMap = new Map(Doc.udimTiles.map(T => [T.id, T.resolution || 2048]));
+        const Islands = Doc.surface.ExtractIslands(Id => TileResMap.get(Id) || 2048, 100);
+        const MeanDen = Islands.reduce((S, I) => S + I.texelDensity, 0) / Math.max(1, Islands.length);
+        for (const Isl of Islands)
+        {
+            if (Isl.texelDensity <= 1e-6) continue;
+            const K = MeanDen / Isl.texelDensity;
+            const Cx = Isl.bounds.centerU, Cy = Isl.bounds.centerV;
+            for (const UvIdx of Isl.uvIndices)
+            {
+                Doc.surface.uvCoords[UvIdx][0] = Cx + (Doc.surface.uvCoords[UvIdx][0] - Cx) * K;
+                Doc.surface.uvCoords[UvIdx][1] = Cy + (Doc.surface.uvCoords[UvIdx][1] - Cy) * K;
+            }
+        }
+        Toast(`Matched density across UDIMs (${MeanDen.toFixed(1)} px/cm)`);
+    }));
+
+    const FrameAllBtn = Construct('button', 'pz-icon-btn', ConstructGlyph('Maximize'));
+    FrameAllBtn.type = 'button';
+    FrameAllBtn.title = 'Frame all allocated UDIM tiles in 2D viewport';
+    FrameAllBtn.addEventListener('click', () => Canvas2D.FrameUdimTiles(Doc.udimTiles));
+
+    const LoadTexBtn = Construct('button', 'pz-icon-btn', ConstructGlyph('Upload'));
+    LoadTexBtn.type = 'button';
+    LoadTexBtn.title = 'Load reference texture onto active UDIM tile';
+    LoadTexBtn.addEventListener('click', () => document.getElementById('tex-file-input').click());
+
+    AtlasSec.Inner.append(Construct('div', 'pz-prio-toolbar', [
+        AddTileBtn,
+        Construct('div', 'pz-prio-tools', [MoveSelBtn, MatchDenBtn, FrameAllBtn, LoadTexBtn])
     ]));
 
-    const VRail = Construct('div', 'pz-udim-v-rail');
-    VRail.style.gridTemplateRows = `repeat(${NumRows}, 1fr)`;
-    const SpatialGrid = Construct('div', 'pz-udim-spatial-grid');
-    const ResCycle = [1024, 2048, 4096, 8192];
-
-    for (let row = NumRows - 1; row >= 0; row--)
-    {
-        VRail.append(Construct('span', null, `V${row}`));
-        for (let col = 0; col < 4; col++)
-        {
-            const Id = 1001 + col + row * 10;
-            const Tile = TileMap.get(Id);
-            const TileIslands = IslandsByTile.get(Id) || [];
-            const OccPct = Math.min(100, (OccByTile.get(Id) || 0) * 100);
-            const Res = Tile?.resolution || 2048;
-            const ResLabel = Res >= 1024 ? `${Res / 1024}K` : `${Res}`;
-            const ResTierCls = Res >= 8192 ? 'res-8k' : Res >= 4096 ? 'res-4k' : Res >= 2048 ? 'res-2k' : 'res-1k';
-
-            const ResBadge = Tile ? Construct('span', `pz-udim-res-badge ${ResTierCls}`, ResLabel) : null;
-            if (ResBadge)
-            {
-                ResBadge.title = `Click to cycle UDIM ${Id} resolution (1K / 2K / 4K / 8K)`;
-                ResBadge.addEventListener('click', E =>
-                {
-                    E.stopPropagation();
-                    const NextIdx = (ResCycle.indexOf(Res) + 1) % ResCycle.length;
-                    Tile.resolution = ResCycle[NextIdx];
-                    Doc.activeUdim = Id;
-                    SyncAllViews(true);
-                    Toast(`UDIM ${Id} resolution → ${Tile.resolution / 1024}K`);
-                });
-            }
-
-            let PreviewNode;
-            if (Tile)
-            {
-                const MiniCv = Construct('canvas', 'pz-udim-mini-canvas');
-                DrawMiniUdimBlueprint(MiniCv, Doc, Id, TileIslands);
-                PreviewNode = MiniCv;
-            }
-            else
-            {
-                PreviewNode = Construct('div', 'pz-udim-empty-plus', '+ Allocate');
-            }
-
-            const FillBar = Construct('div', 'pz-udim-occ-fill');
-            FillBar.style.width = `${Tile ? Math.max(3, OccPct) : 0}%`;
-
-            const Cell = Construct('div', `pz-udim-tile-card${Tile ? '' : ' empty'}${Doc.activeUdim === Id ? ' active' : ''}`, [
-                Construct('div', 'pz-udim-cell-head', [
-                    Construct('span', 'pz-udim-cell-id', String(Id)),
-                    ResBadge
-                ]),
-                PreviewNode,
-                Construct('div', 'pz-udim-cell-foot', [
-                    Construct('div', 'pz-udim-cell-meta', [
-                        Construct('span', null, Tile ? `${TileIslands.length} ch` : '—'),
-                        Construct('span', null, Tile ? `${OccPct.toFixed(0)}%` : `u${col},v${row}`)
-                    ]),
-                    Construct('div', 'pz-udim-occ-track', [FillBar])
-                ])
-            ]);
-            Cell.title = Tile
-                ? `Focus UDIM ${Id} (${Res}×${Res} px · ${TileIslands.length} charts · Shift+Click moves selection here)`
-                : `Click to allocate & focus UDIM ${Id}`;
-            Cell.addEventListener('click', E =>
-            {
-                if (!Tile)
-                {
-                    Doc.udimTiles.push({ id: Id, label: `Tile ${Id}`, resolution: 2048, checkerMode: 'color' });
-                    Doc.udimTiles.sort((A, B) => A.id - B.id);
-                    LogEvent('UDIM', `Allocated UDIM tile ${Id} (2K)`, 'live');
-                }
-                Doc.activeUdim = Id;
-                if (E.shiftKey && Doc.surface.selectedIslands.size > 0)
-                {
-                    RunWithUndo(`Move Selection to UDIM ${Id}`, () =>
-                    {
-                        const Moved = Doc.surface.MoveIslandsToUdim([...Doc.surface.selectedIslands], Id, Doc.islands);
-                        Toast(`Moved ${Moved} chart(s) to UDIM ${Id}`);
-                    });
-                    return;
-                }
-                const O = UdimOrigin(Id);
-                Canvas2D.FrameBounds(O.u, O.v, O.u + 1, O.v + 1, 0.14);
-                SyncAllViews(true);
-            });
-            SpatialGrid.append(Cell);
-        }
-    }
-
-    const URail = Construct('div', 'pz-udim-u-rail', [
-        Construct('span', null, 'U0'),
-        Construct('span', null, 'U1'),
-        Construct('span', null, 'U2'),
-        Construct('span', null, 'U3')
+    const Table = Construct('div', 'pz-udim-table', [
+        Construct('div', 'pz-udim-colhead', [
+            Construct('span', null, ''),
+            Construct('span', null, 'Tile'),
+            Construct('span', null, 'Charts'),
+            Construct('span', null, 'Res'),
+            Construct('span', null, '')
+        ])
     ]);
-    Shell.append(Construct('div', 'pz-udim-coord-wrap', [VRail, SpatialGrid]), URail);
-    Body.append(Shell);
 
-    // 2. Active UDIM Resolution Deck & Tile Controls
-    const ActiveTile = Doc.udimTiles.find(T => T.id === Doc.activeUdim) || Doc.udimTiles[0];
+    const ResCycle = [512, 1024, 2048, 4096, 8192];
+    const SortedTiles = [...Doc.udimTiles].sort((A, B) => A.id - B.id);
+    for (const Tile of SortedTiles)
+    {
+        const IsAct = Tile.id === Doc.activeUdim;
+        const TileIslands = IslandsByTile.get(Tile.id) || [];
+        const OccPct = Math.min(100, (OccByTile.get(Tile.id) || 0) * 100);
+        const Res = Tile.resolution || 2048;
+        const ResLabel = Res >= 1024 ? `${Res / 1024}K` : `${Res}`;
+        const Orig = UdimOrigin(Tile.id);
+
+        const ResChip = Construct('button', 'pz-udim-res-chip', ResLabel);
+        ResChip.type = 'button';
+        ResChip.title = `Click to cycle UDIM ${Tile.id} resolution (512 / 1K / 2K / 4K / 8K)`;
+        ResChip.addEventListener('click', E =>
+        {
+            E.stopPropagation();
+            const Next = ResCycle[(ResCycle.indexOf(Res) + 1) % ResCycle.length];
+            Tile.resolution = Next;
+            Doc.activeUdim = Tile.id;
+            SyncAllViews(true);
+            Toast(`UDIM ${Tile.id} → ${Next >= 1024 ? Next / 1024 + 'K' : Next + 'px'}`);
+        });
+
+        const DelBtn = Construct('button', 'pz-prio-act danger', ConstructGlyph('Close'));
+        DelBtn.type = 'button';
+        DelBtn.title = `Remove UDIM ${Tile.id}`;
+        DelBtn.addEventListener('click', E =>
+        {
+            E.stopPropagation();
+            if (Doc.udimTiles.length <= 1) { Toast('At least 1 UDIM tile is required'); return; }
+            Doc.udimTiles = Doc.udimTiles.filter(T => T.id !== Tile.id);
+            if (Doc.activeUdim === Tile.id) Doc.activeUdim = Doc.udimTiles[0].id;
+            SyncAllViews(true);
+        });
+
+        const FillLine = Construct('span', 'pz-prio-bar');
+        FillLine.style.width = `${Math.max(2, OccPct)}%`;
+        FillLine.style.background = IsAct ? '#eff4cf' : '#585858';
+
+        const Row = Construct('div', `pz-udim-row${IsAct ? ' active' : ''}`, [
+            Construct('span', 'pz-udim-dot'),
+            Construct('div', 'pz-udim-id-cell', [
+                Construct('strong', null, String(Tile.id)),
+                Construct('small', null, `u${Orig.u}, v${Orig.v} · ${OccPct.toFixed(0)}%`)
+            ]),
+            Construct('span', 'pz-udim-occ-cell', `${TileIslands.length}`),
+            ResChip,
+            DelBtn,
+            FillLine
+        ]);
+        Row.title = `Focus UDIM ${Tile.id} (Shift+Click moves selected charts into ${Tile.id})`;
+        Row.addEventListener('click', E =>
+        {
+            Doc.activeUdim = Tile.id;
+            if (E.shiftKey && Doc.surface.selectedIslands.size > 0)
+            {
+                RunWithUndo(`Move Selection to UDIM ${Tile.id}`, () =>
+                {
+                    const Moved = Doc.surface.MoveIslandsToUdim([...Doc.surface.selectedIslands], Tile.id, Doc.islands);
+                    Toast(`Moved ${Moved} chart(s) to UDIM ${Tile.id}`);
+                });
+                return;
+            }
+            Canvas2D.FrameBounds(Orig.u, Orig.v, Orig.u + 1, Orig.v + 1, 0.14);
+            SyncAllViews(true);
+        });
+        Table.append(Row);
+    }
+    AtlasSec.Inner.append(Table);
+
+    // 3. Active Tile Resolution & Backing
     if (ActiveTile)
     {
         const ActiveIslands = IslandsByTile.get(ActiveTile.id) || [];
@@ -3185,9 +3193,9 @@ function RenderUdimTab(Body, Doc)
 
         const TileSec = SectionCard(Body, {
             Id: 'udim-tile-props',
-            Title: `UDIM ${ActiveTile.id} Resolution & Backing`,
-            Glyph: 'Grid',
-            Badge: `${ActiveTile.resolution >= 1024 ? ActiveTile.resolution / 1024 + 'K' : ActiveTile.resolution + 'px'} · ${TileAvgDen.toFixed(1)} px/cm`
+            Title: `UDIM ${ActiveTile.id} Settings`,
+            Glyph: 'Sliders',
+            Badge: `${TileAvgDen.toFixed(1)} px/cm`
         });
 
         const ResDeck = Construct('div', 'pz-udim-res-pills');
@@ -3216,58 +3224,10 @@ function RenderUdimTab(Body, Doc)
         TileSec.Inner.append(ResDeck);
 
         SegmentedRow(TileSec.Inner, {
-            Label: 'Backing Pattern',
+            Label: 'Backing',
             Options: [['Color', 'color'], ['UV Code', 'uv'], ['Checker', 'checker'], ['Slate', 'blank']],
             Read: () => ActiveTile.checkerMode || 'color',
             Write: V => { ActiveTile.checkerMode = V; SyncAllViews(); }
-        });
-
-        IconStripBlock(TileSec.Inner, {
-            Label: 'Tile Operations',
-            Meta: `${ActiveIslands.length} charts`,
-            Items: [
-                {
-                    Glyph: 'Move', Short: `Move → ${ActiveTile.id}`, Tone: 'accent', Title: `Move selected UV charts into UDIM ${ActiveTile.id}`,
-                    Act: () => RunWithUndo('Move to UDIM', () =>
-                    {
-                        if (!Doc.surface.selectedIslands.size) { Toast('Select UV charts first'); return; }
-                        const Moved = Doc.surface.MoveIslandsToUdim([...Doc.surface.selectedIslands], Doc.activeUdim, Doc.islands);
-                        Toast(`Moved ${Moved} chart(s) to UDIM ${Doc.activeUdim}`);
-                    })
-                },
-                {
-                    Glyph: 'Gauge', Short: 'Match Density', Title: 'Equalize texel density across mixed-resolution UDIM tiles',
-                    Act: () => RunWithUndo('Cross-UDIM Density Match', () =>
-                    {
-                        const TileResMap = new Map(Doc.udimTiles.map(T => [T.id, T.resolution || 2048]));
-                        const Islands = Doc.surface.ExtractIslands(Id => TileResMap.get(Id) || 2048, 100);
-                        const MeanDen = Islands.reduce((S, I) => S + I.texelDensity, 0) / Math.max(1, Islands.length);
-                        for (const Isl of Islands)
-                        {
-                            if (Isl.texelDensity <= 1e-6) continue;
-                            const K = MeanDen / Isl.texelDensity;
-                            const Cx = Isl.bounds.centerU, Cy = Isl.bounds.centerV;
-                            for (const UvIdx of Isl.uvIndices)
-                            {
-                                Doc.surface.uvCoords[UvIdx][0] = Cx + (Doc.surface.uvCoords[UvIdx][0] - Cx) * K;
-                                Doc.surface.uvCoords[UvIdx][1] = Cy + (Doc.surface.uvCoords[UvIdx][1] - Cy) * K;
-                            }
-                        }
-                        Toast(`Matched density across UDIMs (${MeanDen.toFixed(1)} px/cm)`);
-                    })
-                },
-                { Glyph: 'Upload', Title: 'Load custom reference texture onto active UDIM tile', Act: () => document.getElementById('tex-file-input').click() },
-                {
-                    Glyph: 'Trash', Title: 'Remove active UDIM tile',
-                    Act: () =>
-                    {
-                        if (Doc.udimTiles.length <= 1) { Toast('At least 1 UDIM tile is required'); return; }
-                        Doc.udimTiles = Doc.udimTiles.filter(T => T.id !== ActiveTile.id);
-                        Doc.activeUdim = Doc.udimTiles[0].id;
-                        SyncAllViews(true);
-                    }
-                }
-            ]
         });
     }
 }
@@ -4381,9 +4341,9 @@ function SetupKeyboardShortcuts()
             const Next = Order[(Order.indexOf(Viewport3D.shadingMode) + 1) % Order.length];
             Set3DShadingMode(Next);
             const Names = {
-                'lit-matcap': 'Lit + Multi-MatCap',
-                'fast-pbr': 'Fast PBR (Lit)',
-                'multi-matcap': 'Multi-MatCap Studio',
+                'lit-matcap': 'Material + MatCap',
+                'fast-pbr': 'Surface Material',
+                'multi-matcap': 'MatCap Studio',
                 flat: 'Flat · UV Charts',
                 'flat-slots': 'Flat · Face Slots',
                 checker: 'Flat · UV Checker',
@@ -4831,25 +4791,7 @@ function InitStudioIconsAndBindings()
     });
     document.getElementById('pz-new-folder-btn')?.addEventListener('click', () =>
     {
-        const Doc = ActiveDoc();
-        if (!Doc) return;
-        const SelectedIds = [...Doc.surface.selectedIslands];
-        if (!SelectedIds.length)
-        {
-            Toast('Select one or more UV charts first to group into a Folder');
-            return;
-        }
-        const NextNum = (Doc.customFolders?.length || 0) + 1;
-        const FolderColors = ['#f59e0b', '#60a5fa', '#34d399', '#a78bfa', '#f472b6'];
-        Doc.customFolders.push({
-            id: `cf-${Date.now()}`,
-            name: `Folder ${String(NextNum).padStart(2, '0')} (${SelectedIds.length})`,
-            color: FolderColors[(NextNum - 1) % FolderColors.length],
-            islandIds: SelectedIds
-        });
-        _lastOutlinerSig = null;
-        RenderOutliner(Doc);
-        Toast(`Grouped ${SelectedIds.length} chart(s) into Folder ${String(NextNum).padStart(2, '0')}`);
+        AssignSelectedIslandsToNewGroup(StudioState.pendingGroupPct);
     });
 
     // Viewport Camera Dropdown (Persp / Top / Front / Side / Frame)
