@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { EntityNotes, Icon } from "./Inspectors.jsx";
 import { FolderInventory, CollectionTypes } from "./FolderInventory.mjs";
+import { ColourSlotDropProps } from "./ColourCodex.js";
 import "./WorkspaceCards.css";
 const Count = (N) => N.toLocaleString("en");
 export default function FolderInspector({
@@ -12,6 +13,8 @@ export default function FolderInspector({
   Select,
   ToggleHidden,
 }) {
+  const LatestChange = useRef(Change);
+  LatestChange.current = Change;
   const Inventory = useMemo(
     () => FolderInventory(Rows, Subject.Id, Hidden),
     [Rows, Subject.Id, Hidden],
@@ -364,13 +367,20 @@ export default function FolderInspector({
           <i className="warm" />
           Collection notes
         </h2>
-        <label className="collection-tint">
+        <label
+          className="collection-tint"
+          {...ColourSlotDropProps({
+            Key: Subject.Id + ":Tint",
+            Label: Subject.Name + " · Collection accent",
+            AssignHex: (Hex) => LatestChange.current("Tint", Hex),
+          })}
+        >
           Collection accent
           <input
             type="color"
             aria-label="Collection tint"
             value={Values.Tint || "#9bacb4"}
-            onChange={(E) => Change("Tint", E.target.value)}
+            onChange={(E) => LatestChange.current("Tint", E.target.value)}
           />
         </label>
         <p>Identity colour only · child objects are unchanged.</p>

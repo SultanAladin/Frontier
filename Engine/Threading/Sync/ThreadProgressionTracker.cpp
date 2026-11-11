@@ -1,13 +1,13 @@
-/*============================================================================================================================================
-                                                           HEARTBEATMONITOR.CPP
-============================================================================================================================================*/
+/*==========================================================================================================================================
+                                                        THREADPROGRESSIONTRACKER.CPP
+==========================================================================================================================================*/
 // 🧩 Lock-free monotonic thread heartbeat implementation
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Threading/Sync/HeartbeatMonitor.h"
+#include "Engine/Threading/Sync/ThreadProgressionTracker.h"
 
 #include <algorithm>
 #include <chrono>
@@ -17,16 +17,16 @@ namespace Frontier::Threading
 {
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                 HEARTBEAT OPERATIONS
+//                                                 PROGRESSION TRACKER OPERATIONS
 //------------------------------------------------------------------------------------------------------------------------
 
-uint64_t HeartbeatMonitor::QueryMonotonicMicroseconds() noexcept
+uint64_t ThreadProgressionTracker::QueryMonotonicMicroseconds() noexcept
 {
     const auto Now = std::chrono::steady_clock::now().time_since_epoch();
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(Now).count());
 }
 
-uint32_t HeartbeatMonitor::RegisterThreadSlot(std::string_view ThreadLabel) noexcept
+uint32_t ThreadProgressionTracker::RegisterThreadSlot(std::string_view ThreadLabel) noexcept
 {
     const uint64_t InitialUs = QueryMonotonicMicroseconds();
     for (uint32_t Index = 0u; Index < Constants::MaximumMonitoredThreads; ++Index)
@@ -49,7 +49,7 @@ uint32_t HeartbeatMonitor::RegisterThreadSlot(std::string_view ThreadLabel) noex
     return 0u;
 }
 
-void HeartbeatMonitor::UnregisterThreadSlot(uint32_t SlotIndex) noexcept
+void ThreadProgressionTracker::UnregisterThreadSlot(uint32_t SlotIndex) noexcept
 {
     if (SlotIndex == 0u || SlotIndex > Constants::MaximumMonitoredThreads)
     {
@@ -60,7 +60,7 @@ void HeartbeatMonitor::UnregisterThreadSlot(uint32_t SlotIndex) noexcept
     Target.SlotOccupied.store(false, std::memory_order_release);
 }
 
-void HeartbeatMonitor::RegisterPulse(uint32_t SlotIndex, uint32_t ActiveTaskIdentifier) noexcept
+void ThreadProgressionTracker::RegisterPulse(uint32_t SlotIndex, uint32_t ActiveTaskIdentifier) noexcept
 {
     if (SlotIndex == 0u || SlotIndex > Constants::MaximumMonitoredThreads)
     {
@@ -72,12 +72,12 @@ void HeartbeatMonitor::RegisterPulse(uint32_t SlotIndex, uint32_t ActiveTaskIden
     Target.LatestPulseUs.store(QueryMonotonicMicroseconds(), std::memory_order_release);
 }
 
-HeartbeatReading HeartbeatMonitor::InspectSlot(
+ThreadProgressionReading ThreadProgressionTracker::InspectSlot(
     uint32_t SlotIndex,
     uint64_t WarningThresholdUs,
     uint64_t HangThresholdUs) const noexcept
 {
-    HeartbeatReading Reading{};
+    ThreadProgressionReading Reading{};
     if (SlotIndex == 0u || SlotIndex > Constants::MaximumMonitoredThreads)
     {
         return Reading;
@@ -115,7 +115,7 @@ HeartbeatReading HeartbeatMonitor::InspectSlot(
     return Reading;
 }
 
-uint32_t HeartbeatMonitor::QueryActiveSlotCount() const noexcept
+uint32_t ThreadProgressionTracker::QueryActiveSlotCount() const noexcept
 {
     uint32_t ActiveTotal = 0u;
     for (const CacheIsolatedSlot& Slot : Slots)
@@ -128,12 +128,12 @@ uint32_t HeartbeatMonitor::QueryActiveSlotCount() const noexcept
     return ActiveTotal;
 }
 
-uint32_t HeartbeatMonitor::QueryStalledSlotCount(uint64_t WarningThresholdUs) const noexcept
+uint32_t ThreadProgressionTracker::QueryStalledSlotCount(uint64_t WarningThresholdUs) const noexcept
 {
     uint32_t StalledTotal = 0u;
     for (uint32_t Index = 1u; Index <= Constants::MaximumMonitoredThreads; ++Index)
     {
-        const HeartbeatReading Reading = InspectSlot(Index, WarningThresholdUs, Constants::WatchdogHangThresholdUs);
+        const ThreadProgressionReading Reading = InspectSlot(Index, WarningThresholdUs, Constants::WatchdogHangThresholdUs);
         if (Reading.Condition == ThreadLivenessCondition::StallWarned ||
             Reading.Condition == ThreadLivenessCondition::Unresponsive)
         {

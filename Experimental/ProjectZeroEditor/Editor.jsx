@@ -34,6 +34,11 @@ import WindEditor from "./WindPanel.jsx";
 import AssetPanel from "./AssetPanel.jsx";
 import { RestoreAssets } from "./AssetDepot.js";
 import MaterialPanel from "./MaterialPanel.jsx";
+import { ResolveMaterial, ChangeChannel } from "./MaterialSpecification.js";
+import {
+  ApplyToActiveColourSlot,
+  GetActiveColourSlot,
+} from "./ColourCodex.js";
 import ShaderPanel from "./ShaderPanel.jsx";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createRoot } from "react-dom/client";
@@ -538,7 +543,44 @@ function App() {
     );
   const [AssetRecords, StoreAssets] = useState(RestoreAssets(Saved.Assets)),
     [AssetsOpen, OpenAssets] = useState(false),
+    [AssetsStage, SetAssetsStage] = useState("closed"),
+    [DraggingColour, SetDraggingColour] = useState(false),
+    [FocusedColourLabel, SetFocusedColourLabel] = useState(""),
     [ViewportSettings, ShowViewportSettings] = useState(false);
+  useEffect(() => {
+    const OnSlotChange = (Event) => {
+      if (Event.detail?.Label) SetFocusedColourLabel(Event.detail.Label);
+    };
+    const OnApplied = (Event) => {
+      if (Event.detail?.Colour && Event.detail?.TargetLabel) {
+        Notify(
+          `Applied ${Event.detail.Colour.Name} (${Event.detail.Colour.Hex}) → ${Event.detail.TargetLabel}`,
+        );
+      }
+    };
+    const OnFrameMessage = (Event) => {
+      if (!Event.data?.ReferenceInspector) return;
+      if (Event.data.Type === "colour-slot-focus" && Event.data.Label) {
+        SetFocusedColourLabel(Event.data.Label);
+      } else if (
+        Event.data.Type === "colour-applied" &&
+        Event.data.Colour &&
+        Event.data.TargetLabel
+      ) {
+        Notify(
+          `Applied ${Event.data.Colour.Name} (${Event.data.Colour.Hex}) → ${Event.data.TargetLabel}`,
+        );
+      }
+    };
+    window.addEventListener("frontier:colour-slot-change", OnSlotChange);
+    window.addEventListener("frontier:colour-applied", OnApplied);
+    window.addEventListener("message", OnFrameMessage);
+    return () => {
+      window.removeEventListener("frontier:colour-slot-change", OnSlotChange);
+      window.removeEventListener("frontier:colour-applied", OnApplied);
+      window.removeEventListener("message", OnFrameMessage);
+    };
+  }, []);
   const ToggleShade = (Next) => {
     OpenShade(Next);
     if (Next) OpenAssets(false);
@@ -1848,11 +1890,135 @@ function App() {
     ) : (
       <div className="empty-dock">Choose a panel from the + tab menu</div>
     );
+  const AssetsBlocking =
+    AssetsOpen && AssetsStage === "full" && !DraggingColour;
+  const ResolveFallbackColourSlot = () => {
+    if (ShaderAsset) {
+      return {
+        Label: ShaderAsset.Name + " · Base colour",
+        AssignHex: (Hex) =>
+          StoreAssets((Previous) =>
+            Previous.map((Asset) =>
+              Asset.Id === ShaderAsset.Id
+                ? {
+                    ...Asset,
+                    Material: ChangeChannel(
+                      ResolveMaterial({ Material: Asset.Material }),
+                      "colour",
+                      { Source: "Fill", Fill: Hex },
+                    ),
+                  }
+                : Asset,
+            ),
+          ),
+      };
+    }
+    if (Subject?.Panel === "geometry") {
+      return {
+        Label: Subject.Name + " · Base colour",
+        AssignHex: (Hex) =>
+          AssignValues((Previous) => ({
+            ...Previous,
+            [Subject.Id]: {
+              ...Previous[Subject.Id],
+              Material: ChangeChannel(
+                ResolveMaterial(Previous[Subject.Id] || {}),
+                "colour",
+                { Source: "Fill", Fill: Hex },
+              ),
+            },
+          })),
+      };
+    }
+    if (Subject?.Panel === "group") {
+      return {
+        Label: Subject.Name + " · Collection accent",
+        AssignHex: (Hex) =>
+          AssignValues((Previous) => ({
+            ...Previous,
+            [Subject.Id]: { ...Previous[Subject.Id], Tint: Hex },
+          })),
+      };
+    }
+    if (Subject?.Panel === "sun") {
+      return {
+        Label: Subject.Name + " · Sun Tint",
+        AssignHex: (Hex) =>
+          AssignValues((Previous) => ({
+            ...Previous,
+            [Subject.Id]: {
+              ...Previous[Subject.Id],
+              "Colour source": false,
+              "Sun Tint": Hex,
+            },
+          })),
+      };
+    }
+    const SheetFields = Panels[Subject?.Panel] || [];
+    const PrimaryColourField = SheetFields.find(
+      (Field) => Field.Control === "Colour" && !Field.ReadOnly,
+    );
+    if (Subject && PrimaryColourField) {
+      return {
+        Label: Subject.Name + " · " + PrimaryColourField.Label,
+        AssignHex: (Hex) =>
+          AssignValues((Previous) => ({
+            ...Previous,
+            [Subject.Id]: {
+              ...Previous[Subject.Id],
+              [PrimaryColourField.Label]: Hex,
+            },
+          })),
+      };
+    }
+    if (Subject && HasReferencePanel(Subject)) {
+      return {
+        Label: Subject.Name + " · Inspector colour",
+        AssignHex: (Hex) => {
+          for (const Frame of document.querySelectorAll(
+            "iframe.reference-inspector-frame",
+          )) {
+            Frame.contentWindow?.postMessage(
+              { ReferenceApplyColour: true, Hex },
+              "*",
+            );
+          }
+        },
+      };
+    }
+    const FirstGeometry = Rows.find((Row) => Row.Panel === "geometry");
+    if (FirstGeometry) {
+      return {
+        Label: FirstGeometry.Name + " · Base colour",
+        AssignHex: (Hex) =>
+          AssignValues((Previous) => ({
+            ...Previous,
+            [FirstGeometry.Id]: {
+              ...Previous[FirstGeometry.Id],
+              Material: ChangeChannel(
+                ResolveMaterial(Previous[FirstGeometry.Id] || {}),
+                "colour",
+                { Source: "Fill", Fill: Hex },
+              ),
+            },
+          })),
+      };
+    }
+    return null;
+  };
+  const ActiveSlot = GetActiveColourSlot();
+  const FallbackSlot = ResolveFallbackColourSlot();
+  const ActiveColourTargetLabel =
+    ActiveSlot && (!ActiveSlot.Element || ActiveSlot.Element.isConnected)
+      ? ActiveSlot.Label
+      : FallbackSlot?.Label || FocusedColourLabel;
   return (
     <>
       <main
         className={"workspace " + (Wide ? "inspector-workspace" : "")}
-        inert={Construct || Shade || AssetsOpen || WindSubject ? "" : undefined}
+        inert={
+          Construct || Shade || AssetsBlocking || WindSubject ? "" : undefined
+        }
         style={{ "--left": LeftWidth + "px", "--right": RightWidth + "px" }}
       >
         {["Left", "Centre", "Right"].map((Side) => (
@@ -1887,7 +2053,7 @@ function App() {
         ))}
       </main>
       {ShaderFloating && (
-        <div inert={Shade || AssetsOpen || WindSubject ? "" : undefined}>
+        <div inert={Shade || AssetsBlocking || WindSubject ? "" : undefined}>
           <ShaderPanel
             Close={() => FloatShader(false)}
             Dock={DockShader}
@@ -1920,6 +2086,12 @@ function App() {
             }))
           }
           EditMaterial={OpenShader}
+          ApplyColour={(ColourEntry) =>
+            ApplyToActiveColourSlot(ColourEntry, ResolveFallbackColourSlot())
+          }
+          ActiveColourTargetLabel={ActiveColourTargetLabel}
+          StageChange={SetAssetsStage}
+          OnColourDragChange={SetDraggingColour}
         />
         {Wide && (
           <button

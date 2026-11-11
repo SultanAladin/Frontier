@@ -31,20 +31,20 @@ bool TaskScheduler::Enqueue(ScheduledTaskUnit TaskUnit) noexcept
 BudgetWindowReport TaskScheduler::ExecuteBudgetedWindow(
     uint64_t          TickBudgetMicroseconds,
     uint64_t          SafetyMarginMicroseconds,
-    HeartbeatMonitor* Monitor,
-    uint32_t          HeartbeatSlot) noexcept
+    ThreadProgressionTracker* Monitor,
+    uint32_t          ProgressionSlot) noexcept
 {
     BudgetWindowReport Report{};
-    const uint64_t     WindowStartUs = HeartbeatMonitor::QueryMonotonicMicroseconds();
+    const uint64_t     WindowStartUs = ThreadProgressionTracker::QueryMonotonicMicroseconds();
     const uint64_t     EffectiveBudgetUs =
         TickBudgetMicroseconds > SafetyMarginMicroseconds ? (TickBudgetMicroseconds - SafetyMarginMicroseconds) : 0ull;
     const uint64_t WindowDeadlineUs = WindowStartUs + EffectiveBudgetUs;
 
     auto RegisterTaskPulse = [&](uint32_t TaskIdentifier) noexcept
     {
-        if (Monitor != nullptr && HeartbeatSlot != 0u)
+        if (Monitor != nullptr && ProgressionSlot != 0u)
         {
-            Monitor->RegisterPulse(HeartbeatSlot, TaskIdentifier);
+            Monitor->RegisterPulse(ProgressionSlot, TaskIdentifier);
         }
     };
 
@@ -70,7 +70,7 @@ BudgetWindowReport TaskScheduler::ExecuteBudgetedWindow(
 
         if (BoundChannel.TryDequeueTier(TaskPriorityTier::WorkspaceAuthoring, Unit))
         {
-            const uint64_t NowUs = HeartbeatMonitor::QueryMonotonicMicroseconds();
+            const uint64_t NowUs = ThreadProgressionTracker::QueryMonotonicMicroseconds();
             RegisterTaskPulse(Unit.TaskIdentifier);
             Unit.Execute();
             ++Report.AuthoringExecuted;
@@ -94,7 +94,7 @@ BudgetWindowReport TaskScheduler::ExecuteBudgetedWindow(
             ++Report.ImmediateExecuted;
         }
 
-        const uint64_t NowUs = HeartbeatMonitor::QueryMonotonicMicroseconds();
+        const uint64_t NowUs = ThreadProgressionTracker::QueryMonotonicMicroseconds();
         if (NowUs >= WindowDeadlineUs)
         {
             break;
@@ -112,7 +112,7 @@ BudgetWindowReport TaskScheduler::ExecuteBudgetedWindow(
     }
 
     RegisterTaskPulse(0u);
-    const uint64_t EndUs              = HeartbeatMonitor::QueryMonotonicMicroseconds();
+    const uint64_t EndUs              = ThreadProgressionTracker::QueryMonotonicMicroseconds();
     Report.ElapsedMicroseconds        = EndUs >= WindowStartUs ? (EndUs - WindowStartUs) : 0ull;
     Report.RemainingBudgetUs          = WindowDeadlineUs > EndUs ? (WindowDeadlineUs - EndUs) : 0ull;
     Report.DeferredOpportunisticCount = static_cast<uint32_t>(BoundChannel.PendingCountForTier(TaskPriorityTier::OpportunisticSlack));

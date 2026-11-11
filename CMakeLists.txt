@@ -178,9 +178,9 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/Input/InputExtension.cpp
     Engine/Lifecycle/RuntimeLifecycle.cpp
     Engine/Windowing/PlatformWindowStub.cpp
-    Engine/Threading/Sync/HeartbeatMonitor.cpp
+    Engine/Threading/Sync/ThreadProgressionTracker.cpp
     Engine/Threading/Tasks/TaskChannel.cpp
-    Engine/Threading/Tasks/ExecutionCluster.cpp
+    Engine/Threading/Tasks/ExecutionChannels.cpp
     Engine/Threading/Tasks/TaskScheduler.cpp
     Engine/Threading/Threads/Workspace/WorkspaceThread.cpp
     Engine/Codecs/SpaceContainerCodec.cpp

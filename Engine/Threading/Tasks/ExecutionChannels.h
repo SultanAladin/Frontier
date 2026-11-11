@@ -1,6 +1,6 @@
-/*============================================================================================================================================
-                                                            EXECUTIONCLUSTER.H
-============================================================================================================================================*/
+/*==========================================================================================================================================
+                                                            EXECUTIONCHANNELS.H
+==========================================================================================================================================*/
 // 🧩 Cooperative work-stealing parallel execution cluster eliminating dependent-task sleep hangs
 
 #pragma once
@@ -10,7 +10,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Threading/Sync/CompletionCounter.h"
-#include "Engine/Threading/Sync/HeartbeatMonitor.h"
+#include "Engine/Threading/Sync/ThreadProgressionTracker.h"
 #include "Engine/Threading/Tasks/TaskChannel.h"
 #include "Engine/Threading/Tasks/TaskQueue.h"
 
@@ -30,7 +30,7 @@ namespace Frontier::Threading
 //                                                       STRUCTURES
 //------------------------------------------------------------------------------------------------------------------------
 
-struct ClusterTelemetrySnapshot
+struct ChannelsTelemetrySnapshot
 {
     uint32_t LaneCount          = 0u;   // [count] - Configured parallel execution lanes
     uint64_t TasksEnqueued      = 0ull; // [count] - Cumulative tasks enqueued into cluster
@@ -39,18 +39,18 @@ struct ClusterTelemetrySnapshot
     uint64_t CrossLaneSteals    = 0ull; // [count] - Tasks stolen across lane deques
 };
 
-class ExecutionCluster
+class ExecutionChannels
 {
 public:
-    ExecutionCluster() = default;
-    ~ExecutionCluster() noexcept;
+    ExecutionChannels() = default;
+    ~ExecutionChannels() noexcept;
 
-    ExecutionCluster(const ExecutionCluster&)            = delete;
-    ExecutionCluster& operator=(const ExecutionCluster&) = delete;
+    ExecutionChannels(const ExecutionChannels&)            = delete;
+    ExecutionChannels& operator=(const ExecutionChannels&) = delete;
 
     bool Initialize(
         uint32_t          RequestedLaneCount = 0u,
-        HeartbeatMonitor* Monitor            = nullptr,
+        ThreadProgressionTracker* Monitor            = nullptr,
         std::size_t       ChannelCapacity    = Constants::DefaultTaskChannelCapacity);
 
     void Finalize() noexcept;
@@ -67,16 +67,16 @@ public:
     [[nodiscard]] const TaskChannel&       AccessChannel() const noexcept { return *SharedChannel; }
     [[nodiscard]] uint32_t                 QueryLaneCount() const noexcept { return ConfiguredLaneCount; }
     [[nodiscard]] bool                     QueryActive() const noexcept { return RunningMarker.load(std::memory_order_acquire); }
-    [[nodiscard]] ClusterTelemetrySnapshot InspectTelemetry() const noexcept;
+    [[nodiscard]] ChannelsTelemetrySnapshot InspectTelemetry() const noexcept;
 
 private:
     void RunLaneLoop(uint32_t LaneIndex) noexcept;
 
     uint32_t                                ConfiguredLaneCount = 0u;      // [count] - Number of active OS execution lanes
-    HeartbeatMonitor*                       BoundMonitor        = nullptr; // [-]     - Optional watchdog monitor
+    ThreadProgressionTracker*                       BoundMonitor        = nullptr; // [-]     - Optional watchdog monitor
     std::unique_ptr<TaskChannel>            SharedChannel       {};        // [-]     - Priority-stratified intake channel
     std::vector<std::unique_ptr<TaskQueue>> LaneDeques          {};        // [-]     - Per-lane work-stealing deques
-    std::vector<uint32_t>                   HeartbeatSlots      {};        // [idx]   - Registered watchdog slots per lane
+    std::vector<uint32_t>                   ProgressionSlots      {};        // [idx]   - Registered watchdog slots per lane
     std::vector<std::thread>                LaneThreads         {};        // [-]     - Dedicated OS execution lanes
     std::atomic<bool>                       RunningMarker       { false }; // [-]     - Cluster lifecycle indicator
     std::atomic<uint32_t>                   RoundRobinCursor    { 0u };    // [idx]   - Lane distribution cursor

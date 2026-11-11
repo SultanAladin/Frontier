@@ -1,6 +1,6 @@
-/*============================================================================================================================================
-                                                            HEARTBEATMONITOR.H
-============================================================================================================================================*/
+/*==========================================================================================================================================
+                                                         THREADPROGRESSIONTRACKER.H
+==========================================================================================================================================*/
 // 🧩 Cache-line-isolated lock-free thread liveness and active task-tag monitor for out-of-band stall detection
 
 #pragma once
@@ -36,7 +36,7 @@ enum class ThreadLivenessCondition : uint8_t
 //                                                       STRUCTURES
 //------------------------------------------------------------------------------------------------------------------------
 
-struct HeartbeatReading
+struct ThreadProgressionReading
 {
     uint32_t                SlotIndex            = 0u;                              // [idx]   - Registered monitor slot index
     std::string_view        ThreadLabel          {};                                // [-]     - Human-readable thread identifier
@@ -47,12 +47,12 @@ struct HeartbeatReading
     ThreadLivenessCondition Condition            = ThreadLivenessCondition::Inactive; // [-]   - Evaluated stall condition
 };
 
-class HeartbeatMonitor
+class ThreadProgressionTracker
 {
 public:
-    HeartbeatMonitor() noexcept = default;
-    HeartbeatMonitor(const HeartbeatMonitor&)            = delete;
-    HeartbeatMonitor& operator=(const HeartbeatMonitor&) = delete;
+    ThreadProgressionTracker() noexcept = default;
+    ThreadProgressionTracker(const ThreadProgressionTracker&)            = delete;
+    ThreadProgressionTracker& operator=(const ThreadProgressionTracker&) = delete;
 
     [[nodiscard]] static uint64_t QueryMonotonicMicroseconds() noexcept;
 
@@ -60,7 +60,7 @@ public:
     void                   UnregisterThreadSlot(uint32_t SlotIndex) noexcept;
     void                   RegisterPulse(uint32_t SlotIndex, uint32_t ActiveTaskIdentifier = 0u) noexcept;
 
-    [[nodiscard]] HeartbeatReading InspectSlot(
+    [[nodiscard]] ThreadProgressionReading InspectSlot(
         uint32_t SlotIndex,
         uint64_t WarningThresholdUs = Constants::WatchdogWarningThresholdUs,
         uint64_t HangThresholdUs    = Constants::WatchdogHangThresholdUs) const noexcept;

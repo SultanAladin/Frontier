@@ -1,13 +1,13 @@
-/*============================================================================================================================================
-                                                           EXECUTIONCLUSTER.CPP
-============================================================================================================================================*/
+/*==========================================================================================================================================
+                                                           EXECUTIONCHANNELS.CPP
+==========================================================================================================================================*/
 // 🧩 Cooperative parallel execution cluster implementation
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Threading/Tasks/ExecutionCluster.h"
+#include "Engine/Threading/Tasks/ExecutionChannels.h"
 
 #include <algorithm>
 #include <chrono>
@@ -21,14 +21,14 @@ namespace Frontier::Threading
 //                                                  CLUSTER OPERATIONS
 //------------------------------------------------------------------------------------------------------------------------
 
-ExecutionCluster::~ExecutionCluster() noexcept
+ExecutionChannels::~ExecutionChannels() noexcept
 {
     Finalize();
 }
 
-bool ExecutionCluster::Initialize(
+bool ExecutionChannels::Initialize(
     uint32_t          RequestedLaneCount,
-    HeartbeatMonitor* Monitor,
+    ThreadProgressionTracker* Monitor,
     std::size_t       ChannelCapacity)
 {
     if (RunningMarker.load(std::memory_order_acquire))
@@ -45,14 +45,14 @@ bool ExecutionCluster::Initialize(
 
     LaneDeques.clear();
     LaneDeques.reserve(ConfiguredLaneCount);
-    HeartbeatSlots.assign(ConfiguredLaneCount, 0u);
+    ProgressionSlots.assign(ConfiguredLaneCount, 0u);
     for (uint32_t Index = 0u; Index < ConfiguredLaneCount; ++Index)
     {
         LaneDeques.push_back(std::make_unique<TaskQueue>(ChannelCapacity));
         if (BoundMonitor != nullptr)
         {
-            const std::string Label = "ClusterLane-" + std::to_string(Index);
-            HeartbeatSlots[Index]   = BoundMonitor->RegisterThreadSlot(Label);
+            const std::string Label = "ExecutionChannel-" + std::to_string(Index);
+            ProgressionSlots[Index]   = BoundMonitor->RegisterThreadSlot(Label);
         }
     }
 
@@ -65,7 +65,7 @@ bool ExecutionCluster::Initialize(
     return true;
 }
 
-void ExecutionCluster::Finalize() noexcept
+void ExecutionChannels::Finalize() noexcept
 {
     if (!RunningMarker.exchange(false, std::memory_order_acq_rel))
     {
@@ -84,7 +84,7 @@ void ExecutionCluster::Finalize() noexcept
 
     if (BoundMonitor != nullptr)
     {
-        for (uint32_t Slot : HeartbeatSlots)
+        for (uint32_t Slot : ProgressionSlots)
         {
             if (Slot != 0u)
             {
@@ -92,11 +92,11 @@ void ExecutionCluster::Finalize() noexcept
             }
         }
     }
-    HeartbeatSlots.clear();
+    ProgressionSlots.clear();
     LaneDeques.clear();
 }
 
-bool ExecutionCluster::EnqueueTask(ScheduledTaskUnit TaskUnit) noexcept
+bool ExecutionChannels::EnqueueTask(ScheduledTaskUnit TaskUnit) noexcept
 {
     if (!SharedChannel)
     {
@@ -122,7 +122,7 @@ bool ExecutionCluster::EnqueueTask(ScheduledTaskUnit TaskUnit) noexcept
     return Enqueued;
 }
 
-bool ExecutionCluster::ExecuteOneAvailableTask(
+bool ExecutionChannels::ExecuteOneAvailableTask(
     TaskPriorityTier LowestPermittedTier,
     uint32_t         PreferredLaneIndex) noexcept
 {
@@ -174,7 +174,7 @@ bool ExecutionCluster::ExecuteOneAvailableTask(
     return false;
 }
 
-void ExecutionCluster::AssistUntilComplete(CompletionCounter& Counter) noexcept
+void ExecutionChannels::AssistUntilComplete(CompletionCounter& Counter) noexcept
 {
     while (!Counter.Completed())
     {
@@ -189,9 +189,9 @@ void ExecutionCluster::AssistUntilComplete(CompletionCounter& Counter) noexcept
     }
 }
 
-ClusterTelemetrySnapshot ExecutionCluster::InspectTelemetry() const noexcept
+ChannelsTelemetrySnapshot ExecutionChannels::InspectTelemetry() const noexcept
 {
-    ClusterTelemetrySnapshot Snapshot{};
+    ChannelsTelemetrySnapshot Snapshot{};
     Snapshot.LaneCount          = ConfiguredLaneCount;
     Snapshot.TasksEnqueued      = EnqueuedCounter.load(std::memory_order_relaxed);
     Snapshot.TasksExecuted      = ExecutedCounter.load(std::memory_order_relaxed);
@@ -200,14 +200,14 @@ ClusterTelemetrySnapshot ExecutionCluster::InspectTelemetry() const noexcept
     return Snapshot;
 }
 
-void ExecutionCluster::RunLaneLoop(uint32_t LaneIndex) noexcept
+void ExecutionChannels::RunLaneLoop(uint32_t LaneIndex) noexcept
 {
-    const uint32_t HeartbeatSlot = LaneIndex < HeartbeatSlots.size() ? HeartbeatSlots[LaneIndex] : 0u;
+    const uint32_t ProgressionSlot = LaneIndex < ProgressionSlots.size() ? ProgressionSlots[LaneIndex] : 0u;
     while (RunningMarker.load(std::memory_order_acquire))
     {
-        if (BoundMonitor != nullptr && HeartbeatSlot != 0u)
+        if (BoundMonitor != nullptr && ProgressionSlot != 0u)
         {
-            BoundMonitor->RegisterPulse(HeartbeatSlot, 0u);
+            BoundMonitor->RegisterPulse(ProgressionSlot, 0u);
         }
 
         if (ExecuteOneAvailableTask(TaskPriorityTier::OpportunisticSlack, LaneIndex))

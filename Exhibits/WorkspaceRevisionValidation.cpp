@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                       WORKSPACEREVISIONVALIDATION.CPP
 ============================================================================================================================================*/
-// 🧩 Validation suite for Two-Tier .Space Codecs, 215/750 MiB Parametric Revision, Priority-Budgeted ExecutionCluster, & WorkspaceThread
+// 🧩 Validation suite for Two-Tier .Space Codecs, 215/750 MiB Parametric Revision, Priority-Budgeted ExecutionChannels, & WorkspaceThread
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
@@ -29,8 +29,8 @@
 #include "Engine/Lifecycle/LifecycleSequence.h"
 #include "Engine/Threading/Sync/AtomicQueue.h"
 #include "Engine/Threading/Sync/CompletionCounter.h"
-#include "Engine/Threading/Sync/HeartbeatMonitor.h"
-#include "Engine/Threading/Tasks/ExecutionCluster.h"
+#include "Engine/Threading/Sync/ThreadProgressionTracker.h"
+#include "Engine/Threading/Tasks/ExecutionChannels.h"
 #include "Engine/Threading/Tasks/TaskChannel.h"
 #include "Engine/Threading/Tasks/TaskScheduler.h"
 #include "Engine/Threading/Threads/Workspace/WorkspaceThread.h"
@@ -228,8 +228,8 @@ namespace
     ImageModel.Layers.push_back({ "PrimaryLayer", 1.0, true });
     ImageModel.LinearRgbaPreview = { 0.23f, 0.51f, 0.96f, 1.0f };
     ImageSpaceDocumentModel ImageDecoded{};
-    if (!VerifyCondition(ImageEncoder::EncodeToFile(ScratchDir / "Composite.ImageSpace", ImageModel, Diagnostic), "Encode .ImageSpace") ||
-        !VerifyCondition(ImageDecoder::DecodeFromFile(ScratchDir / "Composite.ImageSpace", ImageDecoded, Diagnostic), "Decode .ImageSpace") ||
+    if (!VerifyCondition(ImageEncoder::EncodeToFile(ScratchDir / "Layered.ImageSpace", ImageModel, Diagnostic), "Encode .ImageSpace") ||
+        !VerifyCondition(ImageDecoder::DecodeFromFile(ScratchDir / "Layered.ImageSpace", ImageDecoded, Diagnostic), "Decode .ImageSpace") ||
         !VerifyCondition(ImageDecoded.Layers.size() == 1u && ImageDecoded.LinearRgbaPreview.size() == 4u, ".ImageSpace round-trip"))
     {
         return false;
@@ -430,13 +430,13 @@ namespace
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//             SUITE 3: PRIORITY-BUDGETED TASKSCHEDULER, ANTI-HANG EXECUTIONCLUSTER, & WORKSPACETHREAD
+//             SUITE 3: PRIORITY-BUDGETED TASKSCHEDULER, ANTI-HANG EXECUTIONCHANNELS, & WORKSPACETHREAD
 //------------------------------------------------------------------------------------------------------------------------
 
 [[nodiscard]] bool ValidatePriorityThreadingAndWorkspaceThread(
     const std::filesystem::path&              ScratchDir,
     Frontier::Threading::BudgetWindowReport&  OutWindowReport,
-    Frontier::Threading::ClusterTelemetrySnapshot& OutClusterTelemetry,
+    Frontier::Threading::ChannelsTelemetrySnapshot& OutClusterTelemetry,
     Frontier::Threading::PublishedWorkspaceSnapshot& OutWorkspaceSnapshot)
 {
     using namespace Frontier::Threading;
@@ -495,10 +495,10 @@ namespace
         return false;
     }
 
-    // 2. Verify anti-hang cooperative AssistUntilComplete + CompletionCounter continuation on a 1-lane ExecutionCluster!
-    HeartbeatMonitor Monitor;
-    ExecutionCluster SingleLaneCluster;
-    if (!VerifyCondition(SingleLaneCluster.Initialize(1u, &Monitor, 128u), "1-lane ExecutionCluster Initialize"))
+    // 2. Verify anti-hang cooperative AssistUntilComplete + CompletionCounter continuation on a 1-lane ExecutionChannels!
+    ThreadProgressionTracker Monitor;
+    ExecutionChannels SingleLaneCluster;
+    if (!VerifyCondition(SingleLaneCluster.Initialize(1u, &Monitor, 128u), "1-lane ExecutionChannels Initialize"))
     {
         return false;
     }
@@ -511,7 +511,7 @@ namespace
     OuterTask.PriorityTier   = TaskPriorityTier::WorkspaceAuthoring;
     OuterTask.Callable       = [&]()
     {
-        // Inside the ONLY cluster lane, spawn 4 dependent tasks AND wait via AssistUntilComplete (would deadlock a sleep-wait pool!).
+        // Inside the ONLY execution channel lane, spawn 4 dependent tasks AND wait via AssistUntilComplete (would deadlock a sleep-wait setup!).
         CompletionCounter InnerCounter(4u);
         CompletionCounter ContinuationDone(1u);
         InnerCounter.AttachContinuation(
@@ -544,7 +544,7 @@ namespace
     SingleLaneCluster.Finalize();
 
     if (!VerifyCondition(NestedChainAccumulator.load() == 104u, "Nested dependent tasks + continuation completed with zero deadlock") ||
-        !VerifyCondition(OutClusterTelemetry.TasksExecuted >= 5ull, "ExecutionCluster executed outer + nested dependent tasks"))
+        !VerifyCondition(OutClusterTelemetry.TasksExecuted >= 5ull, "ExecutionChannels executed outer + nested dependent tasks"))
     {
         return false;
     }
@@ -589,8 +589,8 @@ namespace
     }
 
     const CrossWorkspacePublication LatestPub = Workspaces.InspectExchange().InspectLatestPublication();
-    const uint32_t                  HbSlot    = Workspaces.InspectWorkspaceThread().QueryHeartbeatSlot();
-    const HeartbeatReading          HbReading = Workspaces.InspectHeartbeatMonitor().InspectSlot(HbSlot);
+    const uint32_t                  HbSlot    = Workspaces.InspectWorkspaceThread().QueryProgressionSlot();
+    const ThreadProgressionReading          HbReading = Workspaces.InspectThreadProgressionTracker().InspectSlot(HbSlot);
     OutWorkspaceSnapshot                      = Workspaces.InspectPublishedSnapshot();
 
     const bool ValidatedAsync =
@@ -598,8 +598,8 @@ namespace
         VerifyCondition(LatestPub.PublicationGeneration >= 3ull && LatestPub.AffectedUDIMNumber == 1011u,
                         "WorkspaceExchange published live UDIM 1011 update") &&
         VerifyCondition(HbReading.Condition == ThreadLivenessCondition::Healthy &&
-                            Workspaces.InspectHeartbeatMonitor().QueryStalledSlotCount() == 0u,
-                        "HeartbeatMonitor reports Healthy WorkspaceThread & 0 stalled slots") &&
+                            Workspaces.InspectThreadProgressionTracker().QueryStalledSlotCount() == 0u,
+                        "ThreadProgressionTracker reports Healthy WorkspaceThread & 0 stalled slots") &&
         VerifyCondition(OutWorkspaceSnapshot.GenerationStamp >= 2ull && OutWorkspaceSnapshot.ActiveDocumentCount == 1u,
                         "Lock-free PublishedWorkspaceSnapshot reflects active document");
 
@@ -614,7 +614,7 @@ namespace
 [[nodiscard]] bool RenderVisualValidationDashboard(
     const std::filesystem::path&                            OutputDirectory,
     const Frontier::Threading::BudgetWindowReport&          WindowReport,
-    const Frontier::Threading::ClusterTelemetrySnapshot&    ClusterTelemetry,
+    const Frontier::Threading::ChannelsTelemetrySnapshot&    ClusterTelemetry,
     const Frontier::Threading::PublishedWorkspaceSnapshot&  WorkspaceSnapshot)
 {
     std::filesystem::create_directories(OutputDirectory);
@@ -757,7 +757,7 @@ namespace
         CanvasList->AddText(ImVec2(628.0f, 746.0f), EmeraldOk, "- Lossless Multi-Resolution Replay: VERIFIED");
         CanvasList->PopClipRect();
 
-        // Right Column: Option A Priority-Budgeted ExecutionCluster & WorkspaceThread
+        // Right Column: Option A Priority-Budgeted ExecutionChannels & WorkspaceThread
         const ImVec2 Col3Min(1148.0f, 72.0f);
         const ImVec2 Col3Max(1680.0f, 896.0f);
         CanvasList->AddRectFilled(Col3Min, Col3Max, PanelFill, 8.0f);
@@ -810,7 +810,7 @@ namespace
             static_cast<unsigned long long>(WorkspaceSnapshot.GenerationStamp),
             WorkspaceSnapshot.ActiveDocumentCount);
         CanvasList->AddText(ImVec2(1184.0f, 548.0f), CrispText, SnapshotLine1);
-        CanvasList->AddText(ImVec2(1184.0f, 580.0f), EmeraldOk, "HeartbeatMonitor: Healthy (0 Stalled)");
+        CanvasList->AddText(ImVec2(1184.0f, 580.0f), EmeraldOk, "ThreadProgressionTracker: Healthy (0 Stalled)");
         CanvasList->AddText(ImVec2(1184.0f, 612.0f), EmeraldOk, "WorkspaceExchange: UDIM 1011 Published");
         CanvasList->AddText(ImVec2(1184.0f, 644.0f), MutedText, "Other Domain Threads: Deferred per Scope");
         CanvasList->PopClipRect();
@@ -856,7 +856,7 @@ int main()
     }
 
     Frontier::Threading::BudgetWindowReport         WindowReport{};
-    Frontier::Threading::ClusterTelemetrySnapshot   ClusterTelemetry{};
+    Frontier::Threading::ChannelsTelemetrySnapshot   ClusterTelemetry{};
     Frontier::Threading::PublishedWorkspaceSnapshot WorkspaceSnapshot{};
     if (!ValidatePriorityThreadingAndWorkspaceThread(ScratchDir, WindowReport, ClusterTelemetry, WorkspaceSnapshot))
     {
@@ -869,6 +869,6 @@ int main()
     }
 
     std::filesystem::remove_all(ScratchDir, CleanupError);
-    std::printf("[WorkspaceRevisionValidation] All .Space Codecs, 215/750 MiB Revision, ExecutionCluster, and WorkspaceThread checks passed.\n");
+    std::printf("[WorkspaceRevisionValidation] All .Space Codecs, 215/750 MiB Revision, ExecutionChannels, and WorkspaceThread checks passed.\n");
     return 0;
 }

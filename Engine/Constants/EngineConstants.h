@@ -25,6 +25,6 @@ inline constexpr std::size_t ContainerBinaryAlignmentBytes      = 64u;          
 inline constexpr std::size_t DefaultTaskChannelCapacity         = 1024u;                         // [count] - Bounded lock-free task ring capacity
 inline constexpr std::size_t DefaultDocumentRevisionBudgetBytes = 215ull * 1024ull * 1024ull;    // [B]     - Per-document parametric revision ceiling (215 MiB)
 inline constexpr std::size_t DefaultGlobalRevisionBudgetBytes   = 750ull * 1024ull * 1024ull;    // [B]     - Application-wide undo ceiling (750 MiB)
-inline constexpr uint32_t    MaximumMonitoredThreads            = 64u;                           // [count] - Maximum HeartbeatMonitor thread slots
+inline constexpr uint32_t    MaximumMonitoredThreads            = 64u;                           // [count] - Maximum ThreadProgressionTracker thread slots
 
 } // namespace Frontier::Constants

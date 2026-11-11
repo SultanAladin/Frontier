@@ -11,6 +11,8 @@ export default function DrawerPanel({
   Name,
   ClassName = "",
   Escape,
+  StageChange,
+  RequestedRest,
   children,
 }) {
   const [Extent, Resize] = useState(innerHeight - 36),
@@ -24,6 +26,17 @@ export default function DrawerPanel({
     SuppressClick = useRef(false);
   const Direction = Edge === "top" ? 1 : -1;
   const Progress = Travel ?? Rest;
+  const CurrentStage =
+    Progress === 0 ? "closed" : Progress === 1 ? "full" : "half";
+  useEffect(() => {
+    StageChange?.(CurrentStage);
+  }, [CurrentStage]);
+  useEffect(() => {
+    if (RequestedRest && Open && typeof RequestedRest.Value === "number") {
+      Snap(RequestedRest.Value);
+      Slide(null);
+    }
+  }, [RequestedRest?.Token]);
   useEffect(() => {
     const Resized = () => {
       Gesture.current = null;
@@ -62,7 +75,7 @@ export default function DrawerPanel({
       (!FromHandle &&
         (!Open ||
           (Event.target.closest(
-            "button,input,select,textarea,a,[contenteditable=true],[data-drawer-scroll]",
+            "button,input,select,textarea,a,[contenteditable=true],[data-drawer-scroll],[draggable=true]",
           ) &&
             !Event.target.closest(".drawer-page-grip"))))
     )
@@ -201,7 +214,11 @@ export default function DrawerPanel({
         className="drawer-surface"
         role={Edge === "bottom" ? "dialog" : "region"}
         aria-label={Label + " drawer"}
-        aria-modal={Edge === "bottom" && Open ? "true" : undefined}
+        aria-modal={
+          Edge === "bottom" && Open && CurrentStage === "full"
+            ? "true"
+            : undefined
+        }
         aria-hidden={!Open && Travel === null ? "true" : undefined}
         inert={!Open && Travel === null ? "" : undefined}
       >

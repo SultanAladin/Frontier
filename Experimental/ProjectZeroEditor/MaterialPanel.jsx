@@ -17,6 +17,7 @@ import {
   GradientCss,
   GradientValue,
 } from "./MaterialSpecification.js";
+import { ColourSlotDropProps } from "./ColourCodex.js";
 import "./MaterialPanel.css";
 
 function NumericInput(Props) {
@@ -35,17 +36,25 @@ function NumericInput(Props) {
   );
 }
 
-function ValueInput({ Field, Value, Change, Label }) {
+function ValueInput({ Field, Value, Change, Label, SlotTitle }) {
   const [Draft, EditDraft] = useState(String(Value));
+  const LatestChange = useRef(Change);
+  LatestChange.current = Change;
   useEffect(() => EditDraft(String(Value)), [Value]);
   if (Field.Kind === "Colour")
     return (
-      <div className="colour-input">
+      <div
+        className="colour-input"
+        {...ColourSlotDropProps({
+          Label: SlotTitle || Label,
+          AssignHex: (Hex) => LatestChange.current(Hex),
+        })}
+      >
         <input
           aria-label={Label}
           type="color"
           value={Value}
-          onChange={(Event) => Change(Event.target.value)}
+          onChange={(Event) => LatestChange.current(Event.target.value)}
         />
         <input
           aria-label={Label + " hex"}
@@ -53,7 +62,7 @@ function ValueInput({ Field, Value, Change, Label }) {
           maxLength={7}
           onChange={(Event) => EditDraft(Event.target.value)}
           onBlur={() => {
-            if (/^#[0-9a-f]{6}$/i.test(Draft)) Change(Draft);
+            if (/^#[0-9a-f]{6}$/i.test(Draft)) LatestChange.current(Draft);
             else EditDraft(String(Value));
           }}
           onKeyDown={(Event) => {
@@ -340,6 +349,10 @@ function SourceEditor({ Field, Channel, Change }) {
             <div
               className="large-colour"
               style={{ background: Channel.Fill }}
+              {...ColourSlotDropProps({
+                Label: Field.Label + " fill",
+                AssignHex: (Hex) => Change({ Fill: Hex }),
+              })}
             />
           )}
           <ValueInput
@@ -529,13 +542,15 @@ export default function MaterialPanel({
   Compact = false,
 }) {
   const Material = useMemo(() => ResolveMaterial(Values), [Values]),
-    Latest = useRef(Material);
+    Latest = useRef(Material),
+    LatestChange = useRef(Change);
   Latest.current = Material;
+  LatestChange.current = Change;
   const [Selected, Select] = useState("colour"),
     [Query, Search] = useState("");
   const Field = MaterialChannels.find((Item) => Item.Id === Selected),
     Channel = Material.Channels[Selected];
-  const Apply = (Next) => Change("Material", Next);
+  const Apply = (Next) => LatestChange.current("Material", Next);
   const Assign = (Id, Patch) => Apply(ChangeChannel(Latest.current, Id, Patch));
   const Authored = Object.values(Material.Channels).filter(
     (Item) => Item.Source !== "Fill",
@@ -641,6 +656,16 @@ export default function MaterialPanel({
                   data-material-channel={Item.Id}
                   aria-pressed={Selected === Item.Id}
                   onClick={() => Select(Item.Id)}
+                  {...(Item.Kind === "Colour"
+                    ? ColourSlotDropProps({
+                        Key: Subject.Id + ":material:" + Item.Id,
+                        Label: Subject.Name + " · " + Item.Label,
+                        AssignHex: (Hex) => {
+                          Select(Item.Id);
+                          Assign(Item.Id, { Source: "Fill", Fill: Hex });
+                        },
+                      })
+                    : {})}
                 >
                   <span
                     className="channel-swatch"
