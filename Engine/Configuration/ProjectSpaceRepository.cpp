@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                       PROJECTSPACEARCHIVE.CPP
+                                                          PROJECTSPACEREPOSITORY.CPP
 ============================================================================================================================================*/
 // 🧩 Atomic PascalCase persistence for .projectspace documents containing .visualappearance, .FontSpace, and .workspacelayout
 
@@ -7,7 +7,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Configuration/ProjectSpaceArchive.h"
+#include "Engine/Configuration/ProjectSpaceRepository.h"
 
 #include <toml++/toml.hpp>
 
@@ -23,7 +23,7 @@ namespace
 {
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                              PASCALCASE ENUM SERIALIZATION
+//                                             PASCALCASE ENUM SERIALIZATION
 //------------------------------------------------------------------------------------------------------------------------
 
 [[nodiscard]] const char* EncodeThemeIdentifier(ThemePreset Preset) noexcept
@@ -92,17 +92,17 @@ namespace
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                              VALIDATION & ATOMIC ARCHIVE I/O
+//                                           VALIDATION & ATOMIC REPOSITORY I/O
 //------------------------------------------------------------------------------------------------------------------------
 
-bool ProjectSpaceArchive::ValidateContainerPath(const std::filesystem::path& ArchivePath, std::string& Diagnostic) noexcept
+bool ProjectSpaceRepository::ValidateContainerPath(const std::filesystem::path& RepositoryPath, std::string& Diagnostic) noexcept
 {
-    if (ArchivePath.empty())
+    if (RepositoryPath.empty())
     {
         Diagnostic = "Project space path is empty.";
         return false;
     }
-    const std::string Extension = ArchivePath.extension().string();
+    const std::string Extension = RepositoryPath.extension().string();
     if (Extension == ".toml" || Extension == ".TOML")
     {
         Diagnostic = "Persistence files ending in .toml are prohibited; use .projectspace.";
@@ -117,7 +117,7 @@ bool ProjectSpaceArchive::ValidateContainerPath(const std::filesystem::path& Arc
     return true;
 }
 
-bool ProjectSpaceArchive::ValidateAppearance(const AppearanceSettings& Appearance, std::string& Diagnostic) noexcept
+bool ProjectSpaceRepository::ValidateAppearance(const AppearanceSettings& Appearance, std::string& Diagnostic) noexcept
 {
     if (!std::isfinite(Appearance.InterfaceScale) ||
         Appearance.InterfaceScale < 75.0f ||
@@ -164,14 +164,14 @@ bool ProjectSpaceArchive::ValidateAppearance(const AppearanceSettings& Appearanc
     return true;
 }
 
-bool ProjectSpaceArchive::Save(
-    const std::filesystem::path& ArchivePath,
+bool ProjectSpaceRepository::Save(
+    const std::filesystem::path& RepositoryPath,
     const ProjectSpaceDocument&  Document,
     std::string&                 Diagnostic) noexcept
 {
     try
     {
-        if (!ValidateContainerPath(ArchivePath, Diagnostic))
+        if (!ValidateContainerPath(RepositoryPath, Diagnostic))
         {
             return false;
         }
@@ -184,7 +184,7 @@ bool ProjectSpaceArchive::Save(
             Diagnostic = "Typeface name in .FontSpace cannot be empty.";
             return false;
         }
-        if (!InputSettingsCatalog::ValidatePreferences(Document.Input, Diagnostic))
+        if (!InputSettingsRepository::ValidatePreferences(Document.Input, Diagnostic))
         {
             return false;
         }
@@ -226,8 +226,8 @@ bool ProjectSpaceArchive::Save(
         {
             const ShortcutChord& Chord = Document.Input.Shortcuts[Index];
             ShortcutArray.push_back(toml::table{
-                { "Command",     InputSettingsCatalog::QueryCommandKey(static_cast<ShortcutCommand>(Index)) },
-                { "Key",         InputSettingsCatalog::QueryKeyIdentifier(Chord.Key) },
+                { "Command",     InputSettingsRepository::QueryCommandKey(static_cast<ShortcutCommand>(Index)) },
+                { "Key",         InputSettingsRepository::QueryKeyIdentifier(Chord.Key) },
                 { "ControlHeld", Chord.ControlHeld },
                 { "AltHeld",     Chord.AltHeld },
                 { "ShiftHeld",   Chord.ShiftHeld },
@@ -243,7 +243,7 @@ bool ProjectSpaceArchive::Save(
             { "Shortcuts",               std::move(ShortcutArray) },
         };
 
-        toml::table NotificationArchiveSection{
+        toml::table NotificationSectionData{
             { "FormatVersion",        1 },
             { "RateOverlayEnabled",   Document.Notifications.RateOverlayEnabled },
             { "AppliedAlertsEnabled", Document.Notifications.AppliedAlertsEnabled },
@@ -258,16 +258,16 @@ bool ProjectSpaceArchive::Save(
             { FontSpaceSection,         std::move(FontSection) },
             { WorkspaceLayoutSection,   std::move(LayoutSection) },
             { InputSettingsSection,     std::move(InputSection) },
-            { NotificationSection,      std::move(NotificationArchiveSection) },
+            { NotificationSection,      std::move(NotificationSectionData) },
         };
 
         std::error_code IoFailure{};
-        if (ArchivePath.has_parent_path())
+        if (RepositoryPath.has_parent_path())
         {
-            std::filesystem::create_directories(ArchivePath.parent_path(), IoFailure);
+            std::filesystem::create_directories(RepositoryPath.parent_path(), IoFailure);
         }
 
-        const std::filesystem::path TemporaryPath = ArchivePath.string() + ".tmp";
+        const std::filesystem::path TemporaryPath = RepositoryPath.string() + ".tmp";
         {
             std::ostringstream Stream;
             Stream << Root << '\n';
@@ -281,12 +281,12 @@ bool ProjectSpaceArchive::Save(
             Output.write(Serialized.data(), static_cast<std::streamsize>(Serialized.size()));
             if (!Output.good())
             {
-                Diagnostic = "Failed writing .projectspace archive.";
+                Diagnostic = "Failed writing .projectspace repository.";
                 return false;
             }
         }
 
-        std::filesystem::rename(TemporaryPath, ArchivePath, IoFailure);
+        std::filesystem::rename(TemporaryPath, RepositoryPath, IoFailure);
         if (IoFailure)
         {
             std::filesystem::remove(TemporaryPath, IoFailure);
@@ -309,24 +309,24 @@ bool ProjectSpaceArchive::Save(
     }
 }
 
-bool ProjectSpaceArchive::Load(
-    const std::filesystem::path& ArchivePath,
+bool ProjectSpaceRepository::Load(
+    const std::filesystem::path& RepositoryPath,
     ProjectSpaceDocument&        Document,
     std::string&                 Diagnostic) noexcept
 {
     try
     {
-        if (!ValidateContainerPath(ArchivePath, Diagnostic))
+        if (!ValidateContainerPath(RepositoryPath, Diagnostic))
         {
             return false;
         }
-        if (!std::filesystem::exists(ArchivePath))
+        if (!std::filesystem::exists(RepositoryPath))
         {
-            Diagnostic = ".projectspace archive does not exist.";
+            Diagnostic = ".projectspace repository does not exist.";
             return false;
         }
 
-        const toml::table Root = toml::parse_file(ArchivePath.string());
+        const toml::table Root = toml::parse_file(RepositoryPath.string());
         if (Root["FormatVersion"].value_or(0) != 1)
         {
             Diagnostic = "Unsupported .projectspace FormatVersion.";
@@ -426,10 +426,10 @@ bool ProjectSpaceArchive::Load(
                     const std::string KeyId     = (*Row)["Key"].value_or(std::string{});
                     for (uint32_t Index = 0u; Index < InputPreferences::ShortcutCount; ++Index)
                     {
-                        if (CommandId == InputSettingsCatalog::QueryCommandKey(static_cast<ShortcutCommand>(Index)))
+                        if (CommandId == InputSettingsRepository::QueryCommandKey(static_cast<ShortcutCommand>(Index)))
                         {
                             ShortcutChord Chord{};
-                            Chord.Key                      = InputSettingsCatalog::DecodeKeyIdentifier(KeyId);
+                            Chord.Key                      = InputSettingsRepository::DecodeKeyIdentifier(KeyId);
                             Chord.ControlHeld              = (*Row)["ControlHeld"].value_or(false);
                             Chord.AltHeld                  = (*Row)["AltHeld"].value_or(false);
                             Chord.ShiftHeld                = (*Row)["ShiftHeld"].value_or(false);
@@ -439,19 +439,19 @@ bool ProjectSpaceArchive::Load(
                     }
                 }
             }
-            if (!InputSettingsCatalog::ValidatePreferences(Candidate.Input, Diagnostic))
+            if (!InputSettingsRepository::ValidatePreferences(Candidate.Input, Diagnostic))
             {
                 return false;
             }
         }
 
-        if (const auto* NotificationArchiveSection = Root[NotificationSection].as_table())
+        if (const auto* NotificationSectionData = Root[NotificationSection].as_table())
         {
-            Candidate.Notifications.RateOverlayEnabled   = (*NotificationArchiveSection)["RateOverlayEnabled"].value_or(false);
-            Candidate.Notifications.AppliedAlertsEnabled = (*NotificationArchiveSection)["AppliedAlertsEnabled"].value_or(true);
-            Candidate.Notifications.ErrorAlertsEnabled   = (*NotificationArchiveSection)["ErrorAlertsEnabled"].value_or(true);
+            Candidate.Notifications.RateOverlayEnabled   = (*NotificationSectionData)["RateOverlayEnabled"].value_or(false);
+            Candidate.Notifications.AppliedAlertsEnabled = (*NotificationSectionData)["AppliedAlertsEnabled"].value_or(true);
+            Candidate.Notifications.ErrorAlertsEnabled   = (*NotificationSectionData)["ErrorAlertsEnabled"].value_or(true);
             Candidate.Notifications.AlertHoldSeconds     = std::clamp(
-                (*NotificationArchiveSection)["AlertHoldSeconds"].value_or(3.5f),
+                (*NotificationSectionData)["AlertHoldSeconds"].value_or(3.5f),
                 1.0f,
                 10.0f);
         }

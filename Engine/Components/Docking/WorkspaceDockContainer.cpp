@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                   WORKSPACEDOCKCONTAINER.CPP
+                                                          WORKSPACEDOCKCONTAINER.CPP
 ============================================================================================================================================*/
 // 🧩 Application-scoped domain token issuance and patched Dear ImGui unrounded trapezoidal dockspace builder.
 
@@ -176,7 +176,10 @@ void PresentHostWindowImGuiDockRegion(
                                  ? Entry.VisibilityToggle
                                  : nullptr;
 
-        if (ImGui::Begin(PaneLabel, ClosePointer, ImGuiWindowFlags_NoCollapse))
+        if (ImGui::Begin(
+                PaneLabel,
+                ClosePointer,
+                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
         {
             const ImGuiID ActiveDockRegionId = ImGui::GetWindowDockID();
             if (ActiveDockRegionId != 0 &&

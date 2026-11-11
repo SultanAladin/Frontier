@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                         WORKSPACETAB.CPP
+                                                               WORKSPACETAB.CPP
 ============================================================================================================================================*/
 // 🧩 Unrounded (0.0f) trapezoidal docking tab geometry and patched Dear ImGui theme synchronization.
 
@@ -168,7 +168,7 @@ void ConfigureImGuiWorkspaceStyle(const WorkspaceTabMetrics &Metrics, const Work
     Colors[ImGuiCol_DockingPreview]      = ImVec4(0.231f, 0.510f, 0.965f, 0.35f);
 }
 
-void ConfigureImGuiWorkspaceTheme(const WorkspaceTabMetrics &Metrics, const ThemeCatalog &Theme) noexcept
+void ConfigureImGuiWorkspaceTheme(const WorkspaceTabMetrics &Metrics, const ThemeRepository &Theme) noexcept
 {
     ConfigureImGuiWorkspaceStyle(Metrics);
 

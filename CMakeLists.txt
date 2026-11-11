@@ -145,14 +145,14 @@ endif()
 
 set(FRONTIER_UI_COMPONENT_SOURCES
     Engine/Components/PixelSpace.cpp
-    Engine/Components/VectorIcons/VectorIconCatalog.cpp
-    Engine/Components/Appearance/ThemeCatalog.cpp
-    Engine/Components/Appearance/TypefaceCatalog.cpp
+    Engine/Components/VectorIcons/VectorIconRepository.cpp
+    Engine/Components/Appearance/ThemeRepository.cpp
+    Engine/Components/Appearance/TypographyRepository.cpp
     Engine/Components/Motion/SpringIntegrator.cpp
     Engine/Components/Notch/PanelExpansionTab.cpp
     Engine/Components/Controls/ControlStyle.cpp
     Engine/Components/Controls/ScalarSlider.cpp
-    Engine/Components/Controls/BooleanSwitch.cpp
+    Engine/Components/Controls/ExclusiveSelector.cpp
     Engine/Components/Controls/CapsuleButton.cpp
     Engine/Components/Controls/ThemePreviewTile.cpp
     Engine/Components/Controls/DropdownSelector.cpp
@@ -161,9 +161,13 @@ set(FRONTIER_UI_COMPONENT_SOURCES
     Engine/Components/Controls/NotificationSequence.cpp
     Engine/Components/Docking/WorkspaceTab.cpp
     Engine/Components/Docking/WorkspaceDockContainer.cpp
+    Engine/Components/Panes/WorkspacePaneVisuals.cpp
+    Engine/Components/Panes/OutlinerPanel.cpp
+    Engine/Components/Panes/InspectorPanel.cpp
+    Engine/Components/Panes/ViewportPanel.cpp
     Engine/Components/ControlCentre/ControlCentrePanel.cpp
     Engine/Configuration/InputSettings.cpp
-    Engine/Configuration/ProjectSpaceArchive.cpp
+    Engine/Configuration/ProjectSpaceRepository.cpp
 )
 
 set(FRONTIER_ENGINE_SOURCES
@@ -213,8 +217,9 @@ if(BUILD_TESTING)
         set(FRONTIER_SHIPPING_UI_SOURCES ${FRONTIER_UI_COMPONENT_SOURCES})
     endif()
 
-    frontier_register_exhibit(InputValidation         Exhibits/InputValidation.cpp         ${FRONTIER_SHIPPING_UI_SOURCES})
-    frontier_register_exhibit(WindowValidation        Exhibits/WindowValidation.cpp        ${FRONTIER_SHIPPING_UI_SOURCES})
-    frontier_register_exhibit(DockingValidation       Exhibits/DockingValidation.cpp       ${FRONTIER_SHIPPING_UI_SOURCES})
-    frontier_register_exhibit(ControlCentreValidation Exhibits/ControlCentreValidation.cpp ${FRONTIER_SHIPPING_UI_SOURCES})
+    frontier_register_exhibit(InputValidation          Exhibits/InputValidation.cpp          ${FRONTIER_SHIPPING_UI_SOURCES})
+    frontier_register_exhibit(WindowValidation         Exhibits/WindowValidation.cpp         ${FRONTIER_SHIPPING_UI_SOURCES})
+    frontier_register_exhibit(DockingValidation        Exhibits/DockingValidation.cpp        ${FRONTIER_SHIPPING_UI_SOURCES})
+    frontier_register_exhibit(ControlCentreValidation  Exhibits/ControlCentreValidation.cpp  ${FRONTIER_SHIPPING_UI_SOURCES})
+    frontier_register_exhibit(WorkspacePanesValidation Exhibits/WorkspacePanesValidation.cpp ${FRONTIER_SHIPPING_UI_SOURCES})
 endif()

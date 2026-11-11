@@ -1,11 +1,11 @@
 /*============================================================================================================================================
-                                                          WORKSPACETAB.H
+                                                                WORKSPACETAB.H
 ============================================================================================================================================*/
 // 🧩 Unrounded trapezoidal workspace docking tab geometry and patched Dear ImGui theme bridge.
 
 #pragma once
 
-#include "Engine/Components/Appearance/ThemeCatalog.h"
+#include "Engine/Components/Appearance/ThemeRepository.h"
 
 #include <array>
 #include <cstddef>
@@ -87,6 +87,6 @@ void ConfigureImGuiWorkspaceStyle(
 
 void ConfigureImGuiWorkspaceTheme(
     const WorkspaceTabMetrics &Metrics,
-    const ThemeCatalog        &Theme) noexcept;
+    const ThemeRepository        &Theme) noexcept;
 
 } // namespace Frontier::Components

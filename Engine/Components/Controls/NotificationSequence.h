@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                      NOTIFICATIONSEQUENCE.H
+                                                            NOTIFICATIONSEQUENCE.H
 ============================================================================================================================================*/
 // 🧩 Bounded semantic notification history, top-right live toast stack, and Quick Controls notification stream
 

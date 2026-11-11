@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                         BOOLEANSWITCH.H
+                                                             EXCLUSIVESELECTOR.H
 ============================================================================================================================================*/
 // 🧩 Reusable rounded toggle switches (standard 46x26 bordered and compact 48x24 borderless)
 
@@ -14,7 +14,7 @@
 namespace Frontier
 {
 
-namespace BooleanSwitch
+namespace ExclusiveSelector
 {
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -36,6 +36,6 @@ namespace BooleanSwitch
     const ControlPointer& Pointer,
     float                 Opacity = 1.0f) noexcept;
 
-} // namespace BooleanSwitch
+} // namespace ExclusiveSelector
 
 } // namespace Frontier

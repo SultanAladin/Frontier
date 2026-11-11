@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                         INPUTSETTINGS.CPP
+                                                              INPUTSETTINGS.CPP
 ============================================================================================================================================*/
 // 🧩 Editor shortcut chord formatting, conflict validation, and Dear ImGui capture integration
 
@@ -33,7 +33,7 @@ struct KeyMappingEntry
 };
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                        CONSTANTS
+//                                                       CONSTANTS
 //------------------------------------------------------------------------------------------------------------------------
 
 constexpr KeyMappingEntry KeyMappings[] = {
@@ -135,10 +135,10 @@ Point2D InputPreferences::TransformPointerDelta(Point2D RawDelta) const noexcept
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                INPUT SETTINGS CATALOG
+//                                               INPUT SETTINGS REPOSITORY
 //------------------------------------------------------------------------------------------------------------------------
 
-namespace InputSettingsCatalog
+namespace InputSettingsRepository
 {
 
 const char* QueryCommandKey(ShortcutCommand Command) noexcept
@@ -324,6 +324,6 @@ bool QueryChordTriggeredInImGui(const ShortcutChord& Chord) noexcept
            Io.KeySuper == Chord.SuperHeld;
 }
 
-} // namespace InputSettingsCatalog
+} // namespace InputSettingsRepository
 
 } // namespace Frontier

@@ -1,7 +1,7 @@
 /*============================================================================================================================================
-                                                        VECTORICONCATALOG.H
+                                                            VECTORICONREPOSITORY.H
 ============================================================================================================================================*/
-// 🧩 SVG 1.1 path decoder, round-cap stroker, and reusable vector icon catalog for engine UI controls and panels
+// 🧩 SVG 1.1 path decoder, round-cap stroker, and reusable vector icon repository for engine UI controls and panels
 
 #pragma once
 
@@ -116,7 +116,7 @@ struct VectorIconEntry
 //                                                  FUNCTION PROTOTYPES
 //------------------------------------------------------------------------------------------------------------------------
 
-class VectorIconCatalog
+class VectorIconRepository
 {
 public:
     struct Contour

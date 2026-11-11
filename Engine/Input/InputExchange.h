@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                       INPUTEXCHANGE.H
+                                                               INPUTEXCHANGE.H
 ============================================================================================================================================*/
 // 🧩 Bi-directional OS-to-Engine hardware signal ring intake and Engine-to-OS cursor confinement & haptic feedback exchange
 
@@ -15,7 +15,7 @@ namespace Frontier::Input
 {
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                     CONSTANTS
+//                                                       CONSTANTS
 //------------------------------------------------------------------------------------------------------------------------
 
 inline constexpr std::size_t DefaultSignalQueueCapacity   = 1024; // [count] - Power-of-two inbound signal ring capacity
@@ -24,7 +24,7 @@ inline constexpr uint32_t    MaximumScanCodeCount         = 512;  // [count] - B
 inline constexpr uint32_t    MaximumTouchContactSlots     = 16;   // [count] - Simultaneous multi-touch contact ceiling
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                    ENUMERATIONS
+//                                                      ENUMERATIONS
 //------------------------------------------------------------------------------------------------------------------------
 
 enum class InputSignalCategory : uint8_t
@@ -62,7 +62,7 @@ enum class CursorConfinementMode : uint8_t
 };
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                     STRUCTURES
+//                                                       STRUCTURES
 //------------------------------------------------------------------------------------------------------------------------
 
 struct alignas(16) InputSignalPacket
@@ -95,7 +95,7 @@ struct alignas(16) HapticFeedbackDirective
 static_assert(sizeof(HapticFeedbackDirective) == 16, "HapticFeedbackDirective size must remain 16 bytes.");
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                      CONCEPTS
+//                                                        CONCEPTS
 //------------------------------------------------------------------------------------------------------------------------
 
 template <typename ReceiverType>
@@ -115,7 +115,7 @@ concept InputFeedbackTarget = requires(
 };
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                 EXCHANGE STRUCTURE
+//                                                   EXCHANGE STRUCTURE
 //------------------------------------------------------------------------------------------------------------------------
 
 class InputExchange
@@ -168,7 +168,7 @@ private:
 };
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                              TEMPLATE IMPLEMENTATIONS
+//                                                TEMPLATE IMPLEMENTATIONS
 //------------------------------------------------------------------------------------------------------------------------
 
 template <InputSignalSink SinkType>

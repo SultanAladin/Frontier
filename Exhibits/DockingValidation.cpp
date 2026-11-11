@@ -1,9 +1,9 @@
 /*============================================================================================================================================
-                                                     DOCKINGVALIDATION.CPP
+                                                            DOCKINGVALIDATION.CPP
 ============================================================================================================================================*/
 // 🧩 Validation and CPU ImDrawData visual snapshot generator for unrounded WorkspaceTab and blank WorkspaceDockContainer panes.
 
-#include "Engine/Components/Appearance/TypefaceCatalog.h"
+#include "Engine/Components/Appearance/TypographyRepository.h"
 #include "Engine/Components/ControlCentre/ControlCentrePanel.h"
 #include "Engine/Components/Docking/WorkspaceDockContainer.h"
 #include "Exhibits/SoftwareCanvasRasterizer.h"
@@ -19,9 +19,9 @@ namespace
 {
 
 using Frontier::ControlCentrePanel;
-using Frontier::ThemeCatalog;
+using Frontier::ThemeRepository;
 using Frontier::ThemePreset;
-using Frontier::TypefaceCatalog;
+using Frontier::TypographyRepository;
 using Frontier::Components::ApplicationDockDomainToken;
 using Frontier::Components::ConfigureImGuiWorkspaceTheme;
 using Frontier::Components::ConstructWorkspaceTabContour;
@@ -155,14 +155,14 @@ bool RenderDockingSnapshotExhibits(const std::filesystem::path &OutputDir)
     Io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
     const auto      RepoRoot = ResolveRepositoryRootPath();
-    TypefaceCatalog Typefaces{};
-    if (!VerifyAssertion(Typefaces.LoadArchive(RepoRoot / "EngineContent/FontsArchives") == 5u,
-                         "Load FontCatalogue.FontSpace"))
+    TypographyRepository Typefaces{};
+    if (!VerifyAssertion(Typefaces.LoadRepository(RepoRoot / "EngineContent/Fonts") == 5u,
+                         "Load FontRepository.FontSpace"))
     {
         ImGui::DestroyContext(GuiSession);
         return false;
     }
-    TypefaceCatalog::AssignCurrent(&Typefaces);
+    TypographyRepository::AssignCurrent(&Typefaces);
     if (ImFont *DefaultFace = Typefaces.QueryFont(0u, Frontier::FontWeightClass::Regular))
         Io.FontDefault = DefaultFace;
     unsigned char *TexPixels = nullptr;
@@ -186,7 +186,7 @@ bool RenderDockingSnapshotExhibits(const std::filesystem::path &OutputDir)
         (void)Container.RegisterPane(WorkspaceDockPaneDescriptor{
             "Inspector", DockPlacementDirection::SplitRight, 0.28f, PaneDirectiveMask::StandardPaneDirectives, {}});
 
-        ThemeCatalog Theme{};
+        ThemeRepository Theme{};
         Theme.ConfigureTheme(ThemePreset::Dark);
         ConfigureImGuiWorkspaceTheme(Container.ActiveTabMetrics(), Theme);
         if (!VerifyAssertion(ImGui::GetStyle().TabRounding == 0.0f, "ImGuiStyle::TabRounding == 0.0f"))
@@ -235,7 +235,7 @@ bool RenderDockingSnapshotExhibits(const std::filesystem::path &OutputDir)
             "Inspector", DockPlacementDirection::SplitRight, 0.28f, PaneDirectiveMask::StandardPaneDirectives, {}});
         const HostWindowToken DetachedSlot = Container.DetachPaneToOperatingWindow(InspectorToken, 990, 80, 420, 640);
 
-        ThemeCatalog Theme{};
+        ThemeRepository Theme{};
         Theme.ConfigureTheme(ThemePreset::Dark);
         ConfigureImGuiWorkspaceTheme(Container.ActiveTabMetrics(), Theme);
 

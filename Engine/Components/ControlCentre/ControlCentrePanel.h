@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                       CONTROLCENTREPANEL.H
+                                                             CONTROLCENTREPANEL.H
 ============================================================================================================================================*/
 // 🧩 Top-notch pull-down Control Centre, Appearance/Input/Notifications/Workspace settings, toast overlay, and modal dialogues
 
@@ -9,9 +9,9 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Appearance/ThemeCatalog.h"
-#include "Engine/Components/Appearance/TypefaceCatalog.h"
-#include "Engine/Components/Controls/BooleanSwitch.h"
+#include "Engine/Components/Appearance/ThemeRepository.h"
+#include "Engine/Components/Appearance/TypographyRepository.h"
+#include "Engine/Components/Controls/ExclusiveSelector.h"
 #include "Engine/Components/Controls/CapsuleButton.h"
 #include "Engine/Components/Controls/ConfirmationDialogue.h"
 #include "Engine/Components/Controls/ControlStyle.h"
@@ -22,7 +22,7 @@
 #include "Engine/Components/Motion/SpringIntegrator.h"
 #include "Engine/Components/Notch/PanelExpansionTab.h"
 #include "Engine/Configuration/InputSettings.h"
-#include "Engine/Configuration/ProjectSpaceArchive.h"
+#include "Engine/Configuration/ProjectSpaceRepository.h"
 
 #include <algorithm>
 #include <array>
@@ -64,8 +64,8 @@ class ControlCentrePanel
 public:
     ControlCentrePanel() noexcept;
 
-    void AttachTypefaces(TypefaceCatalog* Catalog) noexcept;
-    bool AttachProjectSpace(const std::filesystem::path& ArchivePath, std::string* OutDiagnostic = nullptr) noexcept;
+    void AttachTypefaces(TypographyRepository* Repository) noexcept;
+    bool AttachProjectSpace(const std::filesystem::path& RepositoryPath, std::string* OutDiagnostic = nullptr) noexcept;
     bool SaveToProjectSpace(std::string* OutDiagnostic = nullptr) noexcept;
 
     void ConfigureWorkspaceCallbacks(
@@ -89,7 +89,7 @@ public:
     [[nodiscard]] ControlCentrePage              QueryActivePage() const noexcept;
     [[nodiscard]] AppearanceSectionTab           QueryAppearanceTab() const noexcept;
     [[nodiscard]] float                          QueryInterfaceScaleFactor() const noexcept;
-    [[nodiscard]] const ThemeCatalog&            QueryThemeCatalog() const noexcept;
+    [[nodiscard]] const ThemeRepository&            QueryThemeRepository() const noexcept;
     [[nodiscard]] const AppearanceSettings&      QueryAppliedAppearance() const noexcept;
     [[nodiscard]] AppearanceSettings&            AccessDraftAppearance() noexcept;
     [[nodiscard]] const InputPreferences&        QueryAppliedInput() const noexcept;
@@ -193,9 +193,9 @@ private:
         const ControlPointer& Pointer,
         float                 Opacity);
 
-    TypefaceCatalog*          Typefaces                 = nullptr;                        // [-]   - Attached font archive catalog
-    std::filesystem::path     AttachedArchivePath       {};                               // [-]   - Active .projectspace path
-    ThemeCatalog              AppliedTheme              {};                               // [-]   - Committed workspace theme
+    TypographyRepository*     Typefaces                 = nullptr;                        // [-]   - Attached font repository
+    std::filesystem::path     AttachedRepositoryPath    {};                               // [-]   - Active .projectspace path
+    ThemeRepository           AppliedTheme              {};                               // [-]   - Committed workspace theme
     AppearanceSettings        AppliedAppearance         {};                               // [-]   - Committed appearance preferences
     AppearanceSettings        DraftAppearance           {};                               // [-]   - Unsaved appearance edits
     InputPreferences          AppliedInput              {};                               // [-]   - Committed input preferences
@@ -236,9 +236,9 @@ private:
 //                                                 INLINE IMPLEMENTATIONS
 //------------------------------------------------------------------------------------------------------------------------
 
-inline void ControlCentrePanel::AttachTypefaces(TypefaceCatalog* Catalog) noexcept
+inline void ControlCentrePanel::AttachTypefaces(TypographyRepository* Repository) noexcept
 {
-    Typefaces = Catalog;
+    Typefaces = Repository;
 }
 
 inline void ControlCentrePanel::ActivateAppearanceTab(AppearanceSectionTab Tab) noexcept
@@ -272,7 +272,7 @@ inline float ControlCentrePanel::QueryInterfaceScaleFactor() const noexcept
     return std::clamp(AppliedAppearance.InterfaceScale / 100.0f, 0.75f, 1.50f);
 }
 
-inline const ThemeCatalog& ControlCentrePanel::QueryThemeCatalog() const noexcept
+inline const ThemeRepository& ControlCentrePanel::QueryThemeRepository() const noexcept
 {
     return AppliedTheme;
 }

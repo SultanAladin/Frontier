@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                          INPUTSETTINGS.H
+                                                               INPUTSETTINGS.H
 ============================================================================================================================================*/
 // 🧩 Editor shortcut chords, conflict validation, and pointer sensitivity scaling
 
@@ -88,7 +88,7 @@ struct InputPreferences
 //                                                  FUNCTION PROTOTYPES
 //------------------------------------------------------------------------------------------------------------------------
 
-namespace InputSettingsCatalog
+namespace InputSettingsRepository
 {
 
 [[nodiscard]] const char* QueryCommandKey(ShortcutCommand Command) noexcept;
@@ -101,6 +101,6 @@ namespace InputSettingsCatalog
 [[nodiscard]] bool        PollImGuiChordCapture(ShortcutChord& CapturedChord, bool& CancelledWithEscape) noexcept;
 [[nodiscard]] bool        QueryChordTriggeredInImGui(const ShortcutChord& Chord) noexcept;
 
-} // namespace InputSettingsCatalog
+} // namespace InputSettingsRepository
 
 } // namespace Frontier

@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                  PLATFORMWINDOWSTUB.CPP
+                                                            PLATFORMWINDOWSTUB.CPP
 ============================================================================================================================================*/
 // 🧩 Headless deterministic window implementation supporting splash, windowed, maximized, and fullscreen mode transitions
 
@@ -130,7 +130,7 @@ void HeadlessPlatformWindow::Finalize() noexcept
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                      PRESENTATION MODE & ATTRIBUTE MUTATIONS
+//                                        PRESENTATION MODE & ATTRIBUTE MUTATIONS
 //------------------------------------------------------------------------------------------------------------------------
 
 bool HeadlessPlatformWindow::ApplyPresentationMode(
@@ -325,7 +325,7 @@ void HeadlessPlatformWindow::ApplyHapticFeedback(const Input::HapticFeedbackDire
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                              SYNTHETIC SURFACE CONTROLS
+//                                               SYNTHETIC SURFACE CONTROLS
 //------------------------------------------------------------------------------------------------------------------------
 
 void HeadlessPlatformWindow::ResizeSurface(uint32_t NewWidth, uint32_t NewHeight, float NewDpiScale) noexcept

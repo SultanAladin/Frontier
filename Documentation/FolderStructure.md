@@ -1,6 +1,6 @@
 # Frontier Folder Structure
 
-This document defines the canonical directory and source file layout of the **Frontier** repository. All engine domains, `.slang` shader libraries, default stock archives, validation suites, build tooling, user projects, and governance documents adhere to this structure.
+This document defines the canonical directory and source file layout of the **Frontier** repository. All engine domains, `.slang` shader libraries, default stock repositories, validation suites, build tooling, user projects, and governance documents adhere to this structure.
 
 For identifier, file, folder, and comment naming rules enforced across the repository, see [BannedWordsVocabulary.md](BannedWordsVocabulary.md) and [AgenticInstructions/SKILL-Naming.md](AgenticInstructions/SKILL-Naming.md). For C++20 language and modularity rules, see [CodingStandards.md](CodingStandards.md).
 
@@ -12,7 +12,7 @@ For identifier, file, folder, and comment naming rules enforced across the repos
 | :--- | :--- |
 | `CLAUDE.md` · `AGENTS.md` | Session-start agent entry point, non-negotiable GPU/`.slang`/cross-platform mandates, and reading order. |
 | `CMakeLists.txt` | ISO C++20 build definition enforcing `Editor`, `Development`, and `Shipping` profiles. |
-| `EngineContent/` | Engine default stock assets, vector icons, font archives, PBR material definitions, worlds, and graphics archives. |
+| `EngineContent/` | Engine default stock assets, vector icons, font repositories, PBR material definitions, worlds, and graphics content. |
 | `EngineDocs/` | Authoritative architectural guides and deep domain references. |
 | `Documentation/` | Repository governance, `AgenticInstructions/`, `FolderStructure.md`, `BannedWordsVocabulary.md`, `CodingStandards.md`, `ImportantNotes.md`, `Backlog.md`, and `Tracker.md`. |
 | `Exhibits/` | Validation executables (`*Validation`), `Images/` CPU-rendered `.png` visual proofs, and `EditorMirror` verification targets. |
@@ -34,12 +34,12 @@ Frontier/
 ├── CMakeLists.txt                             // Root C++20 build & Editor/Development/Shipping profiles
 ├── README.md                                  // Repository overview and architecture index
 │
-├── EngineContent/                             // Engine default assets and stock libraries
-│   ├── Icons/                                 // Vector SVGs and compiled icon catalogs
-│   ├── FontsArchives/                         // Primary UI and monospace debug typefaces
-│   ├── MaterialArchives/                      // Microfacet PBR surface definitions
-│   ├── WorldsArchives/                        // Levels and worlds archives
-│   └── GraphicArchives/                       // Image formats and SVG archives
+├── EngineContent/                             // Engine default assets and stock repositories
+│   ├── Icons/                                 // Vector SVGs and compiled icon repositories
+│   ├── Fonts/                                 // Primary UI and monospace debug typefaces
+│   ├── Materials/                             // Microfacet PBR surface definitions
+│   ├── Worlds/                                // Levels and world content
+│   └── Graphics/                              // Image formats and SVG content
 │
 ├── EngineDocs/                                // Authoritative architectural guides & domain references
 │
@@ -62,7 +62,8 @@ Frontier/
 │   ├── InputValidation.cpp                    // Deterministic Input & BuildConfiguration verification
 │   ├── WindowValidation.cpp                   // Splash, windowed, maximized & fullscreen mode verification
 │   ├── DockingValidation.cpp                  // Trapezoidal multi-window & intra-app docking verification
-│   └── ControlCentreValidation.cpp            // Control Centre, reusable Controls & .projectspace verification
+│   ├── ControlCentreValidation.cpp            // Control Centre, reusable Controls & .projectspace verification
+│   └── WorkspacePanesValidation.cpp           // Outliner/LayerStack, Showcase Folder/Entry Inspector & Viewport verification
 │
 ├── Experimental/                              // HTML/JS reference UIs & studios for C++20 conversion
 │   ├── FrontierEditor/                        // Initial HTML/Vite scene inspector, CAD & icon lab UI
@@ -78,10 +79,10 @@ Frontier/
 │
 ├── Automation/                                // Build tooling, dependency pinning, patches, and packaging
 │   ├── Dependencies.json                      // SHA-256 pinned C/C++ package manifest
-│   ├── PrepareDependencies.py                 // Checksummed archive fetcher & ImGui patch runner
+│   ├── PrepareDependencies.py                 // Checksummed package fetcher & ImGui patch runner
 │   ├── ApplyImGuiPatches.py                   // Stacked PatchA-PatchH applicator and verifier
 │   ├── PrepareShaderToolchain.py              // Slang (.slang) compiler & SwiftShader ICD fetcher
-│   ├── PrepareFonts.py                        // OFL font fetcher & PascalCase FontCatalogue.FontSpace builder
+│   ├── PrepareFonts.py                        // OFL font fetcher & PascalCase FontRepository.FontSpace builder
 │   ├── FontSources.json                       // Pinned OFL typeface manifest
 │   ├── FontRequirements.txt                   // Python font tooling pin
 │   ├── StageThorVG.py                         // Reproducible ThorVG allocation-operator staging
@@ -98,7 +99,7 @@ Frontier/
 │   └── SampleProject/                         // Concrete game project
 │       ├── Content/                           // Project-specific assets (levels, textures, audio)
 │       ├── Source/                            // Project-specific C++ logic
-│       └── Saved/                             // Local project caches, logs, and save archives
+│       └── Saved/                             // Local project logs and saved sessions
 │
 └── Engine/                                    // Engine Source Root (Windows · Linux · Android)
     ├── MicroUtils/                            // Foundational allocators and identity tokens
@@ -112,7 +113,7 @@ Frontier/
     ├── Configuration/                         // Startup, build-profile, and .projectspace configurations
     │   ├── BuildConfiguration.h               // Compile-time Editor / Development / Shipping policy
     │   ├── InputSettings.{h,cpp}              // Shortcut chords, conflict validator & pointer sensitivity
-    │   ├── ProjectSpaceArchive.{h,cpp}        // Atomic PascalCase .projectspace container serializer
+    │   ├── ProjectSpaceRepository.{h,cpp}     // Atomic PascalCase .projectspace container serializer
     │   ├── EngineConfiguration.{h,cpp}        // Startup and hardware thread group allocation
     │   ├── RenderConfiguration.{h,cpp}        // Resolution, swapchain, and multi-sample targets
     │   ├── ProjectConfiguration.{h,cpp}       // Project root, dependency manifests, and toggles
@@ -220,7 +221,7 @@ Frontier/
     │       ├── Easing/
     │       │   ├── EasingProfile.{h,cpp}
     │       │   ├── BezierEasing.{h,cpp}
-    │       │   └── EaseCatalog.{h,cpp}        // Precomputed response curves
+    │       │   └── EaseRepository.{h,cpp}     // Precomputed response curves
     │       ├── Dynamics/
     │       │   ├── SpringDynamics.{h,cpp}
     │       │   ├── InertiaDynamics.{h,cpp}
@@ -295,8 +296,8 @@ Frontier/
     ├── Components/                            // Reusable UI controls, themes, typography, motion & panels
     │   ├── PixelSpace.{h,cpp}                 // Logical-to-physical 2D drawing surface & group transforms
     │   ├── Appearance/                        // Themes, semantic swatches & .FontSpace typography
-    │   │   ├── ThemeCatalog.{h,cpp}           // 8 surface themes, 10 accents, semantic swatches & type scale
-    │   │   └── TypefaceCatalog.{h,cpp}        // PascalCase FontCatalogue.FontSpace loader & weight fallback
+    │   │   ├── ThemeRepository.{h,cpp}        // 8 surface themes, 10 accents, semantic swatches & type scale
+    │   │   └── TypographyRepository.{h,cpp}   // PascalCase FontRepository.FontSpace loader & weight fallback
     │   ├── Motion/                            // Semi-implicit Euler UI spring physics
     │   │   └── SpringIntegrator.{h,cpp}       // Substepped 240 Hz spring-damper solver
     │   ├── Notch/                             // Top-edge pull-down tab
@@ -304,20 +305,25 @@ Frontier/
     │   ├── Docking/                           // Sharp unrounded trapezoidal docking & multi-window host
     │   │   ├── WorkspaceTab.{h,cpp}           // Sharp 0 px unrounded trapezoidal tab & notch geometry
     │   │   └── WorkspaceDockContainer.{h,cpp} // Intra-app multi-window docking & OS window tear-off
+    │   ├── Panes/                             // Reusable Project-Zero Outliner/LayerStack, Inspector & Viewport panes
+    │   │   ├── WorkspacePaneVisuals.{h,cpp}   // Shared Project-Zero typography, Showcase folder & vector emblems
+    │   │   ├── OutlinerPanel.{h,cpp}          // Generic Outliner/LayerStack tree, folders, filters & drag-reorder
+    │   │   ├── InspectorPanel.{h,cpp}         // Showcase Folder Inspector, Add Notes editor & capability tiles
+    │   │   └── ViewportPanel.{h,cpp}          // Edit/Simulate/Play-Pause strip, Construct, Split, Diagnostics & Settings
     │   ├── ControlCentre/                     // Pull-down Control Centre & settings pages
     │   │   └── ControlCentrePanel.{h,cpp}     // Quick Controls, Appearance, Input, Notifications & Workspace
     │   ├── Controls/                          // Reusable studio UI control primitives
     │   │   ├── ControlStyle.{h,cpp}           // Shared color set, smoothstep cross-fade & section containers
     │   │   ├── ScalarSlider.{h,cpp}           // Capsule slider & split numeric/unit readout
-    │   │   ├── BooleanSwitch.{h,cpp}          // Standard bordered & compact borderless switches
+    │   │   ├── ExclusiveSelector.{h,cpp}      // Standard bordered & compact borderless exclusive switches
     │   │   ├── CapsuleButton.{h,cpp}          // Primary/Secondary/Danger buttons, chips, segmented bars & discs
     │   │   ├── DropdownSelector.{h,cpp}       // Rounded dropdown button & overlay option sheet
     │   │   ├── TextInputField.{h,cpp}         // UTF-8 text buffer, selection, caret & input field
     │   │   ├── ThemePreviewTile.{h,cpp}       // 4:3 miniature OS window theme preview tile & color swatches
     │   │   ├── NotificationSequence.{h,cpp}   // Toast overlay queue & Quick Controls notification stream
     │   │   └── ConfirmationDialogue.{h,cpp}   // Foreground Rounded (28 px) & SemanticHeader (8 px) modals
-    │   ├── VectorIcons/                       // SVG 1.1 path decoder & reusable vector icon catalog
-    │   │   └── VectorIconCatalog.{h,cpp}      // Cubic/quadratic/arc flattener & round-cap icon stroker
+    │   ├── VectorIcons/                       // SVG 1.1 path decoder & reusable vector icon repository
+    │   │   └── VectorIconRepository.{h,cpp}   // Cubic/quadratic/arc flattener & round-cap icon stroker
     │   └── Overlays/                          // Viewport and cursor interaction overlays
     │       ├── ToolShelf.{h,cpp}              // Viewport-anchored tool row (ToolCluster / UtilityStrip)
     │       ├── ToolCluster.{h,cpp}            // Compact group of related manipulation tools
@@ -351,5 +357,5 @@ Frontier/
    - `Shipping` builds completely exclude `Engine/Editor/` and strip diagnostics to produce standalone packaged binaries.
 2. **100% GPU `.slang` Viewport Overlays**: Grids (`NavigationOverlay`), gizmos (`TransformGizmo`), and debug shapes/lines (`Engine/Annotation/*`) render exclusively on the GPU via `.slang` shaders — never on CPU and never via ImGui draw lists.
 3. **Cross-Platform Portability**: All `Engine/` modules target **Windows**, **Linux (X11/Wayland)**, **Android (NDK)**, and **Headless (`PlatformWindowStub`)**.
-4. **Project & Archive Isolation**: Concrete user titles reside under `Projects/<ProjectName>/`, stock archives reside under `EngineContent/`, and checksummed third-party libraries reside under git-ignored `ExternalPackages/`.
+4. **Project & Repository Isolation**: Concrete user titles reside under `Projects/<ProjectName>/`, stock content repositories reside under `EngineContent/`, and checksummed third-party libraries reside under git-ignored `ExternalPackages/`.
 5. **Mandatory `Exhibits/Images/` Visual Proofs**: Every `Exhibits/*Validation` target renders deterministic CPU `.png` visual proofs into `Exhibits/Images/<Domain>/` demonstrating the runtime behavior without hardware GPU or host OS preconditions.

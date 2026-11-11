@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                        SPRINGINTEGRATOR.CPP
+                                                             SPRINGINTEGRATOR.CPP
 ============================================================================================================================================*/
 // 🧩 Substep-clamped semi-implicit Euler spring-damper integration
 
@@ -16,7 +16,7 @@ namespace Frontier
 {
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                  SPRING AXIS OPERATIONS
+//                                                 SPRING AXIS OPERATIONS
 //------------------------------------------------------------------------------------------------------------------------
 
 void SpringAxis::ConfigurePosition(double Position) noexcept
@@ -93,7 +93,7 @@ double SpringAxis::Progress() const noexcept
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                SPRING INTEGRATOR METHODS
+//                                               SPRING INTEGRATOR METHODS
 //------------------------------------------------------------------------------------------------------------------------
 
 uint32_t SpringIntegrator::RegisterAxis(double InitialPosition, double Stiffness, double Damping)

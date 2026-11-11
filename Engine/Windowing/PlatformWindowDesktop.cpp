@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                PLATFORMWINDOWDESKTOP.CPP
+                                                          PLATFORMWINDOWDESKTOP.CPP
 ============================================================================================================================================*/
 // 🧩 GLFW 3.4 cross-platform desktop window implementation (Win32, X11, Wayland, and offscreen GLFW_PLATFORM_NULL interface)
 
@@ -347,7 +347,7 @@ void DesktopPlatformWindow::Finalize() noexcept
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                      PRESENTATION MODE & ATTRIBUTE MUTATIONS
+//                                        PRESENTATION MODE & ATTRIBUTE MUTATIONS
 //------------------------------------------------------------------------------------------------------------------------
 
 bool DesktopPlatformWindow::ApplyPresentationMode(

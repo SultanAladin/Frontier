@@ -15,6 +15,7 @@ Related governance documents: [FolderStructure.md](FolderStructure.md) · [Codin
 - `action`
 - `adjacency`
 - `affinity`
+- `archive` / `archives` *(use `Repository` or `Registry`)*
 - `arena`
 - `badge`
 - `binding`
@@ -22,6 +23,7 @@ Related governance documents: [FolderStructure.md](FolderStructure.md) · [Codin
 - `cadence`
 - `card`
 - `carousel`
+- `catalog` / `catalogue` *(use `Repository` or `Registry`)*
 - `classification`
 - `concurrency` / `concurrence` / `concurrent`
 - `context`
@@ -154,9 +156,9 @@ When replacing or avoiding a banned concept, name the **concrete layout, index l
 
 Use this combined index to audit identifiers, filenames, directory names, and comments prior to finalizing changes:
 
-- **A**: `action`, `adjacency`, `Aether`, `affinity`, `Ancestor`, `Apex`, `arena` *(avoid: `atlas`)*
-- **B**: `backend`, `badge`, `Base`, `binding`, `bloom`
-- **C**: `cadence`, `card`, `carousel`, `Catalyst`, `Child`, `Children`, `classification`, `Commit`, `Common`, `Compose` / `compose`, `concurrence` / `concurrency` / `concurrent`, `Conductor`, `context`, `continuum`, `contract`, `Controller`, `Core`, `coverage`
+- **A**: `action`, `adjacency`, `Aether`, `affinity`, `Ancestor`, `Apex`, `archive` / `archives`, `arena` *(avoid: `atlas`)*
+- **B**: `backend`, `badge`, `Base`, `binding`, `bloom`, `BooleanSwitch` *(renamed to `ExclusiveSelector`)*
+- **C**: `cadence`, `card`, `carousel`, `catalog` / `catalogue`, `Catalyst`, `Child`, `Children`, `classification`, `Commit`, `Common`, `Compose` / `compose`, `concurrence` / `concurrency` / `concurrent`, `Conductor`, `context`, `continuum`, `contract`, `Controller`, `Core`, `coverage`
 - **D**: `Data`, `Descendant`, `Designation`, `dev`, `Dispatcher`
 - **E**: `Element` / `element`, `Emission` / `Emit` / `emitter`, `Entity`, `evaluator`, `extension` *(restricted — §3.1)*
 - **F**: `family`, `fence`, `flag`, `floating`, `flow`, `Frame` / `frame`

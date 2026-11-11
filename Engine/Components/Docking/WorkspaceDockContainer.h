@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                    WORKSPACEDOCKCONTAINER.H
+                                                           WORKSPACEDOCKCONTAINER.H
 ============================================================================================================================================*/
 // 🧩 Shared workspace dock container enforcing intra-application multi-window docking and OS window tear-off.
 

@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                         TYPEFACECATALOG.H
+                                                            TYPOGRAPHYREPOSITORY.H
 ============================================================================================================================================*/
 // 🧩 Discover and load .FontSpace typeface weights into Dear ImGui with CSS weight fallback resolution
 
@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Appearance/ThemeCatalog.h"
+#include "Engine/Components/Appearance/ThemeRepository.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -43,14 +43,14 @@ struct TypefaceGroup
 //                                                  FUNCTION PROTOTYPES
 //------------------------------------------------------------------------------------------------------------------------
 
-class TypefaceCatalog
+class TypographyRepository
 {
 public:
     static constexpr uint32_t WeightCount = 9u; // [count] - Standard CSS weight classes (100..900)
 
-    TypefaceCatalog() noexcept = default;
+    TypographyRepository() noexcept = default;
 
-    uint32_t LoadArchive(const std::filesystem::path& ArchiveRoot) noexcept;
+    uint32_t LoadRepository(const std::filesystem::path& RepositoryRoot) noexcept;
 
     [[nodiscard]] uint32_t                   QueryGroupCount() const noexcept;
     [[nodiscard]] const TypefaceGroup*       QueryGroup(uint32_t GroupIndex) const noexcept;
@@ -59,8 +59,8 @@ public:
     [[nodiscard]] const TypefaceWeightEntry* ResolveWeight(uint32_t GroupIndex, FontWeightClass Wanted) const noexcept;
     [[nodiscard]] ImFont*                    QueryFont(uint32_t GroupIndex, FontWeightClass Wanted) const noexcept;
 
-    static void                              AssignCurrent(TypefaceCatalog* Catalog) noexcept;
-    [[nodiscard]] static TypefaceCatalog*    QueryCurrent() noexcept;
+    static void                              AssignCurrent(TypographyRepository* Repository) noexcept;
+    [[nodiscard]] static TypographyRepository*    QueryCurrent() noexcept;
 
     [[nodiscard]] static const char*         WeightLabel(FontWeightClass Weight) noexcept;
     [[nodiscard]] static FontWeightClass     WeightAtOrdinal(uint32_t Ordinal) noexcept;
@@ -70,28 +70,28 @@ private:
     static ImFont* LoadFontFile(const std::filesystem::path& FontPath) noexcept;
 
     std::vector<TypefaceGroup> Groups {};     // [-] - Loaded typeface groups ordered with Inter first
-    bool                       Loaded = false;// [-] - Archive load completion guard
+    bool                       Loaded = false;// [-] - Repository load completion guard
 
-    static TypefaceCatalog* ActiveCatalog;
+    static TypographyRepository* ActiveRepository;
 };
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                 INLINE IMPLEMENTATIONS
 //------------------------------------------------------------------------------------------------------------------------
 
-inline uint32_t TypefaceCatalog::QueryGroupCount() const noexcept
+inline uint32_t TypographyRepository::QueryGroupCount() const noexcept
 {
     return static_cast<uint32_t>(Groups.size());
 }
 
-inline void TypefaceCatalog::AssignCurrent(TypefaceCatalog* Catalog) noexcept
+inline void TypographyRepository::AssignCurrent(TypographyRepository* Repository) noexcept
 {
-    ActiveCatalog = Catalog;
+    ActiveRepository = Repository;
 }
 
-inline TypefaceCatalog* TypefaceCatalog::QueryCurrent() noexcept
+inline TypographyRepository* TypographyRepository::QueryCurrent() noexcept
 {
-    return ActiveCatalog;
+    return ActiveRepository;
 }
 
 } // namespace Frontier

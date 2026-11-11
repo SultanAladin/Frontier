@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                          THEMECATALOG.H
+                                                              THEMEREPOSITORY.H
 ============================================================================================================================================*/
 // 🧩 Built-in interface themes, accent swatches, semantic alert swatches, and typography scale slots
 
@@ -138,10 +138,10 @@ struct AppearanceSettings
 //                                                  FUNCTION PROTOTYPES
 //------------------------------------------------------------------------------------------------------------------------
 
-class ThemeCatalog
+class ThemeRepository
 {
 public:
-    ThemeCatalog() noexcept;
+    ThemeRepository() noexcept;
 
     void ConfigureTheme(ThemePreset DesiredTheme) noexcept;
     void ConfigureAccent(AccentPreset DesiredAccent) noexcept;
@@ -212,17 +212,17 @@ constexpr float ColorQuad::Luminance() const noexcept
     return 0.2126f * Red + 0.7152f * Green + 0.0722f * Blue;
 }
 
-inline ThemePreset ThemeCatalog::QueryActiveTheme() const noexcept
+inline ThemePreset ThemeRepository::QueryActiveTheme() const noexcept
 {
     return ActiveTheme;
 }
 
-inline AccentPreset ThemeCatalog::QueryActiveAccent() const noexcept
+inline AccentPreset ThemeRepository::QueryActiveAccent() const noexcept
 {
     return ActiveAccent;
 }
 
-inline float ThemeCatalog::QueryCornerRadius() const noexcept
+inline float ThemeRepository::QueryCornerRadius() const noexcept
 {
     return CornerRadiusPixels;
 }

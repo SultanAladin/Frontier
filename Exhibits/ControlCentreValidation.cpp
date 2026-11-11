@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                  CONTROLCENTREVALIDATION.CPP
+                                                         CONTROLCENTREVALIDATION.CPP
 ============================================================================================================================================*/
 // 🧩 End-to-end validation and 14-image CPU visual snapshot suite for ControlCentrePanel, reusable Controls, and .projectspace persistence
 
@@ -7,7 +7,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Appearance/TypefaceCatalog.h"
+#include "Engine/Components/Appearance/TypographyRepository.h"
 #include "Engine/Components/ControlCentre/ControlCentrePanel.h"
 #include "Engine/Components/Controls/DropdownSelector.h"
 #include "Engine/Components/Controls/TextInputField.h"
@@ -41,15 +41,15 @@ using Frontier::InputPreferences;
 using Frontier::NotificationPreferences;
 using Frontier::NotificationSeverity;
 using Frontier::PixelSpace;
-using Frontier::ProjectSpaceArchive;
+using Frontier::ProjectSpaceRepository;
 using Frontier::ProjectSpaceDocument;
 using Frontier::Rectangle2D;
 using Frontier::ShortcutChord;
 using Frontier::ShortcutKey;
 using Frontier::TextEditBuffer;
-using Frontier::ThemeCatalog;
+using Frontier::ThemeRepository;
 using Frontier::ThemePreset;
-using Frontier::TypefaceCatalog;
+using Frontier::TypographyRepository;
 using Frontier::Components::ConfigureImGuiWorkspaceTheme;
 using Frontier::Components::DockPlacementDirection;
 using Frontier::Components::HeadlessWorkspaceDockContainer;
@@ -64,11 +64,11 @@ using Frontier::Windowing::WindowConfigurationDescriptor;
 namespace CapsuleButton        = Frontier::CapsuleButton;
 namespace ControlStyle         = Frontier::ControlStyle;
 namespace DropdownSelector     = Frontier::DropdownSelector;
-namespace InputSettingsCatalog = Frontier::InputSettingsCatalog;
+namespace InputSettingsRepository = Frontier::InputSettingsRepository;
 namespace TextInputField       = Frontier::TextInputField;
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                  VALIDATION ASSERTIONS
+//                                                 VALIDATION ASSERTIONS
 //------------------------------------------------------------------------------------------------------------------------
 
 bool VerifyAssertion(bool Condition, const char* Description) noexcept
@@ -86,15 +86,15 @@ bool ValidateProjectSpaceContainerAndPascalCaseSchema()
     std::string Diagnostic{};
 
     if (!VerifyAssertion(
-            !ProjectSpaceArchive::ValidateContainerPath("/tmp/BadConfig.toml", Diagnostic),
-            "ProjectSpaceArchive rejects .toml container paths"))
+            !ProjectSpaceRepository::ValidateContainerPath("/tmp/BadConfig.toml", Diagnostic),
+            "ProjectSpaceRepository rejects .toml container paths"))
     {
         return false;
     }
 
-    const std::filesystem::path TemporaryArchive = std::filesystem::temp_directory_path() / "FrontierValidation.projectspace";
+    const std::filesystem::path TemporaryRepository = std::filesystem::temp_directory_path() / "FrontierValidation.projectspace";
     std::error_code             IoFailure{};
-    std::filesystem::remove(TemporaryArchive, IoFailure);
+    std::filesystem::remove(TemporaryRepository, IoFailure);
 
     ProjectSpaceDocument OutboundDocument{};
     OutboundDocument.ProjectTitle                           = "FrontierStudio";
@@ -117,13 +117,13 @@ bool ValidateProjectSpaceContainerAndPascalCaseSchema()
     OutboundDocument.Notifications.ErrorAlertsEnabled       = true;
     OutboundDocument.Notifications.AlertHoldSeconds         = 5.5f;
 
-    if (!VerifyAssertion(ProjectSpaceArchive::Save(TemporaryArchive, OutboundDocument, Diagnostic), "Save .projectspace container"))
+    if (!VerifyAssertion(ProjectSpaceRepository::Save(TemporaryRepository, OutboundDocument, Diagnostic), "Save .projectspace container"))
     {
         return false;
     }
 
     {
-        std::ifstream     Stream(TemporaryArchive);
+        std::ifstream     Stream(TemporaryRepository);
         const std::string Content((std::istreambuf_iterator<char>(Stream)), std::istreambuf_iterator<char>());
         if (!VerifyAssertion(
                 Content.find("['.visualappearance']") != std::string::npos &&
@@ -140,7 +140,7 @@ bool ValidateProjectSpaceContainerAndPascalCaseSchema()
     }
 
     ProjectSpaceDocument InboundDocument{};
-    if (!VerifyAssertion(ProjectSpaceArchive::Load(TemporaryArchive, InboundDocument, Diagnostic), "Load .projectspace container"))
+    if (!VerifyAssertion(ProjectSpaceRepository::Load(TemporaryRepository, InboundDocument, Diagnostic), "Load .projectspace container"))
     {
         return false;
     }
@@ -161,7 +161,7 @@ bool ValidateProjectSpaceContainerAndPascalCaseSchema()
         return false;
     }
 
-    std::filesystem::remove(TemporaryArchive, IoFailure);
+    std::filesystem::remove(TemporaryRepository, IoFailure);
     return true;
 }
 
@@ -173,7 +173,7 @@ bool ValidateInputShortcutConflictDetection()
 
     std::string Diagnostic{};
     if (!VerifyAssertion(
-            !InputSettingsCatalog::ValidatePreferences(DuplicatePreferences, Diagnostic) && !Diagnostic.empty(),
+            !InputSettingsRepository::ValidatePreferences(DuplicatePreferences, Diagnostic) && !Diagnostic.empty(),
             "Duplicate shortcut chords rejected with diagnostic"))
     {
         return false;
@@ -183,7 +183,7 @@ bool ValidateInputShortcutConflictDetection()
     BareLetterPreferences.CustomShortcutsEnabled = true;
     BareLetterPreferences.Shortcuts[1]           = ShortcutChord{ ShortcutKey::K, false, false, false, false };
     if (!VerifyAssertion(
-            !InputSettingsCatalog::ValidatePreferences(BareLetterPreferences, Diagnostic),
+            !InputSettingsRepository::ValidatePreferences(BareLetterPreferences, Diagnostic),
             "Modifierless printable letter shortcut rejected"))
     {
         return false;
@@ -193,8 +193,8 @@ bool ValidateInputShortcutConflictDetection()
     ValidPreferences.CustomShortcutsEnabled = true;
     ValidPreferences.Shortcuts[1]           = ShortcutChord{ ShortcutKey::K, true, false, true, false };
     if (!VerifyAssertion(
-            InputSettingsCatalog::ValidatePreferences(ValidPreferences, Diagnostic) &&
-            InputSettingsCatalog::FormatChordLabel(ValidPreferences.Shortcuts[1]) == "Ctrl + Shift + K",
+            InputSettingsRepository::ValidatePreferences(ValidPreferences, Diagnostic) &&
+            InputSettingsRepository::FormatChordLabel(ValidPreferences.Shortcuts[1]) == "Ctrl + Shift + K",
             "Ctrl + Shift + K chord validates and formats cleanly"))
     {
         return false;
@@ -204,7 +204,7 @@ bool ValidateInputShortcutConflictDetection()
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                              VISUAL SNAPSHOT SUITE GENERATION
+//                                            VISUAL SNAPSHOT SUITE GENERATION
 //------------------------------------------------------------------------------------------------------------------------
 
 bool RenderSnapshotSuite(const std::filesystem::path& OutputDirectory)
@@ -219,15 +219,15 @@ bool RenderSnapshotSuite(const std::filesystem::path& OutputDirectory)
     Io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
     const auto      RepositoryRoot = ResolveRepositoryRootPath();
-    TypefaceCatalog Typefaces{};
+    TypographyRepository Typefaces{};
     if (!VerifyAssertion(
-            Typefaces.LoadArchive(RepositoryRoot / "EngineContent/FontsArchives") == 5u,
-            "Load FontCatalogue.FontSpace (zero .toml)"))
+            Typefaces.LoadRepository(RepositoryRoot / "EngineContent/Fonts") == 5u,
+            "Load FontRepository.FontSpace (zero .toml)"))
     {
         ImGui::DestroyContext(GuiSession);
         return false;
     }
-    TypefaceCatalog::AssignCurrent(&Typefaces);
+    TypographyRepository::AssignCurrent(&Typefaces);
     if (ImFont* DefaultFace = Typefaces.QueryFont(0u, Frontier::FontWeightClass::Regular))
     {
         Io.FontDefault = DefaultFace;
@@ -275,7 +275,7 @@ bool RenderSnapshotSuite(const std::filesystem::path& OutputDirectory)
 
     auto CaptureSnapshot = [&](const char* FileName, RgbaColor8 ClearColor = RgbaColor8{ 0, 0, 0, 255 }) -> bool
     {
-        ConfigureImGuiWorkspaceTheme(Dock.ActiveTabMetrics(), Panel.QueryThemeCatalog());
+        ConfigureImGuiWorkspaceTheme(Dock.ActiveTabMetrics(), Panel.QueryThemeRepository());
         for (int Iteration = 0; Iteration < 3; ++Iteration)
         {
             Io.DisplaySize = ImVec2(static_cast<float>(CanvasWidth), static_cast<float>(CanvasHeight));
@@ -457,15 +457,15 @@ bool RenderSnapshotSuite(const std::filesystem::path& OutputDirectory)
 
     // 14: Dedicated Reusable Controls Showcase (DropdownSelector + TextInputField + CapsuleButton)
     {
-        ThemeCatalog ShowcaseTheme{};
+        ThemeRepository ShowcaseTheme{};
         ShowcaseTheme.ConfigureTheme(ThemePreset::Oled);
         ShowcaseTheme.ConfigureAccent(AccentPreset::Blue);
         ControlStyle::ConfigureTheme(
             ShowcaseTheme,
-            ThemeCatalog::QuerySemanticColor(0u, 0u),
-            ThemeCatalog::QuerySemanticColor(1u, 0u),
-            ThemeCatalog::QuerySemanticColor(2u, 0u),
-            ThemeCatalog::QuerySemanticColor(3u, 0u));
+            ThemeRepository::QuerySemanticColor(0u, 0u),
+            ThemeRepository::QuerySemanticColor(1u, 0u),
+            ThemeRepository::QuerySemanticColor(2u, 0u),
+            ThemeRepository::QuerySemanticColor(3u, 0u));
 
         TextEditBuffer ProjectNameInput{};
         ProjectNameInput.Begin("FrontierStudio.projectspace");

@@ -1,9 +1,9 @@
 /*============================================================================================================================================
-                                                       VECTORICONCATALOG.CPP
+                                                           VECTORICONREPOSITORY.CPP
 ============================================================================================================================================*/
 // 🧩 SVG 1.1 path flattening, round-cap polyline stroking, and built-in vector icon lookup entries.
 
-#include "Engine/Components/VectorIcons/VectorIconCatalog.h"
+#include "Engine/Components/VectorIcons/VectorIconRepository.h"
 
 #include <algorithm>
 #include <array>
@@ -280,7 +280,7 @@ const std::array<VectorIconEntry, static_cast<std::size_t>(ControlIcon::Count)> 
 
 } // namespace
 
-std::vector<VectorIconCatalog::Contour> VectorIconCatalog::FlattenSvgPath(std::string_view SvgPath) noexcept
+std::vector<VectorIconRepository::Contour> VectorIconRepository::FlattenSvgPath(std::string_view SvgPath) noexcept
 {
     std::vector<Contour> Contours;
     SvgPathScanner       Scanner{SvgPath};
@@ -455,7 +455,7 @@ std::vector<VectorIconCatalog::Contour> VectorIconCatalog::FlattenSvgPath(std::s
     return Contours;
 }
 
-void VectorIconCatalog::StrokeSvgPath(PixelSpace &Surface, std::string_view SvgPath, const VectorIconPlacement &Placement,
+void VectorIconRepository::StrokeSvgPath(PixelSpace &Surface, std::string_view SvgPath, const VectorIconPlacement &Placement,
                                       float ViewBox) noexcept
 {
     const float Scale     = Placement.Size / ViewBox;
@@ -505,7 +505,7 @@ void VectorIconCatalog::StrokeSvgPath(PixelSpace &Surface, std::string_view SvgP
     }
 }
 
-void VectorIconCatalog::FillSvgPath(PixelSpace &Surface, std::string_view SvgPath, const VectorIconPlacement &Placement,
+void VectorIconRepository::FillSvgPath(PixelSpace &Surface, std::string_view SvgPath, const VectorIconPlacement &Placement,
                                     float ViewBox) noexcept
 {
     const float Scale = Placement.Size / ViewBox;
@@ -521,25 +521,25 @@ void VectorIconCatalog::FillSvgPath(PixelSpace &Surface, std::string_view SvgPat
     }
 }
 
-const VectorIconEntry &VectorIconCatalog::QueryNavigation(NavigationIcon Icon) noexcept
+const VectorIconEntry &VectorIconRepository::QueryNavigation(NavigationIcon Icon) noexcept
 {
     const std::size_t Index = static_cast<std::size_t>(Icon);
     return Index < NavigationEntries.size() ? NavigationEntries[Index] : NavigationEntries[0];
 }
 
-const VectorIconEntry &VectorIconCatalog::QueryControl(ControlIcon Icon) noexcept
+const VectorIconEntry &VectorIconRepository::QueryControl(ControlIcon Icon) noexcept
 {
     const std::size_t Index = static_cast<std::size_t>(Icon);
     return Index < ControlEntries.size() ? ControlEntries[Index] : ControlEntries[0];
 }
 
-void VectorIconCatalog::DrawNavigation(PixelSpace &Surface, NavigationIcon Icon, const VectorIconPlacement &Placement) noexcept
+void VectorIconRepository::DrawNavigation(PixelSpace &Surface, NavigationIcon Icon, const VectorIconPlacement &Placement) noexcept
 {
     const VectorIconEntry &Entry = QueryNavigation(Icon);
     StrokeSvgPath(Surface, Entry.SvgPath, Placement, Entry.ViewBox);
 }
 
-void VectorIconCatalog::DrawControl(PixelSpace &Surface, ControlIcon Icon, const VectorIconPlacement &Placement) noexcept
+void VectorIconRepository::DrawControl(PixelSpace &Surface, ControlIcon Icon, const VectorIconPlacement &Placement) noexcept
 {
     const VectorIconEntry &Entry = QueryControl(Icon);
     StrokeSvgPath(Surface, Entry.SvgPath, Placement, Entry.ViewBox);

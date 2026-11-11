@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                          CONTROLSTYLE.H
+                                                                CONTROLSTYLE.H
 ============================================================================================================================================*/
 // 🧩 Shared control color set, layout metrics, pointer contact primitives, and section containers
 
@@ -9,9 +9,9 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Appearance/ThemeCatalog.h"
+#include "Engine/Components/Appearance/ThemeRepository.h"
 #include "Engine/Components/PixelSpace.h"
-#include "Engine/Components/VectorIcons/VectorIconCatalog.h"
+#include "Engine/Components/VectorIcons/VectorIconRepository.h"
 
 #include <cstdint>
 
@@ -19,7 +19,7 @@ namespace Frontier
 {
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                        CONSTANTS
+//                                                       CONSTANTS
 //------------------------------------------------------------------------------------------------------------------------
 
 struct ControlMetrics
@@ -112,14 +112,14 @@ namespace ControlStyle
 {
 
 void ConfigureTheme(
-    const ThemeCatalog& Theme,
+    const ThemeRepository& Theme,
     ColorQuad           WarningColor = ColorQuad::FromHex(0xF59E0Bu),
     ColorQuad           SuccessColor = ColorQuad::FromHex(0x22C55Eu),
     ColorQuad           NoticeColor  = ColorQuad::FromHex(0x3B82F6u),
     ColorQuad           CautionColor = ColorQuad::FromHex(0xEAB308u)) noexcept;
 
 [[nodiscard]] ControlColorSet ConstructColorSet(
-    const ThemeCatalog& Theme,
+    const ThemeRepository& Theme,
     ColorQuad           WarningColor = ColorQuad::FromHex(0xF59E0Bu),
     ColorQuad           SuccessColor = ColorQuad::FromHex(0x22C55Eu),
     ColorQuad           NoticeColor  = ColorQuad::FromHex(0x3B82F6u),

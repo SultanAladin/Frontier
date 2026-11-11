@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                         CONTROLSTYLE.CPP
+                                                               CONTROLSTYLE.CPP
 ============================================================================================================================================*/
 // 🧩 Shared control color set, smoothstep cross-fade, rounded outlines, and section layout primitives
 
@@ -23,7 +23,7 @@ ControlColorSet ActiveColorSet{};
 namespace ControlStyle
 {
 
-ControlColorSet ConstructColorSet(const ThemeCatalog &Theme, ColorQuad WarningColor, ColorQuad SuccessColor,
+ControlColorSet ConstructColorSet(const ThemeRepository &Theme, ColorQuad WarningColor, ColorQuad SuccessColor,
                                   ColorQuad NoticeColor, ColorQuad CautionColor) noexcept
 {
     const ThemeSurfaceSet &Set = Theme.QuerySurfaceSet();
@@ -67,7 +67,7 @@ ControlColorSet ConstructColorSet(const ThemeCatalog &Theme, ColorQuad WarningCo
     return Out;
 }
 
-void ConfigureTheme(const ThemeCatalog &Theme, ColorQuad WarningColor, ColorQuad SuccessColor, ColorQuad NoticeColor,
+void ConfigureTheme(const ThemeRepository &Theme, ColorQuad WarningColor, ColorQuad SuccessColor, ColorQuad NoticeColor,
                     ColorQuad CautionColor) noexcept
 {
     ActiveColorSet = ConstructColorSet(Theme, WarningColor, SuccessColor, NoticeColor, CautionColor);
@@ -186,7 +186,7 @@ void TextLeading(PixelSpace &Surface, Rectangle2D Bounds, float PadX, ColorQuad 
 void DrawIcon(PixelSpace &Surface, float X, float Y, float Size, ColorQuad Ink, ControlIcon Icon,
               float StrokeWidth) noexcept
 {
-    VectorIconCatalog::DrawControl(Surface, Icon, {X, Y, Size, Ink.ToRgba8(), StrokeWidth});
+    VectorIconRepository::DrawControl(Surface, Icon, {X, Y, Size, Ink.ToRgba8(), StrokeWidth});
 }
 
 void DrawIconCentered(PixelSpace &Surface, Rectangle2D Bounds, float Size, ColorQuad Ink, ControlIcon Icon,

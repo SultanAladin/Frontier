@@ -1,14 +1,14 @@
 /*============================================================================================================================================
-                                                        BOOLEANSWITCH.CPP
+                                                            EXCLUSIVESELECTOR.CPP
 ============================================================================================================================================*/
 // 🧩 Reusable rounded toggle switch implementations.
 
-#include "Engine/Components/Controls/BooleanSwitch.h"
+#include "Engine/Components/Controls/ExclusiveSelector.h"
 
 namespace Frontier
 {
 
-namespace BooleanSwitch
+namespace ExclusiveSelector
 {
 
 ControlContact Draw(PixelSpace &Surface, float X, float Y, bool Active, const ControlPointer &Pointer,
@@ -52,6 +52,6 @@ ControlContact DrawCompact(PixelSpace &Surface, Rectangle2D Bounds, bool Active,
     return Contact;
 }
 
-} // namespace BooleanSwitch
+} // namespace ExclusiveSelector
 
 } // namespace Frontier

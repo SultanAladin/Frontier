@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                      CONTROLCENTREPANEL.CPP
+                                                            CONTROLCENTREPANEL.CPP
 ============================================================================================================================================*/
 // 🧩 Top-notch pull-down Control Centre, Appearance/Input/Notifications/Workspace settings, toast overlay, and modal dialogues
 
@@ -22,7 +22,7 @@ namespace
 {
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                        CONSTANTS
+//                                                       CONSTANTS
 //------------------------------------------------------------------------------------------------------------------------
 
 constexpr FontWeightClass TypographyChipOrder[9] = {
@@ -38,7 +38,7 @@ constexpr FontWeightClass TypographyChipOrder[9] = {
 };
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                               FORMATTING & DIFF SUMMARIES
+//                                              FORMATTING & DIFF SUMMARIES
 //------------------------------------------------------------------------------------------------------------------------
 
 void FormatHexRgb(ColorQuad Color, char* Buffer, std::size_t Capacity) noexcept
@@ -98,7 +98,7 @@ void FormatHexRgb(ColorQuad Color, char* Buffer, std::size_t Capacity) noexcept
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                           LIFECYCLE & PROJECTSPACE PERSISTENCE
+//                                          LIFECYCLE & PROJECTSPACE PERSISTENCE
 //------------------------------------------------------------------------------------------------------------------------
 
 ControlCentrePanel::ControlCentrePanel() noexcept
@@ -115,16 +115,16 @@ void ControlCentrePanel::SyncAppliedControlColors() noexcept
     AppliedTheme.ConfigureCornerRadius(AppliedAppearance.CornerRadius);
     ControlStyle::ConfigureTheme(
         AppliedTheme,
-        ThemeCatalog::QuerySemanticColor(0u, AppliedAppearance.WarningSwatch),
-        ThemeCatalog::QuerySemanticColor(1u, AppliedAppearance.SuccessSwatch),
-        ThemeCatalog::QuerySemanticColor(2u, AppliedAppearance.NoticeSwatch),
-        ThemeCatalog::QuerySemanticColor(3u, AppliedAppearance.CautionSwatch));
+        ThemeRepository::QuerySemanticColor(0u, AppliedAppearance.WarningSwatch),
+        ThemeRepository::QuerySemanticColor(1u, AppliedAppearance.SuccessSwatch),
+        ThemeRepository::QuerySemanticColor(2u, AppliedAppearance.NoticeSwatch),
+        ThemeRepository::QuerySemanticColor(3u, AppliedAppearance.CautionSwatch));
 }
 
-bool ControlCentrePanel::AttachProjectSpace(const std::filesystem::path& ArchivePath, std::string* OutDiagnostic) noexcept
+bool ControlCentrePanel::AttachProjectSpace(const std::filesystem::path& RepositoryPath, std::string* OutDiagnostic) noexcept
 {
     std::string Diagnostic{};
-    if (!ProjectSpaceArchive::ValidateContainerPath(ArchivePath, Diagnostic))
+    if (!ProjectSpaceRepository::ValidateContainerPath(RepositoryPath, Diagnostic))
     {
         if (OutDiagnostic != nullptr)
         {
@@ -133,8 +133,8 @@ bool ControlCentrePanel::AttachProjectSpace(const std::filesystem::path& Archive
         return false;
     }
 
-    AttachedArchivePath = ArchivePath;
-    if (!std::filesystem::exists(ArchivePath))
+    AttachedRepositoryPath = RepositoryPath;
+    if (!std::filesystem::exists(RepositoryPath))
     {
         if (OutDiagnostic != nullptr)
         {
@@ -144,7 +144,7 @@ bool ControlCentrePanel::AttachProjectSpace(const std::filesystem::path& Archive
     }
 
     ProjectSpaceDocument Loaded{};
-    if (!ProjectSpaceArchive::Load(ArchivePath, Loaded, Diagnostic))
+    if (!ProjectSpaceRepository::Load(RepositoryPath, Loaded, Diagnostic))
     {
         if (OutDiagnostic != nullptr)
         {
@@ -192,7 +192,7 @@ bool ControlCentrePanel::AttachProjectSpace(const std::filesystem::path& Archive
 
 bool ControlCentrePanel::SaveToProjectSpace(std::string* OutDiagnostic) noexcept
 {
-    if (AttachedArchivePath.empty())
+    if (AttachedRepositoryPath.empty())
     {
         if (OutDiagnostic != nullptr)
         {
@@ -202,7 +202,7 @@ bool ControlCentrePanel::SaveToProjectSpace(std::string* OutDiagnostic) noexcept
     }
 
     ProjectSpaceDocument Document{};
-    Document.ProjectTitle = AttachedArchivePath.stem().string();
+    Document.ProjectTitle = AttachedRepositoryPath.stem().string();
     Document.Appearance   = AppliedAppearance;
     Document.TypefaceName = "Inter";
     if (Typefaces != nullptr && Typefaces->QueryGroup(AppliedAppearance.TypefaceIndex) != nullptr)
@@ -214,7 +214,7 @@ bool ControlCentrePanel::SaveToProjectSpace(std::string* OutDiagnostic) noexcept
     Document.Notifications                          = AppliedNotifications;
 
     std::string Diagnostic{};
-    const bool  Saved = ProjectSpaceArchive::Save(AttachedArchivePath, Document, Diagnostic);
+    const bool  Saved = ProjectSpaceRepository::Save(AttachedRepositoryPath, Document, Diagnostic);
     if (OutDiagnostic != nullptr)
     {
         *OutDiagnostic = Diagnostic;
@@ -297,7 +297,7 @@ void ControlCentrePanel::ApplyDraftAppearanceImmediate() noexcept
 void ControlCentrePanel::ApplyDraftInputImmediate() noexcept
 {
     std::string Diagnostic{};
-    if (!InputSettingsCatalog::ValidatePreferences(DraftInput, Diagnostic))
+    if (!InputSettingsRepository::ValidatePreferences(DraftInput, Diagnostic))
     {
         StatusDiagnostic = Diagnostic;
         if (AppliedNotifications.ErrorAlertsEnabled)
@@ -441,7 +441,7 @@ void ControlCentrePanel::ResolveConfirmationResponse(DialogueResponse Response)
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                              PRIMARY RENDERING & MOTION
+//                                               PRIMARY RENDERING & MOTION
 //------------------------------------------------------------------------------------------------------------------------
 
 void ControlCentrePanel::Render(Rectangle2D HostBoundsPhysical, double Δt, float RefreshRateHertz)
@@ -457,16 +457,16 @@ void ControlCentrePanel::Render(Rectangle2D HostBoundsPhysical, double Δt, floa
 
     if (Notch.QueryOpen() && ActivePage == ControlCentrePage::Appearance)
     {
-        ThemeCatalog PreviewTheme{};
+        ThemeRepository PreviewTheme{};
         PreviewTheme.ConfigureTheme(DraftAppearance.Theme);
         PreviewTheme.ConfigureAccent(DraftAppearance.Accent);
         PreviewTheme.ConfigureCornerRadius(DraftAppearance.CornerRadius);
         ControlStyle::ConfigureTheme(
             PreviewTheme,
-            ThemeCatalog::QuerySemanticColor(0u, DraftAppearance.WarningSwatch),
-            ThemeCatalog::QuerySemanticColor(1u, DraftAppearance.SuccessSwatch),
-            ThemeCatalog::QuerySemanticColor(2u, DraftAppearance.NoticeSwatch),
-            ThemeCatalog::QuerySemanticColor(3u, DraftAppearance.CautionSwatch));
+            ThemeRepository::QuerySemanticColor(0u, DraftAppearance.WarningSwatch),
+            ThemeRepository::QuerySemanticColor(1u, DraftAppearance.SuccessSwatch),
+            ThemeRepository::QuerySemanticColor(2u, DraftAppearance.NoticeSwatch),
+            ThemeRepository::QuerySemanticColor(3u, DraftAppearance.CautionSwatch));
     }
     else
     {
@@ -483,14 +483,14 @@ void ControlCentrePanel::Render(Rectangle2D HostBoundsPhysical, double Δt, floa
         {
             ShortcutChord Captured{};
             bool          EscapeCancelled = false;
-            if (InputSettingsCatalog::PollImGuiChordCapture(Captured, EscapeCancelled))
+            if (InputSettingsRepository::PollImGuiChordCapture(Captured, EscapeCancelled))
             {
                 InputPreferences Candidate                                          = DraftInput;
                 Candidate.CustomShortcutsEnabled                                    = true;
                 Candidate.Shortcuts[static_cast<std::size_t>(CaptureShortcutSlot)] = Captured;
 
                 std::string ValidationMessage{};
-                if (InputSettingsCatalog::ValidatePreferences(Candidate, ValidationMessage))
+                if (InputSettingsRepository::ValidatePreferences(Candidate, ValidationMessage))
                 {
                     DraftInput          = Candidate;
                     CaptureShortcutSlot = -1;
@@ -509,25 +509,25 @@ void ControlCentrePanel::Render(Rectangle2D HostBoundsPhysical, double Δt, floa
         }
         else
         {
-            if (InputSettingsCatalog::QueryChordTriggeredInImGui(
+            if (InputSettingsRepository::QueryChordTriggeredInImGui(
                     AppliedInput.QueryActiveShortcut(ShortcutCommand::ControlCentre)))
             {
                 ConfigureOpen(!Notch.QueryOpen(), false);
             }
-            else if (InputSettingsCatalog::QueryChordTriggeredInImGui(
+            else if (InputSettingsRepository::QueryChordTriggeredInImGui(
                          AppliedInput.QueryActiveShortcut(ShortcutCommand::Typography)))
             {
                 ActivatePage(ControlCentrePage::Appearance, false);
                 ActivateAppearanceTab(AppearanceSectionTab::Typography);
             }
-            else if (InputSettingsCatalog::QueryChordTriggeredInImGui(
+            else if (InputSettingsRepository::QueryChordTriggeredInImGui(
                          AppliedInput.QueryActiveShortcut(ShortcutCommand::Theme)))
             {
                 ActivatePage(ControlCentrePage::Appearance, false);
                 ActivateAppearanceTab(AppearanceSectionTab::Theme);
             }
             else if (Notch.QueryOpen() &&
-                     InputSettingsCatalog::QueryChordTriggeredInImGui(
+                     InputSettingsRepository::QueryChordTriggeredInImGui(
                          AppliedInput.QueryActiveShortcut(ShortcutCommand::DismissPanel)))
             {
                 if (ActivePage == ControlCentrePage::QuickControls)
@@ -677,7 +677,7 @@ void ControlCentrePanel::Render(Rectangle2D HostBoundsPhysical, double Δt, floa
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                               PAGE ROUTING & TOP PAGES
+//                                                PAGE ROUTING & TOP PAGES
 //------------------------------------------------------------------------------------------------------------------------
 
 void ControlCentrePanel::DrawPageContents(
@@ -1144,7 +1144,7 @@ void ControlCentrePanel::DrawSubPageContainer(
             else if (Page == ControlCentrePage::Input)
             {
                 std::string ValidationMessage{};
-                if (!InputSettingsCatalog::ValidatePreferences(DraftInput, ValidationMessage))
+                if (!InputSettingsRepository::ValidatePreferences(DraftInput, ValidationMessage))
                 {
                     StatusDiagnostic = ValidationMessage;
                 }
@@ -1205,7 +1205,7 @@ void ControlCentrePanel::DrawSubPageContainer(
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                              APPEARANCE INSPECTOR TABS
+//                                               APPEARANCE INSPECTOR TABS
 //------------------------------------------------------------------------------------------------------------------------
 
 float ControlCentrePanel::DrawAppearanceDisplayBody(
@@ -1282,7 +1282,7 @@ float ControlCentrePanel::DrawAppearanceTypographyBody(
     const float            LeftX      = BodyBounds.X;
     const float            BodyWidth  = BodyBounds.Width;
     float                  CursorY    = BodyBounds.Y - ScrollY;
-    const ColorQuad        Accent     = ThemeCatalog::QueryAccentColor(DraftAppearance.Accent);
+    const ColorQuad        Accent     = ThemeRepository::QueryAccentColor(DraftAppearance.Accent);
     const uint32_t         GroupCount = (Typefaces != nullptr) ? Typefaces->QueryGroupCount() : 0u;
 
     if (Typefaces != nullptr && DraftAppearance.TypefaceIndex >= GroupCount && GroupCount > 0u)
@@ -1475,7 +1475,7 @@ float ControlCentrePanel::DrawAppearanceTypographyBody(
                 if (Typefaces == nullptr || Typefaces->ContainsWeight(DraftAppearance.TypefaceIndex, CandidateWeight))
                 {
                     AvailableChips[ChipCount] = CandidateWeight;
-                    ChipWidths[ChipCount]     = CapsuleButton::MeasureChipWidth(Surface, TypefaceCatalog::WeightLabel(CandidateWeight));
+                    ChipWidths[ChipCount]     = CapsuleButton::MeasureChipWidth(Surface, TypographyRepository::WeightLabel(CandidateWeight));
                     ++ChipCount;
                 }
             }
@@ -1513,7 +1513,7 @@ float ControlCentrePanel::DrawAppearanceTypographyBody(
             std::snprintf(SizeDigits, sizeof(SizeDigits), "%d", static_cast<int>(std::lround(DraftAppearance.SlotSize[Slot])));
 
             Surface.PushTypeface(ResolveDraftFace(FontWeightClass::Medium));
-            Surface.Text({ Content.X, TopAlignedY + 2.0f }, 14.0f, Colors.Text.Faded(Opacity).ToRgba8(), ThemeCatalog::QueryTypeSlotLabel(Slot));
+            Surface.Text({ Content.X, TopAlignedY + 2.0f }, 14.0f, Colors.Text.Faded(Opacity).ToRgba8(), ThemeRepository::QueryTypeSlotLabel(Slot));
             Surface.PopTypeface();
 
             const float SliderRowY = TopAlignedY + 44.0f - (ControlMetrics::ControlHeight - ControlMetrics::SliderHeight) * 0.5f;
@@ -1560,7 +1560,7 @@ float ControlCentrePanel::DrawAppearanceTypographyBody(
                 if (CapsuleButton::DrawChip(
                         Surface,
                         ChipBounds,
-                        TypefaceCatalog::WeightLabel(AvailableChips[ChipIndex]),
+                        TypographyRepository::WeightLabel(AvailableChips[ChipIndex]),
                         DraftAppearance.SlotWeight[Slot] == AvailableChips[ChipIndex],
                         Pointer,
                         Opacity)
@@ -1587,7 +1587,7 @@ float ControlCentrePanel::DrawAppearanceTypographyBody(
                 { PreviewWell.X + 24.0f, PreviewWell.Center().Y - LineHeight * 0.5f },
                 DraftAppearance.SlotSize[Slot],
                 Colors.Text.Faded(Opacity).ToRgba8(),
-                ThemeCatalog::QueryTypeSlotSample(Slot));
+                ThemeRepository::QueryTypeSlotSample(Slot));
             Surface.PopTypeface();
             Surface.PopClip();
 
@@ -1725,7 +1725,7 @@ float ControlCentrePanel::DrawAppearanceThemeBody(
                     Surface,
                     CenterX,
                     CenterY,
-                    ThemeCatalog::QueryAccentColor(Preset),
+                    ThemeRepository::QueryAccentColor(Preset),
                     DraftAppearance.Accent == Preset,
                     true,
                     Pointer,
@@ -1789,7 +1789,7 @@ float ControlCentrePanel::DrawAppearanceThemeBody(
                         Surface,
                         CenterX,
                         CenterY,
-                        ThemeCatalog::QuerySemanticColor(RowIndex, Swatch),
+                        ThemeRepository::QuerySemanticColor(RowIndex, Swatch),
                         *(Entries[RowIndex].SelectedSwatch) == Swatch,
                         false,
                         Pointer,
@@ -1809,7 +1809,7 @@ float ControlCentrePanel::DrawAppearanceThemeBody(
             Surface.FillRectangle(PreviewBox, WellFill.Faded(Opacity).ToRgba8(), Radius * 0.7f);
             ControlStyle::DrawRoundedOutline(Surface, PreviewBox, Colors.Stroke.Faded(Opacity), Radius * 0.7f);
 
-            const ColorQuad Tone = ThemeCatalog::QuerySemanticColor(RowIndex, *(Entries[RowIndex].SelectedSwatch));
+            const ColorQuad Tone = ThemeRepository::QuerySemanticColor(RowIndex, *(Entries[RowIndex].SelectedSwatch));
             ControlStyle::DrawIcon(
                 Surface,
                 PreviewBox.X + 24.0f,
@@ -1944,7 +1944,7 @@ float ControlCentrePanel::DrawInputSettingsBody(
     CursorY += 52.0f;
 
     DrawFormSection("Custom Shortcuts");
-    if (BooleanSwitch::Draw(
+    if (ExclusiveSelector::Draw(
             Surface,
             LeftX + Width - ControlMetrics::SwitchWidth,
             CursorY - 40.0f,
@@ -1961,13 +1961,13 @@ float ControlCentrePanel::DrawInputSettingsBody(
     for (uint32_t Slot = 0u; Slot < InputPreferences::ShortcutCount; ++Slot)
     {
         const auto        Command = static_cast<ShortcutCommand>(Slot);
-        const Rectangle2D Field   = LayoutFormRow(InputSettingsCatalog::QueryCommandLabel(Command));
+        const Rectangle2D Field   = LayoutFormRow(InputSettingsRepository::QueryCommandLabel(Command));
         DrawFieldBox(Field);
 
         const bool        Capturing = (CaptureShortcutSlot == static_cast<int>(Slot));
         const std::string ChordText = Capturing
                                           ? "Press a key (Esc cancels)"
-                                          : InputSettingsCatalog::FormatChordLabel(DraftInput.QueryActiveShortcut(Command));
+                                          : InputSettingsRepository::FormatChordLabel(DraftInput.QueryActiveShortcut(Command));
 
         Surface.PushClip(Field);
         ControlStyle::TextLeading(
@@ -2003,7 +2003,7 @@ float ControlCentrePanel::DrawInputSettingsBody(
     }
 
     DrawFormSection("Advanced Controls");
-    if (BooleanSwitch::Draw(
+    if (ExclusiveSelector::Draw(
             Surface,
             LeftX + Width - ControlMetrics::SwitchWidth,
             CursorY - 40.0f,
@@ -2018,7 +2018,7 @@ float ControlCentrePanel::DrawInputSettingsBody(
     const Rectangle2D InvertRow      = LayoutFormRow("Invert Y-Axis");
     ControlPointer    InvertPointer  = LocalPointer;
     InvertPointer.Enabled            = InvertPointer.Enabled && DraftInput.AdvancedControlsEnabled;
-    if (BooleanSwitch::Draw(
+    if (ExclusiveSelector::Draw(
             Surface,
             InvertRow.Right() - ControlMetrics::SwitchWidth,
             InvertRow.Y + 7.0f,
@@ -2106,7 +2106,7 @@ float ControlCentrePanel::DrawNotificationsBody(
         const Point2D TextExtent = Surface.MeasureText(14.0f, Label);
         Surface.Text({ LeftX, CursorY + (56.0f - TextExtent.Y) * 0.5f }, 14.0f, Colors.Text.Faded(Opacity).ToRgba8(), Label);
         const Rectangle2D SwitchRect{ LeftX + Width - 48.0f, CursorY + 16.0f, 48.0f, 24.0f };
-        if (BooleanSwitch::DrawCompact(Surface, SwitchRect, ToggleField, Pointer, Opacity).Clicked)
+        if (ExclusiveSelector::DrawCompact(Surface, SwitchRect, ToggleField, Pointer, Opacity).Clicked)
         {
             ToggleField = !ToggleField;
         }
@@ -2180,7 +2180,7 @@ float ControlCentrePanel::DrawWorkspaceBody(
     float                  CursorY = BodyBounds.Y - ScrollY;
 
     Surface.Text({ LeftX, CursorY + 6.0f }, 14.0f, Colors.Text.Faded(Opacity).ToRgba8(), "Allow detached OS windows");
-    if (BooleanSwitch::Draw(
+    if (ExclusiveSelector::Draw(
             Surface,
             LeftX + Width - ControlMetrics::SwitchWidth,
             CursorY,

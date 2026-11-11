@@ -38,9 +38,9 @@ def Main():
 
         print('[Fetch]    Downloading {0} ...'.format(PackageName), flush=True)
         with urllib.request.urlopen(Package['url'], timeout=120) as Response:
-            ArchiveBytes = Response.read()
+            BundleBytes = Response.read()
 
-        Digest = hashlib.sha256(ArchiveBytes).hexdigest()
+        Digest = hashlib.sha256(BundleBytes).hexdigest()
         if Digest != Package['sha256']:
             raise RuntimeError('SHA-256 mismatch for {0}: expected {1}, got {2}'.format(PackageName, Package['sha256'], Digest))
 
@@ -50,22 +50,22 @@ def Main():
         TemporaryDirectory.mkdir(parents=True, exist_ok=True)
 
         try:
-            with tarfile.open(fileobj=io.BytesIO(ArchiveBytes), mode='r:gz') as Archive:
-                for ArchiveEntry in Archive.getmembers():
-                    RelativeParts = Path(ArchiveEntry.name).parts[1:]
+            with tarfile.open(fileobj=io.BytesIO(BundleBytes), mode='r:gz') as TarBundle:
+                for BundleEntry in TarBundle.getmembers():
+                    RelativeParts = Path(BundleEntry.name).parts[1:]
                     if not RelativeParts:
                         continue
                     RelativePath = Path(*RelativeParts)
                     OutputPath = TemporaryDirectory / RelativePath
                     if not OutputPath.resolve().is_relative_to(TemporaryDirectory.resolve()):
-                        raise RuntimeError('Unsafe archive path in ' + PackageName + ': ' + ArchiveEntry.name)
-                    if not (ArchiveEntry.isfile() or ArchiveEntry.isdir()):
+                        raise RuntimeError('Unsafe package path in ' + PackageName + ': ' + BundleEntry.name)
+                    if not (BundleEntry.isfile() or BundleEntry.isdir()):
                         continue
-                    if ArchiveEntry.isdir():
+                    if BundleEntry.isdir():
                         OutputPath.mkdir(parents=True, exist_ok=True)
                     else:
                         OutputPath.parent.mkdir(parents=True, exist_ok=True)
-                        with Archive.extractfile(ArchiveEntry) as Reader, OutputPath.open('wb') as Writer:
+                        with TarBundle.extractfile(BundleEntry) as Reader, OutputPath.open('wb') as Writer:
                             shutil.copyfileobj(Reader, Writer)
 
             (TemporaryDirectory / '.frontier-revision').write_text(Package['revision'] + '\n', encoding='utf-8')

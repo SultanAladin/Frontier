@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                  SOFTWARECANVASRASTERIZER.H
+                                                          SOFTWARECANVASRASTERIZER.H
 ============================================================================================================================================*/
 // 🧩 Header-only software ImDrawData triangle rasterizer and lossless PNG 1.2 encoder for headless CTest validation
 
@@ -454,7 +454,7 @@ private:
 [[nodiscard]] inline ImFont* LoadProjectZeroDmSansFont(ImGuiIO& Io, float BrowserCssPixels = 12.5f)
 {
     ImFont*         Result   = nullptr;
-    const auto      FontFile = ResolveRepositoryRootPath() / "EngineContent/FontsArchives/DM Sans/DMSans-Medium.ttf";
+    const auto      FontFile = ResolveRepositoryRootPath() / "EngineContent/Fonts/DMSans/DMSans-Medium.ttf";
     std::error_code IoFailure{};
     if (std::filesystem::exists(FontFile, IoFailure))
     {

@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                     WINDOWVALIDATION.CPP
+                                                             WINDOWVALIDATION.CPP
 ============================================================================================================================================*/
 // 🧩 Validation suite and CPU visual snapshot generator for splash, desktop application, and dynamic game fullscreen PlatformWindow modes
 

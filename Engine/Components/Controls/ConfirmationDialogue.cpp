@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                     CONFIRMATIONDIALOGUE.CPP
+                                                           CONFIRMATIONDIALOGUE.CPP
 ============================================================================================================================================*/
 // 🧩 Foreground modal confirmation dialogue rendering Rounded (28px) and SemanticHeader (8px) layouts above all drawers
 
@@ -22,7 +22,7 @@ namespace
 {
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                 SEVERITY TONE & WRAPPING
+//                                                SEVERITY TONE & WRAPPING
 //------------------------------------------------------------------------------------------------------------------------
 
 [[nodiscard]] ColorQuad ResolveSeverityTone(DialogueSeverity Severity, const ControlColorSet& Colors) noexcept
@@ -104,7 +104,7 @@ namespace
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                              CONFIRMATION DIALOGUE METHODS
+//                                             CONFIRMATION DIALOGUE METHODS
 //------------------------------------------------------------------------------------------------------------------------
 
 bool ConfirmationDialogue::Activate(const ConfirmationSpecification& Specification)

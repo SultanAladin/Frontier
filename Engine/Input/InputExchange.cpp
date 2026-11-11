@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                      INPUTEXCHANGE.CPP
+                                                              INPUTEXCHANGE.CPP
 ============================================================================================================================================*/
 // 🧩 Implementation of bi-directional OS-to-Engine signal queueing and Engine-to-OS cursor/haptic directive exchange
 
@@ -51,7 +51,7 @@ void InputExchange::Finalize() noexcept
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                              INBOUND SIGNAL INTAKE (OS -> ENGINE)
+//                                          INBOUND SIGNAL INTAKE (OS -> ENGINE)
 //------------------------------------------------------------------------------------------------------------------------
 
 bool InputExchange::IntakeSignal(const InputSignalPacket& Packet) noexcept
