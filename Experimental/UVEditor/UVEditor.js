@@ -49,7 +49,7 @@ const StudioState = {
     documents: [],
     activeDocId: null,
     stageMode: 'mesh', // 'split' | 'uv' | 'mesh'
-    inspectorTab: 'shading', // 'shading' | 'packing' | 'unwrap' | 'udim' | 'check'
+    inspectorTab: 'packing', // 'packing' | 'unwrap' | 'udim' | 'shading' | 'check'
     outlinerFilter: 'all',
     searchQuery: '',
     compactOutliner: false,
@@ -87,7 +87,15 @@ const StudioState = {
         rotations: '90',
         equalizeWithinGroup: true
     },
-    pendingGroupPct: 30,
+    pendingGroupPct: 25,
+    materialBrush: {
+        matcapSlot: 5,
+        pbrColor: '#4c7dc9',
+        pbrMetallic: 0.60,
+        pbrRoughness: 0.24,
+        pbrSpecular: 0.68,
+        matcapMix: 0.62
+    },
     inspectorScope: null
 };
 
@@ -993,30 +1001,48 @@ function ExecuteImportancePack()
     SyncAllViews(true);
 }
 
+function ResolveSelectedIslandIds(Doc)
+{
+    if (!Doc) return [];
+    if (Doc.surface.selectedIslands.size > 0) return [...Doc.surface.selectedIslands];
+    if (Doc.surface.selectedFaces.size > 0)
+    {
+        const Out = [];
+        for (const Isl of Doc.islands)
+        {
+            if (Isl.faceIndices.some(Fi => Doc.surface.selectedFaces.has(Fi))) Out.push(Isl.id);
+        }
+        return Out;
+    }
+    return [];
+}
+
 function AssignSelectedIslandsToNewGroup(Pct = StudioState.pendingGroupPct)
 {
     const Doc = ActiveDoc();
     if (!Doc) return;
-    let SelectedIds = [...Doc.surface.selectedIslands];
-    if (!SelectedIds.length)
-    {
-        Toast('Select 1 or more islands first (click in 2D, 3D, or Outliner)');
-        return;
-    }
+    const SelectedIds = ResolveSelectedIslandIds(Doc);
     Doc.surface.PushUndo('Create Importance Group');
     const NextIdx = Doc.importanceGroups.length;
     const Color = GroupColorPalette[NextIdx % GroupColorPalette.length];
     const NewGroup = {
         id: `grp-${Date.now().toString(36)}`,
-        name: `Priority Group ${NextIdx + 1}`,
-        targetPercent: Math.max(1, Math.min(98, Number(Pct) || 25)),
+        name: `Priority ${NextIdx + 1}`,
+        targetPercent: Math.max(1, Math.min(95, Number(Pct) || 25)),
         color: Color,
         udimTarget: 'auto'
     };
     Doc.importanceGroups.push(NewGroup);
-    Doc.surface.AssignImportanceGroup(SelectedIds, NewGroup.id);
-    LogEvent('BUDGET', `Assigned ${SelectedIds.length} islands to "${NewGroup.name}" (${NewGroup.targetPercent}%)`, 'warm');
-    Toast(`${SelectedIds.length} islands -> ${NewGroup.targetPercent}% budget`);
+    if (SelectedIds.length > 0)
+    {
+        Doc.surface.AssignImportanceGroup(SelectedIds, NewGroup.id, Doc.islands);
+        LogEvent('BUDGET', `Assigned ${SelectedIds.length} charts to "${NewGroup.name}" (${NewGroup.targetPercent}%)`, 'warm');
+        Toast(`${SelectedIds.length} chart(s) -> "${NewGroup.name}" (${NewGroup.targetPercent}%)`);
+    }
+    else
+    {
+        Toast(`Added "${NewGroup.name}" (${NewGroup.targetPercent}%) — select charts and click +`);
+    }
     SyncAllViews(true);
 }
 
@@ -1024,12 +1050,12 @@ function AssignSelectedToGroup(GroupId)
 {
     const Doc = ActiveDoc();
     if (!Doc) return;
-    const SelectedIds = [...Doc.surface.selectedIslands];
-    if (!SelectedIds.length) { Toast('Select islands first'); return; }
+    const SelectedIds = ResolveSelectedIslandIds(Doc);
+    if (!SelectedIds.length) { Toast('Select charts or faces first'); return; }
     Doc.surface.PushUndo('Assign Importance Group');
-    Doc.surface.AssignImportanceGroup(SelectedIds, GroupId);
+    Doc.surface.AssignImportanceGroup(SelectedIds, GroupId, Doc.islands);
     const Grp = Doc.importanceGroups.find(G => G.id === GroupId);
-    LogEvent('BUDGET', `Assigned ${SelectedIds.length} islands to ${Grp ? Grp.name : 'Remaining Auto-Fill'}`, 'warm');
+    LogEvent('BUDGET', `Assigned ${SelectedIds.length} charts to ${Grp ? Grp.name : 'Auto Remainder'}`, 'warm');
     SyncAllViews(true);
 }
 
@@ -1960,6 +1986,27 @@ function RenderShadingTab(Body, Doc)
     const Counts = Sel.matcapCounts;
     const DistinctMatcaps = Sel.distinctSlots;
 
+    // Auto-inspect selected face's per-face PBR + MatCap whenever a new selection is made
+    const SelKey = Sel.hasSelection ? `${Doc.id}:${Sel.targetFaces[0]}:${Sel.faceCount}` : null;
+    if (SelKey && StudioState._lastSampledSelKey !== SelKey)
+    {
+        StudioState._lastSampledSelKey = SelKey;
+        const RefF = Doc.surface.faces[Sel.targetFaces[0]];
+        if (RefF)
+        {
+            StudioState.materialBrush.matcapSlot = (RefF.matcapSlot || 0) & 7;
+            StudioState.materialBrush.pbrColor = (RefF.pbrColor || '#4c7dc9').toLowerCase();
+            StudioState.materialBrush.pbrMetallic = RefF.pbrMetallic ?? 0.60;
+            StudioState.materialBrush.pbrRoughness = RefF.pbrRoughness ?? 0.24;
+            StudioState.materialBrush.pbrSpecular = RefF.pbrSpecular ?? 0.68;
+            StudioState.materialBrush.matcapMix = RefF.matcapMix ?? 0.62;
+        }
+    }
+    else if (!SelKey)
+    {
+        StudioState._lastSampledSelKey = null;
+    }
+
     const CurMode = Viewport3D ? Viewport3D.shadingMode : 'lit-matcap';
     const ModePretty = {
         'lit-matcap': 'Lit + Multi-MatCap',
@@ -2059,19 +2106,115 @@ function RenderShadingTab(Body, Doc)
     ]);
     Body.append(BentoGrid);
 
-    // 2. Simplified Fast PBR Lit Shader (Colour, Metallic, Roughness, Specular ONLY — NO GGX!)
-    const PbrSec = SectionCard(Body, {
-        Id: 'fast-pbr-lit',
-        Title: 'Fast PBR · Lit Shading',
-        Glyph: 'Sliders',
-        Badge: CurMode === 'fast-pbr' ? 'ACTIVE' : 'FAST LIT'
+    // 2. Unified Surface Shading Card: Combined Fast PBR Lit + Per-Face Multi-MatCap
+    //    Assigns strictly to Selected Faces via "Apply Selected" (or "Fill All" for entire geometry!)
+    const Brush = StudioState.materialBrush;
+    const MatSec = SectionCard(Body, {
+        Id: 'unified-surface-shading',
+        Title: 'Surface Shading · PBR + MatCap',
+        Glyph: 'Sparkles',
+        Badge: Sel.hasSelection ? `${Sel.faceCount} SEL` : 'BRUSH'
     });
 
-    SelectRow(PbrSec.Inner, {
+    const SampleBtn = Construct('button', 'pz-mini-pill-btn', 'Sample');
+    SampleBtn.type = 'button';
+    SampleBtn.title = 'Sample MatCap & Fast PBR settings from active/selected face into the brush';
+    SampleBtn.addEventListener('click', () =>
+    {
+        const SrcIdx = Sel.hasSelection ? Sel.targetFaces[0] : (Doc.surface.activeFace ?? 0);
+        const SrcF = Doc.surface.faces[SrcIdx];
+        if (!SrcF) return;
+        Brush.matcapSlot = (SrcF.matcapSlot || 0) & 7;
+        Brush.pbrColor = (SrcF.pbrColor || '#4c7dc9').toLowerCase();
+        Brush.pbrMetallic = SrcF.pbrMetallic ?? 0.60;
+        Brush.pbrRoughness = SrcF.pbrRoughness ?? 0.24;
+        Brush.pbrSpecular = SrcF.pbrSpecular ?? 0.68;
+        Brush.matcapMix = SrcF.matcapMix ?? 0.62;
+        RebuildInspector();
+        Toast(`Sampled material from Face #${SrcIdx}`);
+    });
+
+    const AutoPartBtn = Construct('button', 'pz-mini-pill-btn', 'Auto Parts');
+    AutoPartBtn.type = 'button';
+    AutoPartBtn.title = 'Auto-assign distinct MatCaps & PBR materials across surface parts';
+    AutoPartBtn.addEventListener('click', () =>
+    {
+        RunWithUndo('Auto-Assign Part Materials', () =>
+        {
+            Doc.surface.AutoAssignMatcapsByPart(Doc.islands);
+            Toast(`Auto-assigned part materials across ${Doc.islands.length} charts`);
+        });
+    });
+
+    MatSec.Inner.append(Construct('div', 'pz-sel-scope-bar', [
+        Construct('strong', null, Sel.hasSelection ? `Selected: ${Sel.title} (${Sel.faceCount}f)` : 'No faces selected'),
+        Construct('div', 'pz-mat-scope-actions', [SampleBtn, AutoPartBtn])
+    ]));
+
+    const EnsureLitSurfaceMode = () =>
+    {
+        if (Viewport3D && !['lit-matcap', 'fast-pbr', 'multi-matcap'].includes(Viewport3D.shadingMode))
+        {
+            Viewport3D.shadingMode = 'lit-matcap';
+            const TopShadeSel = document.getElementById('mesh-shade-select');
+            if (TopShadeSel) TopShadeSel.value = 'lit-matcap';
+        }
+    };
+
+    const LivePreviewSelectedOnly = Patch =>
+    {
+        Object.assign(Brush, Patch);
+        const SelFaces = Doc.surface.GetSelectedTargetFaces(Doc.islands);
+        if (SelFaces.size > 0)
+        {
+            Doc.surface.AssignSurfaceMaterialToFaces(SelFaces, Patch);
+            EnsureLitSurfaceMode();
+            if (Viewport3D) Viewport3D.FastUpdateGpuFaceMask(Doc.surface, Doc.islands);
+            UpdateHeaderAndHud(Doc);
+        }
+    };
+
+    ActionRow(MatSec.Inner, [
+        {
+            Label: 'Apply Selected',
+            Glyph: 'Check',
+            Tone: 'accent',
+            Act: () =>
+            {
+                const SelFaces = Doc.surface.GetSelectedTargetFaces(Doc.islands);
+                if (SelFaces.size === 0)
+                {
+                    Toast('Select faces or islands first — or click Fill All');
+                    return;
+                }
+                RunWithUndo('Apply Material to Selected Faces', () =>
+                {
+                    const N = Doc.surface.AssignSurfaceMaterialToFaces(SelFaces, Brush);
+                    EnsureLitSurfaceMode();
+                    Toast(`Applied PBR + MatCap to ${N} selected face(s)`);
+                });
+            }
+        },
+        {
+            Label: 'Fill All',
+            Glyph: 'Layers',
+            Act: () =>
+            {
+                RunWithUndo('Fill Material Across Geometry', () =>
+                {
+                    const N = Doc.surface.FillSurfaceMaterial(Brush);
+                    EnsureLitSurfaceMode();
+                    Toast(`Filled entire geometry (${N} faces)`);
+                });
+            }
+        }
+    ]);
+
+    SelectRow(MatSec.Inner, {
         Label: 'Shader',
         Options: [
+            ['Combined · PBR + MatCap', 'lit-matcap'],
             ['Fast PBR (Lit)', 'fast-pbr'],
-            ['Lit + Multi-MatCap', 'lit-matcap'],
             ['Multi-MatCap', 'multi-matcap'],
             ['Studio Clay', 'lit-eon'],
             ['Flat · UV Charts', 'flat'],
@@ -2082,23 +2225,69 @@ function RenderShadingTab(Body, Doc)
         Write: Val => Set3DShadingMode(Val)
     });
 
-    const EnsureFastPbrActive = () =>
-    {
-        if (Viewport3D && Viewport3D.shadingMode !== 'fast-pbr')
-        {
-            Viewport3D.shadingMode = 'fast-pbr';
-            const TopShadeSel = document.getElementById('mesh-shade-select');
-            if (TopShadeSel) TopShadeSel.value = 'fast-pbr';
-            SyncAllViews(false);
-        }
-        else if (Doc)
-        {
-            UpdateHeaderAndHud(Doc);
-        }
-    };
+    // Sub-section A: Per-Face Multi-MatCap Orbs + MatCap Blend
+    const ActiveSlotSpec = MATCAP_STUDIO_CATALOG[Brush.matcapSlot & 7] || MATCAP_STUDIO_CATALOG[0];
+    const SlotSubName = Construct('span', null, ActiveSlotSpec.label);
+    MatSec.Inner.append(Construct('div', 'pz-mat-subhead', [
+        document.createTextNode('Multi-MatCap Coat'),
+        SlotSubName
+    ]));
 
-    // Base Colour Row (Quick Studio Swatches + Native Colour Picker + Hex)
-    const CurHex = (Viewport3D?.pbrColor || '#7d93b2').toLowerCase();
+    const OrbGrid = Construct('div', 'pz-matcap-grid');
+    const OrbBtns = [];
+    for (const Spec of MATCAP_STUDIO_CATALOG)
+    {
+        const UsedCount = Counts[Spec.slot];
+        const IsActiveOrb = (Brush.matcapSlot & 7) === Spec.slot;
+        const OrbImg = Construct('img');
+        OrbImg.src = GetCachedMatcapThumb(Spec.slot);
+        OrbImg.alt = Spec.label;
+        const Children = [OrbImg, Construct('small', null, Spec.label)];
+        if (UsedCount > 0) Children.push(Construct('span', 'pz-matcap-count', `${UsedCount}`));
+        const Btn = Construct('button', `pz-matcap-orb-btn${IsActiveOrb ? ' active' : ''}`, Children);
+        Btn.type = 'button';
+        Btn.title = Sel.hasSelection
+            ? `Select "${Spec.label}" & apply to ${Sel.faceCount} selected face(s)`
+            : `Select "${Spec.label}" in brush (click Apply Selected or Fill All)`;
+        Btn.addEventListener('click', () =>
+        {
+            Brush.matcapSlot = Spec.slot;
+            SlotSubName.textContent = Spec.label;
+            for (const [Ob, Os] of OrbBtns) Ob.classList.toggle('active', Os === Spec.slot);
+            const SelFaces = Doc.surface.GetSelectedTargetFaces(Doc.islands);
+            if (SelFaces.size > 0)
+            {
+                RunWithUndo(`Assign MatCap: ${Spec.label}`, () =>
+                {
+                    const N = Doc.surface.AssignSurfaceMaterialToFaces(SelFaces, { matcapSlot: Spec.slot });
+                    EnsureLitSurfaceMode();
+                    Toast(`Assigned "${Spec.label}" to ${N} selected face(s)`);
+                });
+            }
+        });
+        OrbBtns.push([Btn, Spec.slot]);
+        OrbGrid.append(Btn);
+    }
+    MatSec.Inner.append(OrbGrid);
+
+    SliderRow(MatSec.Inner, {
+        Label: 'MatCap Mix',
+        Minimum: 0,
+        Maximum: 100,
+        Step: 2,
+        Digits: 0,
+        Unit: '%',
+        Read: () => Math.round((Brush.matcapMix ?? 0.62) * 100),
+        Write: Val => LivePreviewSelectedOnly({ matcapMix: Val / 100 })
+    });
+
+    // Sub-section B: Simplified Fast PBR Lit (Colour, Metallic, Roughness, Specular ONLY — NO GGX!)
+    MatSec.Inner.append(Construct('div', 'pz-mat-subhead', [
+        document.createTextNode('Fast PBR · Lit'),
+        Construct('span', null, 'No GGX')
+    ]));
+
+    const CurHex = (Brush.pbrColor || '#4c7dc9').toLowerCase();
     const SwatchDots = Construct('div', 'pz-pbr-swatch-dots');
     const HexLabel = Construct('span', 'pz-pbr-color-hex', CurHex.toUpperCase());
     const ColorInput = Construct('input');
@@ -2106,22 +2295,21 @@ function RenderShadingTab(Body, Doc)
     ColorInput.value = CurHex;
 
     const PbrSwatches = [
-        ['Steel Blue', '#7d93b2'],
-        ['Machined Alu', '#b8c0cc'],
+        ['Steel Blue', '#4c7dc9'],
+        ['Machined Alu', '#c4ccd8'],
         ['Titanium', '#c7bdb0'],
-        ['Gunmetal', '#4e5561'],
-        ['Turned Brass', '#d4a24c'],
+        ['Gunmetal', '#363b44'],
+        ['Turned Brass', '#d9a448'],
         ['CAD Sage', '#7b9478']
     ];
     const DotEls = [];
-    const ApplyPbrColor = HexVal =>
+    const SetBrushPbrColor = HexVal =>
     {
-        const Norm = String(HexVal || '#7d93b2').toLowerCase();
+        const Norm = String(HexVal || '#4c7dc9').toLowerCase();
         ColorInput.value = Norm;
         HexLabel.textContent = Norm.toUpperCase();
         for (const [El, SwHex] of DotEls) El.classList.toggle('active', SwHex === Norm);
-        Viewport3D?.UpdatePbrConfig({ pbrColor: Norm });
-        EnsureFastPbrActive();
+        LivePreviewSelectedOnly({ pbrColor: Norm });
     };
 
     for (const [SwName, SwHex] of PbrSwatches)
@@ -2130,120 +2318,49 @@ function RenderShadingTab(Body, Doc)
         DotBtn.type = 'button';
         DotBtn.style.background = SwHex;
         DotBtn.title = `${SwName} (${SwHex.toUpperCase()})`;
-        DotBtn.addEventListener('click', () => ApplyPbrColor(SwHex));
+        DotBtn.addEventListener('click', () => SetBrushPbrColor(SwHex));
         DotEls.push([DotBtn, SwHex]);
         SwatchDots.append(DotBtn);
     }
 
-    ColorInput.addEventListener('input', () => ApplyPbrColor(ColorInput.value));
+    ColorInput.addEventListener('input', () => SetBrushPbrColor(ColorInput.value));
     const ColorWell = Construct('label', 'pz-pbr-color-well', [ColorInput, HexLabel]);
     ColorWell.title = 'Pick Fast PBR Base Colour';
 
-    PbrSec.Inner.append(Construct('div', 'pz-pbr-color-row', [
+    MatSec.Inner.append(Construct('div', 'pz-pbr-color-row', [
         Construct('span', 'pz-pbr-color-label', 'Colour'),
         Construct('div', 'pz-pbr-color-controls', [SwatchDots, ColorWell])
     ]));
 
-    SliderRow(PbrSec.Inner, {
+    SliderRow(MatSec.Inner, {
         Label: 'Metallic',
         Minimum: 0.0,
         Maximum: 1.0,
         Step: 0.01,
         Digits: 2,
-        Read: () => Viewport3D?.pbrMetallic ?? 0.55,
-        Write: Val => { Viewport3D?.UpdatePbrConfig({ pbrMetallic: Val }); EnsureFastPbrActive(); }
+        Read: () => Brush.pbrMetallic ?? 0.60,
+        Write: Val => LivePreviewSelectedOnly({ pbrMetallic: Val })
     });
 
-    SliderRow(PbrSec.Inner, {
+    SliderRow(MatSec.Inner, {
         Label: 'Roughness',
         Minimum: 0.04,
         Maximum: 1.0,
         Step: 0.01,
         Digits: 2,
-        Read: () => Viewport3D?.pbrRoughness ?? 0.28,
-        Write: Val => { Viewport3D?.UpdatePbrConfig({ pbrRoughness: Val }); EnsureFastPbrActive(); }
+        Read: () => Brush.pbrRoughness ?? 0.24,
+        Write: Val => LivePreviewSelectedOnly({ pbrRoughness: Val })
     });
 
-    SliderRow(PbrSec.Inner, {
+    SliderRow(MatSec.Inner, {
         Label: 'Specular',
         Minimum: 0.0,
         Maximum: 1.0,
         Step: 0.01,
         Digits: 2,
-        Read: () => Viewport3D?.pbrSpecular ?? 0.55,
-        Write: Val => { Viewport3D?.UpdatePbrConfig({ pbrSpecular: Val }); EnsureFastPbrActive(); }
+        Read: () => Brush.pbrSpecular ?? 0.68,
+        Write: Val => LivePreviewSelectedOnly({ pbrSpecular: Val })
     });
-
-    // 3. Per-Face Multi-MatCap Studio Swatches
-    const MatcapSec = SectionCard(Body, {
-        Id: 'multi-matcap',
-        Title: 'Per-Face Multi-MatCap',
-        Glyph: 'Sparkles',
-        Badge: Sel.hasSelection ? 'SELECTION' : `${DistinctMatcaps} ACTIVE`
-    });
-    MatcapSec.Inner.append(Construct('div', 'pz-sel-scope-bar', [
-        Construct('strong', null, Sel.hasSelection ? `Target: ${Sel.title}` : 'Target: Entire Surface (select part to isolate)'),
-        Construct('span', null, `${Sel.faceCount}f`)
-    ]));
-
-    const OrbGrid = Construct('div', 'pz-matcap-grid');
-    for (const Spec of MATCAP_STUDIO_CATALOG)
-    {
-        const UsedCount = Counts[Spec.slot];
-        const IsActiveSlot = Sel.dominantSlot === Spec.slot && UsedCount > 0;
-        const OrbImg = Construct('img');
-        OrbImg.src = GetCachedMatcapThumb(Spec.slot);
-        OrbImg.alt = Spec.label;
-        const Children = [OrbImg, Construct('small', null, Spec.label)];
-        if (UsedCount > 0) Children.push(Construct('span', 'pz-matcap-count', `${UsedCount}`));
-        const Btn = Construct('button', `pz-matcap-orb-btn${IsActiveSlot ? ' active' : ''}`, Children);
-        Btn.type = 'button';
-        Btn.title = Sel.hasSelection
-            ? `Assign "${Spec.label}" to ${Sel.title} (${Sel.faceCount} faces)`
-            : `Assign "${Spec.label}" to entire surface`;
-        Btn.addEventListener('click', () =>
-        {
-            RunWithUndo(`Assign MatCap: ${Spec.label}`, () =>
-            {
-                const Changed = Doc.surface.AssignMatcapToSelection(Spec.slot, Doc.islands);
-                if (Viewport3D && !['lit-matcap', 'multi-matcap'].includes(Viewport3D.shadingMode))
-                {
-                    Set3DShadingMode('lit-matcap');
-                }
-                Toast(Sel.hasSelection
-                    ? `Assigned "${Spec.label}" to ${Sel.title} (${Changed} faces)`
-                    : `Assigned "${Spec.label}" across surface (${Changed} faces)`);
-            });
-        });
-        OrbGrid.append(Btn);
-    }
-    MatcapSec.Inner.append(OrbGrid);
-
-    ActionRow(MatcapSec.Inner, [
-        {
-            Label: 'Auto-Assign by Part',
-            Glyph: 'Layers',
-            Tone: 'accent',
-            Act: () => RunWithUndo('Auto-Assign Engineering MatCaps', () =>
-            {
-                Doc.surface.AutoAssignMatcapsByPart(Doc.islands);
-                if (Viewport3D && !['lit-matcap', 'multi-matcap'].includes(Viewport3D.shadingMode))
-                {
-                    Set3DShadingMode('lit-matcap');
-                }
-                Toast(`Assigned multi-part Engineering MatCaps across ${Doc.islands.length} charts`);
-            })
-        },
-        {
-            Label: 'Uniform CNC Alu',
-            Glyph: 'Reset',
-            Act: () => RunWithUndo('Reset CNC Aluminum MatCap', () =>
-            {
-                Doc.surface.AssignMatcapToFaces(Doc.surface.faces.map((_, i) => i), 0);
-                Toast('Reset all faces to CNC Aluminum');
-            })
-        }
-    ]);
 }
 
 function RenderPackingTab(Body, Doc)
@@ -2338,167 +2455,88 @@ function RenderPackingTab(Body, Doc)
         }
     ]);
 
-    // 3. Redesigned Importance Space Allocation (Proportional Budget Rail + Preset Composer + Compact Priority Tiers)
+    // 3. Clean Minimal Project-Zero Priority Layer Table (Importance Space Allocation)
     const AllocSec = SectionCard(Body, {
         Id: 'importance-allocator',
         Title: 'Importance Space Allocation',
         Glyph: 'Layers',
-        Badge: `${ExplicitSum.toFixed(0)}% ALLOC`
+        Badge: `${Doc.importanceGroups.length} LAYERS`
     });
 
-    // 3A. Live Proportional Budget Rail (100% visual balance across Priority Tiers + Auto Remainder)
-    const BudgetSummaryLeft = Construct('strong', null, `${ExplicitSum.toFixed(0)}% Priority`);
-    const BudgetSummaryRight = Construct('span', ExplicitSum > 100 ? 'warn' : null,
-        ExplicitSum > 100 ? `Overflow ${ExplicitSum.toFixed(0)}% → Auto-Spill` : `${ Math.max(0, 100 - ExplicitSum).toFixed(0) }% Auto Pool`);
-    const BudgetRail = Construct('div', 'pz-budget-rail');
-    const TierPalette = ['#eff4cf', '#9ecfff', '#fbbf24', '#34d399', '#f472b6', '#a78bfa', '#fb923c'];
+    const SelIds = ResolveSelectedIslandIds(Doc);
+    const AddLayerBtn = Construct('button', 'pz-prio-add-btn', [
+        ConstructGlyph('Plus'),
+        Construct('span', null, SelIds.length ? `Add Layer (${SelIds.length} sel)` : 'Add Priority Layer')
+    ]);
+    AddLayerBtn.type = 'button';
+    AddLayerBtn.title = SelIds.length
+        ? `Create a new priority layer from ${SelIds.length} selected chart(s)`
+        : 'Add a new priority layer';
+    AddLayerBtn.addEventListener('click', () => AssignSelectedIslandsToNewGroup(StudioState.pendingGroupPct));
 
-    const RefreshLiveBudgetSummary = () =>
+    const MakeToolIconBtn = (GlyphName, Tip, OnClick) =>
     {
-        const CurSum = Doc.importanceGroups.reduce((S, G) => S + G.targetPercent, 0);
-        const CurRem = Math.max(0, 100 - CurSum);
-        BudgetSummaryLeft.textContent = `${CurSum.toFixed(0)}% Priority`;
-        BudgetSummaryRight.textContent = CurSum > 100 ? `Overflow ${CurSum.toFixed(0)}% → Auto-Spill` : `${CurRem.toFixed(0)}% Auto Pool`;
-        BudgetSummaryRight.className = CurSum > 100 ? 'warn' : '';
-        if (AutoBadgeEl) AutoBadgeEl.textContent = `${CurRem.toFixed(0)}%`;
-        const NormDenom = Math.max(100, CurSum);
-        for (const [SegEl, GrpRef] of RailSegPairs)
+        const B = Construct('button', 'pz-icon-btn', [ConstructGlyph(GlyphName)]);
+        B.type = 'button';
+        B.title = Tip;
+        B.addEventListener('click', OnClick);
+        return B;
+    };
+
+    AllocSec.Inner.append(Construct('div', 'pz-prio-toolbar', [
+        AddLayerBtn,
+        Construct('div', 'pz-prio-tools', [
+            MakeToolIconBtn('StackUv', 'Stack duplicate/similar UV charts onto one shared footprint', RunStackSimilarOp),
+            MakeToolIconBtn('UnstackUv', 'Unstack overlapping duplicate UV charts', RunUnstackOp),
+            MakeToolIconBtn('Reset', 'Return selected charts to Auto Remainder', () => AssignSelectedToGroup(null))
+        ])
+    ]));
+
+    const TierPalette = ['#eff4cf', '#9ecfff', '#fbbf24', '#34d399', '#f472b6', '#a78bfa', '#fb923c'];
+    const Table = Construct('div', 'pz-prio-table');
+    Table.append(Construct('div', 'pz-prio-colhead', [
+        Construct('span', null, ''),
+        Construct('span', null, 'Layer'),
+        Construct('span', null, 'Charts'),
+        Construct('span', null, 'Share'),
+        Construct('span', null, '')
+    ]));
+
+    let AutoPctEl = null;
+    let AutoBarEl = null;
+    const RefreshAutoRowLive = () =>
+    {
+        const Sum = Doc.importanceGroups.reduce((S, G) => S + G.targetPercent, 0);
+        const Rem = Math.max(0, 100 - Sum);
+        if (AutoPctEl)
         {
-            SegEl.style.width = `${Math.max(2.5, (GrpRef.targetPercent / NormDenom) * 100)}%`;
-            SegEl.style.background = GrpRef.color;
+            AutoPctEl.textContent = Sum > 100 ? `${Sum.toFixed(0)}% !` : `${Rem.toFixed(0)}%`;
+            AutoPctEl.classList.toggle('warn', Sum > 100);
         }
-        if (RemRailSeg)
-        {
-            RemRailSeg.style.width = CurRem > 0 ? `${Math.max(2, (CurRem / NormDenom) * 100)}%` : '0%';
-            RemRailSeg.style.display = CurRem > 0 ? 'block' : 'none';
-        }
+        if (AutoBarEl) AutoBarEl.style.width = `${Math.min(100, Rem)}%`;
+        RenderLegendStrip(Doc);
         Broadcast();
     };
 
-    const RailSegPairs = [];
-    const InitDenom = Math.max(100, ExplicitSum);
-    for (const Grp of Doc.importanceGroups)
-    {
-        const Seg = Construct('div', 'pz-budget-seg');
-        Seg.style.width = `${Math.max(2.5, (Grp.targetPercent / InitDenom) * 100)}%`;
-        Seg.style.background = Grp.color;
-        Seg.title = `${Grp.name}: ${Grp.targetPercent}% target (click to select charts)`;
-        Seg.addEventListener('click', () =>
-        {
-            const Ids = Doc.islands.filter(I => I.importanceGroupId === Grp.id).map(I => I.id);
-            Doc.surface.SelectIslands(Ids, false);
-            SyncAllViews(true);
-        });
-        RailSegPairs.push([Seg, Grp]);
-        BudgetRail.append(Seg);
-    }
-    const InitRem = Math.max(0, 100 - ExplicitSum);
-    const RemRailSeg = Construct('div', 'pz-budget-seg');
-    RemRailSeg.style.background = '#525864';
-    RemRailSeg.style.width = InitRem > 0 ? `${Math.max(2, (InitRem / InitDenom) * 100)}%` : '0%';
-    RemRailSeg.style.display = InitRem > 0 ? 'block' : 'none';
-    RemRailSeg.title = `Auto-Fill Remainder Pool (${InitRem.toFixed(0)}%)`;
-    BudgetRail.append(RemRailSeg);
-
-    AllocSec.Inner.append(Construct('div', 'pz-budget-rail-wrap', [
-        Construct('div', 'pz-budget-summary', [BudgetSummaryLeft, BudgetSummaryRight]),
-        BudgetRail
-    ]));
-
-    // 3B. Compact Selection-to-Tier Quick Composer
-    const SelCount = Doc.surface.selectedIslands.size;
-    const SelArea3D = Doc.islands.filter(I => Doc.surface.selectedIslands.has(I.id)).reduce((S, I) => S + I.area3D, 0);
-    const Composer = Construct('div', `pz-alloc-composer${SelCount > 0 ? ' has-sel' : ''}`);
-    Composer.append(Construct('div', 'pz-alloc-sel-bar', [
-        Construct('strong', null, SelCount ? `${SelCount} Chart${SelCount > 1 ? 's' : ''} Selected` : 'Select Charts in 2D / 3D'),
-        Construct('span', null, SelCount ? `${SelArea3D.toFixed(2)} m²` : `Target ${StudioState.pendingGroupPct}%`)
-    ]));
-
-    const PresetBar = Construct('div', 'pz-pct-preset-bar');
-    const PresetBtns = [];
-    const NumInput = Construct('input');
-    NumInput.type = 'number';
-    NumInput.min = '1';
-    NumInput.max = '95';
-    NumInput.step = '1';
-    NumInput.value = String(Math.round(StudioState.pendingGroupPct));
-    NumInput.title = 'Custom target space % for new priority tier';
-
-    const SyncPendingPct = Pct =>
-    {
-        const Clamped = Math.max(1, Math.min(95, Math.round(Number(Pct) || 25)));
-        StudioState.pendingGroupPct = Clamped;
-        NumInput.value = String(Clamped);
-        for (const [B, P] of PresetBtns) B.classList.toggle('active', P === Clamped);
-    };
-
-    for (const Pct of [10, 20, 35, 50, 70])
-    {
-        const B = Construct('button', `pz-pct-preset-btn${StudioState.pendingGroupPct === Pct ? ' active' : ''}`, `${Pct}%`);
-        B.type = 'button';
-        B.title = SelCount
-            ? `Assign ${SelCount} selected chart(s) to a ${Pct}% priority tier`
-            : `Set target tier share to ${Pct}%`;
-        B.addEventListener('click', () =>
-        {
-            SyncPendingPct(Pct);
-            if (Doc.surface.selectedIslands.size > 0) AssignSelectedIslandsToNewGroup(Pct);
-        });
-        PresetBtns.push([B, Pct]);
-        PresetBar.append(B);
-    }
-    NumInput.addEventListener('change', () => SyncPendingPct(NumInput.value));
-    PresetBar.append(Construct('div', 'pz-pct-num-wrap', [NumInput, Construct('span', null, '%')]));
-    Composer.append(PresetBar);
-
-    IconStripBlock(Composer, {
-        Label: 'Tier & Duplicate Actions',
-        Meta: `${Doc.importanceGroups.length} tiers`,
-        Items: [
-            { Glyph: 'Plus', Short: 'Add Tier', Tone: 'accent', Title: `Create a ${StudioState.pendingGroupPct}% priority tier from selected charts`, Act: () => AssignSelectedIslandsToNewGroup(StudioState.pendingGroupPct) },
-            { Glyph: 'StackUv', Short: 'Stack Sim', Title: 'Stack duplicate/similar UV charts onto one shared footprint', Act: RunStackSimilarOp },
-            { Glyph: 'UnstackUv', Title: 'Unstack overlapping duplicate UV charts', Act: RunUnstackOp },
-            { Glyph: 'Reset', Title: 'Move selected charts back to Auto-Fill Remainder pool', Act: () => AssignSelectedToGroup(null) }
-        ]
-    });
-    AllocSec.Inner.append(Composer);
-
-    // 3C. Sleek Compact Priority Tier Cards
-    const TierList = Construct('div', 'pz-tier-list');
     for (const Grp of Doc.importanceGroups)
     {
         const Members = Doc.islands.filter(I => I.importanceGroupId === Grp.id);
-        const ActualUv = Members.reduce((S, I) => S + I.areaUV, 0);
-        const TargetTileId = Grp.udimTarget !== 'auto' ? Number(Grp.udimTarget) : Doc.activeUdim;
-        const AllTileUv = Doc.islands.filter(I => I.udimTile === TargetTileId).reduce((S, I) => S + I.areaUV, 0);
-        const ActualPct = AllTileUv > 0 ? (ActualUv / AllTileUv) * 100 : 0;
+        const Row = Construct('div', 'pz-prio-row');
 
-        const Card = Construct('div', 'pz-tier-card');
-        Card.style.setProperty('--tier-col', Grp.color);
+        const DotBtn = Construct('button', 'pz-prio-dot');
+        DotBtn.type = 'button';
+        DotBtn.style.background = Grp.color;
+        DotBtn.title = 'Click to cycle layer colour';
 
-        const SwatchBtn = Construct('button', 'pz-tier-swatch');
-        SwatchBtn.type = 'button';
-        SwatchBtn.style.background = Grp.color;
-        SwatchBtn.title = 'Click to cycle tier accent colour';
-        SwatchBtn.addEventListener('click', () =>
-        {
-            const CurIdx = TierPalette.indexOf(Grp.color);
-            Grp.color = TierPalette[(CurIdx + 1) % TierPalette.length];
-            SwatchBtn.style.background = Grp.color;
-            Card.style.setProperty('--tier-col', Grp.color);
-            RefreshLiveBudgetSummary();
-            SyncAllViews();
-        });
-
-        const NameIn = Construct('input', 'pz-tier-name');
+        const NameIn = Construct('input', 'pz-prio-name');
         NameIn.value = Grp.name;
-        NameIn.title = 'Rename priority tier';
+        NameIn.spellcheck = false;
         NameIn.addEventListener('change', () => { Grp.name = NameIn.value.trim() || Grp.name; SyncAllViews(); });
 
-        const CountPill = Construct('button', 'pz-tier-pill', `${Members.length} ch`);
-        CountPill.type = 'button';
-        CountPill.title = 'Click to select charts in this tier (Shift+Click adds current selection)';
-        CountPill.addEventListener('click', E =>
+        const CntBtn = Construct('button', 'pz-prio-count', String(Members.length));
+        CntBtn.type = 'button';
+        CntBtn.title = `Select ${Members.length} chart(s) in "${Grp.name}" (Shift+Click adds current selection)`;
+        CntBtn.addEventListener('click', E =>
         {
             if (E.shiftKey) AssignSelectedToGroup(Grp.id);
             else
@@ -2508,88 +2546,108 @@ function RenderPackingTab(Body, Doc)
             }
         });
 
-        const UdimCycleOpts = ['auto', ...Doc.udimTiles.map(T => String(T.id))];
-        const CurUdimVal = String(Grp.udimTarget || 'auto');
-        const UdimBtn = Construct('button', 'pz-tier-udim-btn', CurUdimVal === 'auto' ? 'Auto' : CurUdimVal);
-        UdimBtn.type = 'button';
-        UdimBtn.title = 'Click to cycle target UDIM tile (Auto or specific UDIM)';
-        UdimBtn.addEventListener('click', () =>
+        const PctIn = Construct('input');
+        PctIn.type = 'text';
+        PctIn.inputMode = 'numeric';
+        PctIn.value = String(Math.round(Grp.targetPercent));
+        const PctBox = Construct('div', 'pz-prio-pct-box', [PctIn, Construct('small', null, '%')]);
+        PctBox.title = 'Drag horizontally or type exact target space %';
+
+        const BarLine = Construct('span', 'pz-prio-bar');
+        BarLine.style.background = Grp.color;
+        BarLine.style.width = `${Math.min(100, Grp.targetPercent)}%`;
+
+        DotBtn.addEventListener('click', () =>
         {
-            const Next = UdimCycleOpts[(UdimCycleOpts.indexOf(String(Grp.udimTarget || 'auto')) + 1) % UdimCycleOpts.length];
-            Grp.udimTarget = Next;
-            UdimBtn.textContent = Next === 'auto' ? 'Auto' : Next;
-            Broadcast();
+            Grp.color = TierPalette[(TierPalette.indexOf(Grp.color) + 1) % TierPalette.length];
+            DotBtn.style.background = Grp.color;
+            BarLine.style.background = Grp.color;
+            SyncAllViews();
         });
 
-        const AddSelBtn = Construct('button', 'pz-tier-icon-btn', ConstructGlyph('Plus'));
-        AddSelBtn.type = 'button';
-        AddSelBtn.title = 'Assign currently selected charts into this tier';
-        AddSelBtn.addEventListener('click', () => AssignSelectedToGroup(Grp.id));
+        const CommitPct = Raw =>
+        {
+            const V = Math.max(1, Math.min(95, Math.round(Number(Raw) || Grp.targetPercent)));
+            Grp.targetPercent = V;
+            PctIn.value = String(V);
+            BarLine.style.width = `${Math.min(100, V)}%`;
+            RefreshAutoRowLive();
+        };
+        PctIn.addEventListener('change', () => CommitPct(PctIn.value));
 
-        const DelBtn = Construct('button', 'pz-tier-icon-btn danger', ConstructGlyph('Trash'));
+        // Project-Zero style horizontal scrub drag on the % capsule
+        let DragStartX = 0, DragStartVal = 0, Scrubbing = false;
+        PctBox.addEventListener('pointerdown', E =>
+        {
+            if (document.activeElement === PctIn) return;
+            DragStartX = E.clientX;
+            DragStartVal = Grp.targetPercent;
+            Scrubbing = false;
+            PctBox.setPointerCapture(E.pointerId);
+            const OnMove = Me =>
+            {
+                const Dx = Me.clientX - DragStartX;
+                if (Math.abs(Dx) > 3) Scrubbing = true;
+                if (Scrubbing) CommitPct(DragStartVal + Math.round(Dx * 0.35));
+            };
+            const OnUp = Ue =>
+            {
+                PctBox.removeEventListener('pointermove', OnMove);
+                PctBox.removeEventListener('pointerup', OnUp);
+                if (!Scrubbing) { PctIn.focus(); PctIn.select(); }
+            };
+            PctBox.addEventListener('pointermove', OnMove);
+            PctBox.addEventListener('pointerup', OnUp);
+        });
+
+        const AssignBtn = Construct('button', 'pz-prio-act', ConstructGlyph('Plus'));
+        AssignBtn.type = 'button';
+        AssignBtn.title = `Assign selected charts to "${Grp.name}"`;
+        AssignBtn.addEventListener('click', () => AssignSelectedToGroup(Grp.id));
+
+        const DelBtn = Construct('button', 'pz-prio-act danger', ConstructGlyph('Close'));
         DelBtn.type = 'button';
-        DelBtn.title = 'Delete priority tier (charts return to Auto-Fill pool)';
+        DelBtn.title = `Delete "${Grp.name}" (charts return to Auto Remainder)`;
         DelBtn.addEventListener('click', () =>
         {
-            Doc.surface.PushUndo('Delete Budget Group');
+            Doc.surface.PushUndo('Delete Priority Layer');
             for (const M of Members) Doc.surface.AssignImportanceGroup([M.id], null);
             Doc.importanceGroups = Doc.importanceGroups.filter(G => G.id !== Grp.id);
             SyncAllViews(true);
         });
 
-        const RangeIn = Construct('input', 'pz-tier-range');
-        RangeIn.type = 'range';
-        RangeIn.min = '1';
-        RangeIn.max = '95';
-        RangeIn.step = '1';
-        RangeIn.value = String(Math.round(Grp.targetPercent));
-        const PctValEl = Construct('span', 'pz-tier-pct-val', `${Math.round(Grp.targetPercent)}%`);
-        const ActualEl = Construct('span', 'pz-tier-actual', `act ${ActualPct.toFixed(0)}%`);
-
-        const SyncRangeFill = V =>
-        {
-            const Pct = ((V - 1) / 94) * 100;
-            RangeIn.style.background = `linear-gradient(90deg, ${Grp.color} 0%, ${Grp.color} ${Pct.toFixed(1)}%, #0b0c0f ${Pct.toFixed(1)}%, #0b0c0f 100%)`;
-        };
-        SyncRangeFill(Grp.targetPercent);
-
-        RangeIn.addEventListener('input', () =>
-        {
-            const V = Number(RangeIn.value);
-            Grp.targetPercent = V;
-            PctValEl.textContent = `${V}%`;
-            SyncRangeFill(V);
-            RenderLegendStrip(Doc);
-            RefreshLiveBudgetSummary();
-        });
-
-        Card.append(
-            Construct('div', 'pz-tier-head', [SwatchBtn, NameIn, CountPill, UdimBtn, AddSelBtn, DelBtn]),
-            Construct('div', 'pz-tier-track-row', [RangeIn, PctValEl, ActualEl])
-        );
-        TierList.append(Card);
+        Row.append(DotBtn, NameIn, CntBtn, PctBox, Construct('div', 'pz-prio-row-acts', [AssignBtn, DelBtn]), BarLine);
+        Table.append(Row);
     }
-    AllocSec.Inner.append(TierList);
 
-    // 3D. Compact Clickable Auto-Fill Remainder Pool Capsule
+    // Base Auto-Remainder Row inside the same unified table
     const RemMembers = Doc.islands.filter(I => !I.importanceGroupId);
     const RemTarget = Math.max(0, 100 - ExplicitSum);
-    const AutoBadgeEl = Construct('span', 'pz-tier-auto-badge', `${RemTarget.toFixed(0)}%`);
-    const AutoRow = Construct('div', 'pz-tier-auto-row', [
-        Construct('div', 'pz-tier-auto-left', [
-            Construct('span', 'pz-tier-auto-dot'),
-            Construct('span', null, `Auto-Fill Remainder · ${RemMembers.length} charts`)
-        ]),
-        AutoBadgeEl
+    const AutoDot = Construct('span', 'pz-prio-dot');
+    AutoDot.style.background = '#6e7680';
+    AutoPctEl = Construct('span', `pz-prio-auto-pct${ExplicitSum > 100 ? ' warn' : ''}`,
+        ExplicitSum > 100 ? `${ExplicitSum.toFixed(0)}% !` : `${RemTarget.toFixed(0)}%`);
+    AutoBarEl = Construct('span', 'pz-prio-bar');
+    AutoBarEl.style.background = '#6e7680';
+    AutoBarEl.style.width = `${Math.min(100, RemTarget)}%`;
+
+    const AutoRow = Construct('div', 'pz-prio-row auto-row', [
+        AutoDot,
+        Construct('span', 'pz-prio-name', 'Auto Remainder'),
+        Construct('button', 'pz-prio-count', String(RemMembers.length)),
+        AutoPctEl,
+        Construct('span', null, ''),
+        AutoBarEl
     ]);
-    AutoRow.title = 'Click to select all unassigned charts in the automatic remainder pool';
+    AutoRow.title = 'Remaining unassigned charts automatically fill leftover UV space (click to select)';
     AutoRow.addEventListener('click', () =>
     {
         if (!RemMembers.length) return;
         Doc.surface.SelectIslands(RemMembers.map(M => M.id), false);
         SyncAllViews(true);
     });
-    AllocSec.Inner.append(AutoRow);
+    Table.append(AutoRow);
+    AllocSec.Inner.append(Table);
 
     // 4. Packing Solver Options Card
     const PackSec = SectionCard(Body, {

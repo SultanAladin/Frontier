@@ -101,14 +101,24 @@ export class TopologySurface
         this.name = name;
         this.positions = positions.map(P => [Number(P[0]) || 0, Number(P[1]) || 0, Number(P[2]) || 0]);
         this.uvCoords = uvCoords.map(Uv => [Number(Uv[0]) || 0, Number(Uv[1]) || 0]);
-        this.faces = faces.map((F, Index) => ({
-            id: F.id ?? Index,
-            name: F.name || F.partId || `Face ${Index}`,
-            partId: F.partId || 'Surface',
-            materialName: F.materialName || 'Default',
-            matcapSlot: typeof F.matcapSlot === 'number' ? (F.matcapSlot & 7) : this._DefaultMatcapForPart(F.partId || F.materialName || '', Index),
-            corners: F.corners.map(C => ({ v: C.v | 0, uv: C.uv | 0 }))
-        }));
+        this.faces = faces.map((F, Index) =>
+        {
+            const PartTag = `${F.partId || ''} ${F.materialName || ''}`.trim();
+            const DefPbr = this._DefaultPbrForPart(PartTag, Index);
+            return {
+                id: F.id ?? Index,
+                name: F.name || F.partId || `Face ${Index}`,
+                partId: F.partId || 'Surface',
+                materialName: F.materialName || 'Default',
+                matcapSlot: typeof F.matcapSlot === 'number' ? (F.matcapSlot & 7) : this._DefaultMatcapForPart(PartTag, Index),
+                pbrColor: typeof F.pbrColor === 'string' ? F.pbrColor : DefPbr.pbrColor,
+                pbrMetallic: typeof F.pbrMetallic === 'number' ? F.pbrMetallic : DefPbr.pbrMetallic,
+                pbrRoughness: typeof F.pbrRoughness === 'number' ? F.pbrRoughness : DefPbr.pbrRoughness,
+                pbrSpecular: typeof F.pbrSpecular === 'number' ? F.pbrSpecular : DefPbr.pbrSpecular,
+                matcapMix: typeof F.matcapMix === 'number' ? F.matcapMix : DefPbr.matcapMix,
+                corners: F.corners.map(C => ({ v: C.v | 0, uv: C.uv | 0 }))
+            };
+        });
         this.seams = new Set(seams);
         this.pinned = new Set(pinned);
         this.selectedUVs = new Set();
@@ -130,6 +140,7 @@ export class TopologySurface
         this._distortionCache = null;
         this._spatialGridCache = null;
         this._adjCache = null;
+        this._matVersion = 1;
         this.RecomputeNormals();
     }
 
@@ -150,22 +161,39 @@ export class TopologySurface
         return EngMetals[Math.abs(Hash || FallbackIndex) % EngMetals.length];
     }
 
-    AssignMatcapToFaces(FaceIndices, Slot)
+    _DefaultPbrForPart(PartLabel, FallbackIndex = 0)
     {
-        const ClampedSlot = (Slot | 0) & 7;
-        let Assigned = 0;
-        for (const Fi of FaceIndices)
-        {
-            if (Fi >= 0 && Fi < this.faces.length)
-            {
-                this.faces[Fi].matcapSlot = ClampedSlot;
-                Assigned++;
-            }
-        }
-        return Assigned;
+        const S = String(PartLabel || '').toLowerCase();
+        if (!S || S === 'surface' || S === 'default')
+            return { pbrColor: '#9fb2c8', pbrMetallic: 0.65, pbrRoughness: 0.28, pbrSpecular: 0.60, matcapMix: 0.62 };
+        if (/\b(tyre|tire|rubber|grip|seal|bumper)\b/.test(S))
+            return { pbrColor: '#363b44', pbrMetallic: 0.06, pbrRoughness: 0.78, pbrSpecular: 0.26, matcapMix: 0.55 };
+        if (/\b(rim|wheel|spoke|hub|pauldron|lid)\b/.test(S))
+            return { pbrColor: '#c4ccd8', pbrMetallic: 0.90, pbrRoughness: 0.20, pbrSpecular: 0.75, matcapMix: 0.68 };
+        if (/\b(glass|visor|chrome|canopy|windshield|mirror)\b/.test(S))
+            return { pbrColor: '#a6c8e8', pbrMetallic: 0.18, pbrRoughness: 0.08, pbrSpecular: 0.95, matcapMix: 0.74 };
+        if (S.includes('optic') || S.includes('light') || S.includes('latch') || S.includes('strap') || S.includes('bolt') || S.includes('brass') || S.includes('gold') || S.includes('lock') || S.includes('ring') || S.includes('badge') || S.includes('crest'))
+            return { pbrColor: '#d9a448', pbrMetallic: 0.86, pbrRoughness: 0.22, pbrSpecular: 0.72, matcapMix: 0.66 };
+        if (S.includes('body') || S.includes('hood') || S.includes('roof') || S.includes('door') || S.includes('fender') || S.includes('chest') || S.includes('torso') || S.includes('helm') || S.includes('hull') || S.includes('caliper') || S.includes('brake') || S.includes('accent'))
+            return { pbrColor: '#4c7dc9', pbrMetallic: 0.60, pbrRoughness: 0.24, pbrSpecular: 0.68, matcapMix: 0.62 };
+        if (S.includes('chassis') || S.includes('trim') || S.includes('exhaust') || S.includes('frame') || S.includes('grille') || S.includes('spoiler') || S.includes('iron') || S.includes('panel'))
+            return { pbrColor: '#9ea3ac', pbrMetallic: 0.80, pbrRoughness: 0.34, pbrSpecular: 0.58, matcapMix: 0.64 };
+        if (S.includes('arch') || S.includes('stone') || S.includes('pillar') || S.includes('column') || S.includes('capital') || S.includes('plinth') || S.includes('wall') || S.includes('clay') || S.includes('sculpt') || S.includes('bust') || S.includes('head'))
+            return { pbrColor: '#b5aca0', pbrMetallic: 0.08, pbrRoughness: 0.62, pbrSpecular: 0.38, matcapMix: 0.64 };
+        const Palette = [
+            { pbrColor: '#4c7dc9', pbrMetallic: 0.60, pbrRoughness: 0.24, pbrSpecular: 0.68, matcapMix: 0.62 },
+            { pbrColor: '#c4ccd8', pbrMetallic: 0.88, pbrRoughness: 0.22, pbrSpecular: 0.72, matcapMix: 0.66 },
+            { pbrColor: '#a89f94', pbrMetallic: 0.74, pbrRoughness: 0.34, pbrSpecular: 0.58, matcapMix: 0.64 },
+            { pbrColor: '#d9a448', pbrMetallic: 0.86, pbrRoughness: 0.24, pbrSpecular: 0.70, matcapMix: 0.66 },
+            { pbrColor: '#566070', pbrMetallic: 0.45, pbrRoughness: 0.48, pbrSpecular: 0.48, matcapMix: 0.60 },
+            { pbrColor: '#8aa090', pbrMetallic: 0.22, pbrRoughness: 0.52, pbrSpecular: 0.45, matcapMix: 0.60 }
+        ];
+        let Hash = 0;
+        for (let i = 0; i < S.length; i++) Hash = ((Hash * 31) + S.charCodeAt(i)) | 0;
+        return Palette[Math.abs(Hash || FallbackIndex) % Palette.length];
     }
 
-    AssignMatcapToSelection(Slot, Islands = [])
+    GetSelectedTargetFaces(Islands = [])
     {
         const TargetFaces = new Set(this.selectedFaces);
         if (Islands && Islands.length && this.selectedIslands.size)
@@ -190,11 +218,55 @@ export class TopologySurface
                 for (const Fi of Adj.uvToFaces[UvId] || []) TargetFaces.add(Fi);
             }
         }
+        return TargetFaces;
+    }
+
+    AssignSurfaceMaterialToFaces(FaceIndices, Patch = {})
+    {
+        let Assigned = 0;
+        for (const Fi of FaceIndices)
+        {
+            const F = this.faces[Fi];
+            if (!F) continue;
+            if (Patch.matcapSlot !== undefined) F.matcapSlot = (Patch.matcapSlot | 0) & 7;
+            if (Patch.pbrColor !== undefined) F.pbrColor = String(Patch.pbrColor);
+            if (Patch.pbrMetallic !== undefined) F.pbrMetallic = Math.max(0, Math.min(1, Number(Patch.pbrMetallic)));
+            if (Patch.pbrRoughness !== undefined) F.pbrRoughness = Math.max(0.04, Math.min(1, Number(Patch.pbrRoughness)));
+            if (Patch.pbrSpecular !== undefined) F.pbrSpecular = Math.max(0, Math.min(1, Number(Patch.pbrSpecular)));
+            if (Patch.matcapMix !== undefined) F.matcapMix = Math.max(0, Math.min(1, Number(Patch.matcapMix)));
+            Assigned++;
+        }
+        if (Assigned > 0) this._matVersion = (this._matVersion || 0) + 1;
+        return Assigned;
+    }
+
+    AssignSurfaceMaterialToSelection(Patch = {}, Islands = [])
+    {
+        const TargetFaces = this.GetSelectedTargetFaces(Islands);
+        if (TargetFaces.size === 0) return 0;
+        return this.AssignSurfaceMaterialToFaces(TargetFaces, Patch);
+    }
+
+    FillSurfaceMaterial(Patch = {})
+    {
+        const All = new Array(this.faces.length);
+        for (let Fi = 0; Fi < this.faces.length; Fi++) All[Fi] = Fi;
+        return this.AssignSurfaceMaterialToFaces(All, Patch);
+    }
+
+    AssignMatcapToFaces(FaceIndices, Slot)
+    {
+        return this.AssignSurfaceMaterialToFaces(FaceIndices, { matcapSlot: Slot });
+    }
+
+    AssignMatcapToSelection(Slot, Islands = [], { fallbackAll = false } = {})
+    {
+        const TargetFaces = this.GetSelectedTargetFaces(Islands);
         if (TargetFaces.size === 0)
         {
-            for (let Fi = 0; Fi < this.faces.length; Fi++) TargetFaces.add(Fi);
+            return fallbackAll ? this.FillSurfaceMaterial({ matcapSlot: Slot }) : 0;
         }
-        return this.AssignMatcapToFaces(TargetFaces, Slot);
+        return this.AssignSurfaceMaterialToFaces(TargetFaces, { matcapSlot: Slot });
     }
 
     AutoAssignMatcapsByPart(Islands = [])
@@ -210,13 +282,17 @@ export class TopologySurface
                 const Slot = DistinctLabels.size >= 2
                     ? this._DefaultMatcapForPart(Tag, i)
                     : EngSet[i % EngSet.length];
-                for (const Fi of Isl.faceIndices) this.faces[Fi].matcapSlot = Slot;
+                const Pbr = this._DefaultPbrForPart(DistinctLabels.size >= 2 ? Tag : `part_${i}`, i);
+                this.AssignSurfaceMaterialToFaces(Isl.faceIndices, { matcapSlot: Slot, ...Pbr });
             }
             return this.faces.length;
         }
         for (let Fi = 0; Fi < this.faces.length; Fi++)
         {
-            this.faces[Fi].matcapSlot = this._DefaultMatcapForPart(`${this.faces[Fi].partId || ''} ${this.faces[Fi].materialName || ''}`, Fi);
+            const Tag = `${this.faces[Fi].partId || ''} ${this.faces[Fi].materialName || ''}`.trim();
+            const Slot = this._DefaultMatcapForPart(Tag, Fi);
+            const Pbr = this._DefaultPbrForPart(Tag, Fi);
+            this.AssignSurfaceMaterialToFaces([Fi], { matcapSlot: Slot, ...Pbr });
         }
         return this.faces.length;
     }
@@ -513,6 +589,8 @@ export class TopologySurface
         this.importanceByFace = new Map(Snap.importanceByFace);
         this.lockedIslands = new Set(Snap.lockedIslands || []);
         this.hiddenIslands = new Set(Snap.hiddenIslands || []);
+        this._analysisCache = null;
+        this._matVersion = (this._matVersion || 0) + 1;
     }
 
     FaceArea3D(FaceIndex)

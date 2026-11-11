@@ -539,20 +539,65 @@ console.log('11. Testing Multi-Surface Engineering MatCaps, Stack Similar UVs, F
     const DistinctSlots = new Set(Vehicle.faces.map(F => F.matcapSlot));
     assert.ok(DistinctSlots.size >= 5, `Expected >= 5 distinct Engineering MatCap slots across multi-part vehicle, got ${DistinctSlots.size}`);
 
-    // Assigning MatCap to a selected island updates ONLY that island's faces
-    Vehicle.ClearSelection();
-    Vehicle.SelectIslands([VehIslands[0].id], false);
-    const AssignedIsl = Vehicle.AssignMatcapToSelection(7, VehIslands);
-    assert.equal(AssignedIsl, VehIslands[0].faceIndices.length, 'AssignMatcapToSelection must target selected island faces');
-    for (const Fi of VehIslands[0].faceIndices)
-        assert.equal(Vehicle.faces[Fi].matcapSlot, 7, 'Selected island face must receive slot 7 (Zebra CAD)');
+    // Assigning MatCap + Fast PBR to a selected island updates ONLY that island's faces (never entire geometry!)
+    const OtherIslFace = VehIslands[1].faceIndices[0];
+    const OrigOtherSlot = Vehicle.faces[OtherIslFace].matcapSlot;
+    const OrigOtherColor = Vehicle.faces[OtherIslFace].pbrColor;
 
-    // Clearing selection after selecting a face must NOT trap AssignMatcapToSelection on old activeFace
+    // 1) With empty selection, AssignSurfaceMaterialToSelection MUST return 0 and leave ALL faces untouched
     Vehicle.SelectFace(0, false);
     Vehicle.ClearSelection();
-    const AssignedAll = Vehicle.AssignMatcapToSelection(5, VehIslands);
-    assert.equal(AssignedAll, Vehicle.faces.length, 'When nothing is selected, AssignMatcapToSelection must apply to entire surface');
-    assert.ok(Vehicle.faces.every(F => F.matcapSlot === 5), 'Whole-surface fallback must assign slot 5 to every face');
+    const AssignedWhenEmpty = Vehicle.AssignSurfaceMaterialToSelection({
+        matcapSlot: 3,
+        pbrColor: '#112233',
+        pbrMetallic: 0.99
+    }, VehIslands);
+    assert.equal(AssignedWhenEmpty, 0, 'AssignSurfaceMaterialToSelection must affect 0 faces when nothing is selected');
+    assert.equal(Vehicle.faces[OtherIslFace].matcapSlot, OrigOtherSlot, 'Empty selection must NOT overwrite unselected faces');
+    assert.equal(Vehicle.faces[OtherIslFace].pbrColor, OrigOtherColor, 'Empty selection must NOT overwrite unselected PBR colour');
+
+    // 2) With Island 0 selected ("Apply Selected"), ONLY Island 0's faces receive the MatCap + Fast PBR patch
+    Vehicle.PushUndo('Test Per-Face PBR + MatCap Apply');
+    Vehicle.SelectIslands([VehIslands[0].id], false);
+    const AssignedIsl = Vehicle.AssignSurfaceMaterialToSelection({
+        matcapSlot: 7,
+        pbrColor: '#e05252',
+        pbrMetallic: 0.91,
+        pbrRoughness: 0.14,
+        pbrSpecular: 0.88,
+        matcapMix: 0.45
+    }, VehIslands);
+    assert.equal(AssignedIsl, VehIslands[0].faceIndices.length, 'AssignSurfaceMaterialToSelection must target ONLY selected island faces');
+    for (const Fi of VehIslands[0].faceIndices)
+    {
+        assert.equal(Vehicle.faces[Fi].matcapSlot, 7, 'Selected face must receive slot 7 (Zebra CAD)');
+        assert.equal(Vehicle.faces[Fi].pbrColor, '#e05252', 'Selected face must receive per-face PBR colour');
+        assert.ok(Math.abs(Vehicle.faces[Fi].pbrMetallic - 0.91) < 1e-6, 'Selected face must receive per-face metallic');
+        assert.ok(Math.abs(Vehicle.faces[Fi].pbrRoughness - 0.14) < 1e-6, 'Selected face must receive per-face roughness');
+        assert.ok(Math.abs(Vehicle.faces[Fi].pbrSpecular - 0.88) < 1e-6, 'Selected face must receive per-face specular');
+    }
+    assert.equal(Vehicle.faces[OtherIslFace].matcapSlot, OrigOtherSlot, 'Unselected island must keep its original MatCap');
+    assert.equal(Vehicle.faces[OtherIslFace].pbrColor, OrigOtherColor, 'Unselected island must keep its original PBR colour');
+
+    // Undo / Redo restores per-face PBR + MatCap cleanly and bumps _matVersion
+    const MatVerBeforeUndo = Vehicle._matVersion;
+    assert.equal(Vehicle.Undo(), true, 'Undo should restore pre-apply material state');
+    assert.ok(Vehicle._matVersion > MatVerBeforeUndo, 'Undo must increment _matVersion so GPU attributes refresh');
+    assert.equal(Vehicle.Redo(), true, 'Redo should re-apply per-face PBR + MatCap state');
+    assert.equal(Vehicle.faces[VehIslands[0].faceIndices[0]].pbrColor, '#e05252');
+
+    // 3) Explicit "Fill All" (FillSurfaceMaterial) fills the entire geometry
+    const FilledAll = Vehicle.FillSurfaceMaterial({
+        matcapSlot: 5,
+        pbrColor: '#4c7dc9',
+        pbrMetallic: 0.62,
+        pbrRoughness: 0.25,
+        pbrSpecular: 0.70,
+        matcapMix: 0.60
+    });
+    assert.equal(FilledAll, Vehicle.faces.length, 'FillSurfaceMaterial must update every face on the geometry');
+    assert.ok(Vehicle.faces.every(F => F.matcapSlot === 5 && F.pbrColor === '#4c7dc9'),
+        'FillSurfaceMaterial must assign MatCap + Fast PBR to all faces');
 
     // StackSimilarIslands & UnstackOverlappingIslands on Tactical Crate (6 congruent quad faces / straps)
     const CrateSpec = SampleAssetCatalog.find(S => S.id === 'crate');
@@ -577,31 +622,42 @@ console.log('11. Testing Multi-Surface Engineering MatCaps, Stack Similar UVs, F
     const Vp3dJs = ReadText('Engine/UVViewport3D.js');
     const EditorJs = ReadText('UVEditor.js');
     const IndexHtml = ReadText('index.html');
-    assert.ok(Vp3dJs.includes('attribute float aMatcapSlot;') && Vp3dJs.includes('precision highp float;'),
-        'UVViewport3D.js must pass lossless per-vertex aMatcapSlot with highp float precision');
-    assert.ok(Vp3dJs.includes('this.fastPbrMat') && Vp3dJs.includes('uPbrColor') && Vp3dJs.includes('uPbrMetallic') &&
-              Vp3dJs.includes('uPbrRoughness') && Vp3dJs.includes('uPbrSpecular') && !Vp3dJs.includes('dGgx'),
+    assert.ok(Vp3dJs.includes('attribute float aMatcapSlot;') && Vp3dJs.includes('attribute vec3 aPbrColor;') &&
+              Vp3dJs.includes('attribute vec4 aPbrParams;') && Vp3dJs.includes('FastUpdateGpuFaceMaterials(') &&
+              Vp3dJs.includes('precision highp float;'),
+        'UVViewport3D.js must pass lossless per-vertex aMatcapSlot, aPbrColor, and aPbrParams with FastUpdateGpuFaceMaterials');
+    assert.ok(Vp3dJs.includes('this.fastPbrMat') && !Vp3dJs.includes('dGgx'),
         'UVViewport3D.js must provide simplified Fast PBR shader (Colour, Metallic, Roughness, Specular only) with zero GGX');
-    assert.ok(IndexHtml.includes('value="fast-pbr"') && IndexHtml.includes('>Check</button>'),
-        'index.html must include Fast PBR (Lit) in shader dropdown and preserve Check tab label');
 
+    // Verify Inspector tab order: Pack -> Unwrap -> UDIM -> Shading -> Check (Shading after UDIM, before Check)
+    const TabsBlock = IndexHtml.slice(IndexHtml.indexOf('id="inspector-tabs"'), IndexHtml.indexOf('</div>', IndexHtml.indexOf('id="inspector-tabs"')));
+    const TabOrder = [...TabsBlock.matchAll(/data-tab="([^"]+)"/g)].map(M => M[1]);
+    assert.deepEqual(TabOrder, ['packing', 'unwrap', 'udim', 'shading', 'check'],
+        `Inspector tabs must be ordered Pack -> Unwrap -> UDIM -> Shading -> Check (got ${TabOrder.join(' -> ')})`);
+
+    // Verify unified single Shading card (PBR + Multi-MatCap combined with Apply Selected & Fill All)
     const ShadingSlice = EditorJs.slice(EditorJs.indexOf('function RenderShadingTab'), EditorJs.indexOf('function RenderPackingTab'));
     assert.ok(!ShadingSlice.includes('RenderUvSelectionTransformCard'), 'Shading menu must NOT include 2D UV Transform card');
+    assert.equal((ShadingSlice.match(/SectionCard\(/g) || []).length, 1,
+        'Shading menu must combine Fast PBR Lit + Multi-MatCap into a single unified SectionCard');
+    assert.ok(ShadingSlice.includes("Label: 'Apply Selected'") && ShadingSlice.includes("Label: 'Fill All'"),
+        'Combined Shading card must expose Apply Selected and Fill All actions');
     assert.ok(ShadingSlice.includes("'Colour'") && ShadingSlice.includes("Label: 'Metallic'") &&
-              ShadingSlice.includes("Label: 'Roughness'") && ShadingSlice.includes("Label: 'Specular'"),
-        'Shading menu must expose Colour, Metallic, Roughness, and Specular controls');
+              ShadingSlice.includes("Label: 'Roughness'") && ShadingSlice.includes("Label: 'Specular'") &&
+              ShadingSlice.includes('MATCAP_STUDIO_CATALOG'),
+        'Combined Shading card must expose Multi-MatCap orbs + Colour, Metallic, Roughness, and Specular');
 
     const CheckSlice = EditorJs.slice(EditorJs.indexOf('function RenderDiagnosticsTab'), EditorJs.indexOf('function SnapUV'));
     assert.ok(CheckSlice.includes("Label: 'Overlapping Faces'") && CheckSlice.includes("Label: 'Select Overlaps'") &&
               !CheckSlice.includes('RenderStudioPreviewAndFlatDebugCard'),
         'Check menu must match exact UV Integrity & Repair layout from a874c93');
 
-    assert.ok(EditorJs.includes('pz-budget-rail') && EditorJs.includes('pz-alloc-composer') && EditorJs.includes('pz-tier-card'),
-        'Pack menu must use redesigned Importance Space Allocation');
+    assert.ok(EditorJs.includes('pz-prio-table') && EditorJs.includes('pz-prio-row') && !EditorJs.includes('pz-budget-rail-wrap'),
+        'Pack menu must use clean minimal Project-Zero Priority Layer Table');
     assert.ok(Vp3dJs.includes('this.showSeams = false;') && EditorJs.includes('showSeams: false'),
         'Seam debug overlay must default to false');
 
-    console.log(`   OK: Fast PBR (no GGX), Check tab restored, Importance Allocator redesigned, ${DistinctSlots.size} MatCaps & StackSimilarIslands (${StackRes.stackedIslands} stacked) verified.`);
+    console.log(`   OK: Per-face PBR+MatCap Apply/Fill, combined Shading card, tab order (${TabOrder.join('->')}), minimal Priority Table & ${DistinctSlots.size} MatCaps verified.`);
 }
 
 console.log('\nALL UV STUDIO VALIDATIONS PASSED SUCCESSFULLY.');
