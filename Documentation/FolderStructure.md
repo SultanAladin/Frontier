@@ -127,16 +127,30 @@ Frontier/
     │   ├── ProjectConfiguration.{h,cpp}           // Project root, dependency manifests, and toggles
     │   └── WorkspaceConfiguration.{h,cpp}         // Document session preferences and layout defaults
     │
-    ├── MetricSpace/                               // Coordinate spaces, tolerances, projections & spatial math
+    ├── Constants/                                 // Shared compile-time physical, mathematical & optical constants
+    │   ├── MathematicalConstants.h                // Pi, Tau, Sqrt2, GoldenRatio, radian/degree factors & IEEE-754 bounds
+    │   ├── PhysicsConstants.h                     // Standard gravity, gas constant, atmospheric pressure & reference densities
+    │   ├── OpticalConstants.h                     // Vacuum light speed, Planck constant, CIE white points & IOR baselines
+    │   ├── AcousticConstants.h                    // Reference 20 uPa sound pressure, dry-air sound speed & octave bands
+    │   └── UnitConversionConstants.h              // SI metric scale factors, Kelvin/Celsius offsets & angular conversions
+    │
+    ├── Mathematics/                               // Shared algebraic, polynomial, sparse-linear & deterministic math
+    │   ├── ScalarFunctions.h                      // Branchless clamp, saturate, smoothstep, remap & fast reciprocal/rsqrt
+    │   ├── LinearAlgebra.h                        // SIMD-aligned 2D/3D/4D vector and matrix types
+    │   ├── VectorAlgebra.{h,cpp}                  // Dot, cross, Gram-Schmidt orthonormalization, reflection & refraction
+    │   ├── MatrixOperations.{h,cpp}               // Affine, projective, inverse, transpose & normal-transpose solvers
+    │   ├── QuaternionRotation.{h,cpp}             // Unit quaternions, spherical slerp & orthogonal basis conversion
+    │   ├── PolynomialCurves.{h,cpp}               // Analytic Bézier, Hermite, Catmull-Rom, B-spline & root solvers
+    │   ├── SparseLinearSolver.{h,cpp}             // Conjugate gradient & sparse Cholesky solvers (shared by UV & physics)
+    │   ├── TrigonometricFunctions.h               // SIMD minimax sine, cosine, atan2 & spherical coordinate conversions
+    │   └── DeterministicRandom.h                  // Seeded PCG / SplitMix64 repeatable generator for parametric replay
+    │
+    ├── MetricSpace/                               // Coordinate spaces, tolerances, projections & spatial intersections
     │   ├── MetricTolerance.h                      // Linear, angular, UV-weld & watertight sewing tolerances
     │   ├── CoordinateSpace.h                      // Right-handed world, local & parameter-tile basis transforms
     │   ├── CoordinateProjection.h                 // Orthographic, perspective & 2D viewport tile projections
     │   ├── DistanceMetric.h                       // Metric evaluation (Euclidean, Manhattan, Chebyshev, geodesic)
     │   ├── SpatialExtent.h                        // Axis-aligned and oriented bounding extents
-    │   ├── LinearAlgebra.h                        // SIMD-aligned vector and matrix primitives
-    │   ├── VectorAlgebra.{h,cpp}                  // 2D/3D/4D vector operations
-    │   ├── MatrixOperations.{h,cpp}               // Affine, projective & normal-transpose matrix solvers
-    │   ├── QuaternionRotation.{h,cpp}             // Unit quaternions, spherical slerp & orthogonal basis conversion
     │   └── IntersectionSolver.{h,cpp}             // Ray-facet, ray-volume, plane-cut & volume-volume solvers
     │
     ├── SpatialAcceleration/                       // Broad-phase spatial acceleration structures
@@ -219,6 +233,7 @@ Frontier/
     │   ├── DescriptorSlotRegister.{h,cpp}         // Descriptor layout and push-constant slot register
     │   │
     │   ├── Rasterization/                         // Dedicated GPU rasterization & projection units
+    │   │   ├── DirectionalLitRasterization.{h,cpp}// Fast directional key/hemisphere lit viewport rasterization
     │   │   ├── UVTileRasterization.{h,cpp}        // 2D UVTile grid, boundary lines, UDIM indices & tile fills
     │   │   ├── EdgeHighlightRasterization.{h,cpp} // Seam lines, sharp creases & active wireframe borders
     │   │   ├── GroundPlaneRasterization.{h,cpp}   // Viewport reference plane rasterization
@@ -245,9 +260,10 @@ Frontier/
     │   │   ├── EdgeHighlightRasterization.slang   // Screen-space anti-aliased wireframes & seam lines
     │   │   ├── GroundPlaneRasterization.slang     // Procedural infinite ground plane & axis shader
     │   │   └── ShadowDepthProjection.slang        // Directional light-space depth vertex projection
-    │   ├── Raster/                                // PBR shading, depth, and GPU viewport overlay shaders
-    │   │   ├── MicrofacetShading.slang
-    │   │   └── DepthPreRaster.slang
+    │   ├── Raster/                                // Fast directional lit, PBR microfacet, and depth pre-raster shaders
+    │   │   ├── DirectionalLitShading.slang        // Fast viewport directional key/rim/hemisphere lit shader
+    │   │   ├── MicrofacetShading.slang            // Physical microfacet PBR shader
+    │   │   └── DepthPreRaster.slang               // Early-Z depth pre-rasterization shader
     │   ├── Compute/                               // General GPU compute shaders
     │   │   ├── ParticleIntegration.slang
     │   │   ├── FluidAdvection.slang
@@ -330,7 +346,7 @@ Frontier/
     │   ├── UV/                                    // Headless UV workspace runtime (Non-UI)
     │   │   ├── UVWorkspaceLifecycle.{h,cpp}       // Headless lifecycle: Initialize → Tick → Finalize
     │   │   ├── UVWorkspaceDocument.{h,cpp}        // Editable UV layers, UDIM sets & UVTiles
-    │   │   ├── UVRevisionJournal.{h,cpp}          // Parametric UV operation recording & replay
+    │   │   ├── UVRevisionReplay.{h,cpp}           // Parametric UV operation replay & baseline folding
     │   │   └── Operations/                        // Procedural non-UI execution logic
     │   │       ├── UVUnwrapOperations.{h,cpp}     // Conformal unwrap, planar, box & spherical projections
     │   │       ├── UVPackOperations.{h,cpp}       // Island packing, rotation alignment & border margins
@@ -437,19 +453,19 @@ Frontier/
     │       ├── ContextDirectiveList.{h,cpp}       // Cursor-anchored contextual directives
     │       └── CommandLauncher.{h,cpp}            // Fuzzy-search directive runner
     │
-    ├── NetworkingSpace/                           // Distributed simulation, replication, and remote directives
-    │   ├── NetworkingExtension.{h,cpp}            // Lifecycle coordinator: polls sockets, ticks replication, flushes buffers
+    ├── NetworkingSpace/                           // Distributed simulation, differential encoding & remote directives
+    │   ├── NetworkingExtension.{h,cpp}            // Lifecycle coordinator: polls sockets, ticks sync, flushes buffers
     │   ├── SocketTransport.{h,cpp}                // Non-blocking UDP datagram and TCP stream transport
     │   ├── PacketSerializer.{h,cpp}               // Bit-packed wire encoding, fragmentation, and checksum verification
-    │   ├── SnapshotReplicator.{h,cpp}             // Authoritative delta compression and quantized world replication
+    │   ├── DifferentialWorldEncoder.{h,cpp}       // Authoritative baseline-relative quantized world delta encoder
     │   ├── RemoteDirectiveRouter.{h,cpp}          // Reliable ordered delivery and execution of remote directives
-    │   └── PeerSessionRegistry.{h,cpp}            // Connected peer endpoints, round-trip telemetry, and clock alignment
+    │   └── NetworkEndpointRegister.{h,cpp}        // Connected socket endpoints, round-trip latency, and clock alignment
     │
-    └── AudioSpace/                                // Spatial acoustics, waveform decoding, and hardware mixing
-        ├── AudioExtension.{h,cpp}                 // Lifecycle coordinator: device output, mix ticks, and voice budgets
+    └── AudioSpace/                                // Spatial acoustics, waveform decoding, and bus accumulation
+        ├── AudioExtension.{h,cpp}                 // Lifecycle coordinator: device output, bus ticks, and voice budgets
         ├── AudioHardwareOutput.{h,cpp}            // Native OS audio endpoint intake and lock-free ring buffers
         ├── WaveformDecoder.{h,cpp}                // PCM, WAV, Ogg Vorbis, and FLAC sample stream decoding
-        ├── AcousticMixer.{h,cpp}                  // Bus summing, gain envelopes, biquad filtering, and resampling
+        ├── AudioBusAccumulator.{h,cpp}            // Multi-voice bus summing, gain envelopes, biquad filtering & resampling
         └── SpatialAcoustics.{h,cpp}               // 3D HRTF binaural panning, Doppler pitch shift, and occlusion
 ```
 
