@@ -134,7 +134,7 @@ constexpr ImWchar ExtendedUnicodeRanges[] = {
 //                                         REPOSITORY LOADING & WEIGHT RESOLUTION
 //------------------------------------------------------------------------------------------------------------------------
 
-ImFont* TypographyRepository::LoadFontFile(const std::filesystem::path& FontPath) noexcept
+ImFont* TypographyRepository::LoadFontFile(const std::filesystem::path& FontPath, float PixelHeight) noexcept
 {
     if (ImGui::GetCurrentContext() == nullptr)
     {
@@ -148,10 +148,10 @@ ImFont* TypographyRepository::LoadFontFile(const std::filesystem::path& FontPath
     }
 
     ImFontConfig Configuration{};
-    Configuration.OversampleH = 2;
+    Configuration.OversampleH = 3;
     Configuration.OversampleV = 2;
     Configuration.GlyphRanges = ExtendedUnicodeRanges;
-    return ImGui::GetIO().Fonts->AddFontFromFileTTF(FontPath.string().c_str(), 24.0f, &Configuration);
+    return ImGui::GetIO().Fonts->AddFontFromFileTTF(FontPath.string().c_str(), PixelHeight, &Configuration);
 }
 
 uint32_t TypographyRepository::LoadRepository(const std::filesystem::path& RepositoryRoot) noexcept
@@ -309,6 +309,32 @@ uint32_t TypographyRepository::LoadRepository(const std::filesystem::path& Repos
         {
             Groups.push_back(std::move(Group));
         }
+    }
+
+    std::filesystem::path PreferredTabFontPath{};
+    std::filesystem::path FallbackTabFontPath{};
+    for (const DiscoveredGroup& Discovered : DiscoveredGroups)
+    {
+        for (const DiscoveredFace& Candidate : Discovered.Faces)
+        {
+            if (Candidate.Weight == FontWeightClass::Regular)
+            {
+                if (FallbackTabFontPath.empty())
+                {
+                    FallbackTabFontPath = Candidate.Path;
+                }
+                if (Discovered.Key == "dmsans")
+                {
+                    PreferredTabFontPath = Candidate.Path;
+                }
+            }
+        }
+    }
+    const std::filesystem::path ChosenTabFontPath =
+        !PreferredTabFontPath.empty() ? PreferredTabFontPath : FallbackTabFontPath;
+    if (!ChosenTabFontPath.empty())
+    {
+        TabStripFont = LoadFontFile(ChosenTabFontPath, 13.0f);
     }
 
     Loaded = !Groups.empty();

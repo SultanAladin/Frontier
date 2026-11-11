@@ -1223,4 +1223,34 @@ void ConstructChevronSymbol(
     }
 }
 
+void ConstructResetSymbol(
+    PixelSpace& Surface,
+    Point2D     Center,
+    float       Extent,
+    ColorRgba   Ink,
+    float       Thickness) noexcept
+{
+    const float R          = Extent * 0.42f;
+    constexpr float PiVal  = 3.14159265f;
+    constexpr float StartA = -0.78f * PiVal;
+    constexpr float EndA   =  0.88f * PiVal;
+    std::array<Point2D, 15> Arc{};
+    for (std::size_t Step = 0u; Step < Arc.size(); ++Step)
+    {
+        const float T     = static_cast<float>(Step) / static_cast<float>(Arc.size() - 1u);
+        const float Angle = StartA + T * (EndA - StartA);
+        Arc[Step]         = { Center.X + std::cos(Angle) * R, Center.Y + std::sin(Angle) * R };
+    }
+    Surface.StrokePolyline(Arc, Ink, Thickness, false);
+
+    // Counterclockwise arrowhead at StartA (upper-left)
+    const Point2D Tip = Arc.front();
+    const std::array<Point2D, 3> Head = {{
+        { Tip.X + R * 0.08f, Tip.Y - R * 0.62f },
+        Tip,
+        { Tip.X + R * 0.68f, Tip.Y + R * 0.08f },
+    }};
+    Surface.StrokePolyline(Head, Ink, Thickness, false);
+}
+
 } // namespace Frontier::WorkspacePaneAppearance

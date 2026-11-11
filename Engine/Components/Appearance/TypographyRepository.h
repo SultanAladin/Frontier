@@ -58,6 +58,7 @@ public:
     [[nodiscard]] bool                       ContainsWeight(uint32_t GroupIndex, FontWeightClass Weight) const noexcept;
     [[nodiscard]] const TypefaceWeightEntry* ResolveWeight(uint32_t GroupIndex, FontWeightClass Wanted) const noexcept;
     [[nodiscard]] ImFont*                    QueryFont(uint32_t GroupIndex, FontWeightClass Wanted) const noexcept;
+    [[nodiscard]] ImFont*                    QueryTabStripFont() const noexcept;
 
     static void                              AssignCurrent(TypographyRepository* Repository) noexcept;
     [[nodiscard]] static TypographyRepository*    QueryCurrent() noexcept;
@@ -67,10 +68,11 @@ public:
     [[nodiscard]] static uint32_t            WeightOrdinal(FontWeightClass Weight) noexcept;
 
 private:
-    static ImFont* LoadFontFile(const std::filesystem::path& FontPath) noexcept;
+    static ImFont* LoadFontFile(const std::filesystem::path& FontPath, float PixelHeight = 24.0f) noexcept;
 
-    std::vector<TypefaceGroup> Groups {};     // [-] - Loaded typeface groups ordered with Inter first
-    bool                       Loaded = false;// [-] - Repository load completion guard
+    std::vector<TypefaceGroup> Groups       {};      // [-] - Loaded typeface groups ordered with Inter first
+    ImFont*                    TabStripFont = nullptr;// [-] - Dedicated 13px face for trapezoidal tabs & close glyphs
+    bool                       Loaded       = false; // [-] - Repository load completion guard
 
     static TypographyRepository* ActiveRepository;
 };
@@ -82,6 +84,11 @@ private:
 inline uint32_t TypographyRepository::QueryGroupCount() const noexcept
 {
     return static_cast<uint32_t>(Groups.size());
+}
+
+inline ImFont* TypographyRepository::QueryTabStripFont() const noexcept
+{
+    return TabStripFont;
 }
 
 inline void TypographyRepository::AssignCurrent(TypographyRepository* Repository) noexcept

@@ -521,8 +521,8 @@ void ViewportPanel::RenderConstructDialog(
     Rectangle2D             Bounds,
     const PaneInputReading& Input)
 {
-    const float DialogW = std::min(500.0f, std::max(260.0f, Bounds.Width - 36.0f));
-    const float DialogH = std::min(338.0f, std::max(220.0f, Bounds.Height - 70.0f));
+    const float DialogW = std::min(532.0f, std::max(300.0f, Bounds.Width - 36.0f));
+    const float DialogH = std::min(346.0f, std::max(240.0f, Bounds.Height - 70.0f));
     const Rectangle2D Dialog{
         Bounds.Center().X - DialogW * 0.5f,
         Bounds.Y + 94.0f,
@@ -584,19 +584,19 @@ void ViewportPanel::RenderConstructDialog(
         }
     }
 
-    // Right matrix of generic constructable templates + Folder
-    const float GridX   = Dialog.X + RailW + 14.0f;
-    const float GridW   = std::max(80.0f, Dialog.Right() - 14.0f - GridX);
-    const float CellGap = 8.0f;
-    const float CellW   = (GridW - CellGap) * 0.5f;
-    const float CellH   = 58.0f;
+    // Right matrix of 1:1 square constructable item boxes (Width == Height always, with rounded corners)
+    const float    GridX    = Dialog.X + RailW + 14.0f;
+    const float    GridW    = std::max(96.0f, Dialog.Right() - 14.0f - GridX);
+    const float    CellGap  = 10.0f;
+    const uint32_t Columns  = std::max(1u, static_cast<uint32_t>((GridW + CellGap) / (108.0f + CellGap)));
+    const float    TileSide = std::floor((GridW - static_cast<float>(Columns - 1u) * CellGap) / static_cast<float>(Columns));
 
     struct ConstructEntryView
     {
-        std::string_view     Label;
-        std::string_view     Caption;
+        std::string_view      Label;
+        std::string_view      Caption;
         ConstructSlotCategory Category;
-        int32_t              TemplateIndex;
+        int32_t               TemplateIndex;
     };
     std::vector<ConstructEntryView> Choices{};
 
@@ -615,46 +615,62 @@ void ViewportPanel::RenderConstructDialog(
         }
         else
         {
-            Choices.push_back({ "Add Item 1", "Type 1", ConstructSlotCategory::CategoryOne,  0 });
+            Choices.push_back({ "Add Item 1", "Type 1", ConstructSlotCategory::CategoryOne, 0 });
             Choices.push_back({ "Add Item 2", "Type 2", ConstructSlotCategory::CategoryTwo, 1 });
-            Choices.push_back({ "Add Item 3", "Type 3", ConstructSlotCategory::CategoryThree,  2 });
+            Choices.push_back({ "Add Item 3", "Type 3", ConstructSlotCategory::CategoryThree, 2 });
             Choices.push_back({ "Add Item 4", "Type 4", ConstructSlotCategory::CategoryFour, 3 });
         }
     }
     if (ConstructRail != ConstructCategoryRail::ConstructSet)
     {
-        Choices.push_back({ "+ Add Folder", "Showcase collection", ConstructSlotCategory::Folder, -1 });
+        Choices.push_back({ "+ Add Folder", "Collection", ConstructSlotCategory::Folder, -1 });
     }
 
     for (std::size_t Idx = 0u; Idx < Choices.size(); ++Idx)
     {
-        const float CellX = GridX + static_cast<float>(Idx % 2u) * (CellW + CellGap);
-        const float CellY = Dialog.Y + 60.0f + static_cast<float>(Idx / 2u) * (CellH + CellGap);
-        if (CellY + CellH > Dialog.Bottom() - 10.0f)
+        const uint32_t Col   = static_cast<uint32_t>(Idx) % Columns;
+        const uint32_t Row   = static_cast<uint32_t>(Idx) / Columns;
+        const float    CellX = GridX + static_cast<float>(Col) * (TileSide + CellGap);
+        const float    CellY = Dialog.Y + 60.0f + static_cast<float>(Row) * (TileSide + CellGap);
+        if (CellY + TileSide > Dialog.Bottom() - 8.0f)
         {
             break;
         }
-        const Rectangle2D Cell{ CellX, CellY, CellW, CellH };
+        const Rectangle2D Cell{ CellX, CellY, TileSide, TileSide };
         const bool        Hovered = Cell.Contains(Cursor);
 
-        Overlay.FillRectangle(Cell, Hovered ? ColorRgba{ 40, 40, 40, 255 } : ColorRgba{ 30, 30, 30, 255 }, 11.0f);
-        Overlay.StrokeRectangle(Cell, Hovered ? WorkspaceSurfaceColors::SelectionAmber : ColorRgba{ 255, 255, 255, 18 }, 11.0f, 1.0f);
+        Overlay.FillRectangle(Cell, Hovered ? ColorRgba{ 43, 43, 43, 255 } : ColorRgba{ 32, 32, 32, 255 }, 12.0f);
+        Overlay.StrokeRectangle(Cell, Hovered ? WorkspaceSurfaceColors::SelectionAmber : ColorRgba{ 58, 58, 58, 255 }, 12.0f, 1.0f);
 
-        WorkspacePaneAppearance::ConstructSlotCategoryIcon(Overlay, Choices[Idx].Category, { Cell.X + 12.0f, Cell.Y + 17.0f }, 24.0f);
+        const float IconSide = std::clamp(TileSide * 0.38f, 28.0f, 46.0f);
+        WorkspacePaneAppearance::ConstructSlotCategoryIcon(
+            Overlay,
+            Choices[Idx].Category,
+            { Cell.Center().X - IconSide * 0.5f, Cell.Y + TileSide * 0.16f },
+            IconSide);
+
+        const float LabelMaxW = TileSide - 14.0f;
+        const float LabelW    = std::min(
+            LabelMaxW,
+            WorkspacePaneAppearance::MeasureWeightedTextWidth(Overlay, FontWeightClass::Regular, 11.5f, Choices[Idx].Label));
         WorkspacePaneAppearance::ConstructTruncatedText(
             Overlay,
             FontWeightClass::Regular,
-            { Cell.X + 44.0f, Cell.Y + 14.0f },
-            Cell.Width - 54.0f,
-            12.0f,
+            { Cell.Center().X - LabelW * 0.5f, Cell.Bottom() - 34.0f },
+            LabelMaxW,
+            11.5f,
             WorkspaceSurfaceColors::PrimaryInk,
             Choices[Idx].Label);
+
+        const float CapW = std::min(
+            LabelMaxW,
+            WorkspacePaneAppearance::MeasureWeightedTextWidth(Overlay, FontWeightClass::Regular, 9.0f, Choices[Idx].Caption));
         WorkspacePaneAppearance::ConstructTruncatedText(
             Overlay,
             FontWeightClass::Regular,
-            { Cell.X + 44.0f, Cell.Y + 32.0f },
-            Cell.Width - 54.0f,
-            9.5f,
+            { Cell.Center().X - CapW * 0.5f, Cell.Bottom() - 18.0f },
+            LabelMaxW,
+            9.0f,
             WorkspaceSurfaceColors::MutedInk,
             Choices[Idx].Caption);
 
@@ -1247,8 +1263,8 @@ void ViewportPanel::Render(
         RenderConstructDialog(ActiveOverlay, Bounds, Input);
         if (OverlayOpenBefore && Input.PrimaryPointer.Pressed && !ConstructBtn.Contains(Cursor))
         {
-            const float DialogW = std::min(500.0f, std::max(260.0f, Bounds.Width - 36.0f));
-            const float DialogH = std::min(338.0f, std::max(220.0f, Bounds.Height - 70.0f));
+            const float DialogW = std::min(532.0f, std::max(300.0f, Bounds.Width - 36.0f));
+            const float DialogH = std::min(346.0f, std::max(240.0f, Bounds.Height - 70.0f));
             const Rectangle2D DialogRect{ Bounds.Center().X - DialogW * 0.5f, Bounds.Y + 94.0f, DialogW, DialogH };
             if (!DialogRect.Contains(Cursor))
             {

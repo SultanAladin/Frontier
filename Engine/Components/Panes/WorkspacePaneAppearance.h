@@ -310,6 +310,13 @@ void ConstructChevronSymbol(
     bool        Expanded,
     ColorRgba   Ink) noexcept;
 
+void ConstructResetSymbol(
+    PixelSpace& Surface,
+    Point2D     Center,
+    float       Extent,
+    ColorRgba   Ink,
+    float       Thickness = 1.35f) noexcept;
+
 } // namespace WorkspacePaneAppearance
 
 } // namespace Frontier

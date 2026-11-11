@@ -311,7 +311,11 @@ bool GenerateWorkspacePaneExhibits(const std::filesystem::path& OutputDirectory)
     {
         DmSansGroup = 0;
     }
-    if (ImFont* DefaultFace = Typefaces.QueryFont(static_cast<uint32_t>(DmSansGroup), Frontier::FontWeightClass::Regular))
+    if (ImFont* TabFont = Typefaces.QueryTabStripFont())
+    {
+        Io.FontDefault = TabFont;
+    }
+    else if (ImFont* DefaultFace = Typefaces.QueryFont(static_cast<uint32_t>(DmSansGroup), Frontier::FontWeightClass::Regular))
     {
         Io.FontDefault = DefaultFace;
     }
@@ -449,14 +453,23 @@ bool GenerateWorkspacePaneExhibits(const std::filesystem::path& OutputDirectory)
 
         const OutlinerSlotToken Folder    = Outliner.ConstructFolder("Showcase");
         const OutlinerSlotToken PrimaryIt = Outliner.ConstructFromTemplate(0u, Folder);
-        (void)Outliner.ConstructFromTemplate(1u, Folder);
+        const OutlinerSlotToken SecondIt  = Outliner.ConstructFromTemplate(1u, Folder);
         (void)Outliner.ConstructFromTemplate(2u, Folder);
+
+        if (OutlinerRecordEntry* LockedEntry = Outliner.AccessEntry(SecondIt))
+        {
+            LockedEntry->Locked = true;
+        }
 
         if (OutlinerRecordEntry* SlotEntry = Outliner.AccessEntry(PrimaryIt))
         {
             SlotEntry->PositionX = 12.5f;
             SlotEntry->PositionY = -4.0f;
             SlotEntry->PositionZ = 3.0f;
+            SlotEntry->RotationY = 45.0f;
+            SlotEntry->ScaleX    = 1.25f;
+            SlotEntry->ScaleY    = 1.25f;
+            SlotEntry->ScaleZ    = 1.25f;
             SlotEntry->Subtitle  = "Position 12.5, -4.0, 3.0 m";
         }
 

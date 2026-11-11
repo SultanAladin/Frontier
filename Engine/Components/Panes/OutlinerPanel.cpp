@@ -1273,6 +1273,7 @@ void OutlinerPanel::Render(
             }
 
             const Rectangle2D RowRect{ TreeViewport.X + 10.0f, RowY, std::max(40.0f, TreeViewport.Width - 20.0f), RowHeight };
+            const Rectangle2D RowBox{ RowRect.X, RowRect.Y + 1.0f, RowRect.Width, RowRect.Height - 2.0f };
             const bool        Selected   = QuerySlotSelected(Entry->Token);
             const bool        RowHovered = !OverlayOpenBefore && TreeViewport.Contains(Cursor) && RowRect.Contains(Cursor);
             const float       RowAlpha   = VisRow.EffectiveVisible ? 1.0f : 0.42f;
@@ -1282,15 +1283,22 @@ void OutlinerPanel::Render(
                 AnyRowHit = true;
             }
 
+            // Sharp unrounded (0.0f) rectangular entry box across all Outliner entries
             if (Selected)
             {
-                Surface.FillRectangle(RowRect, WorkspaceSurfaceColors::RowSelected, 8.0f);
-                Surface.StrokeRectangle(RowRect, WorkspaceSurfaceColors::RowSelectedBorder, 8.0f, 1.0f);
-                Surface.FillRectangle({ RowRect.X, RowRect.Y + 2.0f, 3.0f, RowRect.Height - 4.0f }, WorkspaceSurfaceColors::SelectionAmber, 1.5f);
+                Surface.FillRectangle(RowBox, WorkspaceSurfaceColors::RowSelected, 0.0f);
+                Surface.StrokeRectangle(RowBox, WorkspaceSurfaceColors::RowSelectedBorder, 0.0f, 1.0f);
+                Surface.FillRectangle({ RowBox.X, RowBox.Y, 3.0f, RowBox.Height }, WorkspaceSurfaceColors::SelectionAmber, 0.0f);
             }
             else if (RowHovered)
             {
-                Surface.FillRectangle(RowRect, WorkspaceSurfaceColors::RowHover, 8.0f);
+                Surface.FillRectangle(RowBox, WorkspaceSurfaceColors::RowHover, 0.0f);
+                Surface.StrokeRectangle(RowBox, ColorRgba{ 52, 52, 52, 255 }, 0.0f, 1.0f);
+            }
+            else
+            {
+                Surface.FillRectangle(RowBox, ColorRgba{ 23, 23, 23, 255 }, 0.0f);
+                Surface.StrokeRectangle(RowBox, ColorRgba{ 39, 39, 39, 255 }, 0.0f, 1.0f);
             }
 
             const float IndentX = RowRect.X + 4.0f + static_cast<float>(VisRow.DepthLevel) * 13.0f;
@@ -1351,9 +1359,28 @@ void OutlinerPanel::Render(
                 }
             }
 
-            // Two-line row identity (title + subtitle)
+            // Two-line row identity (title + subtitle) + optional right-side "locked" tag
+            float RightLimitX = StatusCenter.X - 14.0f;
+            if (Entry->Locked)
+            {
+                const char* LockedTag = "locked";
+                const float LockedW   = WorkspacePaneAppearance::MeasureWeightedTextWidth(
+                    Surface,
+                    FontWeightClass::Regular,
+                    9.5f,
+                    LockedTag);
+                RightLimitX -= (LockedW + 8.0f);
+                WorkspacePaneAppearance::ConstructWeightedText(
+                    Surface,
+                    FontWeightClass::Regular,
+                    { RightLimitX + 4.0f, RowRect.Center().Y - 6.0f },
+                    9.5f,
+                    ColorRgba{ 138, 138, 138, 255 }.ScaledAlpha(RowAlpha),
+                    LockedTag);
+            }
+
             const float IdentityX    = IconOrigin.X + 31.0f;
-            const float IdentityMaxW = std::max(24.0f, StatusCenter.X - 14.0f - IdentityX);
+            const float IdentityMaxW = std::max(24.0f, RightLimitX - IdentityX);
 
             WorkspacePaneAppearance::ConstructTruncatedText(
                 Surface,
@@ -1428,7 +1455,7 @@ void OutlinerPanel::Render(
                 else
                 {
                     HoverDropPlacement = DropRelativePlacement::InsideTarget;
-                    Surface.StrokeRectangle(RowRect, WorkspaceSurfaceColors::SelectionAmber, 8.0f, 1.5f);
+                    Surface.StrokeRectangle(RowBox, WorkspaceSurfaceColors::SelectionAmber, 0.0f, 1.5f);
                 }
             }
         }

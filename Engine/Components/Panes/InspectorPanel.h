@@ -98,6 +98,12 @@ private:
     Rectangle2D              ScopeButtonBounds      {};                                      // [px] - Last Scope button bounds
     Rectangle2D              SortButtonBounds       {};                                      // [px] - Last Sort button bounds
     OutlinerVisibilityFilter FolderVisibilityFilter = OutlinerVisibilityFilter::All;         // [-]  - Folder browser visibility filter
+    int32_t                  ActiveTransformCell    = -1;                                    // [idx]- Focused Transform cell (0..8 or -1)
+    int32_t                  DraggingTransformCell  = -1;                                    // [idx]- Dragged Transform cell (0..8 or -1)
+    float                    TransformDragOriginX   = 0.0f;                                  // [px] - Pointer X at drag start
+    float                    TransformDragStartVal  = 0.0f;                                  // [-]  - Value snapshot at drag start
+    bool                     TransformDragMoved     = false;                                 // [-]  - Drag distance exceeded 4px threshold
+    TextEditBuffer           TransformCellEditor    {};                                      // [-]  - Numeric text input for focused cell
     float                    ScrollOffsetY          = 0.0f;                                  // [px] - Vertical inspector scroll offset
     float                    LastContentHeight      = 0.0f;                                  // [px] - Measured scroll document height
 };

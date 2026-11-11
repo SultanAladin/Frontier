@@ -163,7 +163,9 @@ bool RenderDockingSnapshotExhibits(const std::filesystem::path &OutputDir)
         return false;
     }
     TypographyRepository::AssignCurrent(&Typefaces);
-    if (ImFont *DefaultFace = Typefaces.QueryFont(0u, Frontier::FontWeightClass::Regular))
+    if (ImFont *TabFont = Typefaces.QueryTabStripFont())
+        Io.FontDefault = TabFont;
+    else if (ImFont *DefaultFace = Typefaces.QueryFont(0u, Frontier::FontWeightClass::Regular))
         Io.FontDefault = DefaultFace;
     unsigned char *TexPixels = nullptr;
     int            TexW      = 0;

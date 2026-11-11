@@ -19,6 +19,8 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <vector>
 
 namespace Frontier
@@ -1211,84 +1213,336 @@ float InspectorPanel::RenderStandardEntryInspector(
         CurY += TileH + 16.0f;
     }
 
-    // 4. Transform section (#1A1A1A, 22px radius) with interactive X/Y/Z sliders + Reset button
+    // 4. Transform card (LOCAL SPACE table, Position/Rotation/Scale, individual resets, precision hint)
     {
-        const Rectangle2D TransformSection{ LeftX, CurY, InnerW, 186.0f };
-        Surface.FillRectangle(TransformSection, WorkspaceSurfaceColors::GenericSurface, 22.0f);
-        Surface.StrokeRectangle(TransformSection, WorkspaceSurfaceColors::HairlineLight, 22.0f, 1.0f);
-
-        WorkspacePaneAppearance::ConstructWeightedText(
-            Surface,
-            FontWeightClass::Medium,
-            { TransformSection.X + 18.0f, TransformSection.Y + 18.0f },
-            10.0f,
-            ColorRgba{ 148, 148, 148, 255 },
-            "TRANSFORM");
-
-        const Rectangle2D ResetBtn{ TransformSection.Right() - 82.0f, TransformSection.Y + 13.0f, 64.0f, 24.0f };
-        const bool        ResetHover = ScrollViewport.Contains(Cursor) && ResetBtn.Contains(Cursor);
-        Surface.FillRectangle(ResetBtn, ResetHover ? ColorRgba{ 46, 46, 46, 255 } : ColorRgba{ 36, 36, 36, 255 }, 12.0f);
-        WorkspacePaneAppearance::ConstructWeightedText(
-            Surface,
-            FontWeightClass::Regular,
-            { ResetBtn.X + 17.0f, ResetBtn.Y + 6.0f },
-            10.0f,
-            ColorRgba{ 192, 192, 192, 255 },
-            "Reset");
-
-        if (ResetHover && Input.PrimaryPointer.Pressed && !Entry.Locked)
+        auto FormatCompactValue = [](float Raw, char* OutBuf, std::size_t Cap) noexcept
         {
-            Entry.PositionX = 0.0f;
-            Entry.PositionY = 0.0f;
-            Entry.PositionZ = 0.0f;
-            FormatTransformSubtitle(Entry);
-        }
-
-        auto ConstructAxisRow = [&](const char* AxisLabel, float RowTopY, float& Coordinate)
-        {
-            WorkspacePaneAppearance::ConstructWeightedText(
-                Surface,
-                FontWeightClass::Regular,
-                { TransformSection.X + 18.0f, RowTopY + 7.0f },
-                11.0f,
-                ColorRgba{ 184, 184, 184, 255 },
-                AxisLabel);
-
-            char CoordinateText[32]{};
-            std::snprintf(CoordinateText, sizeof(CoordinateText), "%.1f m", Coordinate);
-            const float ValW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.5f, CoordinateText);
-            WorkspacePaneAppearance::ConstructWeightedText(
-                Surface,
-                FontWeightClass::Regular,
-                { TransformSection.Right() - 18.0f - ValW, RowTopY + 7.0f },
-                10.5f,
-                ColorRgba{ 196, 196, 196, 255 },
-                CoordinateText);
-
-            const Rectangle2D Track{
-                TransformSection.X + 86.0f,
-                RowTopY + 5.0f,
-                std::max(40.0f, TransformSection.Width - 172.0f),
-                18.0f
-            };
-            const float Norm = std::clamp((Coordinate + 50.0f) / 100.0f, 0.0f, 1.0f);
-            Surface.FillRectangle(Track, ColorRgba{ 36, 36, 36, 255 }, 9.0f);
-            Surface.FillRectangle({ Track.X, Track.Y, std::max(14.0f, Track.Width * Norm), Track.Height }, ColorRgba{ 69, 69, 69, 255 }, 9.0f);
-            Surface.FillCircle({ Track.X + 9.0f + (Track.Width - 18.0f) * Norm, Track.Center().Y }, 7.5f, ColorRgba{ 224, 224, 224, 255 });
-
-            if (!Entry.Locked && ScrollViewport.Contains(Cursor) && Track.Contains(Cursor) && Input.PrimaryPointer.Down)
+            const float Clean = (std::fabs(Raw) < 1.0e-5f) ? 0.0f : Raw;
+            std::snprintf(OutBuf, Cap, "%.4f", Clean);
+            std::size_t Len = std::strlen(OutBuf);
+            while (Len > 1u && OutBuf[Len - 1u] == '0')
             {
-                const float NextNorm = std::clamp((Cursor.X - Track.X) / Track.Width, 0.0f, 1.0f);
-                Coordinate           = std::round((NextNorm * 100.0f - 50.0f) * 2.0f) * 0.5f;
-                FormatTransformSubtitle(Entry);
+                OutBuf[--Len] = '\0';
+            }
+            if (Len > 1u && OutBuf[Len - 1u] == '.')
+            {
+                OutBuf[--Len] = '\0';
+            }
+            if (std::strcmp(OutBuf, "-0") == 0)
+            {
+                OutBuf[0] = '0';
+                OutBuf[1] = '\0';
             }
         };
 
-        ConstructAxisRow("Position X", TransformSection.Y + 50.0f, Entry.PositionX);
-        ConstructAxisRow("Position Y", TransformSection.Y + 92.0f, Entry.PositionY);
-        ConstructAxisRow("Position Z", TransformSection.Y + 134.0f, Entry.PositionZ);
+        struct TransformRowSpec
+        {
+            const char* Label;
+            const char* Unit;
+            float*      Axes[3];
+            float       Defaults[3];
+            float       Minimum;
+            float       Maximum;
+            float       Step;
+        };
 
-        CurY += TransformSection.Height + 28.0f;
+        TransformRowSpec Rows[3] = {
+            { "Position", "m",          { &Entry.PositionX, &Entry.PositionY, &Entry.PositionZ }, { 0.0f, 0.0f, 0.0f }, -100000.0f, 100000.0f, 0.01f },
+            { "Rotation", "deg",        { &Entry.RotationX, &Entry.RotationY, &Entry.RotationZ }, { 0.0f, 0.0f, 0.0f }, -36000.0f,  36000.0f,  0.1f  },
+            { "Scale",    "\xC3\x97",   { &Entry.ScaleX,    &Entry.ScaleY,    &Entry.ScaleZ    }, { 1.0f, 1.0f, 1.0f }, 0.001f,     1000.0f,   0.01f },
+        };
+
+        auto CommitActiveCell = [&]()
+        {
+            if (ActiveTransformCell >= 0 && ActiveTransformCell < 9)
+            {
+                const int   RIdx   = ActiveTransformCell / 3;
+                const int   AIdx   = ActiveTransformCell % 3;
+                char*       EndPtr = nullptr;
+                const float Parsed = std::strtof(TransformCellEditor.Text, &EndPtr);
+                if (EndPtr != TransformCellEditor.Text && std::isfinite(Parsed))
+                {
+                    const float Clamped = std::clamp(Parsed, Rows[RIdx].Minimum, Rows[RIdx].Maximum);
+                    *Rows[RIdx].Axes[AIdx] = std::round(Clamped * 10000.0f) * 0.0001f;
+                    if (RIdx == 0)
+                    {
+                        FormatTransformSubtitle(Entry);
+                    }
+                }
+            }
+            TransformCellEditor.Active    = false;
+            TransformCellEditor.Finalized = false;
+            TransformCellEditor.Cancelled = false;
+            ActiveTransformCell           = -1;
+        };
+
+        if (Entry.Locked && ActiveTransformCell >= 0)
+        {
+            CommitActiveCell();
+        }
+        if (ActiveTransformCell >= 0 && TransformCellEditor.Finalized)
+        {
+            CommitActiveCell();
+        }
+        else if (ActiveTransformCell >= 0 && TransformCellEditor.Cancelled)
+        {
+            TransformCellEditor.Active    = false;
+            TransformCellEditor.Cancelled = false;
+            ActiveTransformCell           = -1;
+        }
+
+        const float       PadX   = 14.0f;
+        const float       PadY   = 18.0f;
+        const float       CardH  = 274.0f;
+        const Rectangle2D TransformCard{ LeftX, CurY, InnerW, CardH };
+        Surface.FillRectangle(TransformCard, WorkspaceSurfaceColors::GenericSurface, 22.0f);
+        Surface.StrokeRectangle(TransformCard, WorkspaceSurfaceColors::HairlineLight, 22.0f, 1.0f);
+
+        const float TableX = TransformCard.X + PadX;
+        const float TableW = std::max(80.0f, TransformCard.Width - PadX * 2.0f);
+
+        // Header: <h3>Transform</h3> <span>LOCAL SPACE</span>
+        WorkspacePaneAppearance::ConstructWeightedText(
+            Surface,
+            FontWeightClass::Light,
+            { TableX, TransformCard.Y + PadY },
+            14.0f,
+            ColorRgba{ 221, 221, 221, 255 },
+            "Transform");
+
+        const char* SpaceTag = "LOCAL SPACE";
+        const float SpaceW   = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.5f, SpaceTag);
+        WorkspacePaneAppearance::ConstructWeightedText(
+            Surface,
+            FontWeightClass::Regular,
+            { TableX + TableW - SpaceW, TransformCard.Y + PadY + 4.0f },
+            8.5f,
+            ColorRgba{ 119, 119, 119, 255 },
+            SpaceTag);
+
+        // Table columns: Component (28%) + X / Y / Z (3 equal columns across remaining 72%)
+        const float CompColW = std::floor(TableW * 0.28f);
+        const float CellGap  = 4.0f;
+        const float AxisColW = std::max(28.0f, (TableW - CompColW - CellGap * 2.0f) / 3.0f);
+        const float TheadY   = TransformCard.Y + PadY + 32.0f;
+
+        WorkspacePaneAppearance::ConstructWeightedText(
+            Surface,
+            FontWeightClass::Light,
+            { TableX, TheadY + 1.5f },
+            8.5f,
+            ColorRgba{ 119, 119, 119, 255 },
+            "Component");
+
+        constexpr std::array<const char*, 3> AxisNames  = {{ "X", "Y", "Z" }};
+        constexpr std::array<ColorRgba, 3>   AxisColors = {{
+            { 207, 154, 147, 255 }, // #cf9a93 (.axis-X)
+            { 158, 195, 166, 255 }, // #9ec3a6 (.axis-Y)
+            { 145, 170, 206, 255 }, // #91aace (.axis-Z)
+        }};
+        for (int Axis = 0; Axis < 3; ++Axis)
+        {
+            const float CellX = TableX + CompColW + static_cast<float>(Axis) * (AxisColW + CellGap);
+            const float HeadW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, AxisNames[Axis]);
+            WorkspacePaneAppearance::ConstructWeightedText(
+                Surface,
+                FontWeightClass::Regular,
+                { CellX + (AxisColW - HeadW) * 0.5f, TheadY },
+                10.0f,
+                AxisColors[static_cast<std::size_t>(Axis)],
+                AxisNames[Axis]);
+        }
+
+        // Table body: Position (m), Rotation (deg), Scale (×)
+        bool        ClickedAnyCell = false;
+        const float FirstRowY      = TheadY + 22.0f;
+        const float RowPitch       = 39.0f;
+
+        for (int RIdx = 0; RIdx < 3; ++RIdx)
+        {
+            const float RowY = FirstRowY + static_cast<float>(RIdx) * RowPitch;
+            WorkspacePaneAppearance::ConstructWeightedText(
+                Surface,
+                FontWeightClass::Light,
+                { TableX, RowY + 2.0f },
+                10.5f,
+                ColorRgba{ 204, 204, 204, 255 },
+                Rows[RIdx].Label);
+            WorkspacePaneAppearance::ConstructWeightedText(
+                Surface,
+                FontWeightClass::Light,
+                { TableX, RowY + 15.5f },
+                8.5f,
+                ColorRgba{ 112, 112, 112, 255 },
+                Rows[RIdx].Unit);
+
+            for (int Axis = 0; Axis < 3; ++Axis)
+            {
+                const int         CellIndex = RIdx * 3 + Axis;
+                const float       CellX     = TableX + CompColW + static_cast<float>(Axis) * (AxisColW + CellGap);
+                const Rectangle2D InputBox{ CellX, RowY, AxisColW, 29.0f };
+                const bool        Focused   = (ActiveTransformCell == CellIndex);
+                const bool        Hovered   = !Entry.Locked && ScrollViewport.Contains(Cursor) && InputBox.Contains(Cursor);
+
+                Surface.FillRectangle(InputBox, ColorRgba{ 21, 21, 21, 255 }, 7.0f);
+                Surface.StrokeRectangle(
+                    InputBox,
+                    Focused ? ColorRgba{ 185, 166, 139, 255 } : (Hovered ? ColorRgba{ 255, 255, 255, 34 } : ColorRgba{ 255, 255, 255, 16 }),
+                    7.0f,
+                    1.0f);
+
+                if (!Entry.Locked && Hovered && Input.PrimaryPointer.Pressed)
+                {
+                    ClickedAnyCell        = true;
+                    DraggingTransformCell = CellIndex;
+                    TransformDragOriginX  = Cursor.X;
+                    TransformDragStartVal = *Rows[RIdx].Axes[Axis];
+                    TransformDragMoved    = false;
+                }
+
+                if (DraggingTransformCell == CellIndex)
+                {
+                    if (Input.PrimaryPointer.Down)
+                    {
+                        const float Distance = Cursor.X - TransformDragOriginX;
+                        if (std::fabs(Distance) > 4.0f)
+                        {
+                            TransformDragMoved = true;
+                            if (ActiveTransformCell >= 0)
+                            {
+                                CommitActiveCell();
+                            }
+                        }
+                        if (TransformDragMoved && !Entry.Locked)
+                        {
+                            const float Precision = Input.ShiftHeld ? 0.1f : 1.0f;
+                            const float NextVal   = std::clamp(
+                                TransformDragStartVal + Distance * Rows[RIdx].Step * Precision,
+                                Rows[RIdx].Minimum,
+                                Rows[RIdx].Maximum);
+                            *Rows[RIdx].Axes[Axis] = std::round(NextVal * 10000.0f) * 0.0001f;
+                            if (RIdx == 0)
+                            {
+                                FormatTransformSubtitle(Entry);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (!TransformDragMoved && !Entry.Locked && Hovered)
+                        {
+                            if (ActiveTransformCell >= 0 && ActiveTransformCell != CellIndex)
+                            {
+                                CommitActiveCell();
+                            }
+                            char InitBuf[32]{};
+                            FormatCompactValue(*Rows[RIdx].Axes[Axis], InitBuf, sizeof(InitBuf));
+                            ActiveTransformCell = CellIndex;
+                            TransformCellEditor.Begin(InitBuf);
+                            TransformCellEditor.SelectAll();
+                        }
+                        DraggingTransformCell = -1;
+                    }
+                }
+
+                char ValBuf[32]{};
+                std::string_view DisplayStr{};
+                if (Focused)
+                {
+                    DisplayStr = std::string_view(TransformCellEditor.Text, TransformCellEditor.Length);
+                }
+                else
+                {
+                    FormatCompactValue(*Rows[RIdx].Axes[Axis], ValBuf, sizeof(ValBuf));
+                    DisplayStr = ValBuf;
+                }
+
+                const float ValW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.0f, DisplayStr);
+                const float ValX = InputBox.X + std::max(4.0f, (InputBox.Width - ValW) * 0.5f);
+                WorkspacePaneAppearance::ConstructTruncatedText(
+                    Surface,
+                    FontWeightClass::Regular,
+                    { ValX, InputBox.Y + 7.5f },
+                    InputBox.Width - 8.0f,
+                    11.0f,
+                    Entry.Locked ? ColorRgba{ 108, 108, 108, 255 } : ColorRgba{ 201, 201, 201, 255 },
+                    DisplayStr);
+
+                if (Focused && TransformCellEditor.BlinkPhase < ControlMetrics::CaretBlinkSeconds * 0.5f)
+                {
+                    const float CaretX = std::min(InputBox.Right() - 4.0f, ValX + ValW + 1.0f);
+                    Surface.StrokeLine({ CaretX, InputBox.Y + 6.5f }, { CaretX, InputBox.Bottom() - 6.5f }, ColorRgba{ 221, 221, 221, 255 }, 1.1f);
+                }
+            }
+        }
+
+        if (ActiveTransformCell >= 0 && Input.PrimaryPointer.Pressed && !ClickedAnyCell)
+        {
+            CommitActiveCell();
+        }
+
+        // .transform-resets: [↺ Position] [↺ Rotation] [↺ Scale]
+        const float ResetsY  = FirstRowY + 3.0f * RowPitch + 4.0f;
+        const float ResetGap = 4.0f;
+        const float ResetW   = (TableW - ResetGap * 2.0f) / 3.0f;
+        for (int RIdx = 0; RIdx < 3; ++RIdx)
+        {
+            const Rectangle2D ResetBtn{ TableX + static_cast<float>(RIdx) * (ResetW + ResetGap), ResetsY, ResetW, 30.0f };
+            const bool        ResetHov = !Entry.Locked && ScrollViewport.Contains(Cursor) && ResetBtn.Contains(Cursor);
+            Surface.FillRectangle(ResetBtn, ResetHov ? ColorRgba{ 44, 44, 44, 255 } : ColorRgba{ 34, 34, 34, 255 }, 6.0f);
+
+            const ColorRgba BtnInk    = Entry.Locked ? ColorRgba{ 92, 92, 92, 255 }
+                                                     : (ResetHov ? ColorRgba{ 222, 222, 222, 255 } : ColorRgba{ 170, 170, 170, 255 });
+            const float     TextW     = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.5f, Rows[RIdx].Label);
+            const float     IconSpan  = 11.0f;
+            const float     TotalSpan = IconSpan + TextW;
+            const float     StartX    = ResetBtn.X + std::max(4.0f, (ResetBtn.Width - TotalSpan) * 0.5f);
+
+            WorkspacePaneAppearance::ConstructResetSymbol(
+                Surface,
+                { StartX + 4.0f, ResetBtn.Center().Y },
+                8.5f,
+                BtnInk,
+                1.3f);
+            WorkspacePaneAppearance::ConstructTruncatedText(
+                Surface,
+                FontWeightClass::Regular,
+                { StartX + IconSpan, ResetBtn.Y + 8.5f },
+                ResetBtn.Width - IconSpan - 4.0f,
+                9.5f,
+                BtnInk,
+                Rows[RIdx].Label);
+
+            if (ResetHov && Input.PrimaryPointer.Pressed)
+            {
+                if (ActiveTransformCell >= 0)
+                {
+                    CommitActiveCell();
+                }
+                *Rows[RIdx].Axes[0] = Rows[RIdx].Defaults[0];
+                *Rows[RIdx].Axes[1] = Rows[RIdx].Defaults[1];
+                *Rows[RIdx].Axes[2] = Rows[RIdx].Defaults[2];
+                if (RIdx == 0)
+                {
+                    FormatTransformSubtitle(Entry);
+                }
+            }
+        }
+
+        // Footer hint caption (<p>)
+        const char* HintLine = Entry.Locked
+                                   ? "Object locked. Unlock in Properties to edit."
+                                   : "Type or drag values \xC2\xB7 Shift for precision.";
+        WorkspacePaneAppearance::ConstructTruncatedText(
+            Surface,
+            FontWeightClass::Regular,
+            { TableX, ResetsY + 42.0f },
+            TableW,
+            9.0f,
+            ColorRgba{ 117, 117, 117, 255 },
+            HintLine);
+
+        CurY += TransformCard.Height + 28.0f;
     }
 
     return CurY - OriginY;
@@ -1311,6 +1565,7 @@ void InspectorPanel::Render(
 
     WorkspacePaneAppearance::ForwardInputToTextBuffer(NotesEditor, Input, Δt);
     WorkspacePaneAppearance::ForwardInputToTextBuffer(FolderSearchEditor, Input, Δt);
+    WorkspacePaneAppearance::ForwardInputToTextBuffer(TransformCellEditor, Input, Δt);
 
     const Point2D     Cursor{ Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
     constexpr float   FooterHeight = 45.0f;

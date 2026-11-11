@@ -98,9 +98,15 @@ struct OutlinerRecordEntry
     std::string          Subtitle          {};                                         // [-]  - Secondary caption below title
     std::string          AuthorNotes       {};                                         // [-]  - Optional notes edited in Inspector
     ColorRgba            FolderTint        = WorkspaceSurfaceColors::ShowcaseSage;   // [-]  - Showcase folder accent color
-    float                PositionX         = 0.0f;                                     // [m]  - Local/world X coordinate
-    float                PositionY         = 0.0f;                                     // [m]  - Local/world Y coordinate
-    float                PositionZ         = 0.0f;                                     // [m]  - Local/world Z coordinate
+    float                PositionX         = 0.0f;                                     // [m]   - Local X translation
+    float                PositionY         = 0.0f;                                     // [m]   - Local Y translation
+    float                PositionZ         = 0.0f;                                     // [m]   - Local Z translation
+    float                RotationX         = 0.0f;                                     // [deg] - Local X Euler rotation
+    float                RotationY         = 0.0f;                                     // [deg] - Local Y Euler rotation
+    float                RotationZ         = 0.0f;                                     // [deg] - Local Z Euler rotation
+    float                ScaleX            = 1.0f;                                     // [-]   - Local X scale factor
+    float                ScaleY            = 1.0f;                                     // [-]   - Local Y scale factor
+    float                ScaleZ            = 1.0f;                                     // [-]   - Local Z scale factor
     bool                 VisibilityEnabled = true;                                     // [-]  - Direct visibility switch
     bool                 Expanded          = true;                                     // [-]  - Disclosure branch open indicator
     bool                 Locked            = false;                                    // [-]  - Transform edit lock switch

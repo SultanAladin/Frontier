@@ -451,7 +451,7 @@ private:
 #endif
 }
 
-[[nodiscard]] inline ImFont* LoadWorkspaceDmSansFont(ImGuiIO& Io, float BrowserCssPixels = 12.5f)
+[[nodiscard]] inline ImFont* LoadWorkspaceDmSansFont(ImGuiIO& Io, float BrowserCssPixels = 10.0f)
 {
     ImFont*         Result   = nullptr;
     const auto      FontFile = ResolveRepositoryRootPath() / "EngineContent/FontsArchives/DMSans/DMSans-Medium.ttf";
