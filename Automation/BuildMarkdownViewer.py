@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Builds Documentation/Plans/MarkdownStudioViewer.html — Visual Studio Dark .md Studio
-that dynamically browses live files via relative /api/tree & /api/file when served by
-Automation/ServeMarkdownStudio.py, with embedded fallback when opened offline."""
+"""Builds Documentation/Plans/MarkdownStudioViewer.html — Frontier Editor-styled .md Studio
+(3-pane docked workspace, borderless panel-matched trapezoidal tabs, square 0px entry rows,
+capsule controls, DM Sans + JetBrains Mono typography, zero shadows, and #3B82F6 Blue Accent)."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def collect_markdown_documents(include_content: bool = True) -> list[dict[str, o
             sub_dir = "/".join(parts[2:-1])
             group = f"Plans/{sub_dir}" if sub_dir else "Plans"
         elif rel.startswith("Documentation/AgenticInstructions/"):
-            group = "Documentation/AgenticInstructions"
+            group = "AgenticInstructions"
         elif rel.startswith("Documentation/"):
             group = "Documentation"
         elif len(parts) > 1:
@@ -75,32 +75,91 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Frontier Markdown Studio — Plans &amp; Documentation</title>
+<title>Frontier — Markdown Studio</title>
 <style>
+  @font-face {
+    font-family: "FrontierDMSans";
+    src: url("fonts/DMSans/DMSans-Regular.ttf") format("truetype");
+    font-weight: 400;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: "FrontierDMSans";
+    src: url("fonts/DMSans/DMSans-Medium.ttf") format("truetype");
+    font-weight: 500;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: "FrontierDMSans";
+    src: url("fonts/DMSans/DMSans-SemiBold.ttf") format("truetype");
+    font-weight: 600;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: "FrontierDMSans";
+    src: url("fonts/DMSans/DMSans-Bold.ttf") format("truetype");
+    font-weight: 700;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: "FrontierMono";
+    src: url("fonts/JetBrainsMono/JetBrainsMono-Regular.ttf") format("truetype");
+    font-weight: 400;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: "FrontierMono";
+    src: url("fonts/JetBrainsMono/JetBrainsMono-SemiBold.ttf") format("truetype");
+    font-weight: 600;
+    font-style: normal;
+  }
+
   :root {
-    --vs-sidebar: #181818;
-    --vs-editor: #1e1e1e;
-    --vs-header: #181818;
-    --vs-tab-inactive: #181818;
-    --vs-tab-active: #1e1e1e;
-    --vs-border: #2b2b2b;
-    --vs-border-strong: #3c3c3c;
-    --vs-hover: #2a2d2e;
-    --vs-selection: #04395e;
-    --vs-accent: #0078d4;
-    --vs-text: #cccccc;
-    --vs-text-bright: #e8e8e8;
-    --vs-text-dim: #858585;
-    --vs-code-bg: #141414;
-    --syn-heading: #569cd6;
-    --syn-bold: #e5c07b;
-    --syn-code: #ce9178;
-    --syn-quote: #6a9955;
-    --syn-table: #4ec9b0;
-    --syn-link: #4fc1ff;
+    /* Exact Frontier Editor WorkspaceSurfaceColors + ThemeRepository::Dark + AccentPreset::Blue */
+    --fr-root-gap: #262626;
+    --fr-tabbar: #0a0a0a;
+    --fr-dock: #121212;
+    --fr-canvas: #0e0f12;
+    --fr-footer: #151515;
+    --fr-well: #191919;
+    --fr-well-border: #2c2c2c;
+    --fr-recess: #090909;
+    --fr-deep-input: #111111;
+    --fr-section: #202020;
+    --fr-tile: #1a1a1a;
+    --fr-row-hover: #1e1e1e;
+    --fr-row-selected: #262626;
+    --fr-row-selected-border: #3d4f6b;
+    --fr-hairline: rgba(255, 255, 255, 0.065);
+    --fr-hairline-strong: #2e2e2e;
+
+    /* Frontier Blue Accent (#3B82F6) */
+    --fr-blue: #3b82f6;
+    --fr-blue-hover: #2563eb;
+    --fr-blue-light: #60a5fa;
+    --fr-blue-pale: #93c5fd;
+    --fr-blue-wash: rgba(59, 130, 246, 0.14);
+    --fr-blue-wash-strong: rgba(59, 130, 246, 0.22);
+    --fr-blue-stroke: rgba(59, 130, 246, 0.45);
+
+    /* Typography & Ink */
+    --fr-ink: #ebebeb;
+    --fr-ink-bright: #f7f8fa;
+    --fr-ink-secondary: #b0b0b0;
+    --fr-ink-muted: #8a8a8a;
+    --fr-ink-faint: #5c5c5c;
+
+    /* Syntax */
+    --syn-h: #60a5fa;
+    --syn-bold: #f3f4f6;
+    --syn-code: #93c5fd;
+    --syn-quote: #34d399;
+    --syn-table: #38bdf8;
+    --syn-link: #60a5fa;
+
     --doc-scale: 1;
-    --font-ui: "Segoe UI", "Inter", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-    --font-mono: "Cascadia Code", "Consolas", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --font-sans: "FrontierDMSans", "DM Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-mono: "FrontierMono", "JetBrains Mono", "Cascadia Code", Consolas, monospace;
   }
 
   * {
@@ -111,455 +170,791 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   }
 
   html, body {
+    width: 100%;
     height: 100%;
     overflow: hidden;
-    background: var(--vs-editor);
-    color: var(--vs-text);
-    font-family: var(--font-ui);
+    background: var(--fr-root-gap);
+    color: var(--fr-ink);
+    font-family: var(--font-sans);
     font-size: 13px;
     -webkit-font-smoothing: antialiased;
   }
 
-  .ide-root {
+  /* 3-Pane Docked Workspace Grid (2px #262626 RootGap dividers, zero shadows) */
+  .workspace-grid {
     display: grid;
-    grid-template-rows: 38px 1fr 24px;
-    height: 100vh;
+    grid-template-columns: 312px 1fr 276px;
+    gap: 2px;
     width: 100vw;
+    height: 100vh;
+    background: var(--fr-root-gap);
   }
 
-  /* Top Visual Studio Command Bar */
-  .titlebar {
-    background: var(--vs-header);
-    border-bottom: 1px solid var(--vs-border);
+  .workspace-grid.hide-left {
+    grid-template-columns: 0px 1fr 276px;
+  }
+
+  .workspace-grid.hide-right {
+    grid-template-columns: 312px 1fr 0px;
+  }
+
+  .workspace-grid.hide-left.hide-right {
+    grid-template-columns: 0px 1fr 0px;
+  }
+
+  .dock-pane {
+    background: var(--fr-dock);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Trapezoidal Tab Strip (#0A0A0A, borderless panel-matched #121212 tabs, scaled 12px font & X) */
+  .tab-strip {
+    height: 30px;
+    background: var(--fr-tabbar);
+    display: flex;
+    align-items: flex-end;
+    padding: 0 6px;
+    gap: 2px;
+    position: relative;
+    user-select: none;
+    flex-shrink: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .tab-strip::-webkit-scrollbar {
+    display: none;
+  }
+
+  .trap-tab {
+    height: 27px;
+    padding: 0 16px 0 18px;
+    background: #0e0e0e;
+    color: var(--fr-ink-muted);
+    font-size: 12px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    border: none;
+    outline: none;
+    clip-path: polygon(9px 0, calc(100% - 9px) 0, 100% 100%, 0 100%);
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: background 0.1s ease, color 0.1s ease;
+  }
+
+  .trap-tab:hover {
+    background: #161616;
+    color: var(--fr-ink);
+  }
+
+  /* Active trapezoidal tab: exact same #121212 fill as docked panel, zero border */
+  .trap-tab.active {
+    background: var(--fr-dock);
+    color: var(--fr-ink-bright);
+  }
+
+  .trap-tab .tab-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--fr-blue);
+    flex-shrink: 0;
+  }
+
+  .trap-tab .tab-x {
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    line-height: 1;
+    color: var(--fr-ink-muted);
+  }
+
+  .trap-tab .tab-x:hover {
+    background: rgba(255, 255, 255, 0.10);
+    color: #ffffff;
+  }
+
+  .tab-add-disc {
+    width: 21px;
+    height: 21px;
+    margin: 0 0 3px 3px;
+    border-radius: 50%;
+    border: none;
+    background: #171717;
+    color: var(--fr-ink-secondary);
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .tab-add-disc:hover {
+    background: var(--fr-blue);
+    color: #ffffff;
+  }
+
+  /* Top-Center "Frontier" Pull-Down Notch */
+  .frontier-notch {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    height: 20px;
+    padding: 0 26px;
+    background: #161618;
+    color: var(--fr-ink-muted);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    clip-path: polygon(0 0, 100% 0, calc(100% - 9px) 100%, 9px 100%);
+    pointer-events: none;
+  }
+
+  .frontier-notch::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--fr-blue);
+  }
+
+  /* =========================================================================
+     LEFT PANE — OUTLINER-STYLED MARKDOWN FILE BROWSER
+     ========================================================================= */
+  .pane-header {
+    padding: 12px 14px 10px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 12px;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .pane-title-group {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .pane-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--fr-ink-bright);
+    letter-spacing: -0.01em;
+  }
+
+  .pane-count {
+    font-size: 11.5px;
+    color: var(--fr-ink-muted);
+  }
+
+  .round-disc-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .round-disc {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid var(--fr-well-border);
+    background: var(--fr-well);
+    color: var(--fr-ink-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 13px;
+  }
+
+  .round-disc:hover {
+    background: #252528;
+    color: #ffffff;
+    border-color: #3c3c42;
+  }
+
+  .round-disc.active {
+    background: var(--fr-blue-wash);
+    border-color: var(--fr-blue-stroke);
+    color: var(--fr-blue-light);
+  }
+
+  /* Outliner Dual Stat Wells (Plans vs All Docs) */
+  .stat-wells {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 0 14px 10px;
+    flex-shrink: 0;
+  }
+
+  .stat-well {
+    background: var(--fr-well);
+    border: 1px solid var(--fr-well-border);
+    border-radius: 16px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
     gap: 10px;
+    cursor: pointer;
+    user-select: none;
+    transition: border-color 0.12s ease, background 0.12s ease;
+  }
+
+  .stat-well:hover {
+    background: #1f1f22;
+  }
+
+  .stat-well.selected {
+    border-color: var(--fr-blue);
+    background: rgba(59, 130, 246, 0.08);
+  }
+
+  .stat-well-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .token-disc-blue {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--fr-blue);
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .token-disc-muted {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #252528;
+    border: 1px solid #38383d;
+    color: var(--fr-ink-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+  }
+
+  .stat-well-bottom {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .stat-caption {
+    font-size: 11.5px;
+    color: var(--fr-ink-muted);
+  }
+
+  .stat-value {
+    font-size: 19px;
+    font-weight: 600;
+    color: var(--fr-ink-bright);
+    line-height: 1;
+  }
+
+  /* Search Pill + Studio Dropdown Filter Row */
+  .filter-strip {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    padding: 0 14px 12px;
+    border-bottom: 1px solid var(--fr-hairline);
+    flex-shrink: 0;
+  }
+
+  .search-capsule {
+    height: 34px;
+    background: var(--fr-well);
+    border: 1px solid var(--fr-well-border);
+    border-radius: 17px;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .search-capsule:focus-within {
+    border-color: var(--fr-blue);
+    background: var(--fr-deep-input);
+  }
+
+  .search-capsule input {
+    width: 100%;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--fr-ink-bright);
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+  }
+
+  .search-capsule input::placeholder {
+    color: var(--fr-ink-faint);
+  }
+
+  /* Reusable Studio Controls DropdownSelector style */
+  .studio-dropdown-wrap {
+    position: relative;
+  }
+
+  .studio-dropdown-btn {
+    height: 34px;
+    padding: 0 12px;
+    border-radius: 17px;
+    background: var(--fr-well);
+    border: 1px solid var(--fr-well-border);
+    color: var(--fr-ink);
+    font-size: 12px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .studio-dropdown-btn:hover {
+    background: #222226;
+    border-color: #3a3a42;
+  }
+
+  .studio-dropdown-sheet {
+    position: absolute;
+    top: 38px;
+    right: 0;
+    min-width: 176px;
+    background: #0c0c0e;
+    border: 1px solid var(--fr-well-border);
+    border-radius: 12px;
+    padding: 5px;
+    z-index: 40;
+  }
+
+  .studio-dropdown-option {
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--fr-ink-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .studio-dropdown-option:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #ffffff;
+  }
+
+  .studio-dropdown-option.active {
+    background: var(--fr-blue-wash);
+    color: var(--fr-blue-light);
+    font-weight: 600;
+  }
+
+  /* File Tree: Showcase Folder headers + Square 0px-radius Entry Rows */
+  .tree-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 10px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .folder-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .folder-row {
+    height: 30px;
+    padding: 0 10px;
+    background: var(--fr-section);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
     user-select: none;
   }
 
-  .titlebar-left {
+  .folder-row:hover {
+    background: #262629;
+  }
+
+  .folder-row-left {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fr-ink-bright);
+    min-width: 0;
+  }
+
+  .folder-icon {
+    width: 14px;
+    height: 11px;
+    border-radius: 2px;
+    background: var(--fr-blue);
+    display: inline-block;
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .folder-badge {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--fr-ink-muted);
+  }
+
+  .folder-entries {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 8px;
+    margin-top: 2px;
+  }
+
+  .folder-entries.collapsed {
+    display: none;
+  }
+
+  /* Standing Frontier Outliner Rule: Square 0px corner radius on ALL entry rows */
+  .entry-row {
+    min-height: 32px;
+    padding: 5px 10px 5px 11px;
+    border-radius: 0px;
+    background: #161618;
+    border: 1px solid rgba(255, 255, 255, 0.035);
+    border-left: 3px solid transparent;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .entry-row:hover {
+    background: var(--fr-row-hover);
+    border-color: #2e2e34;
+  }
+
+  .entry-row.active {
+    background: var(--fr-row-selected);
+    border-color: var(--fr-row-selected-border);
+    border-left: 3px solid var(--fr-blue);
+  }
+
+  .entry-main {
     display: flex;
     align-items: center;
     gap: 8px;
     min-width: 0;
+    overflow: hidden;
   }
 
-  .vs-mark {
+  .entry-square-icon {
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    background: var(--fr-blue-wash);
+    border: 1px solid var(--fr-blue-stroke);
+    color: var(--fr-blue-light);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 700;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 4px;
-    background: var(--vs-accent);
-    color: #ffffff;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 700;
     flex-shrink: 0;
   }
 
-  .app-title {
+  .entry-name {
     font-size: 12.5px;
-    font-weight: 600;
-    color: var(--vs-text-bright);
-    white-space: nowrap;
-  }
-
-  .live-indicator {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    padding: 2px 7px;
-    border-radius: 4px;
-    border: 1px solid #2ea043;
-    color: #56d364;
-    background: rgba(46, 160, 67, 0.12);
-    white-space: nowrap;
-  }
-
-  .search-shell {
-    flex: 0 1 360px;
-    display: flex;
-    align-items: center;
-    background: #242424;
-    border: 1px solid var(--vs-border-strong);
-    border-radius: 5px;
-    padding: 0 9px;
-    height: 26px;
-    gap: 7px;
-  }
-
-  .search-shell:focus-within {
-    border-color: var(--vs-accent);
-  }
-
-  .search-shell input {
-    background: transparent;
-    border: none;
-    outline: none;
-    color: var(--vs-text-bright);
-    font-family: var(--font-ui);
-    font-size: 12.5px;
-    width: 100%;
-  }
-
-  .search-shell input::placeholder {
-    color: var(--vs-text-dim);
-  }
-
-  .toolbar-right {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .mode-group {
-    display: inline-flex;
-    border: 1px solid var(--vs-border-strong);
-    border-radius: 5px;
-    overflow: hidden;
-    background: #202020;
-  }
-
-  .mode-btn, .tool-btn {
-    appearance: none;
-    border: none;
-    background: transparent;
-    color: var(--vs-text);
-    font-family: var(--font-ui);
-    font-size: 12px;
-    padding: 4px 10px;
-    cursor: pointer;
-    height: 24px;
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    white-space: nowrap;
-  }
-
-  .mode-btn + .mode-btn {
-    border-left: 1px solid var(--vs-border-strong);
-  }
-
-  .mode-btn:hover, .tool-btn:hover {
-    background: var(--vs-hover);
-    color: #ffffff;
-  }
-
-  .mode-btn.active {
-    background: var(--vs-accent);
-    color: #ffffff;
-  }
-
-  .tool-btn {
-    border: 1px solid var(--vs-border-strong);
-    border-radius: 5px;
-    background: #202020;
-    padding: 0 8px;
-  }
-
-  .tool-btn.active {
-    border-color: var(--vs-accent);
-    color: #ffffff;
-  }
-
-  /* Main Workbench */
-  .workbench {
-    display: grid;
-    grid-template-columns: 292px 1fr 230px;
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  .workbench.hide-sidebar {
-    grid-template-columns: 0px 1fr 230px;
-  }
-
-  .workbench.hide-outline {
-    grid-template-columns: 292px 1fr 0px;
-  }
-
-  .workbench.hide-sidebar.hide-outline {
-    grid-template-columns: 0px 1fr 0px;
-  }
-
-  /* Explorer Sidebar */
-  .sidebar {
-    background: var(--vs-sidebar);
-    border-right: 1px solid var(--vs-border);
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    overflow: hidden;
-    user-select: none;
-  }
-
-  .pane-caption {
-    height: 32px;
-    padding: 0 10px 0 12px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--vs-text-dim);
-    border-bottom: 1px solid var(--vs-border);
-    flex-shrink: 0;
-  }
-
-  .explorer-controls {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    padding: 7px 10px;
-    border-bottom: 1px solid var(--vs-border);
-    background: #151515;
-    flex-shrink: 0;
-  }
-
-  .scope-switch {
-    display: inline-flex;
-    border: 1px solid var(--vs-border-strong);
-    border-radius: 4px;
-    overflow: hidden;
-  }
-
-  .scope-btn {
-    appearance: none;
-    border: none;
-    background: #202020;
-    color: var(--vs-text-dim);
-    font-family: var(--font-ui);
-    font-size: 11.5px;
-    padding: 3px 8px;
-    cursor: pointer;
-  }
-
-  .scope-btn + .scope-btn {
-    border-left: 1px solid var(--vs-border-strong);
-  }
-
-  .scope-btn:hover {
-    color: #ffffff;
-    background: var(--vs-hover);
-  }
-
-  .scope-btn.active {
-    background: var(--vs-accent);
-    color: #ffffff;
-  }
-
-  .mini-btn {
-    appearance: none;
-    border: 1px solid var(--vs-border-strong);
-    background: #202020;
-    color: var(--vs-text);
-    font-family: var(--font-ui);
-    font-size: 11.5px;
-    padding: 3px 7px;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-
-  .mini-btn:hover {
-    background: var(--vs-hover);
-    color: #ffffff;
-  }
-
-  .tree-scroll {
-    overflow-y: auto;
-    flex: 1;
-    padding: 6px 0 14px;
-  }
-
-  .folder-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 5px 10px;
-    cursor: pointer;
-    color: var(--vs-text-bright);
-    font-weight: 600;
-    font-size: 12px;
-  }
-
-  .folder-header:hover {
-    background: var(--vs-hover);
-  }
-
-  .folder-left {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-    overflow: hidden;
-  }
-
-  .folder-count {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--vs-text-dim);
-  }
-
-  .caret {
-    display: inline-block;
-    width: 12px;
-    text-align: center;
-    color: var(--vs-text-dim);
-    font-size: 10px;
-    flex-shrink: 0;
-  }
-
-  .folder-items.collapsed {
-    display: none;
-  }
-
-  .tree-row {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    padding: 5px 12px 5px 24px;
-    cursor: pointer;
-    color: var(--vs-text);
-    font-size: 12.5px;
+    color: var(--fr-ink);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .tree-row:hover {
-    background: var(--vs-hover);
-    color: var(--vs-text-bright);
-  }
-
-  .tree-row.active {
-    background: var(--vs-selection);
+  .entry-row.active .entry-name {
     color: #ffffff;
+    font-weight: 500;
   }
 
-  .md-tag {
+  .entry-size {
     font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 700;
-    color: #519aba;
+    font-size: 10.5px;
+    color: var(--fr-ink-faint);
     flex-shrink: 0;
   }
 
-  /* Center Editor Area */
-  .editor-column {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    min-height: 0;
-    background: var(--vs-editor);
-  }
-
-  .tabs-strip {
-    display: flex;
-    align-items: stretch;
-    height: 35px;
-    background: var(--vs-header);
-    border-bottom: 1px solid var(--vs-border);
-    overflow-x: auto;
-    scrollbar-width: none;
-    user-select: none;
-    flex-shrink: 0;
-  }
-
-  .tabs-strip::-webkit-scrollbar {
-    display: none;
-  }
-
-  .editor-tab {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0 10px 0 12px;
-    background: var(--vs-tab-inactive);
-    border-right: 1px solid var(--vs-border);
-    border-top: 2px solid transparent;
-    color: var(--vs-text-dim);
-    font-size: 12.5px;
-    cursor: pointer;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .editor-tab:hover {
-    background: #1f1f1f;
-    color: var(--vs-text-bright);
-  }
-
-  .editor-tab.active {
-    background: var(--vs-tab-active);
-    border-top-color: var(--vs-accent);
-    color: #ffffff;
-  }
-
-  .tab-close {
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 13px;
-    color: var(--vs-text-dim);
-  }
-
-  .tab-close:hover {
-    background: #353535;
-    color: #ffffff;
-  }
-
-  .breadcrumb-bar {
-    height: 26px;
-    padding: 0 16px;
-    background: var(--vs-editor);
-    border-bottom: 1px solid var(--vs-border);
+  /* =========================================================================
+     CENTER PANE — VIEWPORT-STYLED MARKDOWN READER & SOURCE EDITOR
+     ========================================================================= */
+  .viewport-top-strip {
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--fr-hairline);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    color: var(--vs-text-dim);
-    font-size: 12px;
+    gap: 14px;
     flex-shrink: 0;
   }
 
-  .breadcrumb-path span.sep {
-    margin: 0 6px;
-    color: #555555;
+  .doc-identity {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    min-width: 0;
   }
 
-  .breadcrumb-path span.leaf {
-    color: var(--vs-text-bright);
+  .doc-glyph {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: var(--fr-blue-wash);
+    border: 1px solid var(--fr-blue-stroke);
+    color: var(--fr-blue-light);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
   }
 
-  /* Split / Single Editor Viewport */
-  .editor-panes {
+  .doc-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+
+  .doc-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .doc-heading {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--fr-ink-bright);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mode-tag {
+    padding: 2px 7px;
+    border-radius: 5px;
+    background: var(--fr-blue-wash);
+    border: 1px solid var(--fr-blue-stroke);
+    color: var(--fr-blue-light);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+
+  .doc-subpath {
+    font-size: 11.5px;
+    color: var(--fr-ink-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Edit / Simulate / Play Recess -> Preview / Split / Raw .md */
+  .mode-recess {
+    background: var(--fr-recess);
+    border: 1px solid var(--fr-well-border);
+    border-radius: 20px;
+    padding: 3px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+  }
+
+  .mode-pill {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--fr-ink-secondary);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 500;
+    height: 26px;
+    padding: 0 13px;
+    border-radius: 14px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .mode-pill:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .mode-pill.active {
+    background: var(--fr-blue);
+    color: #ffffff;
+    font-weight: 600;
+  }
+
+  /* Secondary Toolbar (Construct-button style) */
+  .viewport-subbar {
+    padding: 8px 18px;
+    border-bottom: 1px solid var(--fr-hairline);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+
+  .subbar-left, .subbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .capsule-primary {
+    height: 32px;
+    padding: 0 14px;
+    border-radius: 16px;
+    border: 1px solid var(--fr-blue);
+    background: var(--fr-blue);
+    color: #ffffff;
+    font-size: 12.5px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    cursor: pointer;
+  }
+
+  .capsule-primary:hover {
+    background: var(--fr-blue-hover);
+    border-color: var(--fr-blue-hover);
+  }
+
+  .capsule-secondary {
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 16px;
+    border: 1px solid var(--fr-well-border);
+    background: var(--fr-well);
+    color: var(--fr-ink);
+    font-size: 12px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+  }
+
+  .capsule-secondary:hover {
+    background: #222226;
+    color: #ffffff;
+  }
+
+  .zoom-capsule {
+    height: 32px;
+    border-radius: 16px;
+    border: 1px solid var(--fr-well-border);
+    background: var(--fr-well);
+    display: inline-flex;
+    align-items: center;
+    overflow: hidden;
+  }
+
+  .zoom-step {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--fr-ink-secondary);
+    height: 100%;
+    padding: 0 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .zoom-step:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #ffffff;
+  }
+
+  .zoom-readout {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--fr-ink-bright);
+    padding: 0 8px;
+    border-left: 1px solid var(--fr-well-border);
+    border-right: 1px solid var(--fr-well-border);
+    cursor: pointer;
+  }
+
+  /* Document Reader & Split Source Canvas */
+  .document-stage {
     flex: 1;
     min-height: 0;
     display: grid;
     grid-template-columns: 1fr;
+    background: var(--fr-canvas);
     overflow: hidden;
   }
 
-  .editor-panes.mode-split {
+  .document-stage.mode-split {
     grid-template-columns: 1fr 1fr;
   }
 
-  .source-pane {
+  .raw-editor-pane {
     overflow: auto;
-    background: var(--vs-editor);
-    border-right: 1px solid var(--vs-border);
+    background: #0b0c0f;
+    border-right: 1px solid var(--fr-well-border);
     font-family: var(--font-mono);
-    font-size: calc(13px * var(--doc-scale));
-    line-height: 1.6;
-    padding: 12px 0 40px;
+    font-size: calc(12.5px * var(--doc-scale));
+    line-height: 1.62;
+    padding: 14px 0 48px;
   }
 
   .source-line {
@@ -569,237 +964,335 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   }
 
   .source-line:hover {
-    background: #242424;
+    background: rgba(59, 130, 246, 0.06);
   }
 
   .line-num {
     text-align: right;
     padding-right: 16px;
-    color: #6e7681;
+    color: #525866;
     user-select: none;
-    font-size: 0.92em;
+    font-size: 0.9em;
   }
 
   .line-code {
     white-space: pre-wrap;
     word-break: break-word;
-    color: #d4d4d4;
+    color: #d6dae3;
   }
 
-  /* Rendered Markdown Preview */
-  .preview-pane {
+  .rendered-pane {
     overflow-y: auto;
-    background: var(--vs-editor);
-    padding: 28px 40px 64px;
+    background: var(--fr-canvas);
+    padding: 28px 36px 72px;
   }
 
-  .md-body {
+  .md-sheet {
     max-width: 920px;
     margin: 0 auto;
+    background: var(--fr-dock);
+    border: 1px solid var(--fr-well-border);
+    border-radius: 20px;
+    padding: 32px 36px 40px;
     font-size: calc(14px * var(--doc-scale));
-    line-height: 1.65;
-    color: #d4d4d4;
+    line-height: 1.66;
+    color: #dadde5;
   }
 
-  .md-body h1 {
-    font-size: 1.75em;
-    font-weight: 650;
+  .md-sheet h1 {
+    font-size: 1.68em;
+    font-weight: 700;
     color: #ffffff;
-    padding-bottom: 10px;
+    padding-bottom: 12px;
     margin: 0 0 16px;
-    border-bottom: 1px solid var(--vs-border-strong);
-    letter-spacing: -0.01em;
+    border-bottom: 1px solid var(--fr-well-border);
+    letter-spacing: -0.015em;
   }
 
-  .md-body h2 {
-    font-size: 1.32em;
-    font-weight: 620;
-    color: #f0f0f0;
-    padding-bottom: 6px;
-    margin: 28px 0 12px;
-    border-bottom: 1px solid var(--vs-border);
-  }
-
-  .md-body h3 {
-    font-size: 1.1em;
+  .md-sheet h2 {
+    font-size: 1.26em;
     font-weight: 600;
-    color: #e6e6e6;
+    color: #f4f6fa;
+    padding-bottom: 7px;
+    margin: 28px 0 12px;
+    border-bottom: 1px solid var(--fr-hairline);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .md-sheet h2::before {
+    content: "";
+    width: 4px;
+    height: 15px;
+    border-radius: 2px;
+    background: var(--fr-blue);
+    display: inline-block;
+    flex-shrink: 0;
+  }
+
+  .md-sheet h3 {
+    font-size: 1.06em;
+    font-weight: 600;
+    color: var(--fr-blue-pale);
     margin: 20px 0 8px;
   }
 
-  .md-body p {
+  .md-sheet p {
     margin: 10px 0;
   }
 
-  .md-body ul, .md-body ol {
-    margin: 8px 0 12px 24px;
+  .md-sheet ul, .md-sheet ol {
+    margin: 8px 0 14px 22px;
   }
 
-  .md-body li {
-    margin: 4px 0;
+  .md-sheet li {
+    margin: 5px 0;
   }
 
-  .md-body hr {
+  .md-sheet strong {
+    color: #ffffff;
+    font-weight: 600;
+  }
+
+  .md-sheet hr {
     border: none;
-    border-top: 1px solid var(--vs-border-strong);
-    margin: 22px 0;
+    border-top: 1px solid var(--fr-well-border);
+    margin: 24px 0;
   }
 
-  .md-body blockquote {
-    border-left: 3px solid var(--vs-accent);
-    background: #171717;
-    border-top: 1px solid var(--vs-border);
-    border-right: 1px solid var(--vs-border);
-    border-bottom: 1px solid var(--vs-border);
-    border-radius: 0 6px 6px 0;
-    padding: 10px 14px;
+  .md-sheet blockquote {
+    background: var(--fr-well);
+    border: 1px solid var(--fr-well-border);
+    border-left: 3px solid var(--fr-blue);
+    border-radius: 12px;
+    padding: 12px 16px;
     margin: 14px 0;
-    color: #b8b8b8;
+    color: var(--fr-ink-secondary);
   }
 
-  .md-body code {
+  .md-sheet code {
     font-family: var(--font-mono);
-    font-size: 0.88em;
-    background: var(--vs-code-bg);
-    border: 1px solid #2e2e2e;
-    color: #ce9178;
-    padding: 1px 5px;
-    border-radius: 4px;
+    font-size: 0.87em;
+    background: #171b24;
+    border: 1px solid rgba(59, 130, 246, 0.28);
+    color: var(--fr-blue-pale);
+    padding: 1.5px 6px;
+    border-radius: 6px;
   }
 
-  .md-body pre {
-    background: var(--vs-code-bg);
-    border: 1px solid var(--vs-border-strong);
-    border-radius: 6px;
-    padding: 14px 16px;
+  .md-sheet pre {
+    background: #0b0d11;
+    border: 1px solid var(--fr-well-border);
+    border-radius: 14px;
+    padding: 16px 18px;
     margin: 14px 0;
     overflow-x: auto;
-    line-height: 1.5;
+    line-height: 1.52;
   }
 
-  .md-body pre code {
+  .md-sheet pre code {
     background: none;
     border: none;
     padding: 0;
-    color: #d4d4d4;
-    font-size: 0.86em;
+    color: #d8dee9;
+    font-size: 0.85em;
   }
 
-  .md-body .table-scroll {
+  .md-sheet .table-scroll {
     overflow-x: auto;
     margin: 14px 0;
-    border: 1px solid var(--vs-border-strong);
-    border-radius: 6px;
+    border: 1px solid var(--fr-well-border);
+    border-radius: 14px;
+    background: #15161a;
   }
 
-  .md-body table {
+  .md-sheet table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.93em;
+    font-size: 0.92em;
   }
 
-  .md-body th {
-    background: #161616;
-    color: #e8e8e8;
+  .md-sheet th {
+    background: #1b1d24;
+    color: #f1f5f9;
+    font-size: 0.84em;
     font-weight: 600;
-    padding: 9px 12px;
-    border-bottom: 1px solid var(--vs-border-strong);
-    border-right: 1px solid var(--vs-border);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 10px 13px;
+    border-bottom: 1px solid var(--fr-well-border);
+    border-right: 1px solid rgba(255, 255, 255, 0.04);
     text-align: left;
   }
 
-  .md-body th:last-child, .md-body td:last-child {
+  .md-sheet th:last-child, .md-sheet td:last-child {
     border-right: none;
   }
 
-  .md-body td {
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--vs-border);
-    border-right: 1px solid var(--vs-border);
+  .md-sheet td {
+    padding: 9px 13px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-right: 1px solid rgba(255, 255, 255, 0.04);
     vertical-align: top;
+    color: #c9ced8;
   }
 
-  .md-body tr:last-child td {
+  .md-sheet tr:last-child td {
     border-bottom: none;
   }
 
-  .md-body tr:nth-child(even) td {
-    background: rgba(255, 255, 255, 0.018);
+  .md-sheet tr:hover td {
+    background: rgba(59, 130, 246, 0.05);
   }
 
-  .md-body a {
-    color: var(--syn-link);
+  .md-sheet a {
+    color: var(--fr-blue-light);
     text-decoration: none;
   }
 
-  .md-body a:hover {
+  .md-sheet a:hover {
     text-decoration: underline;
   }
 
-  .md-body mark {
-    background: rgba(234, 179, 8, 0.35);
+  .md-sheet mark {
+    background: rgba(59, 130, 246, 0.35);
     color: #ffffff;
-    border-radius: 2px;
-    padding: 0 2px;
+    border-radius: 3px;
+    padding: 0 3px;
   }
 
-  /* Right Outline Rail */
-  .outline-rail {
-    background: var(--vs-sidebar);
-    border-left: 1px solid var(--vs-border);
+  /* =========================================================================
+     RIGHT PANE — INSPECTOR-STYLED OUTLINE & DOCUMENT METADATA
+     ========================================================================= */
+  .inspector-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
     display: flex;
     flex-direction: column;
-    min-height: 0;
-    overflow: hidden;
-    user-select: none;
+    gap: 12px;
   }
 
-  .outline-list {
-    overflow-y: auto;
-    flex: 1;
-    padding: 8px 0 16px;
+  .inspector-eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--fr-ink-muted);
   }
 
-  .outline-entry {
-    padding: 5px 12px;
+  .inspector-card {
+    background: var(--fr-tile);
+    border: 1px solid var(--fr-well-border);
+    border-radius: 16px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .inspector-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--fr-hairline);
+  }
+
+  .inspector-card-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--fr-ink-bright);
+  }
+
+  .inspector-pill {
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--fr-blue-wash);
+    border: 1px solid var(--fr-blue-stroke);
+    color: var(--fr-blue-light);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+  }
+
+  .kv-grid {
+    display: grid;
+    grid-template-columns: 74px 1fr;
+    gap: 6px 8px;
     font-size: 12px;
-    color: var(--vs-text);
+  }
+
+  .kv-key {
+    color: var(--fr-ink-muted);
+  }
+
+  .kv-val {
+    color: var(--fr-ink-bright);
+    font-family: var(--font-mono);
+    font-size: 11.2px;
+    word-break: break-all;
+  }
+
+  .outline-items {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .outline-row {
+    padding: 6px 9px;
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--fr-ink-secondary);
     cursor: pointer;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    border-left: 2px solid transparent;
   }
 
-  .outline-entry:hover {
-    background: var(--vs-hover);
+  .outline-row:hover {
+    background: rgba(59, 130, 246, 0.10);
+    border-left-color: var(--fr-blue);
     color: #ffffff;
   }
 
-  .outline-entry.lvl-2 { padding-left: 22px; color: #b5b5b5; }
-  .outline-entry.lvl-3 { padding-left: 34px; color: var(--vs-text-dim); font-size: 11.5px; }
+  .outline-row.lvl-1 {
+    font-weight: 600;
+    color: var(--fr-ink-bright);
+  }
 
-  /* Status Bar */
-  .statusbar {
-    background: #181818;
-    border-top: 1px solid var(--vs-border);
+  .outline-row.lvl-2 {
+    padding-left: 16px;
+  }
+
+  .outline-row.lvl-3 {
+    padding-left: 26px;
+    font-size: 11.5px;
+    color: var(--fr-ink-muted);
+  }
+
+  /* Pane Footers (#151515, 28px) */
+  .pane-footer {
+    height: 28px;
+    background: var(--fr-footer);
+    border-top: 1px solid var(--fr-hairline);
+    padding: 0 14px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 12px;
-    font-size: 11.5px;
-    color: var(--vs-text-dim);
-    user-select: none;
-  }
-
-  .status-left, .status-right {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-
-  .status-accent {
-    color: #58a6ff;
     font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--fr-ink-muted);
+    user-select: none;
+    flex-shrink: 0;
+  }
+
+  .footer-blue {
+    color: var(--fr-blue-light);
+    font-weight: 600;
   }
 
   .hidden {
@@ -807,7 +1300,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   }
 
   /* Syntax colors inside Raw Source */
-  .tok-h { color: var(--syn-heading); font-weight: 600; }
+  .tok-h { color: var(--syn-h); font-weight: 600; }
   .tok-q { color: var(--syn-quote); }
   .tok-t { color: var(--syn-table); }
   .tok-c { color: var(--syn-code); }
@@ -816,95 +1309,196 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 </style>
 </head>
 <body>
-<div class="ide-root">
 
-  <!-- TOP VISUAL STUDIO BAR -->
-  <header class="titlebar">
-    <div class="titlebar-left">
-      <button class="tool-btn active" id="btnToggleSidebar" title="Toggle File Browser">Files</button>
-      <span class="vs-mark">MD</span>
-      <span class="app-title">Frontier Markdown Studio</span>
-      <span class="live-indicator" id="serverModeBadge">Embedded</span>
-    </div>
+<input type="file" id="localFileInput" accept=".md,.markdown,.txt" multiple class="hidden">
 
-    <div class="search-shell">
-      <span style="color:#858585;font-size:12px;">🔍</span>
-      <input type="text" id="searchInput" placeholder="Filter .md files or highlight text in active document...">
-    </div>
+<div class="workspace-grid" id="workspaceGrid">
 
-    <div class="toolbar-right">
-      <input type="file" id="localFileInput" accept=".md,.markdown,.txt" multiple class="hidden">
-      <button class="tool-btn" id="btnOpenLocal" title="Browse local .md file from your computer">Open .md…</button>
-      <div class="mode-group">
-        <button class="mode-btn active" data-mode="preview" onclick="setViewMode('preview', this)">Preview</button>
-        <button class="mode-btn" data-mode="split" onclick="setViewMode('split', this)">Split</button>
-        <button class="mode-btn" data-mode="source" onclick="setViewMode('source', this)">Raw .md</button>
+  <!-- =======================================================================
+       LEFT PANE: DOCUMENTS (OUTLINER STYLE)
+       ======================================================================= -->
+  <aside class="dock-pane" id="leftPane">
+    <div class="tab-strip">
+      <div class="trap-tab active">
+        <span class="tab-dot"></span>
+        <span>Documents</span>
       </div>
-      <button class="tool-btn" onclick="adjustZoom(-0.08)" title="Zoom Out">A-</button>
-      <button class="tool-btn" id="zoomLabel" onclick="resetZoom()" title="Reset Zoom">100%</button>
-      <button class="tool-btn" onclick="adjustZoom(0.08)" title="Zoom In">A+</button>
-      <button class="tool-btn active" id="btnToggleOutline" title="Toggle Document Outline">Outline</button>
+      <button class="tab-add-disc" id="btnAddTabLeft" title="Open local .md file">+</button>
     </div>
-  </header>
 
-  <!-- WORKBENCH -->
-  <div class="workbench" id="workbench">
-
-    <!-- LEFT FILE BROWSER -->
-    <aside class="sidebar" id="sidebar">
-      <div class="pane-caption">
-        <span>File Browser (.md)</span>
-        <span id="docCountLabel">0</span>
+    <div class="pane-header">
+      <div class="pane-title-group">
+        <span class="pane-title">Documents</span>
+        <span class="pane-count" id="headerTotalLabel">0 files</span>
       </div>
-      <div class="explorer-controls">
-        <div class="scope-switch">
-          <button class="scope-btn" id="scopePlansBtn" onclick="setFolderScope('plans')">Plans Only</button>
-          <button class="scope-btn active" id="scopeAllBtn" onclick="setFolderScope('all')">All Docs</button>
+      <div class="round-disc-group">
+        <button class="round-disc" id="btnRefreshTree" title="Refresh live files from disk">↻</button>
+        <button class="round-disc" id="btnOpenLocalIcon" title="Open local .md file">+</button>
+      </div>
+    </div>
+
+    <!-- Outliner Stat Wells -->
+    <div class="stat-wells">
+      <div class="stat-well" id="wellPlans" onclick="setFolderScope('plans')">
+        <div class="stat-well-top">
+          <span class="token-disc-blue">✓</span>
         </div>
-        <button class="mini-btn" id="btnRefreshTree" title="Refresh live directory tree from disk">↻ Refresh</button>
-      </div>
-      <div class="tree-scroll" id="treeContainer"></div>
-    </aside>
-
-    <!-- CENTER EDITOR -->
-    <main class="editor-column">
-      <div class="tabs-strip" id="tabsStrip"></div>
-      <div class="breadcrumb-bar">
-        <div class="breadcrumb-path" id="breadcrumbPath"></div>
-        <div id="matchInfo" style="font-family:var(--font-mono);font-size:11px;color:#9cdcfe;"></div>
-      </div>
-      <div class="editor-panes" id="editorPanes">
-        <div class="source-pane hidden" id="sourcePane"></div>
-        <div class="preview-pane" id="previewPane">
-          <article class="md-body" id="mdBody"></article>
+        <div class="stat-well-bottom">
+          <span class="stat-caption">Plans</span>
+          <span class="stat-value" id="statPlansCount">0</span>
         </div>
       </div>
-    </main>
 
-    <!-- RIGHT OUTLINE -->
-    <aside class="outline-rail" id="outlineRail">
-      <div class="pane-caption">
-        <span>Document Outline</span>
+      <div class="stat-well selected" id="wellAll" onclick="setFolderScope('all')">
+        <div class="stat-well-top">
+          <span class="token-disc-muted">≡</span>
+        </div>
+        <div class="stat-well-bottom">
+          <span class="stat-caption">All Docs</span>
+          <span class="stat-value" id="statAllCount">0</span>
+        </div>
       </div>
-      <div class="outline-list" id="outlineList"></div>
-    </aside>
-
-  </div>
-
-  <!-- BOTTOM STATUS BAR -->
-  <footer class="statusbar">
-    <div class="status-left">
-      <span class="status-accent" id="statusPath">—</span>
     </div>
-    <div class="status-right">
-      <span id="statusLines">0 lines</span>
-      <span id="statusWords">0 words</span>
-      <span id="statusSize">0.0 KB</span>
-      <span>UTF-8</span>
-      <span>LF</span>
-      <span>Markdown</span>
+
+    <!-- Search + Studio DropdownSelector -->
+    <div class="filter-strip">
+      <div class="search-capsule">
+        <span style="color:var(--fr-ink-muted);font-size:12px;">⌕</span>
+        <input type="text" id="searchInput" placeholder="Search .md files...">
+      </div>
+
+      <div class="studio-dropdown-wrap" id="dropdownWrap">
+        <button class="studio-dropdown-btn" id="dropdownBtn">
+          <span id="dropdownLabel">All Folders</span>
+          <span style="color:var(--fr-ink-muted);font-size:10px;">▾</span>
+        </button>
+        <div class="studio-dropdown-sheet hidden" id="dropdownSheet">
+          <div class="studio-dropdown-option active" data-scope="all">All Folders</div>
+          <div class="studio-dropdown-option" data-scope="plans">Plans Only</div>
+          <div class="studio-dropdown-option" data-scope="docs">Governance Docs</div>
+          <div class="studio-dropdown-option" data-scope="skills">Agentic Skills</div>
+        </div>
+      </div>
     </div>
-  </footer>
+
+    <!-- File Tree -->
+    <div class="tree-scroll" id="treeContainer"></div>
+
+    <div class="pane-footer">
+      <span class="footer-blue" id="serverModeFooter">● EMBEDDED</span>
+      <span id="leftFooterSummary">0 VISIBLE</span>
+    </div>
+  </aside>
+
+  <!-- =======================================================================
+       CENTER PANE: MARKDOWN VIEWPORT & SPLIT SOURCE
+       ======================================================================= -->
+  <main class="dock-pane">
+    <div class="tab-strip" id="tabsStrip">
+      <div class="frontier-notch">Frontier</div>
+    </div>
+
+    <!-- Viewport Primary Header Strip -->
+    <div class="viewport-top-strip">
+      <div class="doc-identity">
+        <span class="doc-glyph">MD</span>
+        <div class="doc-titles">
+          <div class="doc-title-row">
+            <span class="doc-heading" id="activeDocTitle">Select a document</span>
+            <span class="mode-tag" id="activeGroupBadge">PLANS</span>
+          </div>
+          <span class="doc-subpath" id="activeDocPath">—</span>
+        </div>
+      </div>
+
+      <!-- Edit / Simulate / Play Recess -> Preview / Split / Raw .md -->
+      <div class="mode-recess">
+        <button class="mode-pill active" data-mode="preview" onclick="setViewMode('preview', this)">Preview</button>
+        <button class="mode-pill" data-mode="split" onclick="setViewMode('split', this)">Split</button>
+        <button class="mode-pill" data-mode="source" onclick="setViewMode('source', this)">Raw .md</button>
+      </div>
+    </div>
+
+    <!-- Secondary Construct-Style Toolbar -->
+    <div class="viewport-subbar">
+      <div class="subbar-left">
+        <button class="capsule-primary" id="btnOpenLocalMain">
+          <span>+</span>
+          <span>Open .md</span>
+        </button>
+        <div class="zoom-capsule">
+          <button class="zoom-step" onclick="adjustZoom(-0.08)" title="Decrease Font Scale">−</button>
+          <span class="zoom-readout" id="zoomLabel" onclick="resetZoom()" title="Reset Scale">100%</span>
+          <button class="zoom-step" onclick="adjustZoom(0.08)" title="Increase Font Scale">+</button>
+        </div>
+        <span id="matchInfo" style="font-family:var(--font-mono);font-size:11.5px;color:var(--fr-blue-light);"></span>
+      </div>
+
+      <div class="subbar-right">
+        <button class="round-disc active" id="btnToggleLeft" title="Toggle Documents Pane">◧</button>
+        <button class="round-disc active" id="btnToggleRight" title="Toggle Outline Inspector">◨</button>
+      </div>
+    </div>
+
+    <!-- Document Stage -->
+    <div class="document-stage" id="documentStage">
+      <div class="raw-editor-pane hidden" id="sourcePane"></div>
+      <div class="rendered-pane" id="previewPane">
+        <article class="md-sheet" id="mdBody"></article>
+      </div>
+    </div>
+
+    <div class="pane-footer">
+      <span><span class="footer-blue">READY</span> &nbsp;—&nbsp; <span id="footerMetrics">LINES 0 · WORDS 0 · 0.0 KB</span></span>
+      <span>UTF-8 · LF · MARKDOWN</span>
+    </div>
+  </main>
+
+  <!-- =======================================================================
+       RIGHT PANE: INSPECTOR-STYLED OUTLINE & METADATA
+       ======================================================================= -->
+  <aside class="dock-pane" id="rightPane">
+    <div class="tab-strip">
+      <div class="trap-tab active">
+        <span class="tab-dot"></span>
+        <span>Inspector</span>
+      </div>
+    </div>
+
+    <div class="inspector-scroll">
+      <div class="inspector-eyebrow">Markdown Inspector</div>
+
+      <div class="inspector-card">
+        <div class="inspector-card-header">
+          <span class="inspector-card-title">Document Properties</span>
+          <span class="inspector-pill">BLUE ACCENT</span>
+        </div>
+        <div class="kv-grid">
+          <span class="kv-key">Folder</span>
+          <span class="kv-val" id="metaGroup">—</span>
+          <span class="kv-key">Lines</span>
+          <span class="kv-val" id="metaLines">0</span>
+          <span class="kv-key">Words</span>
+          <span class="kv-val" id="metaWords">0</span>
+          <span class="kv-key">Size</span>
+          <span class="kv-val" id="metaSize">0.0 KB</span>
+        </div>
+      </div>
+
+      <div class="inspector-card" style="flex:1;min-height:180px;">
+        <div class="inspector-card-header">
+          <span class="inspector-card-title">Section Outline</span>
+          <span class="inspector-pill" id="outlineCountPill">0</span>
+        </div>
+        <div class="outline-items" id="outlineList"></div>
+      </div>
+    </div>
+
+    <div class="pane-footer">
+      <span id="inspectorFooterLeft">Outline Ready</span>
+      <span>Frontier Studio</span>
+    </div>
+  </aside>
 
 </div>
 
@@ -915,7 +1509,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   const docByPath = new Map(DOCS.map(d => [d.path, d]));
 
   let liveServerConnected = false;
-  let folderScope = 'all'; // 'plans' | 'all'
+  let folderScope = 'all'; // 'all' | 'plans' | 'docs' | 'skills'
   let openTabs = [];
   let activePath = '';
   let viewMode = 'preview';
@@ -936,6 +1530,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  function formatSize(bytes) {
+    const kb = Number(bytes || 0) / 1024;
+    return kb < 10 ? kb.toFixed(1) + ' KB' : Math.round(kb) + ' KB';
   }
 
   function highlightQuery(htmlText) {
@@ -1125,6 +1724,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     return s;
   }
 
+  function groupAllowedByScope(grp) {
+    if (grp === 'Local Opened Files') return true;
+    if (folderScope === 'plans') return grp === 'Plans' || grp.startsWith('Plans/');
+    if (folderScope === 'docs') return grp === 'Documentation' || grp === 'Repository Root';
+    if (folderScope === 'skills') return grp === 'AgenticInstructions';
+    return true;
+  }
+
   function orderedGroups() {
     const seen = [];
     for (const d of DOCS) {
@@ -1135,7 +1742,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         if (g === 'Plans' || g.startsWith('Plans/')) return 0;
         if (g === 'Local Opened Files') return 1;
         if (g === 'Documentation') return 2;
-        if (g === 'Documentation/AgenticInstructions') return 3;
+        if (g === 'AgenticInstructions') return 3;
         if (g === 'Repository Root') return 4;
         return 5;
       };
@@ -1147,13 +1754,17 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     const container = document.getElementById('treeContainer');
     const q = searchQuery.toLowerCase();
     const groups = orderedGroups();
+
+    const plansTotal = DOCS.filter(d => String(d.group).startsWith('Plans')).length;
+    document.getElementById('statPlansCount').textContent = String(plansTotal);
+    document.getElementById('statAllCount').textContent = String(DOCS.length);
+    document.getElementById('headerTotalLabel').textContent = DOCS.length + ' files';
+
     let visibleTotal = 0;
     let out = '';
 
     for (const grp of groups) {
-      if (folderScope === 'plans' && !grp.startsWith('Plans') && grp !== 'Local Opened Files') {
-        continue;
-      }
+      if (!groupAllowedByScope(grp)) continue;
       const items = DOCS.filter(d => d.group === grp && (
         !q ||
         d.name.toLowerCase().includes(q) ||
@@ -1163,40 +1774,60 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (items.length === 0) continue;
       visibleTotal += items.length;
       const collapsed = collapsedGroups.has(grp);
-      out += '<div class="folder-block">';
-      out += '<div class="folder-header" data-group="' + escapeHtml(grp) + '">';
-      out += '<span class="folder-left"><span class="caret">' + (collapsed ? '▸' : '▾') + '</span><span>' + escapeHtml(grp) + '</span></span>';
-      out += '<span class="folder-count">' + items.length + '</span>';
+
+      out += '<div class="folder-group">';
+      out += '<div class="folder-row" data-group="' + escapeHtml(grp) + '">';
+      out += '<div class="folder-row-left">';
+      out += '<span style="color:var(--fr-ink-muted);font-size:10px;width:10px;">' + (collapsed ? '▸' : '▾') + '</span>';
+      out += '<span class="folder-icon"></span>';
+      out += '<span>' + escapeHtml(grp) + '</span>';
       out += '</div>';
-      out += '<div class="folder-items' + (collapsed ? ' collapsed' : '') + '">';
+      out += '<span class="folder-badge">' + items.length + '</span>';
+      out += '</div>';
+
+      out += '<div class="folder-entries' + (collapsed ? ' collapsed' : '') + '">';
       for (const doc of items) {
-        const cls = doc.path === activePath ? 'tree-row active' : 'tree-row';
+        const cls = doc.path === activePath ? 'entry-row active' : 'entry-row';
+        const byteCount = doc.size || new Blob([String(doc.content || '')]).size;
         out += '<div class="' + cls + '" data-open="' + escapeHtml(doc.path) + '" title="' + escapeHtml(doc.path) + '">';
-        out += '<span class="md-tag">MD</span>';
-        out += '<span>' + escapeHtml(doc.name) + '</span>';
+        out += '<div class="entry-main">';
+        out += '<span class="entry-square-icon">MD</span>';
+        out += '<span class="entry-name">' + escapeHtml(doc.name) + '</span>';
+        out += '</div>';
+        out += '<span class="entry-size">' + formatSize(byteCount) + '</span>';
         out += '</div>';
       }
       out += '</div></div>';
     }
 
-    container.innerHTML = out || '<div style="padding:14px;color:#858585;font-size:12px;">No matching .md files in this view.</div>';
-    document.getElementById('docCountLabel').textContent = String(visibleTotal);
+    container.innerHTML = out || '<div style="padding:16px;color:var(--fr-ink-muted);font-size:12px;">No matching Markdown documents.</div>';
+    document.getElementById('leftFooterSummary').textContent = visibleTotal + ' VISIBLE';
   }
 
   function renderTabs() {
     const strip = document.getElementById('tabsStrip');
-    strip.innerHTML = openTabs.map(p => {
+    const tabsHtml = openTabs.map(p => {
       const doc = docByPath.get(p);
       if (!doc) return '';
-      const cls = p === activePath ? 'editor-tab active' : 'editor-tab';
+      const cls = p === activePath ? 'trap-tab active' : 'trap-tab';
       return (
-        '<div class="' + cls + '" data-tab="' + escapeHtml(p) + '">' +
-        '<span class="md-tag">MD</span>' +
+        '<div class="' + cls + '" data-tab="' + escapeHtml(p) + '" title="' + escapeHtml(doc.path) + '">' +
+        (p === activePath ? '<span class="tab-dot"></span>' : '') +
         '<span>' + escapeHtml(doc.name) + '</span>' +
-        '<span class="tab-close" data-close="' + escapeHtml(p) + '">×</span>' +
+        '<span class="tab-x" data-close="' + escapeHtml(p) + '">×</span>' +
         '</div>'
       );
     }).join('');
+
+    strip.innerHTML =
+      tabsHtml +
+      '<button class="tab-add-disc" id="btnTabBarAdd" title="Open local .md file">+</button>' +
+      '<div class="frontier-notch">Frontier</div>';
+
+    const addBtn = document.getElementById('btnTabBarAdd');
+    if (addBtn) {
+      addBtn.addEventListener('click', () => document.getElementById('localFileInput').click());
+    }
   }
 
   function renderActiveDocument() {
@@ -1204,29 +1835,28 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     const mdBody = document.getElementById('mdBody');
     const sourcePane = document.getElementById('sourcePane');
     const previewPane = document.getElementById('previewPane');
-    const editorPanes = document.getElementById('editorPanes');
+    const stage = document.getElementById('documentStage');
     const outlineList = document.getElementById('outlineList');
-    const breadcrumb = document.getElementById('breadcrumbPath');
 
-    editorPanes.classList.toggle('mode-split', viewMode === 'split');
+    stage.classList.toggle('mode-split', viewMode === 'split');
     sourcePane.classList.toggle('hidden', viewMode === 'preview');
     previewPane.classList.toggle('hidden', viewMode === 'source');
 
     if (!doc) {
-      mdBody.innerHTML = '<p style="color:#858585;">Select any Markdown document from the File Browser on the left.</p>';
+      document.getElementById('activeDocTitle').textContent = 'No document selected';
+      document.getElementById('activeDocPath').textContent = 'Choose a .md file from Documents on the left';
+      document.getElementById('activeGroupBadge').textContent = 'IDLE';
+      mdBody.innerHTML = '<p style="color:var(--fr-ink-muted);">Select a Markdown document in the Documents pane or click <strong>+ Open .md</strong>.</p>';
       sourcePane.innerHTML = '';
       outlineList.innerHTML = '';
-      breadcrumb.textContent = '';
+      document.getElementById('outlineCountPill').textContent = '0';
       return;
     }
 
     const content = String(doc.content || '');
-    const segs = doc.path.split('/');
-    breadcrumb.innerHTML = segs.map((s, idx) =>
-      idx + 1 === segs.length
-        ? '<span class="leaf">' + escapeHtml(s) + '</span>'
-        : '<span>' + escapeHtml(s) + '</span><span class="sep">›</span>'
-    ).join('');
+    document.getElementById('activeDocTitle').textContent = doc.name;
+    document.getElementById('activeDocPath').textContent = doc.path;
+    document.getElementById('activeGroupBadge').textContent = String(doc.group).toUpperCase();
 
     const rawLines = content.replace(/\r\n/g, '\n').split('\n');
     sourcePane.innerHTML = rawLines.map((ln, idx) =>
@@ -1238,16 +1868,21 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     mdBody.innerHTML = highlightQuery('<div>' + parsed.html + '</div>');
 
     outlineList.innerHTML = parsed.headings.map(h =>
-      '<div class="outline-entry lvl-' + h.level + '" data-jump="' + h.slug + '" title="' + escapeHtml(h.text) + '">' +
+      '<div class="outline-row lvl-' + h.level + '" data-jump="' + h.slug + '" title="' + escapeHtml(h.text) + '">' +
       escapeHtml(h.text) + '</div>'
     ).join('');
+    document.getElementById('outlineCountPill').textContent = String(parsed.headings.length);
 
     const words = content.trim() ? content.trim().split(/\s+/).filter(Boolean).length : 0;
-    const kb = (new Blob([content]).size / 1024).toFixed(1);
-    document.getElementById('statusPath').textContent = doc.path;
-    document.getElementById('statusLines').textContent = rawLines.length + ' lines';
-    document.getElementById('statusWords').textContent = words + ' words';
-    document.getElementById('statusSize').textContent = kb + ' KB';
+    const sizeText = formatSize(new Blob([content]).size);
+
+    document.getElementById('footerMetrics').textContent =
+      'LINES ' + rawLines.length + ' · WORDS ' + words + ' · ' + sizeText;
+    document.getElementById('metaGroup').textContent = doc.group;
+    document.getElementById('metaLines').textContent = String(rawLines.length);
+    document.getElementById('metaWords').textContent = String(words);
+    document.getElementById('metaSize').textContent = sizeText;
+    document.getElementById('inspectorFooterLeft').textContent = parsed.headings.length + ' Sections';
 
     if (searchQuery && searchQuery.length >= 2) {
       const re = new RegExp(searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
@@ -1290,7 +1925,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (!payload || !Array.isArray(payload.files)) return;
 
       liveServerConnected = true;
-      document.getElementById('serverModeBadge').textContent = '● Live Disk';
+      document.getElementById('serverModeFooter').textContent = '● LIVE DISK';
 
       const localDocs = DOCS.filter(d => d.localOnly);
       const merged = [];
@@ -1302,7 +1937,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           group: item.group,
           size: item.size,
           mtime: item.mtime,
-          content: prev ? prev.content : ''
+          content: item.content !== undefined ? item.content : (prev ? prev.content : '')
         };
         docByPath.set(entry.path, entry);
         merged.push(entry);
@@ -1341,16 +1976,27 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     renderActiveDocument();
   }
 
+  const scopeTitles = {
+    all: 'All Folders',
+    plans: 'Plans Only',
+    docs: 'Governance Docs',
+    skills: 'Agentic Skills'
+  };
+
   window.setFolderScope = function(scope) {
     folderScope = scope;
-    document.getElementById('scopePlansBtn').classList.toggle('active', scope === 'plans');
-    document.getElementById('scopeAllBtn').classList.toggle('active', scope === 'all');
+    document.getElementById('wellPlans').classList.toggle('selected', scope === 'plans');
+    document.getElementById('wellAll').classList.toggle('selected', scope === 'all');
+    document.getElementById('dropdownLabel').textContent = scopeTitles[scope] || 'All Folders';
+    document.querySelectorAll('.studio-dropdown-option').forEach(opt => {
+      opt.classList.toggle('active', opt.getAttribute('data-scope') === scope);
+    });
     renderTree();
   };
 
   window.setViewMode = function(mode, btn) {
     viewMode = mode;
-    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.mode-pill').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     renderActiveDocument();
   };
@@ -1366,6 +2012,25 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     document.documentElement.style.setProperty('--doc-scale', '1');
     document.getElementById('zoomLabel').textContent = '100%';
   };
+
+  // Studio Dropdown interactions
+  document.getElementById('dropdownBtn').addEventListener('click', e => {
+    e.stopPropagation();
+    document.getElementById('dropdownSheet').classList.toggle('hidden');
+  });
+
+  document.getElementById('dropdownSheet').addEventListener('click', e => {
+    const opt = e.target.closest('[data-scope]');
+    if (!opt) return;
+    setFolderScope(opt.getAttribute('data-scope'));
+    document.getElementById('dropdownSheet').classList.add('hidden');
+  });
+
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#dropdownWrap')) {
+      document.getElementById('dropdownSheet').classList.add('hidden');
+    }
+  });
 
   document.getElementById('treeContainer').addEventListener('click', e => {
     const folder = e.target.closest('[data-group]');
@@ -1412,25 +2077,25 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     renderActiveDocument();
   });
 
-  document.getElementById('btnToggleSidebar').addEventListener('click', function() {
-    const wb = document.getElementById('workbench');
-    const hidden = wb.classList.toggle('hide-sidebar');
+  document.getElementById('btnToggleLeft').addEventListener('click', function() {
+    const grid = document.getElementById('workspaceGrid');
+    const hidden = grid.classList.toggle('hide-left');
     this.classList.toggle('active', !hidden);
   });
 
-  document.getElementById('btnToggleOutline').addEventListener('click', function() {
-    const wb = document.getElementById('workbench');
-    const hidden = wb.classList.toggle('hide-outline');
+  document.getElementById('btnToggleRight').addEventListener('click', function() {
+    const grid = document.getElementById('workspaceGrid');
+    const hidden = grid.classList.toggle('hide-right');
     this.classList.toggle('active', !hidden);
   });
 
-  document.getElementById('btnRefreshTree').addEventListener('click', () => {
-    syncLiveTree(true);
-  });
+  document.getElementById('btnRefreshTree').addEventListener('click', () => syncLiveTree(true));
 
-  document.getElementById('btnOpenLocal').addEventListener('click', () => {
-    document.getElementById('localFileInput').click();
-  });
+  for (const id of ['btnOpenLocalMain', 'btnOpenLocalIcon', 'btnAddTabLeft']) {
+    document.getElementById(id).addEventListener('click', () => {
+      document.getElementById('localFileInput').click();
+    });
+  }
 
   document.getElementById('localFileInput').addEventListener('change', async e => {
     const files = Array.from(e.target.files || []);
@@ -1457,7 +2122,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   renderTabs();
   renderActiveDocument();
 
-  // Connect to live server if running on HTTP preview
   syncLiveTree(true);
   setInterval(() => {
     if (liveServerConnected) syncLiveTree(true);

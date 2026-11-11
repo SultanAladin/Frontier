@@ -79,6 +79,22 @@ class MarkdownStudioHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if route.startswith("/fonts/"):
+            rel_font = route[len("/fonts/"):].lstrip("/")
+            fonts_root = (REPO_ROOT / "EngineContent" / "FontsArchives").resolve()
+            font_file = (fonts_root / rel_font).resolve()
+            try:
+                font_file.relative_to(fonts_root)
+            except ValueError:
+                self._send_json(HTTPStatus.FORBIDDEN, {"error": "Invalid font path"})
+                return
+            if font_file.is_file() and font_file.suffix.lower() in (".ttf", ".otf"):
+                mime = "font/ttf" if font_file.suffix.lower() == ".ttf" else "font/otf"
+                self._send_bytes(HTTPStatus.OK, mime, font_file.read_bytes())
+                return
+            self._send_json(HTTPStatus.NOT_FOUND, {"error": "Font not found"})
+            return
+
         if route == "/favicon.ico":
             self._send_bytes(HTTPStatus.NO_CONTENT, "image/x-icon", b"")
             return
