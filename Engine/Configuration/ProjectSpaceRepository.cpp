@@ -103,14 +103,20 @@ bool ProjectSpaceRepository::ValidateContainerPath(const std::filesystem::path& 
         return false;
     }
     const std::string Extension = RepositoryPath.extension().string();
-    if (Extension == ".toml" || Extension == ".TOML")
+    std::string Lowered = Extension;
+    std::transform(
+        Lowered.begin(),
+        Lowered.end(),
+        Lowered.begin(),
+        [](unsigned char Character) noexcept { return static_cast<char>(Character >= 'A' && Character <= 'Z' ? Character + ('a' - 'A') : Character); });
+    if (Lowered == ".toml")
     {
-        Diagnostic = "Persistence files ending in .toml are prohibited; use .projectspace.";
+        Diagnostic = "Persistence files ending in .toml are prohibited; use .ProjectSpace.";
         return false;
     }
-    if (Extension != ContainerExtension)
+    if (Lowered != ".projectspace")
     {
-        Diagnostic = "Project container path must end in .projectspace.";
+        Diagnostic = "Project container path must end in .ProjectSpace (case-insensitive).";
         return false;
     }
     Diagnostic.clear();

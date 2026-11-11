@@ -858,21 +858,21 @@ void OutlinerPanel::Render(
     const Point2D Cursor{ Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
     const bool    OverlayOpenBefore = ConstructDropdownOpen || SettingsDropdownOpen || DirectiveSheetOpen;
 
-    WorkspacePaneAppearance::ForwardInputToTextBuffer(SearchEditor, Input, Δt);
+    WorkspaceAppearance::ForwardInputToTextBuffer(SearchEditor, Input, Δt);
     if (Input.EscapePressed)
     {
         CloseOverlays();
         DragActive = false;
     }
 
-    const ColorRgba DockFill = WorkspacePaneAppearance::QueryDockedPaneBackground();
+    const ColorRgba DockFill = WorkspaceAppearance::QueryDockedPaneBackground();
     Surface.PushClip(Bounds);
     Surface.FillRectangle(Bounds, DockFill);
 
     // 1. Heading row (.outliner-heading: 63px height, 14px 22px 12px padding)
     const Rectangle2D HeadingBounds{ Bounds.X, Bounds.Y, Bounds.Width, 63.0f };
     const char*       HeadingTitle = QueryHeadingText();
-    WorkspacePaneAppearance::ConstructWeightedText(
+    WorkspaceAppearance::ConstructWeightedText(
         Surface,
         FontWeightClass::Light,
         { HeadingBounds.X + 22.0f, HeadingBounds.Y + 18.0f },
@@ -880,7 +880,7 @@ void OutlinerPanel::Render(
         WorkspaceSurfaceColors::PrimaryInk,
         HeadingTitle);
 
-    const float TitleW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Light, 20.0f, HeadingTitle);
+    const float TitleW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Light, 20.0f, HeadingTitle);
     char        CountCaption[96]{};
     std::snprintf(
         CountCaption,
@@ -894,7 +894,7 @@ void OutlinerPanel::Render(
 
     const float SubtitleX    = HeadingBounds.X + 22.0f + TitleW + 10.0f;
     const float SubtitleMaxW = std::max(0.0f, PlusButton.X - 8.0f - SubtitleX);
-    WorkspacePaneAppearance::ConstructTruncatedText(
+    WorkspaceAppearance::ConstructTruncatedText(
         Surface,
         FontWeightClass::Regular,
         { SubtitleX, HeadingBounds.Y + 25.0f },
@@ -944,7 +944,7 @@ void OutlinerPanel::Render(
         {
             Surface.FillCircle(SettingsButton.Center(), 14.5f, BtnBg);
         }
-        WorkspacePaneAppearance::ConstructFilterSlidersIcon(
+        WorkspaceAppearance::ConstructFilterSlidersIcon(
             Surface,
             { SettingsButton.X + 6.5f, SettingsButton.Y + 6.5f },
             16.0f,
@@ -983,8 +983,8 @@ void OutlinerPanel::Render(
             VisibleDisc.Shape     = VisualTokenShape::Circle;
             VisibleDisc.FillColor = WorkspaceSurfaceColors::StatusGreen;
             VisibleDisc.Extent    = 22.0f;
-            WorkspacePaneAppearance::ConstructVisualToken(Surface, DiscCenter, VisibleDisc);
-            WorkspacePaneAppearance::ConstructCheckSymbol(Surface, DiscCenter, 10.5f, WorkspaceSurfaceColors::StatusGreenInk, 1.9f);
+            WorkspaceAppearance::ConstructVisualToken(Surface, DiscCenter, VisibleDisc);
+            WorkspaceAppearance::ConstructCheckSymbol(Surface, DiscCenter, 10.5f, WorkspaceSurfaceColors::StatusGreenInk, 1.9f);
         }
         else
         {
@@ -992,11 +992,11 @@ void OutlinerPanel::Render(
             HiddenDisc.Shape     = VisualTokenShape::Circle;
             HiddenDisc.FillColor = ColorRgba{ 36, 36, 36, 255 };
             HiddenDisc.Extent    = 22.0f;
-            WorkspacePaneAppearance::ConstructVisualToken(Surface, DiscCenter, HiddenDisc);
-            WorkspacePaneAppearance::ConstructCautionTriangleSign(Surface, DiscCenter, 11.5f, ColorRgba{ 126, 126, 126, 255 });
+            WorkspaceAppearance::ConstructVisualToken(Surface, DiscCenter, HiddenDisc);
+            WorkspaceAppearance::ConstructCautionTriangleSign(Surface, DiscCenter, 11.5f, ColorRgba{ 126, 126, 126, 255 });
         }
 
-        WorkspacePaneAppearance::ConstructWeightedText(
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { Tile.X + 12.0f, Tile.Bottom() - 21.0f },
@@ -1006,8 +1006,8 @@ void OutlinerPanel::Render(
 
         char NumberBuffer[32]{};
         std::snprintf(NumberBuffer, sizeof(NumberBuffer), "%u", Count);
-        const float NumberW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Light, 28.0f, NumberBuffer);
-        WorkspacePaneAppearance::ConstructWeightedText(
+        const float NumberW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Light, 28.0f, NumberBuffer);
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Light,
             { Tile.Right() - 14.0f - NumberW, Tile.Bottom() - 36.0f },
@@ -1075,7 +1075,7 @@ void OutlinerPanel::Render(
 
     if (SearchEditor.Length == 0u && !SearchEditor.Active)
     {
-        WorkspacePaneAppearance::ConstructWeightedText(
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { SearchBounds.X + 34.0f, SearchBounds.Y + 13.0f },
@@ -1086,7 +1086,7 @@ void OutlinerPanel::Render(
     else
     {
         const std::string_view QueryView(SearchEditor.Text, SearchEditor.Length);
-        WorkspacePaneAppearance::ConstructTruncatedText(
+        WorkspaceAppearance::ConstructTruncatedText(
             Surface,
             FontWeightClass::Regular,
             { SearchBounds.X + 34.0f, SearchBounds.Y + 13.0f },
@@ -1100,7 +1100,7 @@ void OutlinerPanel::Render(
             const float CaretX = SearchBounds.X + 34.0f +
                                  std::min(
                                      SearchBounds.Width - 64.0f,
-                                     WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.0f, QueryView));
+                                     WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.0f, QueryView));
             Surface.StrokeLine({ CaretX, SearchBounds.Y + 11.0f }, { CaretX, SearchBounds.Bottom() - 11.0f }, WorkspaceSurfaceColors::PrimaryInk, 1.2f);
         }
 
@@ -1163,7 +1163,7 @@ void OutlinerPanel::Render(
         float ChipY = ContentTopY + 2.0f;
         for (const auto& Chip : Chips)
         {
-            const float ChipW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, Chip.Label) + 18.0f;
+            const float ChipW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, Chip.Label) + 18.0f;
             if (ChipX + ChipW > Bounds.Right() - 14.0f && ChipX > Bounds.X + 15.0f)
             {
                 ChipX = Bounds.X + 14.0f;
@@ -1182,7 +1182,7 @@ void OutlinerPanel::Render(
                 Selected ? WorkspaceSurfaceColors::SelectionAmber : ColorRgba{ 52, 52, 52, 255 },
                 12.0f,
                 1.0f);
-            WorkspacePaneAppearance::ConstructWeightedText(
+            WorkspaceAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Regular,
                 { ChipRect.X + 9.0f, ChipRect.Y + 6.0f },
@@ -1229,18 +1229,18 @@ void OutlinerPanel::Render(
     {
         const char* EmptyHeadline = Entries.empty() ? "No entries yet" : "No matching entries";
         const char* EmptyHint     = Entries.empty() ? "Use + in the header to construct items or folders" : "Adjust search or filter criteria";
-        const float HeadW         = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 12.0f, EmptyHeadline);
-        const float HintW         = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, EmptyHint);
+        const float HeadW         = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 12.0f, EmptyHeadline);
+        const float HintW         = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, EmptyHint);
         const float CenterY       = TreeViewport.Center().Y;
 
-        WorkspacePaneAppearance::ConstructWeightedText(
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { TreeViewport.Center().X - HeadW * 0.5f, CenterY - 14.0f },
             12.0f,
             ColorRgba{ 132, 132, 132, 255 },
             EmptyHeadline);
-        WorkspacePaneAppearance::ConstructWeightedText(
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { TreeViewport.Center().X - HintW * 0.5f, CenterY + 4.0f },
@@ -1327,7 +1327,7 @@ void OutlinerPanel::Render(
 
             // 24px Showcase folder or category icon
             const Point2D IconOrigin{ DisclosureRect.Right() + 4.0f, RowRect.Y + 7.5f };
-            WorkspacePaneAppearance::ConstructSlotCategoryIcon(
+            WorkspaceAppearance::ConstructSlotCategoryIcon(
                 Surface,
                 Entry->Category,
                 IconOrigin,
@@ -1338,7 +1338,7 @@ void OutlinerPanel::Render(
             // Right-side visibility status indicator & eye toggle
             const Rectangle2D EyeHit{ RowRect.Right() - 24.0f, RowRect.Y + 9.5f, 18.0f, 20.0f };
             const Point2D     StatusCenter{ EyeHit.X - 11.0f, RowRect.Center().Y };
-            WorkspacePaneAppearance::ConstructVisibilityIndicator(Surface, StatusCenter, VisRow.EffectiveVisible, 1.0f);
+            WorkspaceAppearance::ConstructVisibilityIndicator(Surface, StatusCenter, VisRow.EffectiveVisible, 1.0f);
 
             bool ConsumedEyeClick = false;
             if (RowHovered || Selected || !Entry->VisibilityEnabled)
@@ -1365,13 +1365,13 @@ void OutlinerPanel::Render(
             if (Entry->Locked)
             {
                 const char* LockedTag = "locked";
-                const float LockedW   = WorkspacePaneAppearance::MeasureWeightedTextWidth(
+                const float LockedW   = WorkspaceAppearance::MeasureWeightedTextWidth(
                     Surface,
                     FontWeightClass::Regular,
                     9.5f,
                     LockedTag);
                 RightLimitX -= (LockedW + 8.0f);
-                WorkspacePaneAppearance::ConstructWeightedText(
+                WorkspaceAppearance::ConstructWeightedText(
                     Surface,
                     FontWeightClass::Regular,
                     { RightLimitX + 4.0f, RowRect.Center().Y - 6.0f },
@@ -1383,7 +1383,7 @@ void OutlinerPanel::Render(
             const float IdentityX    = IconOrigin.X + 31.0f;
             const float IdentityMaxW = std::max(24.0f, RightLimitX - IdentityX);
 
-            WorkspacePaneAppearance::ConstructTruncatedText(
+            WorkspaceAppearance::ConstructTruncatedText(
                 Surface,
                 FontWeightClass::Regular,
                 { IdentityX, RowRect.Y + 7.5f },
@@ -1404,7 +1404,7 @@ void OutlinerPanel::Render(
                     (VisRow.NestedEntryCount == 1u) ? "entry" : "entries");
                 SubText = FolderSubBuffer;
             }
-            WorkspacePaneAppearance::ConstructTruncatedText(
+            WorkspaceAppearance::ConstructTruncatedText(
                 Surface,
                 FontWeightClass::Regular,
                 { IdentityX, RowRect.Y + 23.0f },
@@ -1494,7 +1494,7 @@ void OutlinerPanel::Render(
         }
     }
 
-    WorkspacePaneAppearance::ConstructVerticalScrollIndicator(Surface, TreeViewport, ContentHeight, ScrollOffsetY, Cursor);
+    WorkspaceAppearance::ConstructVerticalScrollIndicator(Surface, TreeViewport, ContentHeight, ScrollOffsetY, Cursor);
     Surface.PopClip();
 
     // 5. workspace Outliner Footer (.outliner-footer: 45px height, #151515)
@@ -1527,14 +1527,14 @@ void OutlinerPanel::Render(
         {
             break;
         }
-        WorkspacePaneAppearance::ConstructWeightedText(
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { FooterX, FooterBounds.Y + 9.0f },
             7.5f,
             ColorRgba{ 88, 88, 88, 255 },
             Slot.Caption);
-        WorkspacePaneAppearance::ConstructWeightedText(
+        WorkspaceAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { FooterX, FooterBounds.Y + 21.0f },
@@ -1542,8 +1542,8 @@ void OutlinerPanel::Render(
             Slot.HighlightGreen ? WorkspaceSurfaceColors::StatusGreen : ColorRgba{ 176, 176, 176, 255 },
             Slot.Reading);
 
-        const float CapW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 7.5f, Slot.Caption);
-        const float ValW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, Slot.Reading);
+        const float CapW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 7.5f, Slot.Caption);
+        const float ValW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, Slot.Reading);
         FooterX += std::max(CapW, ValW) + 14.0f;
     }
 
@@ -1564,7 +1564,7 @@ void OutlinerPanel::Render(
         {
             DropdownDirectiveEntry Row{};
             Row.Label       = Preset.DropdownLabel.c_str();
-            Row.LeadingTint = WorkspacePaneAppearance::QueryCategoryAccent(Preset.Category, WorkspaceSurfaceColors::ShowcaseSage);
+            Row.LeadingTint = WorkspaceAppearance::QueryCategoryAccent(Preset.Category, WorkspaceSurfaceColors::ShowcaseSage);
             SheetRows.push_back(Row);
         }
 
@@ -1747,7 +1747,7 @@ void OutlinerPanel::PresentInImGuiPane(double Δt, float ScaleFactor)
     PixelSpace WindowSurface(ImGui::GetWindowDrawList(), { ScreenBounds.X, ScreenBounds.Y }, SafeScale);
     PixelSpace ForegroundSurface(ImGui::GetForegroundDrawList(), { ScreenBounds.X, ScreenBounds.Y }, SafeScale);
 
-    const PaneInputReading Input = WorkspacePaneAppearance::CaptureImGuiPaneInput(ScreenBounds, SafeScale);
+    const PaneInputReading Input = WorkspaceAppearance::CaptureImGuiPaneInput(ScreenBounds, SafeScale);
     Render(WindowSurface, LogicalBounds, Input, Δt, &ForegroundSurface);
 }
 

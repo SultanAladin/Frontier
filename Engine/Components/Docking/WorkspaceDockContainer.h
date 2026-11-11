@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "Engine/Components/Docking/WorkspaceTab.h"
+#include "Engine/Components/Docking/WorkspaceTabStrip.h"
 #include "Engine/Windowing/PlatformWindow.h"
 
 #include <cstddef>
