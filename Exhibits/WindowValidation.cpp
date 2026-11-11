@@ -1,10 +1,10 @@
 /*============================================================================================================================================
                                                      WINDOWVALIDATION.CPP
 ============================================================================================================================================*/
-// 🧩 Validation suite and CPU visual proof generator for splash, desktop application, and dynamic game fullscreen PlatformWindow modes
+// 🧩 Validation suite and CPU visual snapshot generator for splash, desktop application, and dynamic game fullscreen PlatformWindow modes
 
 #include "Engine/Windowing/PlatformWindow.h"
-#include "Exhibits/VisualProofRasterizer.h"
+#include "Exhibits/SoftwareCanvasRasterizer.h"
 
 #include <imgui.h>
 
@@ -16,7 +16,7 @@ namespace
 using Frontier::Components::RgbaColor8;
 using Frontier::Exhibits::LoadProjectZeroDmSansFont;
 using Frontier::Exhibits::ResolveRepositoryRootPath;
-using Frontier::Exhibits::SoftwareProofCanvas;
+using Frontier::Exhibits::SoftwareRasterCanvas;
 using Frontier::Input::ButtonTransitionCategory;
 using Frontier::Input::CursorConfinementMode;
 using Frontier::Input::HapticFeedbackDirective;
@@ -41,7 +41,7 @@ bool VerifyAssertion(bool Condition, const char* Description) noexcept
 }
 
 template <PlatformWindowSurface SurfaceType>
-bool ValidateSplashRole(const char* SurfaceName) noexcept
+bool ValidateSplashPreset(const char* SurfaceName) noexcept
 {
     SurfaceType SplashWindow{};
     const auto  SplashDesc = WindowConfigurationDescriptor::ConstructSplashWindow("Frontier — Initializing", 720, 420);
@@ -67,7 +67,7 @@ bool ValidateSplashRole(const char* SurfaceName) noexcept
 }
 
 template <PlatformWindowSurface SurfaceType>
-bool ValidateDesktopApplicationRole(const char* SurfaceName) noexcept
+bool ValidateDesktopApplicationPreset(const char* SurfaceName) noexcept
 {
     SurfaceType AppWindow{};
     const auto  AppDesc = WindowConfigurationDescriptor::ConstructApplicationWindow("Frontier Editor", 1600, 900, false);
@@ -165,35 +165,35 @@ bool ValidateGameDynamicModeTransitions(const char* SurfaceName) noexcept
     return Passed;
 }
 
-bool GenerateWindowModesVisualProof()
+bool GenerateWindowModesVisualSnapshot()
 {
-    HeadlessPlatformWindow ProbeWindow{};
-    (void)ProbeWindow.Initialize(WindowConfigurationDescriptor::ConstructSplashWindow("Frontier", 720, 420));
-    const auto SplashExt = ProbeWindow.InspectExtent();
-    ProbeWindow.Finalize();
+    HeadlessPlatformWindow SampleWindow{};
+    (void)SampleWindow.Initialize(WindowConfigurationDescriptor::ConstructSplashWindow("Frontier", 720, 420));
+    const auto SplashExt = SampleWindow.InspectExtent();
+    SampleWindow.Finalize();
 
-    (void)ProbeWindow.Initialize(WindowConfigurationDescriptor::ConstructApplicationWindow("Frontier Editor", 1600, 900));
-    const auto AppExt = ProbeWindow.InspectExtent();
-    (void)ProbeWindow.ApplyPresentationMode(WindowPresentationMode::MaximizedWindowed);
-    const auto MaxExt = ProbeWindow.InspectExtent();
-    (void)ProbeWindow.ApplyPresentationMode(WindowPresentationMode::BorderlessFullscreen);
-    const auto BorderlessExt = ProbeWindow.InspectExtent();
-    (void)ProbeWindow.ApplyPresentationMode(WindowPresentationMode::ExclusiveFullscreen, 1920, 1080, 144);
-    const auto ExclusiveExt = ProbeWindow.InspectExtent();
-    ProbeWindow.Finalize();
+    (void)SampleWindow.Initialize(WindowConfigurationDescriptor::ConstructApplicationWindow("Frontier Editor", 1600, 900));
+    const auto AppExt = SampleWindow.InspectExtent();
+    (void)SampleWindow.ApplyPresentationMode(WindowPresentationMode::MaximizedWindowed);
+    const auto MaxExt = SampleWindow.InspectExtent();
+    (void)SampleWindow.ApplyPresentationMode(WindowPresentationMode::BorderlessFullscreen);
+    const auto BorderlessExt = SampleWindow.InspectExtent();
+    (void)SampleWindow.ApplyPresentationMode(WindowPresentationMode::ExclusiveFullscreen, 1920, 1080, 144);
+    const auto ExclusiveExt = SampleWindow.InspectExtent();
+    SampleWindow.Finalize();
 
-    ImGuiContext* ProofCtx = ImGui::CreateContext();
-    ImGui::SetCurrentContext(ProofCtx);
+    ImGuiContext* SnapshotCtx = ImGui::CreateContext();
+    ImGui::SetCurrentContext(SnapshotCtx);
     ImGuiIO& IoInstance      = ImGui::GetIO();
     IoInstance.IniFilename   = nullptr;
     IoInstance.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
     IoInstance.DisplaySize   = ImVec2(1440.0f, 820.0f);
     (void)LoadProjectZeroDmSansFont(IoInstance, 13.0f);
-    Frontier::Components::ConfigureImGuiTrapezoidalStyle(Frontier::Components::ConstructProjectZeroTabMetrics(1.0f));
+    Frontier::Components::ConfigureImGuiWorkspaceStyle(Frontier::Components::ConstructWorkspaceTabMetrics(1.0f));
 
     ImGui::NewFrame();
-    ImDrawList* CanvasList = ImGui::GetForegroundDrawList();
-    CanvasList->AddText(
+    ImDrawList* CanvasBuffer = ImGui::GetForegroundDrawList();
+    CanvasBuffer->AddText(
         ImVec2(36.0f, 24.0f),
         IM_COL32(238, 238, 244, 255),
         "PlatformWindow Multi-Mode Surface Verification  —  Simulated 2560x1440 Display Geometry & Directive Masks");
@@ -238,10 +238,10 @@ bool GenerateWindowModesVisualProof()
         const float TileW = 438.0f;
         const float TileH = 330.0f;
 
-        CanvasList->AddRectFilled(ImVec2(TileX, TileY), ImVec2(TileX + TileW, TileY + TileH), IM_COL32(20, 20, 24, 255), 6.0f);
-        CanvasList->AddRect(ImVec2(TileX, TileY), ImVec2(TileX + TileW, TileY + TileH), IM_COL32(44, 44, 52, 255), 6.0f);
-        CanvasList->AddText(ImVec2(TileX + 14.0f, TileY + 12.0f), Tiles[Index].AccentColor, Tiles[Index].Heading);
-        CanvasList->AddText(ImVec2(TileX + 14.0f, TileY + 34.0f), IM_COL32(150, 150, 160, 255), Tiles[Index].DirectiveSummary);
+        CanvasBuffer->AddRectFilled(ImVec2(TileX, TileY), ImVec2(TileX + TileW, TileY + TileH), IM_COL32(20, 20, 24, 255), 6.0f);
+        CanvasBuffer->AddRect(ImVec2(TileX, TileY), ImVec2(TileX + TileW, TileY + TileH), IM_COL32(44, 44, 52, 255), 6.0f);
+        CanvasBuffer->AddText(ImVec2(TileX + 14.0f, TileY + 12.0f), Tiles[Index].AccentColor, Tiles[Index].Heading);
+        CanvasBuffer->AddText(ImVec2(TileX + 14.0f, TileY + 34.0f), IM_COL32(150, 150, 160, 255), Tiles[Index].DirectiveSummary);
 
         // Scaled 2560x1440 monitor diagram inside tile
         const float MonX     = TileX + 22.0f;
@@ -252,16 +252,16 @@ bool GenerateWindowModesVisualProof()
         const float ScaleY   = MonH / 1440.0f;
         const auto& Ext      = Tiles[Index].Extent;
 
-        CanvasList->AddRectFilled(ImVec2(MonX, MonY), ImVec2(MonX + MonW, MonY + MonH), IM_COL32(11, 13, 18, 255), 3.0f);
-        CanvasList->AddRect(ImVec2(MonX, MonY), ImVec2(MonX + MonW, MonY + MonH), IM_COL32(62, 66, 78, 255), 3.0f);
+        CanvasBuffer->AddRectFilled(ImVec2(MonX, MonY), ImVec2(MonX + MonW, MonY + MonH), IM_COL32(11, 13, 18, 255), 3.0f);
+        CanvasBuffer->AddRect(ImVec2(MonX, MonY), ImVec2(MonX + MonW, MonY + MonH), IM_COL32(62, 66, 78, 255), 3.0f);
 
         const float WinX = MonX + static_cast<float>(Ext.OriginX) * ScaleX;
         const float WinY = MonY + static_cast<float>(Ext.OriginY) * ScaleY;
         const float WinW = static_cast<float>(Ext.PixelWidth) * ScaleX;
         const float WinH = static_cast<float>(Ext.PixelHeight) * ScaleY;
 
-        CanvasList->AddRectFilled(ImVec2(WinX, WinY), ImVec2(WinX + WinW, WinY + WinH), IM_COL32(32, 42, 58, 220), 2.0f);
-        CanvasList->AddRect(ImVec2(WinX, WinY), ImVec2(WinX + WinW, WinY + WinH), Tiles[Index].AccentColor, 2.0f, 0, 2.0f);
+        CanvasBuffer->AddRectFilled(ImVec2(WinX, WinY), ImVec2(WinX + WinW, WinY + WinH), IM_COL32(32, 42, 58, 220), 2.0f);
+        CanvasBuffer->AddRect(ImVec2(WinX, WinY), ImVec2(WinX + WinW, WinY + WinH), Tiles[Index].AccentColor, 2.0f, 0, 2.0f);
 
         char MetricsLine[128]{};
         std::snprintf(
@@ -273,13 +273,13 @@ bool GenerateWindowModesVisualProof()
             Ext.PixelWidth,
             Ext.PixelHeight,
             Ext.RefreshRateHz);
-        CanvasList->AddText(ImVec2(TileX + 14.0f, TileY + 298.0f), IM_COL32(215, 215, 224, 255), MetricsLine);
+        CanvasBuffer->AddText(ImVec2(TileX + 14.0f, TileY + 298.0f), IM_COL32(215, 215, 224, 255), MetricsLine);
     }
 
     ImGui::Render();
-    SoftwareProofCanvas OutputCanvas(1440, 820, RgbaColor8{ 12, 12, 14, 255 });
-    OutputCanvas.RasterizeImGuiDrawData(ImGui::GetDrawData(), 0, 0);
-    ImGui::DestroyContext(ProofCtx);
+    SoftwareRasterCanvas OutputCanvas(1440, 820, RgbaColor8{ 12, 12, 14, 255 });
+    OutputCanvas.RasterizeImGuiBatches(ImGui::GetDrawData(), 0, 0);
+    ImGui::DestroyContext(SnapshotCtx);
 
     const auto OutputPath = ResolveRepositoryRootPath() / "Exhibits/Images/Windowing/WindowPresentationModes.png";
     return VerifyAssertion(OutputCanvas.EncodePngToFile(OutputPath), "Write WindowPresentationModes.png");
@@ -289,8 +289,8 @@ bool GenerateWindowModesVisualProof()
 
 int main()
 {
-    if (!ValidateSplashRole<HeadlessPlatformWindow>("HeadlessSplash") ||
-        !ValidateDesktopApplicationRole<HeadlessPlatformWindow>("HeadlessApplication") ||
+    if (!ValidateSplashPreset<HeadlessPlatformWindow>("HeadlessSplash") ||
+        !ValidateDesktopApplicationPreset<HeadlessPlatformWindow>("HeadlessApplication") ||
         !ValidateGameDynamicModeTransitions<HeadlessPlatformWindow>("HeadlessGame"))
     {
         return 1;
@@ -324,19 +324,19 @@ int main()
     Coordinator.Finalize();
 
 #if !defined(__ANDROID__)
-    if (!ValidateSplashRole<Frontier::Windowing::DesktopPlatformWindow>("DesktopGlfwSplash") ||
-        !ValidateDesktopApplicationRole<Frontier::Windowing::DesktopPlatformWindow>("DesktopGlfwApplication") ||
+    if (!ValidateSplashPreset<Frontier::Windowing::DesktopPlatformWindow>("DesktopGlfwSplash") ||
+        !ValidateDesktopApplicationPreset<Frontier::Windowing::DesktopPlatformWindow>("DesktopGlfwApplication") ||
         !ValidateGameDynamicModeTransitions<Frontier::Windowing::DesktopPlatformWindow>("DesktopGlfwGame"))
     {
         return 1;
     }
 #endif
 
-    if (!GenerateWindowModesVisualProof())
+    if (!GenerateWindowModesVisualSnapshot())
     {
         return 1;
     }
 
-    std::printf("[WindowValidation] All splash, application, and dynamic game window modes + visual proof PNG verified.\n");
+    std::printf("[WindowValidation] All splash, application, and dynamic game window modes + visual snapshot PNG verified.\n");
     return 0;
 }

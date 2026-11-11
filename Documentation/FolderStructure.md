@@ -56,12 +56,13 @@ Frontier/
 │   ├── Backlog.md                             // Deferred engineering items ledger
 │   └── Tracker.md                             // Active milestone roadmap & bringup status
 │
-├── Exhibits/                                  // Validation test suites, visual proofs, and EditorMirror
-│   ├── Images/                                // CPU-rendered .png visual proofs for every validation
-│   ├── VisualProofRasterizer.h                // CPU ImDrawData & RGBA8 PNG visual proof encoder
+├── Exhibits/                                  // Validation test suites, visual snapshots, and EditorMirror
+│   ├── Images/                                // CPU-rendered .png visual snapshots for every validation
+│   ├── SoftwareCanvasRasterizer.h             // CPU ImDrawData & RGBA8 PNG software rasterizer
 │   ├── InputValidation.cpp                    // Deterministic Input & BuildConfiguration verification
 │   ├── WindowValidation.cpp                   // Splash, windowed, maximized & fullscreen mode verification
-│   └── DockingValidation.cpp                  // Trapezoidal multi-window & intra-app docking verification
+│   ├── DockingValidation.cpp                  // Trapezoidal multi-window & intra-app docking verification
+│   └── ControlCentreValidation.cpp            // Control Centre, reusable Controls & .projectspace verification
 │
 ├── Experimental/                              // HTML/JS reference UIs & studios for C++20 conversion
 │   ├── FrontierEditor/                        // Initial HTML/Vite scene inspector, CAD & icon lab UI
@@ -80,7 +81,7 @@ Frontier/
 │   ├── PrepareDependencies.py                 // Checksummed archive fetcher & ImGui patch runner
 │   ├── ApplyImGuiPatches.py                   // Stacked PatchA-PatchH applicator and verifier
 │   ├── PrepareShaderToolchain.py              // Slang (.slang) compiler & SwiftShader ICD fetcher
-│   ├── PrepareFonts.py                        // OFL font fetcher & FontCatalogue.toml builder
+│   ├── PrepareFonts.py                        // OFL font fetcher & PascalCase FontCatalogue.FontSpace builder
 │   ├── FontSources.json                       // Pinned OFL typeface manifest
 │   ├── FontRequirements.txt                   // Python font tooling pin
 │   ├── StageThorVG.py                         // Reproducible ThorVG allocation-operator staging
@@ -108,8 +109,10 @@ Frontier/
     │   ├── IndexedSlotRecycler.h              // Preallocated indexed instance slot recycler
     │   └── Assertion.h                        // Invariant enforcement macros and diagnostics
     │
-    ├── Configuration/                         // Startup, build-profile, and authoring configurations
+    ├── Configuration/                         // Startup, build-profile, and .projectspace configurations
     │   ├── BuildConfiguration.h               // Compile-time Editor / Development / Shipping policy
+    │   ├── InputSettings.{h,cpp}              // Shortcut chords, conflict validator & pointer sensitivity
+    │   ├── ProjectSpaceArchive.{h,cpp}        // Atomic PascalCase .projectspace container serializer
     │   ├── EngineConfiguration.{h,cpp}        // Startup and hardware thread group allocation
     │   ├── RenderConfiguration.{h,cpp}        // Resolution, swapchain, and multi-sample targets
     │   ├── ProjectConfiguration.{h,cpp}       // Project root, dependency manifests, and toggles
@@ -289,34 +292,32 @@ Frontier/
     │       ├── MemoryDebugger.{h,cpp}         // Allocation leak tracker and region visualizer
     │       └── GPUCaptureRecorder.{h,cpp}     // RenderDoc / PIX programmatic capture recorder
     │
-    ├── Components/                            // Reusable UI controls and presentation panels
-    │   ├── Docking/                           // Shared trapezoidal docking panels & multi-window host
-    │   │   ├── TrapezoidalTabProfile.{h,cpp}  // Sloped tab & notch contours + patched ImGui theme
-    │   │   └── DockingPanel.{h,cpp}           // Intra-app multi-window docking & OS window tear-off
-    │   ├── PropertyPanels/
-    │   │   ├── PropertyPanelBase.{h,cpp}      // Root panel for attribute inspectors
-    │   │   └── AttributeReflector.{h,cpp}     // Type-to-control generator
-    │   ├── SectionBlocks/                     // Segmented content groupings
-    │   │   ├── ToolRibbon.{h,cpp}             // Primary linear tool ribbons
-    │   │   ├── SectionHeader.{h,cpp}          // Collapsible category titles
-    │   │   ├── ContentSection.{h,cpp}         // Enclosed control group
-    │   │   └── ContentScroller.{h,cpp}        // Paginated control scroller
-    │   ├── Controls/                          // Interactive numerical and scalar inputs
-    │   │   ├── ValueSlider.{h,cpp}
-    │   │   ├── VectorEntry.{h,cpp}
-    │   │   ├── ScalarEntry.{h,cpp}
-    │   │   ├── BooleanEntry.{h,cpp}
-    │   │   ├── ColorEntry.{h,cpp}
-    │   │   ├── SelectionEntry.{h,cpp}
-    │   │   ├── PathEntry.{h,cpp}
-    │   │   ├── Dropdown.{h,cpp}
-    │   │   ├── ControlLayout.{h,cpp}
-    │   │   └── EnumerationSelector.{h,cpp}    // Strongly-typed discrete enum selector
-    │   ├── VectorIcons/                       // Unit-square vector shape icons & rasterization
-    │   │   ├── VectorIcon.{h,cpp}             // Unit-square vector icon descriptor
-    │   │   ├── IconGeometry.{h,cpp}           // Normalized [0, 1] path and stroke buffers
-    │   │   ├── IconRasterizer.{h,cpp}         // Specialized unit-square icon sheet rasterizer
-    │   │   └── VectorRasterizer.{h,cpp}       // Generalized analytical vector tessellator/rasterizer
+    ├── Components/                            // Reusable UI controls, themes, typography, motion & panels
+    │   ├── PixelSpace.{h,cpp}                 // Logical-to-physical 2D drawing surface & group transforms
+    │   ├── Appearance/                        // Themes, semantic swatches & .FontSpace typography
+    │   │   ├── ThemeCatalog.{h,cpp}           // 8 surface themes, 10 accents, semantic swatches & type scale
+    │   │   └── TypefaceCatalog.{h,cpp}        // PascalCase FontCatalogue.FontSpace loader & weight fallback
+    │   ├── Motion/                            // Semi-implicit Euler UI spring physics
+    │   │   └── SpringIntegrator.{h,cpp}       // Substepped 240 Hz spring-damper solver
+    │   ├── Notch/                             // Top-edge pull-down tab
+    │   │   └── PanelExpansionTab.{h,cpp}      // Trapezoidal "Frontier" pull-down notch with flick physics
+    │   ├── Docking/                           // Sharp unrounded trapezoidal docking & multi-window host
+    │   │   ├── WorkspaceTab.{h,cpp}           // Sharp 0 px unrounded trapezoidal tab & notch geometry
+    │   │   └── WorkspaceDockContainer.{h,cpp} // Intra-app multi-window docking & OS window tear-off
+    │   ├── ControlCentre/                     // Pull-down Control Centre & settings pages
+    │   │   └── ControlCentrePanel.{h,cpp}     // Quick Controls, Appearance, Input, Notifications & Workspace
+    │   ├── Controls/                          // Reusable studio UI control primitives
+    │   │   ├── ControlStyle.{h,cpp}           // Shared color set, smoothstep cross-fade & section containers
+    │   │   ├── ScalarSlider.{h,cpp}           // Capsule slider & split numeric/unit readout
+    │   │   ├── BooleanSwitch.{h,cpp}          // Standard bordered & compact borderless switches
+    │   │   ├── CapsuleButton.{h,cpp}          // Primary/Secondary/Danger buttons, chips, segmented bars & discs
+    │   │   ├── DropdownSelector.{h,cpp}       // Rounded dropdown button & overlay option sheet
+    │   │   ├── TextInputField.{h,cpp}         // UTF-8 text buffer, selection, caret & input field
+    │   │   ├── ThemePreviewTile.{h,cpp}       // 4:3 miniature OS window theme preview tile & color swatches
+    │   │   ├── NotificationSequence.{h,cpp}   // Toast overlay queue & Quick Controls notification stream
+    │   │   └── ConfirmationDialogue.{h,cpp}   // Foreground Rounded (28 px) & SemanticHeader (8 px) modals
+    │   ├── VectorIcons/                       // SVG 1.1 path decoder & reusable vector icon catalog
+    │   │   └── VectorIconCatalog.{h,cpp}      // Cubic/quadratic/arc flattener & round-cap icon stroker
     │   └── Overlays/                          // Viewport and cursor interaction overlays
     │       ├── ToolShelf.{h,cpp}              // Viewport-anchored tool row (ToolCluster / UtilityStrip)
     │       ├── ToolCluster.{h,cpp}            // Compact group of related manipulation tools

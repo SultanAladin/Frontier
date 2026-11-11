@@ -143,6 +143,29 @@ endif()
 #                                               ENGINE RUNTIME LIBRARY
 #------------------------------------------------------------------------------------------------------------------------
 
+set(FRONTIER_UI_COMPONENT_SOURCES
+    Engine/Components/PixelSpace.cpp
+    Engine/Components/VectorIcons/VectorIconCatalog.cpp
+    Engine/Components/Appearance/ThemeCatalog.cpp
+    Engine/Components/Appearance/TypefaceCatalog.cpp
+    Engine/Components/Motion/SpringIntegrator.cpp
+    Engine/Components/Notch/PanelExpansionTab.cpp
+    Engine/Components/Controls/ControlStyle.cpp
+    Engine/Components/Controls/ScalarSlider.cpp
+    Engine/Components/Controls/BooleanSwitch.cpp
+    Engine/Components/Controls/CapsuleButton.cpp
+    Engine/Components/Controls/ThemePreviewTile.cpp
+    Engine/Components/Controls/DropdownSelector.cpp
+    Engine/Components/Controls/TextInputField.cpp
+    Engine/Components/Controls/ConfirmationDialogue.cpp
+    Engine/Components/Controls/NotificationSequence.cpp
+    Engine/Components/Docking/WorkspaceTab.cpp
+    Engine/Components/Docking/WorkspaceDockContainer.cpp
+    Engine/Components/ControlCentre/ControlCentrePanel.cpp
+    Engine/Configuration/InputSettings.cpp
+    Engine/Configuration/ProjectSpaceArchive.cpp
+)
+
 set(FRONTIER_ENGINE_SOURCES
     Engine/Input/InputExchange.cpp
     Engine/Input/InputExtension.cpp
@@ -152,10 +175,7 @@ if(NOT ANDROID)
     list(APPEND FRONTIER_ENGINE_SOURCES Engine/Windowing/PlatformWindowDesktop.cpp)
 endif()
 if(NOT FRONTIER_PROFILE STREQUAL "Shipping")
-    list(APPEND FRONTIER_ENGINE_SOURCES
-        Engine/Components/Docking/TrapezoidalTabProfile.cpp
-        Engine/Components/Docking/DockingPanel.cpp
-    )
+    list(APPEND FRONTIER_ENGINE_SOURCES ${FRONTIER_UI_COMPONENT_SOURCES})
 endif()
 
 add_library(FrontierEngine STATIC ${FRONTIER_ENGINE_SOURCES})
@@ -188,15 +208,13 @@ if(BUILD_TESTING)
         add_test(NAME ${EXHIBIT_NAME} COMMAND ${EXHIBIT_NAME})
     endfunction()
 
-    set(FRONTIER_SHIPPING_DOCKING_SOURCES "")
+    set(FRONTIER_SHIPPING_UI_SOURCES "")
     if(FRONTIER_PROFILE STREQUAL "Shipping")
-        set(FRONTIER_SHIPPING_DOCKING_SOURCES
-            Engine/Components/Docking/TrapezoidalTabProfile.cpp
-            Engine/Components/Docking/DockingPanel.cpp
-        )
+        set(FRONTIER_SHIPPING_UI_SOURCES ${FRONTIER_UI_COMPONENT_SOURCES})
     endif()
 
-    frontier_register_exhibit(InputValidation   Exhibits/InputValidation.cpp   ${FRONTIER_SHIPPING_DOCKING_SOURCES})
-    frontier_register_exhibit(WindowValidation  Exhibits/WindowValidation.cpp  ${FRONTIER_SHIPPING_DOCKING_SOURCES})
-    frontier_register_exhibit(DockingValidation Exhibits/DockingValidation.cpp ${FRONTIER_SHIPPING_DOCKING_SOURCES})
+    frontier_register_exhibit(InputValidation         Exhibits/InputValidation.cpp         ${FRONTIER_SHIPPING_UI_SOURCES})
+    frontier_register_exhibit(WindowValidation        Exhibits/WindowValidation.cpp        ${FRONTIER_SHIPPING_UI_SOURCES})
+    frontier_register_exhibit(DockingValidation       Exhibits/DockingValidation.cpp       ${FRONTIER_SHIPPING_UI_SOURCES})
+    frontier_register_exhibit(ControlCentreValidation Exhibits/ControlCentreValidation.cpp ${FRONTIER_SHIPPING_UI_SOURCES})
 endif()

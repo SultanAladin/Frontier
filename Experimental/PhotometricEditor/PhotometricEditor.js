@@ -1509,23 +1509,23 @@ function SetupDomAndEvents()
         PushLog('EXPORT', `Exported LM-63 Type-C file "${Slug}.ies".`);
     });
     document.getElementById('BtnExportRig').addEventListener('click', () => {
-        const TomlLines = [
+        const ArchiveLines = [
             '# Frontier Photometric & Light Studio Rig Export',
-            `scenario = "${State.Scenario}"`,
-            `solar_hours = ${State.SunProps.LocalHours.toFixed(2)}`,
-            `exposure_ev = ${State.Env.Post.ExposureEv.toFixed(2)}`,
+            `Scenario = "${State.Scenario}"`,
+            `SolarHours = ${State.SunProps.LocalHours.toFixed(2)}`,
+            `ExposureEv = ${State.Env.Post.ExposureEv.toFixed(2)}`,
             ''
         ];
         State.Lights.forEach(L => {
-            TomlLines.push(`[[lights]]`);
-            TomlLines.push(`name = "${L.Name}"`);
-            TomlLines.push(`type = "${L.Type}"`);
-            TomlLines.push(`visible = ${L.Visible}`);
-            TomlLines.push(`flux = ${ComputeFlux(L.Type, L.Props).toFixed(1)}`);
-            TomlLines.push(`position = [${(L.Props.pos || [0, 0, 0]).join(', ')}]`);
-            TomlLines.push('');
+            ArchiveLines.push(`[[Lights]]`);
+            ArchiveLines.push(`Name = "${L.Name}"`);
+            ArchiveLines.push(`Type = "${L.Type}"`);
+            ArchiveLines.push(`Visible = ${L.Visible}`);
+            ArchiveLines.push(`Flux = ${ComputeFlux(L.Type, L.Props).toFixed(1)}`);
+            ArchiveLines.push(`Position = [${(L.Props.pos || [0, 0, 0]).join(', ')}]`);
+            ArchiveLines.push('');
         });
-        DownloadBlob(`frontier-rig-${State.Scenario}.photometric.toml`, TomlLines.join('\n'));
+        DownloadBlob(`FrontierRig-${State.Scenario}.projectspace`, ArchiveLines.join('\n'));
         PushLog('EXPORT', `Exported full lighting rig (${State.Lights.length} luminaires + environment lights).`);
     });
 

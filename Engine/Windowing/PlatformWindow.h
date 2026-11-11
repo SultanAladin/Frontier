@@ -26,7 +26,7 @@ enum class WindowPlatformCategory : uint8_t
     X11          = 2, // [-] - Linux Xlib / XCB surface
     Wayland      = 3, // [-] - Linux Wayland XDG surface
     Android      = 4, // [-] - Android NDK ANativeWindow surface
-    GlfwNull     = 5, // [-] - GLFW 3.4 offscreen desktop state-machine interface
+    GlfwNull     = 5, // [-] - GLFW 3.4 offscreen desktop windowing interface
 };
 
 enum class WindowPresentationMode : uint8_t
@@ -314,7 +314,7 @@ private:
     std::string                  CaptionText          = "Frontier";                                        // [-]     - Current window caption
     WindowExtentReading          ActiveExtent{};                                                           // [px]    - Current simulated surface metrics
     WindowPlacementBounds        RestorableBounds{};                                                       // [px]    - Last windowed position/size before fullscreen
-    WindowAttributeMask          WindowedAttributes   = WindowAttributeMask::ApplicationPresetMask;        // [mask]  - Windowed base attributes restored on exit
+    WindowAttributeMask          WindowedAttributes   = WindowAttributeMask::ApplicationPresetMask;        // [mask]  - Windowed default attributes restored on exit
     WindowAttributeMask          EffectiveAttributes  = WindowAttributeMask::ApplicationPresetMask;        // [mask]  - Active attributes reconciled with mode
     WindowPresentationMode       CurrentMode          = WindowPresentationMode::Windowed;                  // [-]     - Current presentation mode
     uint32_t                     MinWidthLimit        = 1;                                                 // [px]    - Minimum resize clamp width
@@ -393,7 +393,7 @@ private:
     std::string                  CaptionText          = "Frontier";                                        // [-]     - Current window caption
     WindowExtentReading          ActiveExtent{};                                                           // [px]    - Latest queried window & drawable dimensions
     WindowPlacementBounds        RestorableBounds{};                                                       // [px]    - Saved windowed placement prior to fullscreen
-    WindowAttributeMask          WindowedAttributes   = WindowAttributeMask::ApplicationPresetMask;        // [mask]  - Windowed base attributes restored on exit
+    WindowAttributeMask          WindowedAttributes   = WindowAttributeMask::ApplicationPresetMask;        // [mask]  - Windowed default attributes restored on exit
     WindowAttributeMask          EffectiveAttributes  = WindowAttributeMask::ApplicationPresetMask;        // [mask]  - Active attributes reconciled with mode
     WindowPresentationMode       CurrentMode          = WindowPresentationMode::Windowed;                  // [-]     - Current presentation mode
     WindowPlatformCategory       SelectedPlatform     = WindowPlatformCategory::HeadlessStub;              // [-]     - Resolved runtime platform (Win32/X11/Wayland/Null)

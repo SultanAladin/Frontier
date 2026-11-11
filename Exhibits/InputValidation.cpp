@@ -1,11 +1,11 @@
 /*============================================================================================================================================
                                                       INPUTVALIDATION.CPP
 ============================================================================================================================================*/
-// 🧩 Bi-directional InputExchange & InputExtension validation suite with CPU telemetry visual proof output
+// 🧩 Bi-directional InputExchange & InputExtension validation suite with CPU telemetry visual snapshot output
 
 #include "Engine/Input/InputExtension.h"
 #include "Engine/Windowing/PlatformWindow.h"
-#include "Exhibits/VisualProofRasterizer.h"
+#include "Exhibits/SoftwareCanvasRasterizer.h"
 
 #include <imgui.h>
 
@@ -18,7 +18,7 @@ namespace
 using Frontier::Components::RgbaColor8;
 using Frontier::Exhibits::LoadProjectZeroDmSansFont;
 using Frontier::Exhibits::ResolveRepositoryRootPath;
-using Frontier::Exhibits::SoftwareProofCanvas;
+using Frontier::Exhibits::SoftwareRasterCanvas;
 using Frontier::Input::ButtonTransitionCategory;
 using Frontier::Input::CursorConfinementMode;
 using Frontier::Input::HapticFeedbackDirective;
@@ -54,33 +54,33 @@ bool VerifyCondition(bool Condition, const char* Label) noexcept
     return true;
 }
 
-bool GenerateInputVisualProof(
+bool GenerateInputVisualSnapshot(
     uint64_t DrainedCount,
     float    CursorX,
     float    CursorY,
     float    ScrollSteps,
     uint32_t HapticCount)
 {
-    ImGuiContext* ProofCtx = ImGui::CreateContext();
-    ImGui::SetCurrentContext(ProofCtx);
+    ImGuiContext* SnapshotCtx = ImGui::CreateContext();
+    ImGui::SetCurrentContext(SnapshotCtx);
     ImGuiIO& IoInstance      = ImGui::GetIO();
     IoInstance.IniFilename   = nullptr;
     IoInstance.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
     IoInstance.DisplaySize   = ImVec2(1280.0f, 680.0f);
     (void)LoadProjectZeroDmSansFont(IoInstance, 13.0f);
-    Frontier::Components::ConfigureImGuiTrapezoidalStyle(Frontier::Components::ConstructProjectZeroTabMetrics(1.0f));
+    Frontier::Components::ConfigureImGuiWorkspaceStyle(Frontier::Components::ConstructWorkspaceTabMetrics(1.0f));
 
     ImGui::NewFrame();
-    ImDrawList* DrawList = ImGui::GetForegroundDrawList();
-    DrawList->AddText(
+    ImDrawList* DrawBuffer = ImGui::GetForegroundDrawList();
+    DrawBuffer->AddText(
         ImVec2(36.0f, 24.0f),
         IM_COL32(238, 238, 244, 255),
         "InputExchange & InputExtension Bi-Directional Verification  —  Inbound Hardware Ring & Outbound OS Directives");
 
     // Left panel: Inbound OS -> Engine Signal Ring
-    DrawList->AddRectFilled(ImVec2(36.0f, 68.0f), ImVec2(624.0f, 640.0f), IM_COL32(20, 20, 24, 255), 6.0f);
-    DrawList->AddRect(ImVec2(36.0f, 68.0f), ImVec2(624.0f, 640.0f), IM_COL32(46, 46, 54, 255), 6.0f);
-    DrawList->AddText(ImVec2(56.0f, 86.0f), IM_COL32(34, 197, 94, 255), "OS -> Engine Inbound Signal Intake (InputExchange)");
+    DrawBuffer->AddRectFilled(ImVec2(36.0f, 68.0f), ImVec2(624.0f, 640.0f), IM_COL32(20, 20, 24, 255), 6.0f);
+    DrawBuffer->AddRect(ImVec2(36.0f, 68.0f), ImVec2(624.0f, 640.0f), IM_COL32(46, 46, 54, 255), 6.0f);
+    DrawBuffer->AddText(ImVec2(56.0f, 86.0f), IM_COL32(34, 197, 94, 255), "OS -> Engine Inbound Signal Intake (InputExchange)");
 
     char SummaryLine[160]{};
     std::snprintf(
@@ -91,7 +91,7 @@ bool GenerateInputVisualProof(
         CursorX,
         CursorY,
         ScrollSteps);
-    DrawList->AddText(ImVec2(56.0f, 118.0f), IM_COL32(214, 214, 222, 255), SummaryLine);
+    DrawBuffer->AddText(ImVec2(56.0f, 118.0f), IM_COL32(214, 214, 222, 255), SummaryLine);
 
     const char* Channels[5] = {
         "KeyboardKey  [Scancode 17 'W' Pressed -> Held -> Released]",
@@ -103,40 +103,40 @@ bool GenerateInputVisualProof(
     for (int Idx = 0; Idx < 5; ++Idx)
     {
         const float RowY = 166.0f + static_cast<float>(Idx) * 86.0f;
-        DrawList->AddRectFilled(ImVec2(56.0f, RowY), ImVec2(604.0f, RowY + 68.0f), IM_COL32(26, 28, 34, 255), 5.0f);
-        DrawList->AddRect(ImVec2(56.0f, RowY), ImVec2(604.0f, RowY + 68.0f), IM_COL32(34, 197, 94, 120), 5.0f);
-        DrawList->AddText(ImVec2(74.0f, RowY + 24.0f), IM_COL32(230, 232, 240, 255), Channels[Idx]);
+        DrawBuffer->AddRectFilled(ImVec2(56.0f, RowY), ImVec2(604.0f, RowY + 68.0f), IM_COL32(26, 28, 34, 255), 5.0f);
+        DrawBuffer->AddRect(ImVec2(56.0f, RowY), ImVec2(604.0f, RowY + 68.0f), IM_COL32(34, 197, 94, 120), 5.0f);
+        DrawBuffer->AddText(ImVec2(74.0f, RowY + 24.0f), IM_COL32(230, 232, 240, 255), Channels[Idx]);
     }
 
     // Right panel: Outbound Engine -> OS Directives
-    DrawList->AddRectFilled(ImVec2(656.0f, 68.0f), ImVec2(1244.0f, 640.0f), IM_COL32(20, 20, 24, 255), 6.0f);
-    DrawList->AddRect(ImVec2(656.0f, 68.0f), ImVec2(1244.0f, 640.0f), IM_COL32(46, 46, 54, 255), 6.0f);
-    DrawList->AddText(ImVec2(676.0f, 86.0f), IM_COL32(245, 158, 11, 255), "Engine -> OS Outbound Directives (InputFeedbackTarget)");
+    DrawBuffer->AddRectFilled(ImVec2(656.0f, 68.0f), ImVec2(1244.0f, 640.0f), IM_COL32(20, 20, 24, 255), 6.0f);
+    DrawBuffer->AddRect(ImVec2(656.0f, 68.0f), ImVec2(1244.0f, 640.0f), IM_COL32(46, 46, 54, 255), 6.0f);
+    DrawBuffer->AddText(ImVec2(676.0f, 86.0f), IM_COL32(245, 158, 11, 255), "Engine -> OS Outbound Directives (InputFeedbackTarget)");
 
-    DrawList->AddRectFilled(ImVec2(676.0f, 140.0f), ImVec2(1224.0f, 340.0f), IM_COL32(26, 28, 34, 255), 5.0f);
-    DrawList->AddText(ImVec2(696.0f, 158.0f), IM_COL32(238, 238, 244, 255), "CursorConfinementMode :: LockedRelativeHidden");
-    DrawList->AddText(ImVec2(696.0f, 190.0f), IM_COL32(156, 160, 172, 255), "Applied atomically during PlatformWindow::PollOperatingEvents");
-    DrawList->AddRectFilled(ImVec2(696.0f, 232.0f), ImVec2(1204.0f, 312.0f), IM_COL32(16, 24, 20, 255), 4.0f);
-    DrawList->AddText(ImVec2(716.0f, 262.0f), IM_COL32(34, 197, 94, 255), "VERIFIED: ActiveCursorMode == LockedRelativeHidden");
+    DrawBuffer->AddRectFilled(ImVec2(676.0f, 140.0f), ImVec2(1224.0f, 340.0f), IM_COL32(26, 28, 34, 255), 5.0f);
+    DrawBuffer->AddText(ImVec2(696.0f, 158.0f), IM_COL32(238, 238, 244, 255), "CursorConfinementMode :: LockedRelativeHidden");
+    DrawBuffer->AddText(ImVec2(696.0f, 190.0f), IM_COL32(156, 160, 172, 255), "Applied atomically during PlatformWindow::PollOperatingEvents");
+    DrawBuffer->AddRectFilled(ImVec2(696.0f, 232.0f), ImVec2(1204.0f, 312.0f), IM_COL32(16, 24, 20, 255), 4.0f);
+    DrawBuffer->AddText(ImVec2(716.0f, 262.0f), IM_COL32(34, 197, 94, 255), "VERIFIED: ActiveCursorMode == LockedRelativeHidden");
 
-    DrawList->AddRectFilled(ImVec2(676.0f, 368.0f), ImVec2(1224.0f, 608.0f), IM_COL32(26, 28, 34, 255), 5.0f);
+    DrawBuffer->AddRectFilled(ImVec2(676.0f, 368.0f), ImVec2(1224.0f, 608.0f), IM_COL32(26, 28, 34, 255), 5.0f);
     char HapticTitle[128]{};
     std::snprintf(HapticTitle, sizeof(HapticTitle), "HapticFeedbackDirective  (Delivered Pulses: %u)", HapticCount);
-    DrawList->AddText(ImVec2(696.0f, 388.0f), IM_COL32(238, 238, 244, 255), HapticTitle);
+    DrawBuffer->AddText(ImVec2(696.0f, 388.0f), IM_COL32(238, 238, 244, 255), HapticTitle);
 
     // Motor amplitude bars
-    DrawList->AddText(ImVec2(696.0f, 434.0f), IM_COL32(170, 174, 184, 255), "Low-Frequency Motor  (80%)");
-    DrawList->AddRectFilled(ImVec2(696.0f, 460.0f), ImVec2(1204.0f, 482.0f), IM_COL32(14, 14, 18, 255), 4.0f);
-    DrawList->AddRectFilled(ImVec2(696.0f, 460.0f), ImVec2(696.0f + 508.0f * 0.80f, 482.0f), IM_COL32(245, 158, 11, 255), 4.0f);
+    DrawBuffer->AddText(ImVec2(696.0f, 434.0f), IM_COL32(170, 174, 184, 255), "Low-Frequency Motor  (80%)");
+    DrawBuffer->AddRectFilled(ImVec2(696.0f, 460.0f), ImVec2(1204.0f, 482.0f), IM_COL32(14, 14, 18, 255), 4.0f);
+    DrawBuffer->AddRectFilled(ImVec2(696.0f, 460.0f), ImVec2(696.0f + 508.0f * 0.80f, 482.0f), IM_COL32(245, 158, 11, 255), 4.0f);
 
-    DrawList->AddText(ImVec2(696.0f, 506.0f), IM_COL32(170, 174, 184, 255), "High-Frequency Motor (35%)");
-    DrawList->AddRectFilled(ImVec2(696.0f, 532.0f), ImVec2(1204.0f, 554.0f), IM_COL32(14, 14, 18, 255), 4.0f);
-    DrawList->AddRectFilled(ImVec2(696.0f, 532.0f), ImVec2(696.0f + 508.0f * 0.35f, 554.0f), IM_COL32(59, 130, 246, 255), 4.0f);
+    DrawBuffer->AddText(ImVec2(696.0f, 506.0f), IM_COL32(170, 174, 184, 255), "High-Frequency Motor (35%)");
+    DrawBuffer->AddRectFilled(ImVec2(696.0f, 532.0f), ImVec2(1204.0f, 554.0f), IM_COL32(14, 14, 18, 255), 4.0f);
+    DrawBuffer->AddRectFilled(ImVec2(696.0f, 532.0f), ImVec2(696.0f + 508.0f * 0.35f, 554.0f), IM_COL32(59, 130, 246, 255), 4.0f);
 
     ImGui::Render();
-    SoftwareProofCanvas OutputCanvas(1280, 680, RgbaColor8{ 12, 12, 14, 255 });
-    OutputCanvas.RasterizeImGuiDrawData(ImGui::GetDrawData(), 0, 0);
-    ImGui::DestroyContext(ProofCtx);
+    SoftwareRasterCanvas OutputCanvas(1280, 680, RgbaColor8{ 12, 12, 14, 255 });
+    OutputCanvas.RasterizeImGuiBatches(ImGui::GetDrawData(), 0, 0);
+    ImGui::DestroyContext(SnapshotCtx);
 
     const auto OutputPath = ResolveRepositoryRootPath() / "Exhibits/Images/Input/InputExchangeTelemetry.png";
     return VerifyCondition(OutputCanvas.EncodePngToFile(OutputPath), "Write InputExchangeTelemetry.png");
@@ -265,11 +265,11 @@ int main()
     Window.Finalize();
     Coordinator.Finalize();
 
-    if (!GenerateInputVisualProof(TotalDrained, FinalCursorX, FinalCursorY, FinalScroll, FinalHaptics))
+    if (!GenerateInputVisualSnapshot(TotalDrained, FinalCursorX, FinalCursorY, FinalScroll, FinalHaptics))
     {
         return 1;
     }
 
-    std::printf("[InputValidation] All bi-directional InputExchange checks + visual proof PNG passed.\n");
+    std::printf("[InputValidation] All bi-directional InputExchange checks + visual snapshot PNG passed.\n");
     return 0;
 }

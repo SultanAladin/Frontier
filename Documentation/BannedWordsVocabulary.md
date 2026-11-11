@@ -19,6 +19,7 @@ Related governance documents: [FolderStructure.md](FolderStructure.md) · [Codin
 - `badge`
 - `binding`
 - `bloom`
+- `cadence`
 - `card`
 - `carousel`
 - `classification`
@@ -155,7 +156,7 @@ Use this combined index to audit identifiers, filenames, directory names, and co
 
 - **A**: `action`, `adjacency`, `Aether`, `affinity`, `Ancestor`, `Apex`, `arena` *(avoid: `atlas`)*
 - **B**: `backend`, `badge`, `Base`, `binding`, `bloom`
-- **C**: `card`, `carousel`, `Catalyst`, `Child`, `Children`, `classification`, `Commit`, `Common`, `Compose` / `compose`, `concurrence` / `concurrency` / `concurrent`, `Conductor`, `context`, `continuum`, `contract`, `Controller`, `Core`, `coverage`
+- **C**: `cadence`, `card`, `carousel`, `Catalyst`, `Child`, `Children`, `classification`, `Commit`, `Common`, `Compose` / `compose`, `concurrence` / `concurrency` / `concurrent`, `Conductor`, `context`, `continuum`, `contract`, `Controller`, `Core`, `coverage`
 - **D**: `Data`, `Descendant`, `Designation`, `dev`, `Dispatcher`
 - **E**: `Element` / `element`, `Emission` / `Emit` / `emitter`, `Entity`, `evaluator`, `extension` *(restricted — §3.1)*
 - **F**: `family`, `fence`, `flag`, `floating`, `flow`, `Frame` / `frame`

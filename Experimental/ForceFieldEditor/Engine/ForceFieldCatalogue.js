@@ -900,22 +900,22 @@ const FormatTriple = (Triple) => `[${Triple.map(FormatNumber).join(', ')}]`;
 function EncodeSource(Source, Lines)
 {
     const Type = TypeById[Source.Type] || TypeById.WindGenerator;
-    Lines.push('', '[[records]]', `identity = "${Source.Token}"`, 'type = "ForceSource"', `name = "${Source.Name}"`, 'parent = "rec_force_field"',
-        '[records.configuration]', `enabled = ${Source.Enabled}`, `source = "${Type.Native}"`, `contribution = "${Type.Contribution.toLowerCase()}"`,
-        `centre_metres = ${FormatTriple(Source.Centre)}`, `reach = "${Source.Reach.toLowerCase()}"`, `reach_metres = ${FormatNumber(Source.Radius)}`,
-        `falloff = "${Source.Falloff.toLowerCase()}"`, `strength = ${FormatNumber(Source.Strength)}`);
+    Lines.push('', '[[Records]]', `Identity = "${Source.Token}"`, 'Type = "ForceSource"', `Name = "${Source.Name}"`, 'Owner = "ForceFieldRoot"',
+        '[Records.Configuration]', `Enabled = ${Source.Enabled}`, `Source = "${Type.Native}"`, `Contribution = "${Type.Contribution}"`,
+        `CentreMetres = ${FormatTriple(Source.Centre)}`, `Reach = "${Source.Reach}"`, `ReachMetres = ${FormatNumber(Source.Radius)}`,
+        `Falloff = "${Source.Falloff}"`, `Strength = ${FormatNumber(Source.Strength)}`);
     for (const Parameter of Type.Parameters)
     {
         if (Parameter.Key === 'Strength') continue;
-        Lines.push(`${Parameter.Key.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase()} = ${FormatNumber(Source[Parameter.Key])}`);
+        Lines.push(`${Parameter.Key} = ${FormatNumber(Source[Parameter.Key])}`);
     }
-    for (const [Key] of Type.Bearings || []) Lines.push(`${Key.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase()}_deg = ${FormatNumber(Source[Key])}`);
-    if (Type.Spin) Lines.push(`spin = ${Source.Spin < 0 ? '"anticyclonic"' : '"cyclonic"'}`);
-    if (Source.Reach === 'Column' || Source.Reach === 'Box') Lines.push(`height_metres = ${FormatNumber(Source.Height)}`);
-    if (Source.Reach === 'Box' && Source.Type !== 'Jet' && Source.Type !== 'Wake') Lines.push(`half_extents_metres = [${FormatNumber(Source.HalfX)}, ${FormatNumber(Source.HalfZ)}]`);
-    Lines.push(`activation = "${Source.Activation.toLowerCase()}"`, `begins_seconds = ${FormatNumber(Source.Begins)}`, `lasts_seconds = ${FormatNumber(Source.Lasts)}`,
-        `repeats_seconds = ${FormatNumber(Source.Repeats)}`, `ramp_in_seconds = ${FormatNumber(Source.RampIn)}`, `ramp_out_seconds = ${FormatNumber(Source.RampOut)}`,
-        `acts_on = [${Source.Acts.map((Key) => `"${Key.toLowerCase()}"`).join(', ')}]`);
+    for (const [Key] of Type.Bearings || []) Lines.push(`${Key}Degrees = ${FormatNumber(Source[Key])}`);
+    if (Type.Spin) Lines.push(`Spin = ${Source.Spin < 0 ? '"Anticyclonic"' : '"Cyclonic"'}`);
+    if (Source.Reach === 'Column' || Source.Reach === 'Box') Lines.push(`HeightMetres = ${FormatNumber(Source.Height)}`);
+    if (Source.Reach === 'Box' && Source.Type !== 'Jet' && Source.Type !== 'Wake') Lines.push(`HalfExtentsMetres = [${FormatNumber(Source.HalfX)}, ${FormatNumber(Source.HalfZ)}]`);
+    Lines.push(`Activation = "${Source.Activation}"`, `BeginsSeconds = ${FormatNumber(Source.Begins)}`, `LastsSeconds = ${FormatNumber(Source.Lasts)}`,
+        `RepeatsSeconds = ${FormatNumber(Source.Repeats)}`, `RampInSeconds = ${FormatNumber(Source.RampIn)}`, `RampOutSeconds = ${FormatNumber(Source.RampOut)}`,
+        `ActsOn = [${Source.Acts.map((Key) => `"${Key}"`).join(', ')}]`);
 }
 
 export function EncodeLevelspace(Scene, Only)
@@ -924,25 +924,25 @@ export function EncodeLevelspace(Scene, Only)
     const { Field, Wind } = Scene;
     if (!Only || Only === 'Field')
     {
-        Lines.push('[[records]]', 'identity = "rec_force_field"', 'type = "ForceField"', 'name = "Force Field"', '[records.configuration]',
-            `enabled = ${Field.Enabled}`, `visualize = ${Field.Visualize}`, `include_turbulence = ${Field.IncludeTurbulence}`,
-            `centre_metres = ${FormatTriple(Field.RegionCentre)}`, `half_extents_metres = ${FormatTriple(Field.RegionHalfExtents)}`,
-            `grid_resolution = ${Field.GridResolution}`, `arrow_seconds = ${FormatNumber(Field.ArrowSeconds)}`,
-            `cascades = ${Field.Cascades}`, `finest_cell_metres = ${FormatNumber(Field.FinestCell)}`, `cells_per_side = ${Field.CellsPerSide}`,
-            `vertical_cells = ${Field.VerticalCells}`, `extent_metres = ${FormatNumber(Field.Extent)}`,
-            `channels = [${Field.Channels.map((Key) => `"${Key.toLowerCase()}"`).join(', ')}]`);
+        Lines.push('[[Records]]', 'Identity = "ForceFieldRoot"', 'Type = "ForceField"', 'Name = "Force Field"', '[Records.Configuration]',
+            `Enabled = ${Field.Enabled}`, `Visualize = ${Field.Visualize}`, `IncludeTurbulence = ${Field.IncludeTurbulence}`,
+            `CentreMetres = ${FormatTriple(Field.RegionCentre)}`, `HalfExtentsMetres = ${FormatTriple(Field.RegionHalfExtents)}`,
+            `GridResolution = ${Field.GridResolution}`, `ArrowSeconds = ${FormatNumber(Field.ArrowSeconds)}`,
+            `Cascades = ${Field.Cascades}`, `FinestCellMetres = ${FormatNumber(Field.FinestCell)}`, `CellsPerSide = ${Field.CellsPerSide}`,
+            `VerticalCells = ${Field.VerticalCells}`, `ExtentMetres = ${FormatNumber(Field.Extent)}`,
+            `Channels = [${Field.Channels.map((Key) => `"${Key}"`).join(', ')}]`);
     }
     if (!Only || Only === 'Wind')
     {
         if (Lines.length) Lines.push('');
-        Lines.push('[[records]]', 'identity = "rec_wind"', 'type = "Wind"', 'name = "Wind"', 'parent = "rec_force_field"', '[records.configuration]',
-            `enabled = ${Wind.Enabled}`, `direction_deg = ${FormatNumber(Wind.Bearing)}`, `speed_mps = ${FormatNumber(Wind.Speed)}`,
-            `turbulence = ${FormatNumber(Wind.Turbulence)}`, `turbulence_scale_metres = ${FormatNumber(Wind.TurbulenceScale)}`,
-            `gust_strength = ${FormatNumber(Wind.GustStrength)}`, `gust_frequency_hz = ${FormatNumber(Wind.GustFrequency)}`,
-            `shear_per_kilometre = ${FormatNumber(Wind.Shear)}`, `veer_degrees_per_kilometre = ${FormatNumber(Wind.Veer)}`,
-            `advect_clouds = ${Wind.AdvectClouds}`, `advect_plumes = ${Wind.AdvectPlumes}`, `advect_particles = ${Wind.AdvectParticles}`,
-            `ground_height_metres = ${FormatNumber(Wind.GroundHeight)}`, `seed = ${Wind.Seed}`,
-            `bounded_region = ${Boolean(Wind.Bounded)}`, `region_radius_metres = ${FormatNumber(Wind.RegionRadius || 1600)}`);
+        Lines.push('[[Records]]', 'Identity = "WindSource"', 'Type = "Wind"', 'Name = "Wind"', 'Owner = "ForceFieldRoot"', '[Records.Configuration]',
+            `Enabled = ${Wind.Enabled}`, `DirectionDegrees = ${FormatNumber(Wind.Bearing)}`, `SpeedMetresPerSecond = ${FormatNumber(Wind.Speed)}`,
+            `Turbulence = ${FormatNumber(Wind.Turbulence)}`, `TurbulenceScaleMetres = ${FormatNumber(Wind.TurbulenceScale)}`,
+            `GustStrength = ${FormatNumber(Wind.GustStrength)}`, `GustFrequencyHz = ${FormatNumber(Wind.GustFrequency)}`,
+            `ShearPerKilometre = ${FormatNumber(Wind.Shear)}`, `VeerDegreesPerKilometre = ${FormatNumber(Wind.Veer)}`,
+            `AdvectClouds = ${Wind.AdvectClouds}`, `AdvectPlumes = ${Wind.AdvectPlumes}`, `AdvectParticles = ${Wind.AdvectParticles}`,
+            `GroundHeightMetres = ${FormatNumber(Wind.GroundHeight)}`, `Seed = ${Wind.Seed}`,
+            `BoundedRegion = ${Boolean(Wind.Bounded)}`, `RegionRadiusMetres = ${FormatNumber(Wind.RegionRadius || 1600)}`);
     }
     if (!Only) for (const Source of Scene.Sources) EncodeSource(Source, Lines);
     else if (Only !== 'Field' && Only !== 'Wind') { const Source = Scene.Sources.find((One) => One.Token === Only); if (Source) { EncodeSource(Source, Lines); Lines.shift(); } }

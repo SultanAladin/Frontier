@@ -1555,7 +1555,7 @@ function ConstructLightningInspector(Page)
         Range(Sec, BindScene(L, 'branchChance', { Label: 'Secondary branching probability' }, 'LIGHTNING', 'Lightning'), 0, 1, 0.02, 2, '');
         const WebSec = C.SectionCard(Page, { Title: 'Inter-effect lightning arcs', Glyph: 'Lattice', Badge: 'WEB' }).Inner;
         C.SwitchRow(WebSec, BindScene(Scene.Web, 'Enabled', { Label: 'Link active emitters with arcs' }, 'LIGHTNING', 'Web'));
-        Range(WebSec, BindScene(Scene.Web, 'Interval', { Label: 'Re-arc cadence' }, 'LIGHTNING', 'Web'), 0.1, 3, 0.05, 2, 's');
+        Range(WebSec, BindScene(Scene.Web, 'Interval', { Label: 'Re-arc interval' }, 'LIGHTNING', 'Web'), 0.1, 3, 0.05, 2, 's');
         Range(WebSec, Object.assign(BindScene(Scene.Web, 'Links', { Label: 'Arcs per node' }, 'LIGHTNING', 'Web'), { Write: V => { Scene.Web.Links = Math.round(V); } }), 1, 4, 1, 0, '');
         return;
     }
@@ -1594,13 +1594,14 @@ function AddForceField(Id)
 function EncodeEffect(Effect)
 {
     const Preset = PE.presetById(Effect.PresetId);
-    const Lines = ['[[records]]', `identity = "${Effect.Token}"`, 'type = "ParticleEffect"', `name = "${Effect.Name}"`, '[records.configuration]', `enabled = ${Effect.P.visible}`, `preset = "${Effect.PresetId}"`];
+    const Lines = ['[[Records]]', `Identity = "${Effect.Token}"`, 'Type = "ParticleEffect"', `Name = "${Effect.Name}"`, '[Records.Configuration]', `Enabled = ${Effect.P.visible}`, `Preset = "${Effect.PresetId}"`];
     for (const [K, V] of Object.entries(Effect.P))
     {
         if (K === 'visible' || (typeof V === 'object' && !Array.isArray(V))) continue;
         if (JSON.stringify(V) === JSON.stringify(Preset.p[K])) continue;
         const Fmt = Array.isArray(V) ? `[${V.map(N => Number(N.toFixed(3))).join(', ')}]` : typeof V === 'string' ? `"${V}"` : String(Number(V.toFixed(4)));
-        Lines.push(`${K.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase()} = ${Fmt}`);
+        const PascalKey = K.charAt(0).toUpperCase() + K.slice(1);
+        Lines.push(`${PascalKey} = ${Fmt}`);
     }
     return Lines;
 }
@@ -1611,8 +1612,8 @@ function EncodeForces()
     Scene.Forces.forEach((F, I) =>
     {
         if (I) Lines.push('');
-        Lines.push('[[records]]', `identity = "rec_force_${I}"`, 'type = "ForceSource"', `name = "${F.Name}"`, '[records.configuration]',
-                   `enabled = ${F.Enabled}`, `source = "${F.Kind}"`, `strength = ${F.Strength}`, `bearing_deg = ${CompassFromField(F).toFixed(1)}`);
+        Lines.push('[[Records]]', `Identity = "ForceSource${I}"`, 'Type = "ForceSource"', `Name = "${F.Name}"`, '[Records.Configuration]',
+                   `Enabled = ${F.Enabled}`, `Source = "${F.Kind}"`, `Strength = ${F.Strength}`, `BearingDegrees = ${CompassFromField(F).toFixed(1)}`);
     });
     return Lines;
 }

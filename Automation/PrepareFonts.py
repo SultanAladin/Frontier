@@ -1,7 +1,7 @@
-#============================================================================================================================================
+#==========================================================================================================================================
 #                                                          PREPAREFONTS.PY
-#============================================================================================================================================
-# 🧩 Download pinned OFL typefaces into EngineContent/FontsArchives/ and generate FontCatalogue.toml.
+#==========================================================================================================================================
+# 🧩 Download pinned OFL typefaces into EngineContent/FontsArchives/ and generate FontCatalogue.FontSpace.
 
 from pathlib import Path
 import argparse
@@ -30,12 +30,12 @@ def WriteAtomic(Destination, Payload):
 
 def GenerateCatalogue(FontRoot):
     from fontTools.ttLib import TTFont
-    Faces = []
-    Rejected = []
+    TypefaceEntries = []
+    RejectedFiles = []
     Manifest = json.loads((RepositoryRoot / 'Automation/FontSources.json').read_text(encoding='utf-8'))
-    FamilyLookup = {
-        Entry['family'] + '/' + Entry['file']: Entry['family_name']
-        for Entry in Manifest['files'] if 'family_name' in Entry
+    GroupLabelLookup = {
+        Entry['TypefaceGroup'] + '/' + Entry['FileName']: Entry['GroupDisplayName']
+        for Entry in Manifest['FontFiles'] if 'GroupDisplayName' in Entry
     }
 
     for FontPath in sorted(FontRoot.rglob('*')):
@@ -43,88 +43,93 @@ def GenerateCatalogue(FontRoot):
             continue
         try:
             with TTFont(FontPath) as Typeface:
-                NameRecord = Typeface['name']
+                NamingDirectory = Typeface['name']
                 RelativeKey = FontPath.relative_to(FontRoot).as_posix()
-                FamilyLabel = FamilyLookup.get(RelativeKey) or NameRecord.getDebugName(16) or NameRecord.getDebugName(1) or FontPath.parent.name
-                Faces.append({
-                    'family': FamilyLabel,
-                    'file': RelativeKey,
-                    'weight': Typeface['OS/2'].usWeightClass,
-                    'italic': bool(Typeface['OS/2'].fsSelection & 1),
-                    'sha256': hashlib.sha256(FontPath.read_bytes()).hexdigest(),
+                GroupLabel = (
+                    GroupLabelLookup.get(RelativeKey)
+                    or NamingDirectory.getDebugName(16)
+                    or NamingDirectory.getDebugName(1)
+                    or FontPath.parts[-2]
+                )
+                TypefaceEntries.append({
+                    'TypefaceGroup': GroupLabel,
+                    'RelativePath': RelativeKey,
+                    'WeightClass': Typeface['OS/2'].usWeightClass,
+                    'ItalicStyle': bool(Typeface['OS/2'].fsSelection & 1),
+                    'Sha256Digest': hashlib.sha256(FontPath.read_bytes()).hexdigest(),
                 })
         except Exception as Error:
-            Rejected.append({'file': FontPath.relative_to(FontRoot).as_posix(), 'error': str(Error)})
+            RejectedFiles.append({'RelativePath': FontPath.relative_to(FontRoot).as_posix(), 'Reason': str(Error)})
 
-    Lines = ['format = 1', '']
-    for Entry in Faces:
-        Lines.append('[[faces]]')
+    Lines = ['FormatVersion = 1', '']
+    for Entry in TypefaceEntries:
+        Lines.append('[[TypefaceEntries]]')
         for Key, FieldContent in Entry.items():
             Lines.append(Key + ' = ' + json.dumps(FieldContent, ensure_ascii=True))
         Lines.append('')
-    WriteAtomic(FontRoot / 'FontCatalogue.toml', ('\n'.join(Lines) + '\n').encode('utf-8'))
-    print('[Fonts]    {0} faces across {1} families ({2} rejected)'.format(
-        len(Faces), len({Entry['family'] for Entry in Faces}), len(Rejected)))
-    if Rejected:
+    WriteAtomic(FontRoot / 'FontCatalogue.FontSpace', ('\n'.join(Lines) + '\n').encode('utf-8'))
+    print('[Fonts]    {0} faces across {1} typeface groups ({2} rejected)'.format(
+        len(TypefaceEntries), len({Entry['TypefaceGroup'] for Entry in TypefaceEntries}), len(RejectedFiles)))
+    if RejectedFiles:
         raise RuntimeError('Font verification rejected one or more files.')
 
 
 def Main():
     Parser = argparse.ArgumentParser(description='Prepare pinned Frontier font archives.')
-    Parser.add_argument('--scan-only', action='store_true', help='Enumerate local fonts without network access')
-    Parser.add_argument('--verify', action='store_true', help='Verify pinned fonts exist without downloading')
-    Parser.add_argument('--root', type=Path, default=RepositoryRoot / 'EngineContent/FontsArchives')
+    Parser.add_argument('--scan-only', dest='ScanOnly', action='store_true', help='Enumerate local fonts without network access')
+    Parser.add_argument('--verify', dest='VerifyOnly', action='store_true', help='Verify pinned fonts exist without downloading')
+    Parser.add_argument('--root', dest='RootDirectory', type=Path, default=RepositoryRoot / 'EngineContent/FontsArchives')
     Arguments = Parser.parse_args()
 
     Manifest = json.loads((RepositoryRoot / 'Automation/FontSources.json').read_text(encoding='utf-8'))
     DownloadedArchives = {}
 
-    if not Arguments.scan_only:
-        for Entry in Manifest['files']:
-            Destination = Arguments.root / Entry['family'] / Entry['file']
+    if not Arguments.ScanOnly:
+        for Entry in Manifest['FontFiles']:
+            Destination = Arguments.RootDirectory / Entry['TypefaceGroup'] / Entry['FileName']
             if Destination.exists():
-                if hashlib.sha256(Destination.read_bytes()).hexdigest() == Entry['sha256']:
+                if hashlib.sha256(Destination.read_bytes()).hexdigest() == Entry['Sha256Digest']:
                     continue
                 raise RuntimeError('Modified pinned font file: ' + str(Destination))
-            if Arguments.verify:
+            if Arguments.VerifyOnly:
                 raise RuntimeError('Missing pinned font file: ' + str(Destination))
 
-            SourceUrl = Entry['url']
+            SourceUrl = Entry['SourceUrl']
             if SourceUrl in DownloadedArchives:
-                Payload = DownloadedArchives[SourceUrl]
+                RawBytes = DownloadedArchives[SourceUrl]
             else:
                 Headers = {'Accept': 'application/vnd.github.raw+json', 'User-Agent': 'Frontier-font-setup'}
                 if SourceUrl.startswith('https://api.github.com/') and os.environ.get('GH_TOKEN'):
                     Headers['Authorization'] = 'Bearer ' + os.environ['GH_TOKEN']
                 Request = urllib.request.Request(SourceUrl, headers=Headers)
                 with urllib.request.urlopen(Request, timeout=60) as Response:
-                    Payload = Response.read()
+                    RawBytes = Response.read()
                     if 'json' in Response.headers.get('Content-Type', ''):
-                        Payload = base64.b64decode(json.loads(Payload)['content'])
-                DownloadedArchives[SourceUrl] = Payload
+                        RawBytes = base64.b64decode(json.loads(RawBytes)['content'])
+                DownloadedArchives[SourceUrl] = RawBytes
 
-            if 'archive_member' in Entry:
-                if hashlib.sha256(Payload).hexdigest() != Entry['archive_sha256']:
-                    raise RuntimeError('Font archive SHA-256 mismatch for ' + Entry['file'])
-                with tarfile.open(fileobj=io.BytesIO(Payload), mode='r:gz') as Archive:
-                    ArchiveEntry = Archive.getmember(Entry['archive_member'])
+            if 'ArchiveEntryPath' in Entry:
+                if hashlib.sha256(RawBytes).hexdigest() != Entry['ArchiveSha256Digest']:
+                    raise RuntimeError('Font archive SHA-256 mismatch for ' + Entry['FileName'])
+                with tarfile.open(fileobj=io.BytesIO(RawBytes), mode='r:gz') as Archive:
+                    ArchiveEntry = Archive.getmember(Entry['ArchiveEntryPath'])
                     if not ArchiveEntry.isfile() or ArchiveEntry.size > 4194304:
-                        raise RuntimeError('Invalid font archive entry: ' + Entry['archive_member'])
-                    Payload = Archive.extractfile(ArchiveEntry).read()
-                if Entry.get('decode') == 'woff':
+                        raise RuntimeError('Invalid font archive entry: ' + Entry['ArchiveEntryPath'])
+                    RawBytes = Archive.extractfile(ArchiveEntry).read()
+                if Entry.get('DecodeFormat') == 'woff':
                     from fontTools.ttLib import TTFont
-                    with TTFont(io.BytesIO(Payload), recalcTimestamp=False) as Typeface:
+                    with TTFont(io.BytesIO(RawBytes), recalcTimestamp=False) as Typeface:
                         Typeface.flavor = None
                         Converted = io.BytesIO()
                         Typeface.save(Converted)
-                        Payload = Converted.getvalue()
+                        RawBytes = Converted.getvalue()
 
-            if hashlib.sha256(Payload).hexdigest() != Entry['sha256']:
-                raise RuntimeError('Font SHA-256 mismatch: ' + Entry['file'])
-            WriteAtomic(Destination, Payload)
-            print('[Font]     {0}/{1}'.format(Entry['family'], Entry['file']), flush=True)
+            if hashlib.sha256(RawBytes).hexdigest() != Entry['Sha256Digest']:
+                raise RuntimeError('Font SHA-256 mismatch: ' + Entry['FileName'])
+            WriteAtomic(Destination, RawBytes)
+            print('[Font]     {0}/{1}'.format(Entry['TypefaceGroup'], Entry['FileName']), flush=True)
 
-    GenerateCatalogue(Arguments.root)
+    GenerateCatalogue(Arguments.RootDirectory)
     return 0
 
 
