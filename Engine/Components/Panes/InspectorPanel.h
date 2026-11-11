@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                                INSPECTORPANEL.H
 ============================================================================================================================================*/
-// 🧩 Project-Zero Inspector pane featuring Showcase Folder Inspector, Add Notes editor, header typography, and capability tiles
+// 🧩 Workspace Inspector pane featuring Showcase Folder Inspector, Add Notes editor, header typography, and capability tiles
 
 #pragma once
 
@@ -93,6 +93,10 @@ private:
     TextEditBuffer           FolderSearchEditor     {};                                      // [-]  - Showcase folder search buffer
     FolderBrowseScope        BrowseScope            = FolderBrowseScope::NestedAll;          // [-]  - Folder browser scope mode
     FolderBrowseSort         BrowseSort             = FolderBrowseSort::OutlinerOrder;       // [-]  - Folder browser sort mode
+    bool                     ScopeDropdownOpen      = false;                                 // [-]  - Scope DropdownSelector open flag
+    bool                     SortDropdownOpen       = false;                                 // [-]  - Sort DropdownSelector open flag
+    Rectangle2D              ScopeButtonBounds      {};                                      // [px] - Last Scope button bounds
+    Rectangle2D              SortButtonBounds       {};                                      // [px] - Last Sort button bounds
     OutlinerVisibilityFilter FolderVisibilityFilter = OutlinerVisibilityFilter::All;         // [-]  - Folder browser visibility filter
     float                    ScrollOffsetY          = 0.0f;                                  // [px] - Vertical inspector scroll offset
     float                    LastContentHeight      = 0.0f;                                  // [px] - Measured scroll document height

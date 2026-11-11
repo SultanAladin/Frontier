@@ -35,7 +35,7 @@ using Frontier::InspectorPanel;
 using Frontier::OutlinerCategoryFilter;
 using Frontier::OutlinerPanel;
 using Frontier::OutlinerRecordEntry;
-using Frontier::OutlinerSlotCategory;
+using Frontier::ConstructSlotCategory;
 using Frontier::OutlinerSlotToken;
 using Frontier::OutlinerTitleVariant;
 using Frontier::OutlinerVisibilityFilter;
@@ -298,7 +298,7 @@ bool GenerateWorkspacePaneExhibits(const std::filesystem::path& OutputDirectory)
     const auto           RepositoryRoot = ResolveRepositoryRootPath();
     TypographyRepository Typefaces{};
     if (!VerifyAssertion(
-            Typefaces.LoadRepository(RepositoryRoot / "EngineContent/Fonts") == 5u,
+            Typefaces.LoadRepository(RepositoryRoot / "EngineContent/FontsArchives") == 5u,
             "Load FontRepository.FontSpace"))
     {
         ImGui::DestroyContext(GuiSession);
@@ -439,7 +439,7 @@ bool GenerateWorkspacePaneExhibits(const std::filesystem::path& OutputDirectory)
         }
     }
 
-    // Exhibit 04: Entry Inspector (ProjectZero Header Sizing + Notes + Tiles) & Split Viewport + Diagnostics + Play/Pause
+    // Exhibit 04: Entry Inspector (Workspace Header Sizing + Notes + Tiles) & Split Viewport + Diagnostics + Play/Pause
     {
         OutlinerPanel  Outliner{};
         ViewportPanel  Viewport{};
@@ -523,6 +523,7 @@ bool GenerateWorkspacePaneExhibits(const std::filesystem::path& OutputDirectory)
         Inspector.AssignActiveNotes("Collection notes confirming bottom Folder tint swatches and Browse contents pagination.");
         Inspector.ConfigureScrollOffset(360.0f);
         Viewport.ConfigureExecutionMode(ViewportExecutionMode::Play, true);
+        Viewport.ConfigureProjectionDropdownOpen(true);
 
         if (!CaptureExhibitSnapshot("Outliner", Outliner, Viewport, Inspector, "06-HeaderSettingsAndScrolledTree.png"))
         {

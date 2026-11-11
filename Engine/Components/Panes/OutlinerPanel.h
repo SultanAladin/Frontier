@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                                OUTLINERPANEL.H
 ============================================================================================================================================*/
-// 🧩 Generic Project-Zero Outliner and LayerStack tree pane with Showcase folders, search, filters, drag-reorder, and context directives
+// 🧩 Generic Workspace Outliner and LayerStack tree pane with Showcase folders, search, filters, drag-reorder, and slot directives
 
 #pragma once
 
@@ -10,7 +10,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Components/Controls/TextInputField.h"
-#include "Engine/Components/Panes/WorkspacePaneVisuals.h"
+#include "Engine/Components/Panes/WorkspacePaneAppearance.h"
 
 #include <cstdint>
 #include <span>
@@ -85,19 +85,19 @@ struct OutlinerConstructTemplate
     std::string          DefaultTitle  {};                                           // [-] - Initial name assigned to created entry
     std::string          CategoryTitle {};                                           // [-] - Inspector breadcrumb category label
     std::string          DefaultDetail {};                                           // [-] - Secondary row summary caption
-    OutlinerSlotCategory Category      = OutlinerSlotCategory::ConstructableFirst;   // [-] - Visual icon and filter category
+    ConstructSlotCategory Category      = ConstructSlotCategory::CategoryOne;   // [-] - Visual icon and filter category
 };
 
 struct OutlinerRecordEntry
 {
     OutlinerSlotToken    Token             {};                                         // [id] - Unique slot token
     OutlinerSlotToken    EnclosingToken    {};                                         // [id] - Enclosing slot token (0 = root)
-    OutlinerSlotCategory Category          = OutlinerSlotCategory::ConstructableFirst; // [-]  - Slot visual category
+    ConstructSlotCategory Category          = ConstructSlotCategory::CategoryOne; // [-]  - Slot visual category
     std::string          Title             {};                                         // [-]  - Display name in tree and inspector
     std::string          CategoryLabel     {};                                         // [-]  - Inspector domain category label
     std::string          Subtitle          {};                                         // [-]  - Secondary caption below title
     std::string          AuthorNotes       {};                                         // [-]  - Optional notes edited in Inspector
-    ColorRgba            FolderTint        = ProjectZeroSurfaceColors::ShowcaseSage;   // [-]  - Showcase folder accent color
+    ColorRgba            FolderTint        = WorkspaceSurfaceColors::ShowcaseSage;   // [-]  - Showcase folder accent color
     float                PositionX         = 0.0f;                                     // [m]  - Local/world X coordinate
     float                PositionY         = 0.0f;                                     // [m]  - Local/world Y coordinate
     float                PositionZ         = 0.0f;                                     // [m]  - Local/world Z coordinate
@@ -230,9 +230,9 @@ private:
     Point2D                                ConstructDropdownAnchor {};                                    // [px]  - Construct dropdown top-right
     bool                                   SettingsDropdownOpen    = false;                               // [-]   - Header settings dropdown open
     Point2D                                SettingsDropdownAnchor  {};                                    // [px]  - Settings dropdown top-right
-    bool                                   DirectiveSheetOpen        = false;                               // [-]   - Right-click context sheet open
-    OutlinerSlotToken                      DirectiveTargetToken      {};                                    // [id]  - Slot targeted by context sheet
-    Point2D                                DirectiveSheetAnchor      {};                                    // [px]  - Context sheet origin
+    bool                                   DirectiveSheetOpen        = false;                               // [-]   - Right-click directive sheet open
+    OutlinerSlotToken                      DirectiveTargetToken      {};                                    // [id]  - Slot targeted by directive sheet
+    Point2D                                DirectiveSheetAnchor      {};                                    // [px]  - Directive sheet origin
 
     OutlinerSlotToken                      PressedRowToken         {};                                    // [id]  - Row pressed on pointer down
     Point2D                                PressOrigin             {};                                    // [px]  - Pointer press coordinate

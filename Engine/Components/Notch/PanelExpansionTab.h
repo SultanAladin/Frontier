@@ -52,7 +52,7 @@ public:
     [[nodiscard]] Rectangle2D            QueryGripBounds() const noexcept;
     [[nodiscard]] std::array<Point2D, 4> QueryTrapezoidContour() const noexcept;
 
-    void Draw(
+    void Construct(
         PixelSpace& Surface,
         const char* Caption,
         ColorRgba   TabFill,

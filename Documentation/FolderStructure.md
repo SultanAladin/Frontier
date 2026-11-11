@@ -36,7 +36,7 @@ Frontier/
 │
 ├── EngineContent/                             // Engine default assets and stock repositories
 │   ├── Icons/                                 // Vector SVGs and compiled icon repositories
-│   ├── Fonts/                                 // Primary UI and monospace debug typefaces
+│   ├── FontsArchives/                         // Primary UI and monospace debug typefaces (FontRepository.FontSpace)
 │   ├── Materials/                             // Microfacet PBR surface definitions
 │   ├── Worlds/                                // Levels and world content
 │   └── Graphics/                              // Image formats and SVG content
@@ -305,15 +305,15 @@ Frontier/
     │   ├── Docking/                           // Sharp unrounded trapezoidal docking & multi-window host
     │   │   ├── WorkspaceTab.{h,cpp}           // Sharp 0 px unrounded trapezoidal tab & notch geometry
     │   │   └── WorkspaceDockContainer.{h,cpp} // Intra-app multi-window docking & OS window tear-off
-    │   ├── Panes/                             // Reusable Project-Zero Outliner/LayerStack, Inspector & Viewport panes
-    │   │   ├── WorkspacePaneVisuals.{h,cpp}   // Shared Project-Zero typography, Showcase folder & vector emblems
+    │   ├── Panes/                             // Reusable workspace Outliner/LayerStack, Inspector & Viewport panes
+    │   │   ├── WorkspacePaneAppearance.{h,cpp}// Shared surface colors, VisualToken, VectorGraphic, icons, signs & symbols
     │   │   ├── OutlinerPanel.{h,cpp}          // Generic Outliner/LayerStack tree, folders, filters & drag-reorder
     │   │   ├── InspectorPanel.{h,cpp}         // Showcase Folder Inspector, Add Notes editor & capability tiles
     │   │   └── ViewportPanel.{h,cpp}          // Edit/Simulate/Play-Pause strip, Construct, Split, Diagnostics & Settings
     │   ├── ControlCentre/                     // Pull-down Control Centre & settings pages
     │   │   └── ControlCentrePanel.{h,cpp}     // Quick Controls, Appearance, Input, Notifications & Workspace
     │   ├── Controls/                          // Reusable studio UI control primitives
-    │   │   ├── ControlStyle.{h,cpp}           // Shared color set, smoothstep cross-fade & section containers
+    │   │   ├── ControlAppearance.{h,cpp}      // Shared color set, smoothstep cross-fade & section containers
     │   │   ├── ScalarSlider.{h,cpp}           // Capsule slider & split numeric/unit readout
     │   │   ├── ExclusiveSelector.{h,cpp}      // Standard bordered & compact borderless exclusive switches
     │   │   ├── CapsuleButton.{h,cpp}          // Primary/Secondary/Danger buttons, chips, segmented bars & discs

@@ -25,7 +25,7 @@ namespace Frontier
 
 enum class ShortcutCommand : uint8_t
 {
-    ControlCentre = 0, // [-] - Toggle top Control Centre drawer
+    ControlCentre = 0, // [-] - Toggle top Control Centre tray
     Typography    = 1, // [-] - Open Appearance -> Typography tab
     Theme         = 2, // [-] - Open Appearance -> Theme tab
     DismissPanel  = 3, // [-] - Navigate back or close Control Centre

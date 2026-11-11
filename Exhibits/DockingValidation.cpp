@@ -156,7 +156,7 @@ bool RenderDockingSnapshotExhibits(const std::filesystem::path &OutputDir)
 
     const auto      RepoRoot = ResolveRepositoryRootPath();
     TypographyRepository Typefaces{};
-    if (!VerifyAssertion(Typefaces.LoadRepository(RepoRoot / "EngineContent/Fonts") == 5u,
+    if (!VerifyAssertion(Typefaces.LoadRepository(RepoRoot / "EngineContent/FontsArchives") == 5u,
                          "Load FontRepository.FontSpace"))
     {
         ImGui::DestroyContext(GuiSession);
@@ -280,7 +280,7 @@ bool RenderDockingSnapshotExhibits(const std::filesystem::path &OutputDir)
         // Blit sub-canvases
         auto BlitSubCanvas = [&](const SoftwareRasterCanvas &Src, uint32_t DestX, uint32_t DestY) {
             ImGui::NewFrame();
-            ImDrawList *DrawTarget = ImGui::GetBackgroundDrawList();
+            ImDrawList *CanvasTarget = ImGui::GetBackgroundDrawList();
             for (uint32_t Y = 0; Y < Src.Height(); ++Y)
             {
                 uint32_t RunStart = 0;
@@ -295,7 +295,7 @@ bool RenderDockingSnapshotExhibits(const std::filesystem::path &OutputDir)
                             break;
                         ++RunEnd;
                     }
-                    DrawTarget->AddRectFilled(
+                    CanvasTarget->AddRectFilled(
                         ImVec2(static_cast<float>(DestX + RunStart), static_cast<float>(DestY + Y)),
                         ImVec2(static_cast<float>(DestX + RunEnd), static_cast<float>(DestY + Y + 1)),
                         IM_COL32(Color.Red, Color.Green, Color.Blue, 255));

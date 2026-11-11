@@ -533,13 +533,13 @@ const VectorIconEntry &VectorIconRepository::QueryControl(ControlIcon Icon) noex
     return Index < ControlEntries.size() ? ControlEntries[Index] : ControlEntries[0];
 }
 
-void VectorIconRepository::DrawNavigation(PixelSpace &Surface, NavigationIcon Icon, const VectorIconPlacement &Placement) noexcept
+void VectorIconRepository::ConstructNavigation(PixelSpace &Surface, NavigationIcon Icon, const VectorIconPlacement &Placement) noexcept
 {
     const VectorIconEntry &Entry = QueryNavigation(Icon);
     StrokeSvgPath(Surface, Entry.SvgPath, Placement, Entry.ViewBox);
 }
 
-void VectorIconRepository::DrawControl(PixelSpace &Surface, ControlIcon Icon, const VectorIconPlacement &Placement) noexcept
+void VectorIconRepository::ConstructControl(PixelSpace &Surface, ControlIcon Icon, const VectorIconPlacement &Placement) noexcept
 {
     const VectorIconEntry &Entry = QueryControl(Icon);
     StrokeSvgPath(Surface, Entry.SvgPath, Placement, Entry.ViewBox);

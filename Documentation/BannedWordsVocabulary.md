@@ -15,7 +15,7 @@ Related governance documents: [FolderStructure.md](FolderStructure.md) · [Codin
 - `action`
 - `adjacency`
 - `affinity`
-- `archive` / `archives` *(use `Repository` or `Registry`)*
+- `archive` / `archives` *(use `Repository` or `Registry`; narrow directory exemption for `EngineContent/FontsArchives/`)*
 - `arena`
 - `badge`
 - `binding`
@@ -31,7 +31,9 @@ Related governance documents: [FolderStructure.md](FolderStructure.md) · [Codin
 - `contract`
 - `coverage`
 - `dev`
+- `draw` *(verb/noun barred: use `Construct`)*
 - `element`
+- `emblem` *(barred: use `Icon`, `Symbol`, `VectorGraphic`, `VisualToken`, `Indicator`, or `Sign` — see §2.1)*
 - `emitter`
 - `evaluator`
 - `extension` *(strictly restricted: permitted **only** for designated lifecycle coordinators)*
@@ -97,7 +99,8 @@ When replacing or avoiding a banned concept, name the **concrete layout, index l
 | Banned Term / Concept | Approved Frontier Mechanism / Replacement |
 | :--- | :--- |
 | `Commit` | `Finalize`, `Enforce`, `Align`, or `Resolve` |
-| `Make` / `Make*` | `Construct` / `Construct*` (`ConstructSplashWindow`, `ConstructApplicationWindow`, `ConstructGameWindow`) |
+| `Make` / `Make*` / `Draw` / `Draw*` | `Construct` / `Construct*` (`ConstructSplashWindow`, `ConstructApplicationWindow`, `ConstructSlotCategoryIcon`, `ConstructShowcaseFolderIcon`) |
+| `Emblem` / `Glyph` / `Badge` | Semantic visual vocabulary: `Icon`, `VectorGraphic`, `VisualToken`, `Indicator`, `Sign`, or `Symbol` (see §2.1) |
 | `Is*`, `Has*`, `Was*`, `On*`, `Accept*`, `CenteredOnMonitor` | Bitmask directives use **`Enable*`**, **`Toggle*`**, or **`Assign*`** (`EnableBorderDecoration`, `EnableInteractiveResize`, `AssignMonitorCenter`, `AssignInitialFocus`); boolean queries use `Query*` / `Verify*` |
 | `Compose` / `Composite` (verb or noun) | `Stack` or `Order` (e.g., `RadiometricToneStack`) |
 | `Parent` / `Child` / `Sibling` / `Orphan` / kinship | Technical memory/index link terminology (`EnclosingIndex`, `FirstNestedIndex`, `NextPeerIndex`, `DepthLevel`) |
@@ -109,6 +112,19 @@ When replacing or avoiding a banned concept, name the **concrete layout, index l
 | `bloom` | Physical optical glare / luminance scatter terminology (`VeilingGlareFilter`, `LuminanceGlareDownsample`) |
 | `Hub` | Designated `…Extension` when acting as a domain lifecycle coordinator (e.g., `AnnotationExtension`) |
 | Bare `Record` | Composite `RecordEntry` or `RecordToken`, or concrete `Register` / `Layout` |
+
+### 2.1 Approved Visual, Iconography & Token Vocabulary
+
+Use the following distinct visual nouns according to their exact structural role (never interchange them loosely, and never use `Emblem`, `Glyph`, `Badge`, or `Draw`):
+
+| Approved Term | Exact Role & Usage |
+| :--- | :--- |
+| **`Icon`** | Concrete graphical icon representing a category, folder, tool, or capability (`ConstructShowcaseFolderIcon`, `ConstructSlotCategoryIcon`, `ControlIcon`). |
+| **`VectorGraphic`** | Multi-contour vector artwork authored in normalized `ViewBox` coordinates (`VectorGraphic`, `ConstructVectorGraphic`). |
+| **`VisualToken`** | Structured geometric color token (`struct VisualToken`: shape such as circle, square, or rounded square paired with fill/stroke color and extent) used for category color dots, folder tint swatches, and status discs (`ConstructVisualToken`). |
+| **`Indicator`** | Live operational, visibility, selection, or scroll position indicator (`ConstructVisibilityIndicator`, `ConstructScrollIndicator`). |
+| **`Sign`** | Semantic warning, caution, alert, or spatial orientation sign (`ConstructCautionSign`, `ConstructOrientationSign`, `ConstructToastSeveritySign`). |
+| **`Symbol`** | Compact typographic or geometric mark such as `+`, `×`, check mark, chevron, play wedge, or pause bars (`ConstructCheckSymbol`, `ConstructChevronSymbol`). |
 
 ---
 
@@ -159,8 +175,8 @@ Use this combined index to audit identifiers, filenames, directory names, and co
 - **A**: `action`, `adjacency`, `Aether`, `affinity`, `Ancestor`, `Apex`, `archive` / `archives`, `arena` *(avoid: `atlas`)*
 - **B**: `backend`, `badge`, `Base`, `binding`, `bloom`, `BooleanSwitch` *(renamed to `ExclusiveSelector`)*
 - **C**: `cadence`, `card`, `carousel`, `catalog` / `catalogue`, `Catalyst`, `Child`, `Children`, `classification`, `Commit`, `Common`, `Compose` / `compose`, `concurrence` / `concurrency` / `concurrent`, `Conductor`, `context`, `continuum`, `contract`, `Controller`, `Core`, `coverage`
-- **D**: `Data`, `Descendant`, `Designation`, `dev`, `Dispatcher`
-- **E**: `Element` / `element`, `Emission` / `Emit` / `emitter`, `Entity`, `evaluator`, `extension` *(restricted — §3.1)*
+- **D**: `Data`, `Descendant`, `Designation`, `dev`, `Dispatcher`, `Draw` / `draw`
+- **E**: `Element` / `element`, `emblem` / `Emblem`, `Emission` / `Emit` / `emitter`, `Entity`, `evaluator`, `extension` *(restricted — §3.1)*
 - **F**: `family`, `fence`, `flag`, `floating`, `flow`, `Frame` / `frame`
 - **G**: `Genesis`, `glide`, `glyph`, `Goliath`, `Graph` / `graph`
 - **H**: `Handler`, `harness`, `Helios`, `Helper`, `Hierarchy`, `hook`, `Horizon`, `Hub` / `hub`

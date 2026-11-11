@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Controls/ControlStyle.h"
+#include "Engine/Components/Controls/ControlAppearance.h"
 
 namespace Frontier
 {
@@ -21,7 +21,7 @@ namespace ExclusiveSelector
 //                                                  FUNCTION PROTOTYPES
 //------------------------------------------------------------------------------------------------------------------------
 
-[[nodiscard]] ControlContact Draw(
+[[nodiscard]] ControlContact Construct(
     PixelSpace&           Surface,
     float                 X,
     float                 Y,
@@ -29,7 +29,7 @@ namespace ExclusiveSelector
     const ControlPointer& Pointer,
     float                 Opacity = 1.0f) noexcept;
 
-[[nodiscard]] ControlContact DrawCompact(
+[[nodiscard]] ControlContact ConstructCompact(
     PixelSpace&           Surface,
     Rectangle2D           Bounds,
     bool                  Active,

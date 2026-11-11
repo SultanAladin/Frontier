@@ -660,24 +660,24 @@ void DesktopPlatformWindow::RefreshCachedExtent() noexcept
     int   PosY   = 0;
     int   WinW   = 0;
     int   WinH   = 0;
-    int   DrawW  = 0;
-    int   DrawH  = 0;
+    int   PixelW  = 0;
+    int   PixelH  = 0;
     float ScaleX = 1.0f;
     float ScaleY = 1.0f;
 
     glfwGetWindowPos(Window, &PosX, &PosY);
     glfwGetWindowSize(Window, &WinW, &WinH);
-    glfwGetFramebufferSize(Window, &DrawW, &DrawH);
+    glfwGetFramebufferSize(Window, &PixelW, &PixelH);
     glfwGetWindowContentScale(Window, &ScaleX, &ScaleY);
 
     ActiveExtent.OriginX             = PosX;
     ActiveExtent.OriginY             = PosY;
     ActiveExtent.PixelWidth          = static_cast<uint32_t>(std::max(0, WinW));
     ActiveExtent.PixelHeight         = static_cast<uint32_t>(std::max(0, WinH));
-    ActiveExtent.DrawablePixelWidth  = static_cast<uint32_t>(std::max(0, DrawW));
-    ActiveExtent.DrawablePixelHeight = static_cast<uint32_t>(std::max(0, DrawH));
+    ActiveExtent.SurfacePixelWidth  = static_cast<uint32_t>(std::max(0, PixelW));
+    ActiveExtent.SurfacePixelHeight = static_cast<uint32_t>(std::max(0, PixelH));
     ActiveExtent.DpiScaleFactor      = std::max(ScaleX, ScaleY);
-    ActiveExtent.Minimized           = (glfwGetWindowAttrib(Window, GLFW_ICONIFIED) == GLFW_TRUE) || (DrawW == 0 || DrawH == 0);
+    ActiveExtent.Minimized           = (glfwGetWindowAttrib(Window, GLFW_ICONIFIED) == GLFW_TRUE) || (PixelW == 0 || PixelH == 0);
     ActiveExtent.Maximized           = (glfwGetWindowAttrib(Window, GLFW_MAXIMIZED) == GLFW_TRUE);
     ActiveExtent.Focused             = (glfwGetWindowAttrib(Window, GLFW_FOCUSED) == GLFW_TRUE);
     ActiveExtent.Visible             = (glfwGetWindowAttrib(Window, GLFW_VISIBLE) == GLFW_TRUE);

@@ -216,12 +216,12 @@ void TextEditBuffer::Cancel() noexcept
 namespace TextInputField
 {
 
-ControlContact Draw(PixelSpace &Surface, Rectangle2D Bounds, TextEditBuffer &Editor, const ControlPointer &Pointer,
+ControlContact Construct(PixelSpace &Surface, Rectangle2D Bounds, TextEditBuffer &Editor, const ControlPointer &Pointer,
                     float FontSize, float Opacity) noexcept
 {
-    const ControlColorSet &Colors = ControlStyle::Colors();
+    const ControlColorSet &Colors = ControlAppearance::Colors();
     ControlContact         Contact{};
-    Contact.Hovered = ControlStyle::QueryPointerOver(Bounds, Pointer);
+    Contact.Hovered = ControlAppearance::QueryPointerOver(Bounds, Pointer);
     Contact.Pressed = Contact.Hovered && Pointer.Pressed;
     Contact.Clicked = Contact.Hovered && Pointer.Released;
 
@@ -230,7 +230,7 @@ ControlContact Draw(PixelSpace &Surface, Rectangle2D Bounds, TextEditBuffer &Edi
     const ColorQuad Border = Editor.Active ? Colors.Highlight : Colors.Stroke;
 
     Surface.FillRectangle(Bounds, Colors.Field.Faded(Opacity).ToRgba8(), Radius);
-    ControlStyle::DrawRoundedOutline(Surface, Bounds, Border.Faded(Opacity), Radius, Editor.Active ? 1.5f : 1.0f);
+    ControlAppearance::ConstructRoundedOutline(Surface, Bounds, Border.Faded(Opacity), Radius, Editor.Active ? 1.5f : 1.0f);
 
     Surface.PushClip(Bounds);
     const float TextY   = Bounds.Y + (Bounds.Height - FontSize) * 0.5f;

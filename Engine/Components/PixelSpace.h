@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                                  PIXELSPACE.H
 ============================================================================================================================================*/
-// 🧩 Logical-to-physical 2D drawing surface for reusable engine UI controls, panels, and overlays
+// 🧩 Logical-to-physical 2D canvas surface for reusable engine UI controls, panels, and overlays
 
 #pragma once
 
@@ -84,14 +84,14 @@ class PixelSpace
 public:
     struct GroupMarker
     {
-        int     FirstVertex = 0;               // [idx] - Starting draw-buffer vertex offset
+        int     FirstVertex = 0;               // [idx] - Starting canvas-buffer vertex offset
         Point2D Pivot       {};                // [px]  - Transform pivot in logical coordinates
         Point2D Scale       { 1.0f, 1.0f };    // [-]   - Horizontal and vertical scale factors
         Point2D Offset      {};                // [px]  - Post-pivot logical translation
         float   Alpha       = 1.0f;            // [0-1] - Group vertex alpha multiplier
     };
 
-    PixelSpace(ImDrawList* DrawTarget, Point2D SurfaceOrigin, float SurfaceScale = 1.0f, ImFont* DefaultTypeface = nullptr) noexcept;
+    PixelSpace(ImDrawList* CanvasTarget, Point2D SurfaceOrigin, float SurfaceScale = 1.0f, ImFont* DefaultTypeface = nullptr) noexcept;
     ~PixelSpace() noexcept;
 
     PixelSpace(const PixelSpace&)            = delete;
@@ -99,7 +99,7 @@ public:
 
     [[nodiscard]] float       QueryScale() const noexcept;
     [[nodiscard]] Point2D     QueryOrigin() const noexcept;
-    [[nodiscard]] ImDrawList* QueryDrawBuffer() const noexcept;
+    [[nodiscard]] ImDrawList* QueryCanvasBuffer() const noexcept;
 
     void FillRectangle(Rectangle2D Bounds, ColorRgba Fill, float CornerRadius = 0.0f) noexcept;
     void FillRectangleBottomRounded(Rectangle2D Bounds, ColorRgba Fill, float CornerRadius) noexcept;
@@ -142,7 +142,7 @@ public:
     [[nodiscard]] Rectangle2D ToPhysical(Rectangle2D Logical) const noexcept;
 
 private:
-    ImDrawList* DrawBuffer        = nullptr; // [-]     - Target Dear ImGui command buffer
+    ImDrawList* CanvasBuffer        = nullptr; // [-]     - Target Dear ImGui command buffer
     Point2D     Origin            {};        // [px]    - Physical origin offset
     float       Scale             = 1.0f;    // [-]     - Logical-to-physical DPI scale factor
     ImFont*     ActiveTypeface    = nullptr; // [-]     - Currently bound font face
@@ -238,9 +238,9 @@ inline Point2D PixelSpace::QueryOrigin() const noexcept
     return Origin;
 }
 
-inline ImDrawList* PixelSpace::QueryDrawBuffer() const noexcept
+inline ImDrawList* PixelSpace::QueryCanvasBuffer() const noexcept
 {
-    return DrawBuffer;
+    return CanvasBuffer;
 }
 
 inline ImFont* PixelSpace::QueryTypeface() const noexcept

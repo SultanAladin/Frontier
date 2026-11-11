@@ -1,9 +1,9 @@
 /*============================================================================================================================================
-                                                               CONTROLSTYLE.CPP
+                                                            CONTROLAPPEARANCE.CPP
 ============================================================================================================================================*/
 // 🧩 Shared control color set, smoothstep cross-fade, rounded outlines, and section layout primitives
 
-#include "Engine/Components/Controls/ControlStyle.h"
+#include "Engine/Components/Controls/ControlAppearance.h"
 
 #include <algorithm>
 #include <cmath>
@@ -20,7 +20,7 @@ ControlColorSet ActiveColorSet{};
 
 } // namespace
 
-namespace ControlStyle
+namespace ControlAppearance
 {
 
 ControlColorSet ConstructColorSet(const ThemeRepository &Theme, ColorQuad WarningColor, ColorQuad SuccessColor,
@@ -118,7 +118,7 @@ const ControlColorSet &Colors() noexcept
     return ActiveColorSet;
 }
 
-void DrawRoundedOutline(PixelSpace &Surface, Rectangle2D Bounds, ColorQuad Stroke, float Radius,
+void ConstructRoundedOutline(PixelSpace &Surface, Rectangle2D Bounds, ColorQuad Stroke, float Radius,
                         float Thickness) noexcept
 {
     if (Bounds.Width <= 0.0f || Bounds.Height <= 0.0f)
@@ -146,7 +146,7 @@ void DrawRoundedOutline(PixelSpace &Surface, Rectangle2D Bounds, ColorQuad Strok
     Surface.StrokePolyline({Ring, Count}, Stroke.ToRgba8(), Thickness, true);
 }
 
-void DrawCircleOutline(PixelSpace &Surface, float CenterX, float CenterY, float Radius, ColorQuad Stroke,
+void ConstructCircleOutline(PixelSpace &Surface, float CenterX, float CenterY, float Radius, ColorQuad Stroke,
                        float Thickness) noexcept
 {
     Point2D       Ring[40]{};
@@ -159,12 +159,12 @@ void DrawCircleOutline(PixelSpace &Surface, float CenterX, float CenterY, float 
     Surface.StrokePolyline(Ring, Stroke.ToRgba8(), Thickness, true);
 }
 
-void DrawCircleFill(PixelSpace &Surface, float CenterX, float CenterY, float Radius, ColorQuad Fill) noexcept
+void ConstructCircleFill(PixelSpace &Surface, float CenterX, float CenterY, float Radius, ColorQuad Fill) noexcept
 {
     Surface.FillRectangle({CenterX - Radius, CenterY - Radius, Radius * 2.0f, Radius * 2.0f}, Fill.ToRgba8(), Radius);
 }
 
-void DrawHairline(PixelSpace &Surface, float X, float Y, float Width, ColorQuad Ink) noexcept
+void ConstructHairline(PixelSpace &Surface, float X, float Y, float Width, ColorQuad Ink) noexcept
 {
     Surface.FillRectangle({X, Y, Width, 1.0f}, Ink.ToRgba8(), 0.0f);
 }
@@ -183,27 +183,27 @@ void TextLeading(PixelSpace &Surface, Rectangle2D Bounds, float PadX, ColorQuad 
     Surface.Text({Bounds.X + PadX, Bounds.Y + (Bounds.Height - Measured.Y) * 0.5f}, FontSize, Ink.ToRgba8(), Utf8);
 }
 
-void DrawIcon(PixelSpace &Surface, float X, float Y, float Size, ColorQuad Ink, ControlIcon Icon,
+void ConstructIcon(PixelSpace &Surface, float X, float Y, float Size, ColorQuad Ink, ControlIcon Icon,
               float StrokeWidth) noexcept
 {
-    VectorIconRepository::DrawControl(Surface, Icon, {X, Y, Size, Ink.ToRgba8(), StrokeWidth});
+    VectorIconRepository::ConstructControl(Surface, Icon, {X, Y, Size, Ink.ToRgba8(), StrokeWidth});
 }
 
-void DrawIconCentered(PixelSpace &Surface, Rectangle2D Bounds, float Size, ColorQuad Ink, ControlIcon Icon,
+void ConstructIconCentered(PixelSpace &Surface, Rectangle2D Bounds, float Size, ColorQuad Ink, ControlIcon Icon,
                       float StrokeWidth) noexcept
 {
-    DrawIcon(Surface, Bounds.X + (Bounds.Width - Size) * 0.5f, Bounds.Y + (Bounds.Height - Size) * 0.5f, Size, Ink, Icon,
+    ConstructIcon(Surface, Bounds.X + (Bounds.Width - Size) * 0.5f, Bounds.Y + (Bounds.Height - Size) * 0.5f, Size, Ink, Icon,
              StrokeWidth);
 }
 
-Rectangle2D DrawSectionContainer(PixelSpace &Surface, Rectangle2D Bounds, float Radius, float Opacity) noexcept
+Rectangle2D ConstructSectionContainer(PixelSpace &Surface, Rectangle2D Bounds, float Radius, float Opacity) noexcept
 {
     Surface.FillRectangle(Bounds, ActiveColorSet.Inset.Faded(Opacity).ToRgba8(), Radius);
-    DrawRoundedOutline(Surface, Bounds, ActiveColorSet.Stroke.Faded(Opacity), Radius);
+    ConstructRoundedOutline(Surface, Bounds, ActiveColorSet.Stroke.Faded(Opacity), Radius);
     return Bounds.Inset(ControlMetrics::SectionPadding);
 }
 
-float DrawSectionHeading(PixelSpace &Surface, float X, float Y, float, const char *Title, const char *Description,
+float ConstructSectionHeading(PixelSpace &Surface, float X, float Y, float, const char *Title, const char *Description,
                          ColorQuad TitleInk, ColorQuad MutedInk, float Opacity) noexcept
 {
     const Point2D TitleExtent = Surface.MeasureText(14.0f, Title);
@@ -219,7 +219,7 @@ float DrawSectionHeading(PixelSpace &Surface, float X, float Y, float, const cha
     return Consumed;
 }
 
-Rectangle2D DrawLabeledRow(PixelSpace &Surface, float X, float Y, float Width, const char *Label, ColorQuad LabelInk,
+Rectangle2D ConstructLabeledRow(PixelSpace &Surface, float X, float Y, float Width, const char *Label, ColorQuad LabelInk,
                            float Opacity) noexcept
 {
     TextLeading(Surface, {X, Y, ControlMetrics::LabelWidth, ControlMetrics::ControlHeight}, 0.0f,
@@ -234,7 +234,7 @@ float AdvanceScrollOffset(float Offset, float WheelDelta, float ContentHeight, f
     return std::clamp(Offset - WheelDelta * 40.0f, 0.0f, Travel);
 }
 
-void DrawScrollIndicator(PixelSpace &Surface, Rectangle2D ViewBounds, float Offset, float ContentHeight,
+void ConstructScrollIndicator(PixelSpace &Surface, Rectangle2D ViewBounds, float Offset, float ContentHeight,
                          float Opacity) noexcept
 {
     if (ContentHeight <= ViewBounds.Height + 1.0f || ViewBounds.Height <= 8.0f)
@@ -249,6 +249,6 @@ void DrawScrollIndicator(PixelSpace &Surface, Rectangle2D ViewBounds, float Offs
     Surface.FillRectangle({ViewBounds.Right() - 5.0f, ThumbY, 3.0f, ThumbH}, Ink.ToRgba8(), 1.5f);
 }
 
-} // namespace ControlStyle
+} // namespace ControlAppearance
 
 } // namespace Frontier

@@ -50,12 +50,12 @@ const char *LabelAtDisplayOrder(uint32_t DisplayOrdinal) noexcept
     return DisplaySchemes[std::min(DisplayOrdinal, 7u)].Label;
 }
 
-ControlContact Draw(PixelSpace &Surface, Rectangle2D TileBounds, ThemePreset Preset, bool Active, float CornerRadius,
+ControlContact Construct(PixelSpace &Surface, Rectangle2D TileBounds, ThemePreset Preset, bool Active, float CornerRadius,
                     const ControlPointer &Pointer, float Opacity) noexcept
 {
-    const ControlColorSet &Colors = ControlStyle::Colors();
+    const ControlColorSet &Colors = ControlAppearance::Colors();
     ControlContact         Contact{};
-    Contact.Hovered = ControlStyle::QueryPointerOver(TileBounds, Pointer);
+    Contact.Hovered = ControlAppearance::QueryPointerOver(TileBounds, Pointer);
     Contact.Pressed = Contact.Hovered && Pointer.Pressed;
     Contact.Clicked = Contact.Hovered && Pointer.Released;
 
@@ -72,7 +72,7 @@ ControlContact Draw(PixelSpace &Surface, Rectangle2D TileBounds, ThemePreset Pre
 
     Surface.FillRectangle(TileBounds, Scheme.Background.Faded(Opacity).ToRgba8(), 20.0f);
     if (!Active)
-        ControlStyle::DrawRoundedOutline(Surface, TileBounds, IdleRing.Faded(Opacity), 20.0f);
+        ControlAppearance::ConstructRoundedOutline(Surface, TileBounds, IdleRing.Faded(Opacity), 20.0f);
 
     Surface.PushClip(TileBounds);
     const Rectangle2D Inner{TileBounds.X + 24.0f, TileBounds.Y + 24.0f, std::max(0.0f, TileBounds.Width - 24.0f),
@@ -84,12 +84,12 @@ ControlContact Draw(PixelSpace &Surface, Rectangle2D TileBounds, ThemePreset Pre
     const Rectangle2D Pane{Side.Right(), Inner.Y, Inner.Width - SideW, Inner.Height};
     Surface.FillRectangle(Pane, Scheme.Pane.Faded(Opacity).ToRgba8(), 0.0f);
     if (Scheme.OutlinePane)
-        ControlStyle::DrawRoundedOutline(Surface, Pane, ColorQuad{0.0f, 0.0f, 0.0f, 0.05f * Opacity}, 0.0f);
+        ControlAppearance::ConstructRoundedOutline(Surface, Pane, ColorQuad{0.0f, 0.0f, 0.0f, 0.05f * Opacity}, 0.0f);
     Surface.FillRectangle({Side.Right(), Side.Y, 1.0f, Side.Height},
                           ColorQuad{0.0f, 0.0f, 0.0f, 0.05f * Opacity}.ToRgba8(), 0.0f);
 
     const float LineRadius = CornerRadius * 0.25f;
-    auto        DrawMockBar = [&](float BarX, float BarY, float BarW, float BarH, float Alpha, float Rad) {
+    auto        ConstructMockBar = [&](float BarX, float BarY, float BarW, float BarH, float Alpha, float Rad) {
         Surface.FillRectangle({BarX, BarY, BarW, BarH},
                               ColorQuad{Scheme.Lines.Red, Scheme.Lines.Green, Scheme.Lines.Blue, Alpha * Opacity}.ToRgba8(),
                               Rad);
@@ -99,40 +99,40 @@ ControlContact Draw(PixelSpace &Surface, Rectangle2D TileBounds, ThemePreset Pre
     float       SideY = Side.Y + 12.0f;
     const float SideInnerW = std::max(0.0f, Side.Width - 24.0f);
     for (int Dot = 0; Dot < 3; ++Dot)
-        DrawMockBar(SideX + static_cast<float>(Dot) * 10.0f, SideY, 6.0f, 6.0f, 0.4f, 3.0f);
+        ConstructMockBar(SideX + static_cast<float>(Dot) * 10.0f, SideY, 6.0f, 6.0f, 0.4f, 3.0f);
     SideY += 14.0f;
-    DrawMockBar(SideX, SideY, SideInnerW, 6.0f, 0.2f, LineRadius);
+    ConstructMockBar(SideX, SideY, SideInnerW, 6.0f, 0.2f, LineRadius);
     SideY += 12.0f;
-    DrawMockBar(SideX, SideY, SideInnerW * (2.0f / 3.0f), 6.0f, 0.2f, LineRadius);
+    ConstructMockBar(SideX, SideY, SideInnerW * (2.0f / 3.0f), 6.0f, 0.2f, LineRadius);
     SideY += 12.0f;
-    DrawMockBar(SideX, SideY, SideInnerW * 0.5f, 6.0f, 0.2f, LineRadius);
+    ConstructMockBar(SideX, SideY, SideInnerW * 0.5f, 6.0f, 0.2f, LineRadius);
 
     const float AvatarY = Side.Bottom() - 22.0f;
     if (AvatarY > SideY + 8.0f)
     {
-        DrawMockBar(SideX, AvatarY, 10.0f, 10.0f, 0.4f, 5.0f);
-        DrawMockBar(SideX + 16.0f, AvatarY + 2.0f, 16.0f, 6.0f, 0.2f, LineRadius);
+        ConstructMockBar(SideX, AvatarY, 10.0f, 10.0f, 0.4f, 5.0f);
+        ConstructMockBar(SideX + 16.0f, AvatarY + 2.0f, 16.0f, 6.0f, 0.2f, LineRadius);
     }
 
     const float PaneX      = Pane.X + 16.0f;
     float       PaneY      = Pane.Y + 16.0f;
     const float PaneInnerW = std::max(0.0f, Pane.Width - 32.0f);
-    DrawMockBar(PaneX, PaneY, PaneInnerW * 0.25f, 6.0f, 0.3f, LineRadius);
+    ConstructMockBar(PaneX, PaneY, PaneInnerW * 0.25f, 6.0f, 0.3f, LineRadius);
     PaneY += 16.0f;
-    DrawMockBar(PaneX, PaneY, PaneInnerW / 3.0f, 6.0f, 0.2f, LineRadius);
+    ConstructMockBar(PaneX, PaneY, PaneInnerW / 3.0f, 6.0f, 0.2f, LineRadius);
     PaneY += 16.0f;
     const float SquareSide = std::max((PaneInnerW - 16.0f) / 3.0f, 4.0f);
     for (int Box = 0; Box < 3; ++Box)
-        DrawMockBar(PaneX + static_cast<float>(Box) * (SquareSide + 8.0f), PaneY, SquareSide, SquareSide, 0.1f,
+        ConstructMockBar(PaneX + static_cast<float>(Box) * (SquareSide + 8.0f), PaneY, SquareSide, SquareSide, 0.1f,
                     CornerRadius * 0.5f);
     const float BottomLineY = Pane.Bottom() - 22.0f;
     if (BottomLineY > PaneY + SquareSide + 4.0f)
-        DrawMockBar(PaneX, BottomLineY, PaneInnerW * 0.2f, 6.0f, 0.2f, LineRadius);
+        ConstructMockBar(PaneX, BottomLineY, PaneInnerW * 0.2f, 6.0f, 0.2f, LineRadius);
     Surface.PopClip();
 
     if (Active)
     {
-        ControlStyle::DrawRoundedOutline(
+        ControlAppearance::ConstructRoundedOutline(
             Surface, {TileBounds.X - 2.0f, TileBounds.Y - 2.0f, TileBounds.Width + 4.0f, TileBounds.Height + 4.0f},
             Colors.Accent.Faded(Opacity), 22.0f, 2.0f);
     }
@@ -144,31 +144,31 @@ ControlContact Draw(PixelSpace &Surface, Rectangle2D TileBounds, ThemePreset Pre
     return Contact;
 }
 
-ControlContact DrawColorSwatch(PixelSpace &Surface, float CenterX, float CenterY, ColorQuad SwatchColor, bool Selected,
+ControlContact ConstructColorSwatch(PixelSpace &Surface, float CenterX, float CenterY, ColorQuad SwatchColor, bool Selected,
                                bool OuterRingStyle, const ControlPointer &Pointer, float Opacity) noexcept
 {
-    const ControlColorSet &Colors = ControlStyle::Colors();
+    const ControlColorSet &Colors = ControlAppearance::Colors();
     const float            Radius  = ControlMetrics::SwatchDiameter * 0.5f;
     const Rectangle2D      Bounds{CenterX - Radius, CenterY - Radius, ControlMetrics::SwatchDiameter,
                              ControlMetrics::SwatchDiameter};
 
     ControlContact Contact{};
-    Contact.Hovered         = ControlStyle::QueryPointerOver(Bounds, Pointer);
+    Contact.Hovered         = ControlAppearance::QueryPointerOver(Bounds, Pointer);
     Contact.Pressed         = Contact.Hovered && Pointer.Pressed;
     Contact.Clicked         = Contact.Hovered && Pointer.Released;
     const float HoverScale  = (Contact.Hovered && OuterRingStyle) ? 1.10f : 1.0f;
 
-    ControlStyle::DrawCircleFill(Surface, CenterX, CenterY, Radius * HoverScale, SwatchColor.Faded(Opacity));
+    ControlAppearance::ConstructCircleFill(Surface, CenterX, CenterY, Radius * HoverScale, SwatchColor.Faded(Opacity));
     if (Selected)
     {
         if (OuterRingStyle)
         {
-            ControlStyle::DrawCircleOutline(Surface, CenterX, CenterY, Radius + 4.0f, SwatchColor.Faded(Opacity), 2.0f);
-            ControlStyle::DrawCircleFill(Surface, CenterX, CenterY, 4.0f, Colors.Field.Faded(Opacity));
+            ControlAppearance::ConstructCircleOutline(Surface, CenterX, CenterY, Radius + 4.0f, SwatchColor.Faded(Opacity), 2.0f);
+            ControlAppearance::ConstructCircleFill(Surface, CenterX, CenterY, 4.0f, Colors.Field.Faded(Opacity));
         }
         else
         {
-            ControlStyle::DrawCircleOutline(Surface, CenterX, CenterY, Radius - 1.0f, Colors.Primary.Faded(Opacity),
+            ControlAppearance::ConstructCircleOutline(Surface, CenterX, CenterY, Radius - 1.0f, Colors.Primary.Faded(Opacity),
                                             2.0f);
         }
     }

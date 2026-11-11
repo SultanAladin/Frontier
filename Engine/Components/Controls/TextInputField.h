@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Controls/ControlStyle.h"
+#include "Engine/Components/Controls/ControlAppearance.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -60,7 +60,7 @@ struct TextEditBuffer
 namespace TextInputField
 {
 
-[[nodiscard]] ControlContact Draw(
+[[nodiscard]] ControlContact Construct(
     PixelSpace&           Surface,
     Rectangle2D           Bounds,
     TextEditBuffer&       Editor,

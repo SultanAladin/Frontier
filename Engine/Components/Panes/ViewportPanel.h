@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                                VIEWPORTPANEL.H
 ============================================================================================================================================*/
-// 🧩 Project-Zero Viewport pane with Edit/Simulate/Play-Pause strip, Construct sheet, Split Viewport, Diagnostics, and Settings
+// 🧩 Workspace Viewport pane with Edit/Simulate/Play-Pause strip, Construct sheet, Split Viewport, Diagnostics, and Settings
 
 #pragma once
 
@@ -75,6 +75,7 @@ public:
     void ConfigureDiagnosticsVisible(bool Visible) noexcept;
     void ConfigureSettingsSheetOpen(bool Open) noexcept;
     void ConfigureConstructSheetOpen(bool Open) noexcept;
+    void ConfigureProjectionDropdownOpen(bool Open) noexcept;
     void ConfigurePrimaryProjection(ViewportProjectionPreset Preset) noexcept;
     void ConfigureSecondaryProjection(ViewportProjectionPreset Preset) noexcept;
 
@@ -93,6 +94,7 @@ public:
     [[nodiscard]] bool                           QueryDiagnosticsVisible() const noexcept;
     [[nodiscard]] bool                           QuerySettingsSheetOpen() const noexcept;
     [[nodiscard]] bool                           QueryConstructSheetOpen() const noexcept;
+    [[nodiscard]] bool                           QueryProjectionDropdownOpen() const noexcept;
     [[nodiscard]] ViewportProjectionPreset       QueryPrimaryProjection() const noexcept;
     [[nodiscard]] ViewportProjectionPreset       QuerySecondaryProjection() const noexcept;
     [[nodiscard]] uint32_t                       QueryActivePaneIndex() const noexcept;
@@ -133,6 +135,8 @@ private:
     bool                       SettingsSheetOpen       = false;                                   // [-]   - Viewport settings sheet open
     bool                       ConstructSheetOpen      = false;                                   // [-]   - Construct dialog open
     bool                       ProjectionDropdownOpen  = false;                                   // [-]   - Projection selector open
+    bool                       DebugDropdownOpen       = false;                                   // [-]   - Debug View DropdownSelector open
+    Rectangle2D                DebugButtonBounds       {};                                        // [px]  - Last Debug View button bounds
     ViewportProjectionPreset   PrimaryProjection       = ViewportProjectionPreset::Perspective;   // [-]   - Primary pane projection
     ViewportProjectionPreset   SecondaryProjection     = ViewportProjectionPreset::Top;           // [-]   - Split secondary pane projection
     uint32_t                   ActivePaneIndex         = 0u;                                      // [idx] - Focused pane in split mode (0/1)
@@ -182,6 +186,16 @@ inline bool ViewportPanel::QuerySettingsSheetOpen() const noexcept
 inline bool ViewportPanel::QueryConstructSheetOpen() const noexcept
 {
     return ConstructSheetOpen;
+}
+
+inline void ViewportPanel::ConfigureProjectionDropdownOpen(bool Enabled) noexcept
+{
+    ProjectionDropdownOpen = Enabled;
+}
+
+inline bool ViewportPanel::QueryProjectionDropdownOpen() const noexcept
+{
+    return ProjectionDropdownOpen;
 }
 
 inline ViewportProjectionPreset ViewportPanel::QueryPrimaryProjection() const noexcept

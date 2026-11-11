@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                                 PIXELSPACE.CPP
 ============================================================================================================================================*/
-// 🧩 Logical-to-physical 2D drawing implementation over patched Dear ImGui draw lists.
+// 🧩 Logical-to-physical 2D canvas implementation over patched Dear ImGui construct lists.
 
 #include "Engine/Components/PixelSpace.h"
 
@@ -73,8 +73,8 @@ uint32_t EncodeCodepointUtf8(uint32_t Codepoint, char *Out) noexcept
 
 } // namespace
 
-PixelSpace::PixelSpace(ImDrawList *DrawTarget, Point2D SurfaceOrigin, float SurfaceScale, ImFont *DefaultTypeface) noexcept
-    : DrawBuffer(DrawTarget)
+PixelSpace::PixelSpace(ImDrawList *CanvasTarget, Point2D SurfaceOrigin, float SurfaceScale, ImFont *DefaultTypeface) noexcept
+    : CanvasBuffer(CanvasTarget)
     , Origin(SurfaceOrigin)
     , Scale(SurfaceScale > 0.01f ? SurfaceScale : 1.0f)
     , ActiveTypeface(DefaultTypeface ? DefaultTypeface : ImGui::GetFont())
@@ -99,55 +99,55 @@ Rectangle2D PixelSpace::ToPhysical(Rectangle2D Logical) const noexcept
 
 void PixelSpace::FillRectangle(Rectangle2D Bounds, ColorRgba Fill, float CornerRadius) noexcept
 {
-    if (!DrawBuffer || Bounds.Width <= 0.0f || Bounds.Height <= 0.0f || Fill.Alpha == 0)
+    if (!CanvasBuffer || Bounds.Width <= 0.0f || Bounds.Height <= 0.0f || Fill.Alpha == 0)
         return;
     const Rectangle2D Phys = ToPhysical(Bounds);
     const float       MaxR = 0.5f * std::min(Phys.Width, Phys.Height);
     const float       Rad  = std::clamp(CornerRadius * Scale, 0.0f, MaxR);
-    DrawBuffer->AddRectFilled(ImVec2(Phys.X, Phys.Y), ImVec2(Phys.Right(), Phys.Bottom()), PackColor(Fill), Rad);
+    CanvasBuffer->AddRectFilled(ImVec2(Phys.X, Phys.Y), ImVec2(Phys.Right(), Phys.Bottom()), PackColor(Fill), Rad);
 }
 
 void PixelSpace::FillRectangleBottomRounded(Rectangle2D Bounds, ColorRgba Fill, float CornerRadius) noexcept
 {
-    if (!DrawBuffer || Bounds.Width <= 0.0f || Bounds.Height <= 0.0f || Fill.Alpha == 0)
+    if (!CanvasBuffer || Bounds.Width <= 0.0f || Bounds.Height <= 0.0f || Fill.Alpha == 0)
         return;
     const Rectangle2D Phys = ToPhysical(Bounds);
     const float       MaxR = 0.5f * std::min(Phys.Width, Phys.Height);
     const float       Rad  = std::clamp(CornerRadius * Scale, 0.0f, MaxR);
-    DrawBuffer->AddRectFilled(ImVec2(Phys.X, Phys.Y), ImVec2(Phys.Right(), Phys.Bottom()), PackColor(Fill), Rad,
+    CanvasBuffer->AddRectFilled(ImVec2(Phys.X, Phys.Y), ImVec2(Phys.Right(), Phys.Bottom()), PackColor(Fill), Rad,
                             ImDrawFlags_RoundCornersBottom);
 }
 
 void PixelSpace::StrokeRectangle(Rectangle2D Bounds, ColorRgba Stroke, float CornerRadius, float Thickness) noexcept
 {
-    if (!DrawBuffer || Bounds.Width <= 0.0f || Bounds.Height <= 0.0f || Stroke.Alpha == 0 || Thickness <= 0.0f)
+    if (!CanvasBuffer || Bounds.Width <= 0.0f || Bounds.Height <= 0.0f || Stroke.Alpha == 0 || Thickness <= 0.0f)
         return;
     const Rectangle2D Phys = ToPhysical(Bounds);
     const float       MaxR = 0.5f * std::min(Phys.Width, Phys.Height);
     const float       Rad  = std::clamp(CornerRadius * Scale, 0.0f, MaxR);
-    DrawBuffer->AddRect(ImVec2(Phys.X, Phys.Y), ImVec2(Phys.Right(), Phys.Bottom()), PackColor(Stroke), Rad, 0,
+    CanvasBuffer->AddRect(ImVec2(Phys.X, Phys.Y), ImVec2(Phys.Right(), Phys.Bottom()), PackColor(Stroke), Rad, 0,
                       std::max(1.0f, Thickness * Scale));
 }
 
 void PixelSpace::FillCircle(Point2D Center, float Radius, ColorRgba Fill) noexcept
 {
-    if (!DrawBuffer || Radius <= 0.0f || Fill.Alpha == 0)
+    if (!CanvasBuffer || Radius <= 0.0f || Fill.Alpha == 0)
         return;
     const Point2D Phys = ToPhysical(Center);
-    DrawBuffer->AddCircleFilled(ImVec2(Phys.X, Phys.Y), Radius * Scale, PackColor(Fill), 0);
+    CanvasBuffer->AddCircleFilled(ImVec2(Phys.X, Phys.Y), Radius * Scale, PackColor(Fill), 0);
 }
 
 void PixelSpace::StrokeCircle(Point2D Center, float Radius, ColorRgba Stroke, float Thickness) noexcept
 {
-    if (!DrawBuffer || Radius <= 0.0f || Stroke.Alpha == 0 || Thickness <= 0.0f)
+    if (!CanvasBuffer || Radius <= 0.0f || Stroke.Alpha == 0 || Thickness <= 0.0f)
         return;
     const Point2D Phys = ToPhysical(Center);
-    DrawBuffer->AddCircle(ImVec2(Phys.X, Phys.Y), Radius * Scale, PackColor(Stroke), 0, std::max(1.0f, Thickness * Scale));
+    CanvasBuffer->AddCircle(ImVec2(Phys.X, Phys.Y), Radius * Scale, PackColor(Stroke), 0, std::max(1.0f, Thickness * Scale));
 }
 
 void PixelSpace::FillPolygon(std::span<const Point2D> Vertices, ColorRgba Fill) noexcept
 {
-    if (!DrawBuffer || Vertices.size() < 3u || Fill.Alpha == 0)
+    if (!CanvasBuffer || Vertices.size() < 3u || Fill.Alpha == 0)
         return;
     ImVec2 StackPoints[64];
     const std::size_t Count = std::min<std::size_t>(Vertices.size(), 64u);
@@ -156,21 +156,21 @@ void PixelSpace::FillPolygon(std::span<const Point2D> Vertices, ColorRgba Fill) 
         const Point2D Phys = ToPhysical(Vertices[Index]);
         StackPoints[Index] = ImVec2(Phys.X, Phys.Y);
     }
-    DrawBuffer->AddConcavePolyFilled(StackPoints, static_cast<int>(Count), PackColor(Fill));
+    CanvasBuffer->AddConcavePolyFilled(StackPoints, static_cast<int>(Count), PackColor(Fill));
 }
 
 void PixelSpace::StrokeLine(Point2D From, Point2D To, ColorRgba Stroke, float Thickness) noexcept
 {
-    if (!DrawBuffer || Stroke.Alpha == 0 || Thickness <= 0.0f)
+    if (!CanvasBuffer || Stroke.Alpha == 0 || Thickness <= 0.0f)
         return;
     const Point2D A = ToPhysical(From);
     const Point2D B = ToPhysical(To);
-    DrawBuffer->AddLine(ImVec2(A.X, A.Y), ImVec2(B.X, B.Y), PackColor(Stroke), std::max(1.0f, Thickness * Scale));
+    CanvasBuffer->AddLine(ImVec2(A.X, A.Y), ImVec2(B.X, B.Y), PackColor(Stroke), std::max(1.0f, Thickness * Scale));
 }
 
 void PixelSpace::StrokePolyline(std::span<const Point2D> Vertices, ColorRgba Stroke, float Thickness, bool Closed) noexcept
 {
-    if (!DrawBuffer || Vertices.size() < 2u || Stroke.Alpha == 0 || Thickness <= 0.0f)
+    if (!CanvasBuffer || Vertices.size() < 2u || Stroke.Alpha == 0 || Thickness <= 0.0f)
         return;
     ImVec2 StackPoints[128];
     const std::size_t Count = std::min<std::size_t>(Vertices.size(), 128u);
@@ -179,7 +179,7 @@ void PixelSpace::StrokePolyline(std::span<const Point2D> Vertices, ColorRgba Str
         const Point2D Phys = ToPhysical(Vertices[Index]);
         StackPoints[Index] = ImVec2(Phys.X, Phys.Y);
     }
-    DrawBuffer->AddPolyline(StackPoints, static_cast<int>(Count), PackColor(Stroke), Closed ? ImDrawFlags_Closed : 0,
+    CanvasBuffer->AddPolyline(StackPoints, static_cast<int>(Count), PackColor(Stroke), Closed ? ImDrawFlags_Closed : 0,
                           std::max(1.0f, Thickness * Scale));
 }
 
@@ -201,13 +201,13 @@ void PixelSpace::PopTypeface() noexcept
 
 void PixelSpace::Text(Point2D Position, float PixelSize, ColorRgba Ink, const char *Utf8, const char *Utf8End) noexcept
 {
-    if (!DrawBuffer || !Utf8 || Ink.Alpha == 0 || PixelSize <= 0.0f)
+    if (!CanvasBuffer || !Utf8 || Ink.Alpha == 0 || PixelSize <= 0.0f)
         return;
     ImFont *Font = ActiveTypeface ? ActiveTypeface : ImGui::GetFont();
     if (!Font)
         return;
     const Point2D Phys = ToPhysical(Position);
-    DrawBuffer->AddText(Font, PixelSize * Scale, ImVec2(Phys.X, Phys.Y), PackColor(Ink), Utf8, Utf8End);
+    CanvasBuffer->AddText(Font, PixelSize * Scale, ImVec2(Phys.X, Phys.Y), PackColor(Ink), Utf8, Utf8End);
 }
 
 void PixelSpace::TextCentered(Rectangle2D Bounds, float PixelSize, ColorRgba Ink, const char *Utf8) noexcept
@@ -244,7 +244,7 @@ Point2D PixelSpace::MeasureText(float PixelSize, const char *Utf8, const char *U
 
 void PixelSpace::PushClip(Rectangle2D Bounds, bool IntersectWithCurrent) noexcept
 {
-    if (!DrawBuffer || ClipDepth >= 16u)
+    if (!CanvasBuffer || ClipDepth >= 16u)
         return;
     Rectangle2D Effective = Bounds;
     if (IntersectWithCurrent && ClipDepth > 0u)
@@ -258,21 +258,21 @@ void PixelSpace::PushClip(Rectangle2D Bounds, bool IntersectWithCurrent) noexcep
     }
     ClipStack[ClipDepth++] = Effective;
     const Rectangle2D Phys = ToPhysical(Effective);
-    DrawBuffer->PushClipRect(ImVec2(Phys.X, Phys.Y), ImVec2(Phys.Right(), Phys.Bottom()), IntersectWithCurrent);
+    CanvasBuffer->PushClipRect(ImVec2(Phys.X, Phys.Y), ImVec2(Phys.Right(), Phys.Bottom()), IntersectWithCurrent);
 }
 
 void PixelSpace::PopClip() noexcept
 {
-    if (!DrawBuffer || ClipDepth == 0u)
+    if (!CanvasBuffer || ClipDepth == 0u)
         return;
     --ClipDepth;
-    DrawBuffer->PopClipRect();
+    CanvasBuffer->PopClipRect();
 }
 
 PixelSpace::GroupMarker PixelSpace::BeginGroup(Point2D Pivot, Point2D GroupScale, Point2D Offset, float Alpha) noexcept
 {
     GroupMarker Marker{};
-    Marker.FirstVertex = DrawBuffer ? DrawBuffer->VtxBuffer.Size : 0;
+    Marker.FirstVertex = CanvasBuffer ? CanvasBuffer->VtxBuffer.Size : 0;
     Marker.Pivot       = ToPhysical(Pivot);
     Marker.Scale       = GroupScale;
     Marker.Offset      = {Offset.X * Scale, Offset.Y * Scale};
@@ -282,15 +282,15 @@ PixelSpace::GroupMarker PixelSpace::BeginGroup(Point2D Pivot, Point2D GroupScale
 
 void PixelSpace::EndGroup(const GroupMarker &Marker) noexcept
 {
-    if (!DrawBuffer)
+    if (!CanvasBuffer)
         return;
     const bool TransformPos = Marker.Scale.X != 1.0f || Marker.Scale.Y != 1.0f || Marker.Offset.X != 0.0f || Marker.Offset.Y != 0.0f;
     const bool FadeAlpha    = Marker.Alpha < 0.999f;
     if (!TransformPos && !FadeAlpha)
         return;
-    for (int Index = Marker.FirstVertex; Index < DrawBuffer->VtxBuffer.Size; ++Index)
+    for (int Index = Marker.FirstVertex; Index < CanvasBuffer->VtxBuffer.Size; ++Index)
     {
-        ImDrawVert &Vert = DrawBuffer->VtxBuffer[Index];
+        ImDrawVert &Vert = CanvasBuffer->VtxBuffer[Index];
         if (TransformPos)
         {
             Vert.pos.x = Marker.Pivot.X + (Vert.pos.x - Marker.Pivot.X) * Marker.Scale.X + Marker.Offset.X;

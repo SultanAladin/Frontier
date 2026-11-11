@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                                CONTROLSTYLE.H
+                                                             CONTROLAPPEARANCE.H
 ============================================================================================================================================*/
 // 🧩 Shared control color set, layout metrics, pointer contact primitives, and section containers
 
@@ -108,7 +108,7 @@ struct ControlColorSet
 //                                                  FUNCTION PROTOTYPES
 //------------------------------------------------------------------------------------------------------------------------
 
-namespace ControlStyle
+namespace ControlAppearance
 {
 
 void ConfigureTheme(
@@ -131,19 +131,19 @@ void                                 BlendActiveColors(const ControlColorSet& Fr
 [[nodiscard]] inline bool  QueryPointerOver(Rectangle2D Bounds, const ControlPointer& Pointer) noexcept;
 [[nodiscard]] inline float CapsuleRadius(Rectangle2D Bounds) noexcept;
 
-void DrawRoundedOutline(PixelSpace& Surface, Rectangle2D Bounds, ColorQuad Stroke, float Radius, float Thickness = 1.0f) noexcept;
-void DrawCircleOutline(PixelSpace& Surface, float CenterX, float CenterY, float Radius, ColorQuad Stroke, float Thickness = 1.0f) noexcept;
-void DrawCircleFill(PixelSpace& Surface, float CenterX, float CenterY, float Radius, ColorQuad Fill) noexcept;
-void DrawHairline(PixelSpace& Surface, float X, float Y, float Width, ColorQuad Ink) noexcept;
+void ConstructRoundedOutline(PixelSpace& Surface, Rectangle2D Bounds, ColorQuad Stroke, float Radius, float Thickness = 1.0f) noexcept;
+void ConstructCircleOutline(PixelSpace& Surface, float CenterX, float CenterY, float Radius, ColorQuad Stroke, float Thickness = 1.0f) noexcept;
+void ConstructCircleFill(PixelSpace& Surface, float CenterX, float CenterY, float Radius, ColorQuad Fill) noexcept;
+void ConstructHairline(PixelSpace& Surface, float X, float Y, float Width, ColorQuad Ink) noexcept;
 
 void TextCentered(PixelSpace& Surface, Rectangle2D Bounds, ColorQuad Ink, const char* Utf8, float FontSize) noexcept;
 void TextLeading(PixelSpace& Surface, Rectangle2D Bounds, float PadX, ColorQuad Ink, const char* Utf8, float FontSize) noexcept;
 
-void DrawIcon(PixelSpace& Surface, float X, float Y, float Size, ColorQuad Ink, ControlIcon Icon, float StrokeWidth = 2.0f) noexcept;
-void DrawIconCentered(PixelSpace& Surface, Rectangle2D Bounds, float Size, ColorQuad Ink, ControlIcon Icon, float StrokeWidth = 2.0f) noexcept;
+void ConstructIcon(PixelSpace& Surface, float X, float Y, float Size, ColorQuad Ink, ControlIcon Icon, float StrokeWidth = 2.0f) noexcept;
+void ConstructIconCentered(PixelSpace& Surface, Rectangle2D Bounds, float Size, ColorQuad Ink, ControlIcon Icon, float StrokeWidth = 2.0f) noexcept;
 
-[[nodiscard]] Rectangle2D DrawSectionContainer(PixelSpace& Surface, Rectangle2D Bounds, float Radius, float Opacity = 1.0f) noexcept;
-float                     DrawSectionHeading(
+[[nodiscard]] Rectangle2D ConstructSectionContainer(PixelSpace& Surface, Rectangle2D Bounds, float Radius, float Opacity = 1.0f) noexcept;
+float                     ConstructSectionHeading(
     PixelSpace& Surface,
     float       X,
     float       Y,
@@ -153,7 +153,7 @@ float                     DrawSectionHeading(
     ColorQuad   TitleInk,
     ColorQuad   MutedInk,
     float       Opacity = 1.0f) noexcept;
-[[nodiscard]] Rectangle2D DrawLabeledRow(
+[[nodiscard]] Rectangle2D ConstructLabeledRow(
     PixelSpace& Surface,
     float       X,
     float       Y,
@@ -163,7 +163,7 @@ float                     DrawSectionHeading(
     float       Opacity = 1.0f) noexcept;
 
 [[nodiscard]] float AdvanceScrollOffset(float Offset, float WheelDelta, float ContentHeight, float ViewHeight) noexcept;
-void                DrawScrollIndicator(PixelSpace& Surface, Rectangle2D ViewBounds, float Offset, float ContentHeight, float Opacity = 1.0f) noexcept;
+void                ConstructScrollIndicator(PixelSpace& Surface, Rectangle2D ViewBounds, float Offset, float ContentHeight, float Opacity = 1.0f) noexcept;
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                 INLINE IMPLEMENTATIONS
@@ -179,6 +179,6 @@ inline float CapsuleRadius(Rectangle2D Bounds) noexcept
     return (Bounds.Width < Bounds.Height ? Bounds.Width : Bounds.Height) * 0.5f;
 }
 
-} // namespace ControlStyle
+} // namespace ControlAppearance
 
 } // namespace Frontier

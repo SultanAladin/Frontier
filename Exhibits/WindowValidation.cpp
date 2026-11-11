@@ -14,7 +14,7 @@ namespace
 {
 
 using Frontier::Components::RgbaColor8;
-using Frontier::Exhibits::LoadProjectZeroDmSansFont;
+using Frontier::Exhibits::LoadWorkspaceDmSansFont;
 using Frontier::Exhibits::ResolveRepositoryRootPath;
 using Frontier::Exhibits::SoftwareRasterCanvas;
 using Frontier::Input::ButtonTransitionCategory;
@@ -188,7 +188,7 @@ bool GenerateWindowModesVisualSnapshot()
     IoInstance.IniFilename   = nullptr;
     IoInstance.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
     IoInstance.DisplaySize   = ImVec2(1440.0f, 820.0f);
-    (void)LoadProjectZeroDmSansFont(IoInstance, 13.0f);
+    (void)LoadWorkspaceDmSansFont(IoInstance, 13.0f);
     Frontier::Components::ConfigureImGuiWorkspaceStyle(Frontier::Components::ConstructWorkspaceTabMetrics(1.0f));
 
     ImGui::NewFrame();

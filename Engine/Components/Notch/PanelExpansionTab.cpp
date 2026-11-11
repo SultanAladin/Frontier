@@ -196,7 +196,7 @@ void PanelExpansionTab::IntegratePointer(float CursorX, float CursorY, bool Pres
     }
 }
 
-void PanelExpansionTab::Draw(PixelSpace &Surface, const char *Caption, ColorRgba TabFill, ColorRgba LabelAndGripInk,
+void PanelExpansionTab::Construct(PixelSpace &Surface, const char *Caption, ColorRgba TabFill, ColorRgba LabelAndGripInk,
                              Point2D ViewportOrigin) const noexcept
 {
     auto Contour = QueryTrapezoidContour();

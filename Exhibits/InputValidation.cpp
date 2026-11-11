@@ -16,7 +16,7 @@ namespace
 {
 
 using Frontier::Components::RgbaColor8;
-using Frontier::Exhibits::LoadProjectZeroDmSansFont;
+using Frontier::Exhibits::LoadWorkspaceDmSansFont;
 using Frontier::Exhibits::ResolveRepositoryRootPath;
 using Frontier::Exhibits::SoftwareRasterCanvas;
 using Frontier::Input::ButtonTransitionCategory;
@@ -67,20 +67,20 @@ bool GenerateInputVisualSnapshot(
     IoInstance.IniFilename   = nullptr;
     IoInstance.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
     IoInstance.DisplaySize   = ImVec2(1280.0f, 680.0f);
-    (void)LoadProjectZeroDmSansFont(IoInstance, 13.0f);
+    (void)LoadWorkspaceDmSansFont(IoInstance, 13.0f);
     Frontier::Components::ConfigureImGuiWorkspaceStyle(Frontier::Components::ConstructWorkspaceTabMetrics(1.0f));
 
     ImGui::NewFrame();
-    ImDrawList* DrawBuffer = ImGui::GetForegroundDrawList();
-    DrawBuffer->AddText(
+    ImDrawList* CanvasBuffer = ImGui::GetForegroundDrawList();
+    CanvasBuffer->AddText(
         ImVec2(36.0f, 24.0f),
         IM_COL32(238, 238, 244, 255),
         "InputExchange & InputExtension Bi-Directional Verification  —  Inbound Hardware Ring & Outbound OS Directives");
 
     // Left panel: Inbound OS -> Engine Signal Ring
-    DrawBuffer->AddRectFilled(ImVec2(36.0f, 68.0f), ImVec2(624.0f, 640.0f), IM_COL32(20, 20, 24, 255), 6.0f);
-    DrawBuffer->AddRect(ImVec2(36.0f, 68.0f), ImVec2(624.0f, 640.0f), IM_COL32(46, 46, 54, 255), 6.0f);
-    DrawBuffer->AddText(ImVec2(56.0f, 86.0f), IM_COL32(34, 197, 94, 255), "OS -> Engine Inbound Signal Intake (InputExchange)");
+    CanvasBuffer->AddRectFilled(ImVec2(36.0f, 68.0f), ImVec2(624.0f, 640.0f), IM_COL32(20, 20, 24, 255), 6.0f);
+    CanvasBuffer->AddRect(ImVec2(36.0f, 68.0f), ImVec2(624.0f, 640.0f), IM_COL32(46, 46, 54, 255), 6.0f);
+    CanvasBuffer->AddText(ImVec2(56.0f, 86.0f), IM_COL32(34, 197, 94, 255), "OS -> Engine Inbound Signal Intake (InputExchange)");
 
     char SummaryLine[160]{};
     std::snprintf(
@@ -91,7 +91,7 @@ bool GenerateInputVisualSnapshot(
         CursorX,
         CursorY,
         ScrollSteps);
-    DrawBuffer->AddText(ImVec2(56.0f, 118.0f), IM_COL32(214, 214, 222, 255), SummaryLine);
+    CanvasBuffer->AddText(ImVec2(56.0f, 118.0f), IM_COL32(214, 214, 222, 255), SummaryLine);
 
     const char* Channels[5] = {
         "KeyboardKey  [Scancode 17 'W' Pressed -> Held -> Released]",
@@ -103,35 +103,35 @@ bool GenerateInputVisualSnapshot(
     for (int Idx = 0; Idx < 5; ++Idx)
     {
         const float RowY = 166.0f + static_cast<float>(Idx) * 86.0f;
-        DrawBuffer->AddRectFilled(ImVec2(56.0f, RowY), ImVec2(604.0f, RowY + 68.0f), IM_COL32(26, 28, 34, 255), 5.0f);
-        DrawBuffer->AddRect(ImVec2(56.0f, RowY), ImVec2(604.0f, RowY + 68.0f), IM_COL32(34, 197, 94, 120), 5.0f);
-        DrawBuffer->AddText(ImVec2(74.0f, RowY + 24.0f), IM_COL32(230, 232, 240, 255), Channels[Idx]);
+        CanvasBuffer->AddRectFilled(ImVec2(56.0f, RowY), ImVec2(604.0f, RowY + 68.0f), IM_COL32(26, 28, 34, 255), 5.0f);
+        CanvasBuffer->AddRect(ImVec2(56.0f, RowY), ImVec2(604.0f, RowY + 68.0f), IM_COL32(34, 197, 94, 120), 5.0f);
+        CanvasBuffer->AddText(ImVec2(74.0f, RowY + 24.0f), IM_COL32(230, 232, 240, 255), Channels[Idx]);
     }
 
     // Right panel: Outbound Engine -> OS Directives
-    DrawBuffer->AddRectFilled(ImVec2(656.0f, 68.0f), ImVec2(1244.0f, 640.0f), IM_COL32(20, 20, 24, 255), 6.0f);
-    DrawBuffer->AddRect(ImVec2(656.0f, 68.0f), ImVec2(1244.0f, 640.0f), IM_COL32(46, 46, 54, 255), 6.0f);
-    DrawBuffer->AddText(ImVec2(676.0f, 86.0f), IM_COL32(245, 158, 11, 255), "Engine -> OS Outbound Directives (InputFeedbackTarget)");
+    CanvasBuffer->AddRectFilled(ImVec2(656.0f, 68.0f), ImVec2(1244.0f, 640.0f), IM_COL32(20, 20, 24, 255), 6.0f);
+    CanvasBuffer->AddRect(ImVec2(656.0f, 68.0f), ImVec2(1244.0f, 640.0f), IM_COL32(46, 46, 54, 255), 6.0f);
+    CanvasBuffer->AddText(ImVec2(676.0f, 86.0f), IM_COL32(245, 158, 11, 255), "Engine -> OS Outbound Directives (InputFeedbackTarget)");
 
-    DrawBuffer->AddRectFilled(ImVec2(676.0f, 140.0f), ImVec2(1224.0f, 340.0f), IM_COL32(26, 28, 34, 255), 5.0f);
-    DrawBuffer->AddText(ImVec2(696.0f, 158.0f), IM_COL32(238, 238, 244, 255), "CursorConfinementMode :: LockedRelativeHidden");
-    DrawBuffer->AddText(ImVec2(696.0f, 190.0f), IM_COL32(156, 160, 172, 255), "Applied atomically during PlatformWindow::PollOperatingEvents");
-    DrawBuffer->AddRectFilled(ImVec2(696.0f, 232.0f), ImVec2(1204.0f, 312.0f), IM_COL32(16, 24, 20, 255), 4.0f);
-    DrawBuffer->AddText(ImVec2(716.0f, 262.0f), IM_COL32(34, 197, 94, 255), "VERIFIED: ActiveCursorMode == LockedRelativeHidden");
+    CanvasBuffer->AddRectFilled(ImVec2(676.0f, 140.0f), ImVec2(1224.0f, 340.0f), IM_COL32(26, 28, 34, 255), 5.0f);
+    CanvasBuffer->AddText(ImVec2(696.0f, 158.0f), IM_COL32(238, 238, 244, 255), "CursorConfinementMode :: LockedRelativeHidden");
+    CanvasBuffer->AddText(ImVec2(696.0f, 190.0f), IM_COL32(156, 160, 172, 255), "Applied atomically during PlatformWindow::PollOperatingEvents");
+    CanvasBuffer->AddRectFilled(ImVec2(696.0f, 232.0f), ImVec2(1204.0f, 312.0f), IM_COL32(16, 24, 20, 255), 4.0f);
+    CanvasBuffer->AddText(ImVec2(716.0f, 262.0f), IM_COL32(34, 197, 94, 255), "VERIFIED: ActiveCursorMode == LockedRelativeHidden");
 
-    DrawBuffer->AddRectFilled(ImVec2(676.0f, 368.0f), ImVec2(1224.0f, 608.0f), IM_COL32(26, 28, 34, 255), 5.0f);
+    CanvasBuffer->AddRectFilled(ImVec2(676.0f, 368.0f), ImVec2(1224.0f, 608.0f), IM_COL32(26, 28, 34, 255), 5.0f);
     char HapticTitle[128]{};
     std::snprintf(HapticTitle, sizeof(HapticTitle), "HapticFeedbackDirective  (Delivered Pulses: %u)", HapticCount);
-    DrawBuffer->AddText(ImVec2(696.0f, 388.0f), IM_COL32(238, 238, 244, 255), HapticTitle);
+    CanvasBuffer->AddText(ImVec2(696.0f, 388.0f), IM_COL32(238, 238, 244, 255), HapticTitle);
 
     // Motor amplitude bars
-    DrawBuffer->AddText(ImVec2(696.0f, 434.0f), IM_COL32(170, 174, 184, 255), "Low-Frequency Motor  (80%)");
-    DrawBuffer->AddRectFilled(ImVec2(696.0f, 460.0f), ImVec2(1204.0f, 482.0f), IM_COL32(14, 14, 18, 255), 4.0f);
-    DrawBuffer->AddRectFilled(ImVec2(696.0f, 460.0f), ImVec2(696.0f + 508.0f * 0.80f, 482.0f), IM_COL32(245, 158, 11, 255), 4.0f);
+    CanvasBuffer->AddText(ImVec2(696.0f, 434.0f), IM_COL32(170, 174, 184, 255), "Low-Frequency Motor  (80%)");
+    CanvasBuffer->AddRectFilled(ImVec2(696.0f, 460.0f), ImVec2(1204.0f, 482.0f), IM_COL32(14, 14, 18, 255), 4.0f);
+    CanvasBuffer->AddRectFilled(ImVec2(696.0f, 460.0f), ImVec2(696.0f + 508.0f * 0.80f, 482.0f), IM_COL32(245, 158, 11, 255), 4.0f);
 
-    DrawBuffer->AddText(ImVec2(696.0f, 506.0f), IM_COL32(170, 174, 184, 255), "High-Frequency Motor (35%)");
-    DrawBuffer->AddRectFilled(ImVec2(696.0f, 532.0f), ImVec2(1204.0f, 554.0f), IM_COL32(14, 14, 18, 255), 4.0f);
-    DrawBuffer->AddRectFilled(ImVec2(696.0f, 532.0f), ImVec2(696.0f + 508.0f * 0.35f, 554.0f), IM_COL32(59, 130, 246, 255), 4.0f);
+    CanvasBuffer->AddText(ImVec2(696.0f, 506.0f), IM_COL32(170, 174, 184, 255), "High-Frequency Motor (35%)");
+    CanvasBuffer->AddRectFilled(ImVec2(696.0f, 532.0f), ImVec2(1204.0f, 554.0f), IM_COL32(14, 14, 18, 255), 4.0f);
+    CanvasBuffer->AddRectFilled(ImVec2(696.0f, 532.0f), ImVec2(696.0f + 508.0f * 0.35f, 554.0f), IM_COL32(59, 130, 246, 255), 4.0f);
 
     ImGui::Render();
     SoftwareRasterCanvas OutputCanvas(1280, 680, RgbaColor8{ 12, 12, 14, 255 });

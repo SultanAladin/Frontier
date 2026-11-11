@@ -1,13 +1,14 @@
 /*============================================================================================================================================
                                                               INSPECTORPANEL.CPP
 ============================================================================================================================================*/
-// 🧩 Project-Zero Inspector pane featuring Showcase Folder Inspector, Add Notes editor, header typography, and capability tiles
+// 🧩 Workspace Inspector pane featuring Showcase Folder Inspector, Add Notes editor, header typography, and capability tiles
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Components/Panes/InspectorPanel.h"
+#include "Engine/Components/Controls/DropdownSelector.h"
 #include "Engine/Components/Controls/ScalarSlider.h"
 #include "Engine/Components/VectorIcons/VectorIconRepository.h"
 
@@ -69,7 +70,7 @@ void StrokeDashedRectangle(
     float       DashLength = 4.0f,
     float       GapLength  = 3.0f) noexcept
 {
-    auto DrawDashedSegment = [&](Point2D Start, Point2D End) noexcept
+    auto ConstructDashedSegment = [&](Point2D Start, Point2D End) noexcept
     {
         const float DeltaX = End.X - Start.X;
         const float DeltaY = End.Y - Start.Y;
@@ -93,10 +94,10 @@ void StrokeDashedRectangle(
         }
     };
 
-    DrawDashedSegment({ Bounds.X, Bounds.Y }, { Bounds.Right(), Bounds.Y });
-    DrawDashedSegment({ Bounds.Right(), Bounds.Y }, { Bounds.Right(), Bounds.Bottom() });
-    DrawDashedSegment({ Bounds.Right(), Bounds.Bottom() }, { Bounds.X, Bounds.Bottom() });
-    DrawDashedSegment({ Bounds.X, Bounds.Bottom() }, { Bounds.X, Bounds.Y });
+    ConstructDashedSegment({ Bounds.X, Bounds.Y }, { Bounds.Right(), Bounds.Y });
+    ConstructDashedSegment({ Bounds.Right(), Bounds.Y }, { Bounds.Right(), Bounds.Bottom() });
+    ConstructDashedSegment({ Bounds.Right(), Bounds.Bottom() }, { Bounds.X, Bounds.Bottom() });
+    ConstructDashedSegment({ Bounds.X, Bounds.Bottom() }, { Bounds.X, Bounds.Y });
 }
 
 void FormatTransformSubtitle(OutlinerRecordEntry& Entry)
@@ -203,7 +204,7 @@ float InspectorPanel::RenderNotesControl(
             4.0f,
             3.0f);
 
-        VectorIconRepository::DrawControl(
+        VectorIconRepository::ConstructControl(
             Surface,
             ControlIcon::PlusAdd,
             VectorIconPlacement{
@@ -213,7 +214,7 @@ float InspectorPanel::RenderNotesControl(
                 Hovered ? ColorRgba{ 212, 212, 212, 255 } : ColorRgba{ 137, 137, 137, 255 },
                 1.9f });
 
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { AddNotesButton.X + 27.0f, AddNotesButton.Y + 8.5f },
@@ -234,10 +235,10 @@ float InspectorPanel::RenderNotesControl(
 
     // Expanded optional notes box (#191919 bg, 1px solid #303030, 9px radius)
     const Rectangle2D NotesBox{ LeftX, TopY, AvailableWidth, 116.0f };
-    Surface.FillRectangle(NotesBox, ProjectZeroSurfaceColors::ControlWell, 9.0f);
+    Surface.FillRectangle(NotesBox, WorkspaceSurfaceColors::ControlWell, 9.0f);
     Surface.StrokeRectangle(NotesBox, ColorRgba{ 48, 48, 48, 255 }, 9.0f, 1.0f);
 
-    WorkspacePaneVisuals::DrawWeightedText(
+    WorkspacePaneAppearance::ConstructWeightedText(
         Surface,
         FontWeightClass::Medium,
         { NotesBox.X + 10.0f, NotesBox.Y + 10.0f },
@@ -245,7 +246,7 @@ float InspectorPanel::RenderNotesControl(
         ColorRgba{ 201, 201, 201, 255 },
         "Notes");
 
-    WorkspacePaneVisuals::DrawWeightedText(
+    WorkspacePaneAppearance::ConstructWeightedText(
         Surface,
         FontWeightClass::Regular,
         { NotesBox.X + 46.0f, NotesBox.Y + 11.5f },
@@ -256,12 +257,12 @@ float InspectorPanel::RenderNotesControl(
     const Rectangle2D HideBtn{ NotesBox.Right() - 46.0f, NotesBox.Y + 7.0f, 36.0f, 20.0f };
     const bool        HideHovered = HideBtn.Contains(Cursor);
     Surface.FillRectangle(HideBtn, HideHovered ? ColorRgba{ 50, 50, 50, 255 } : ColorRgba{ 37, 37, 37, 255 }, 10.0f);
-    WorkspacePaneVisuals::DrawWeightedText(
+    WorkspacePaneAppearance::ConstructWeightedText(
         Surface,
         FontWeightClass::Regular,
         { HideBtn.X + 9.0f, HideBtn.Y + 5.0f },
         8.5f,
-        HideHovered ? ProjectZeroSurfaceColors::PrimaryInk : ColorRgba{ 142, 142, 142, 255 },
+        HideHovered ? WorkspaceSurfaceColors::PrimaryInk : ColorRgba{ 142, 142, 142, 255 },
         "Hide");
 
     if (HideHovered && Input.PrimaryPointer.Pressed)
@@ -297,7 +298,7 @@ float InspectorPanel::RenderNotesControl(
 
     if (Entry.AuthorNotes.empty() && !NotesEditor.Active)
     {
-        WorkspacePaneVisuals::DrawTruncatedText(
+        WorkspacePaneAppearance::ConstructTruncatedText(
             Surface,
             FontWeightClass::Regular,
             { TextArea.X + 10.0f, TextArea.Y + 10.0f },
@@ -318,7 +319,7 @@ float InspectorPanel::RenderNotesControl(
         {
             std::size_t Take = Remaining.size();
             while (Take > 1u &&
-                   WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.0f, Remaining.substr(0u, Take)) > MaxLineW)
+                   WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.0f, Remaining.substr(0u, Take)) > MaxLineW)
             {
                 --Take;
             }
@@ -331,7 +332,7 @@ float InspectorPanel::RenderNotesControl(
                 }
             }
             const std::string_view LineText = Remaining.substr(0u, Take);
-            WorkspacePaneVisuals::DrawWeightedText(
+            WorkspacePaneAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Regular,
                 { TextArea.X + 10.0f, LineY },
@@ -340,7 +341,7 @@ float InspectorPanel::RenderNotesControl(
                 LineText);
 
             CaretPos = {
-                TextArea.X + 10.0f + WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.0f, LineText),
+                TextArea.X + 10.0f + WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.0f, LineText),
                 LineY
             };
             Remaining.remove_prefix(Take);
@@ -349,7 +350,7 @@ float InspectorPanel::RenderNotesControl(
 
         if (NotesEditor.Active && NotesEditor.BlinkPhase < ControlMetrics::CaretBlinkSeconds * 0.5f)
         {
-            Surface.StrokeLine({ CaretPos.X, CaretPos.Y }, { CaretPos.X, CaretPos.Y + 13.0f }, ProjectZeroSurfaceColors::PrimaryInk, 1.2f);
+            Surface.StrokeLine({ CaretPos.X, CaretPos.Y }, { CaretPos.X, CaretPos.Y + 13.0f }, WorkspaceSurfaceColors::PrimaryInk, 1.2f);
         }
     }
 
@@ -397,18 +398,18 @@ float InspectorPanel::RenderFolderInspector(
             BreadcrumbText += StepEntry->Title;
         }
     }
-    WorkspacePaneVisuals::DrawTruncatedText(
+    WorkspacePaneAppearance::ConstructTruncatedText(
         Surface,
         FontWeightClass::Regular,
         { LeftX, CurY },
         InnerW,
         10.0f,
-        ProjectZeroSurfaceColors::MutedInk,
+        WorkspaceSurfaceColors::MutedInk,
         BreadcrumbText);
     CurY += 20.0f;
 
     // 2. COLLECTION eyebrow (8px, #8C9587)
-    WorkspacePaneVisuals::DrawWeightedText(
+    WorkspacePaneAppearance::ConstructWeightedText(
         Surface,
         FontWeightClass::Medium,
         { LeftX, CurY },
@@ -418,18 +419,18 @@ float InspectorPanel::RenderFolderInspector(
     CurY += 16.0f;
 
     // 3. 28px Showcase Folder Icon + 27px DM Sans Light Title
-    WorkspacePaneVisuals::DrawShowcaseFolderEmblem(Surface, { LeftX, CurY + 2.0f }, 28.0f, FolderEntry.FolderTint, 1.0f);
-    WorkspacePaneVisuals::DrawTruncatedText(
+    WorkspacePaneAppearance::ConstructShowcaseFolderIcon(Surface, { LeftX, CurY + 2.0f }, 28.0f, FolderEntry.FolderTint, 1.0f);
+    WorkspacePaneAppearance::ConstructTruncatedText(
         Surface,
         FontWeightClass::Light,
         { LeftX + 40.0f, CurY + 1.0f },
         InnerW - 42.0f,
         27.0f,
-        ProjectZeroSurfaceColors::FolderHeadingInk,
+        WorkspaceSurfaceColors::FolderHeadingInk,
         FolderEntry.Title);
     CurY += 38.0f;
 
-    WorkspacePaneVisuals::DrawTruncatedText(
+    WorkspacePaneAppearance::ConstructTruncatedText(
         Surface,
         FontWeightClass::Regular,
         { LeftX, CurY },
@@ -447,11 +448,11 @@ float InspectorPanel::RenderFolderInspector(
     {
         float ChipX = LeftX;
         const char* RootLabel = "Scene root";
-        const float RootW     = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, RootLabel) + 18.0f;
+        const float RootW     = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, RootLabel) + 18.0f;
         const Rectangle2D RootChip{ ChipX, CurY, RootW, 24.0f };
         Surface.FillRectangle(RootChip, ColorRgba{ 38, 38, 38, 255 }, 12.0f);
         Surface.StrokeRectangle(RootChip, ColorRgba{ 255, 255, 255, 18 }, 12.0f, 1.0f);
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { RootChip.X + 9.0f, RootChip.Y + 6.0f },
@@ -471,7 +472,7 @@ float InspectorPanel::RenderFolderInspector(
             {
                 continue;
             }
-            WorkspacePaneVisuals::DrawWeightedText(
+            WorkspacePaneAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Regular,
                 { ChipX, CurY + 6.0f },
@@ -481,7 +482,7 @@ float InspectorPanel::RenderFolderInspector(
             ChipX += 11.0f;
 
             const bool  Current = (Idx + 1u == TrailChain.size());
-            const float ChipW   = std::min(140.0f, WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, StepEntry->Title) + 18.0f);
+            const float ChipW   = std::min(140.0f, WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, StepEntry->Title) + 18.0f);
             if (ChipX + ChipW > LeftX + InnerW && ChipX > LeftX + 20.0f)
             {
                 ChipX = LeftX;
@@ -494,7 +495,7 @@ float InspectorPanel::RenderFolderInspector(
                 Current ? FolderEntry.FolderTint.WithAlpha(110u) : ColorRgba{ 255, 255, 255, 18 },
                 12.0f,
                 1.0f);
-            WorkspacePaneVisuals::DrawTruncatedText(
+            WorkspacePaneAppearance::ConstructTruncatedText(
                 Surface,
                 FontWeightClass::Regular,
                 { StepChip.X + 9.0f, StepChip.Y + 6.0f },
@@ -566,16 +567,16 @@ float InspectorPanel::RenderFolderInspector(
     // 6. Collection contents block (#202020, 25px radius, 52px Light number + Direct / Nested / Subfolders)
     {
         const Rectangle2D ContentsBlock{ LeftX, CurY, InnerW, 198.0f };
-        Surface.FillRectangle(ContentsBlock, ProjectZeroSurfaceColors::SectionSurface, 25.0f);
-        Surface.StrokeRectangle(ContentsBlock, ProjectZeroSurfaceColors::HairlineLight, 25.0f, 1.0f);
+        Surface.FillRectangle(ContentsBlock, WorkspaceSurfaceColors::SectionSurface, 25.0f);
+        Surface.StrokeRectangle(ContentsBlock, WorkspaceSurfaceColors::HairlineLight, 25.0f, 1.0f);
 
         Surface.FillRectangle({ ContentsBlock.X + 23.0f, ContentsBlock.Y + 24.0f, 3.0f, 15.0f }, FolderEntry.FolderTint, 1.5f);
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { ContentsBlock.X + 35.0f, ContentsBlock.Y + 23.0f },
             13.0f,
-            ProjectZeroSurfaceColors::FolderHeadingInk,
+            WorkspaceSurfaceColors::FolderHeadingInk,
             "Collection contents");
 
         const uint32_t SharePercent = (TotalWorkspace > 1u)
@@ -583,8 +584,8 @@ float InspectorPanel::RenderFolderInspector(
                                           : 0u;
         char ShareLabel[48]{};
         std::snprintf(ShareLabel, sizeof(ShareLabel), "%u%% of scene", std::min(100u, SharePercent));
-        const float ShareW = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.5f, ShareLabel);
-        WorkspacePaneVisuals::DrawWeightedText(
+        const float ShareW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.5f, ShareLabel);
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { ContentsBlock.Right() - 23.0f - ShareW, ContentsBlock.Y + 25.0f },
@@ -594,16 +595,16 @@ float InspectorPanel::RenderFolderInspector(
 
         char BigCountText[32]{};
         std::snprintf(BigCountText, sizeof(BigCountText), "%u", NestedTotal);
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Light,
             { ContentsBlock.X + 23.0f, ContentsBlock.Y + 52.0f },
             52.0f,
-            ProjectZeroSurfaceColors::FolderHeadingInk,
+            WorkspaceSurfaceColors::FolderHeadingInk,
             BigCountText);
 
-        const float BigW = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Light, 52.0f, BigCountText);
-        WorkspacePaneVisuals::DrawWeightedText(
+        const float BigW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Light, 52.0f, BigCountText);
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Light,
             { ContentsBlock.X + 30.0f + BigW, ContentsBlock.Y + 84.0f },
@@ -616,7 +617,7 @@ float InspectorPanel::RenderFolderInspector(
         Surface.StrokeLine(
             { ContentsBlock.X + 23.0f, DividerY },
             { ContentsBlock.Right() - 23.0f, DividerY },
-            ProjectZeroSurfaceColors::HairlineLight,
+            WorkspaceSurfaceColors::HairlineLight,
             1.0f);
 
         const float ColW = (InnerW - 46.0f) / 3.0f;
@@ -631,14 +632,14 @@ float InspectorPanel::RenderFolderInspector(
             const float ColX = ContentsBlock.X + 23.0f + static_cast<float>(Col) * ColW;
             char        ValBuf[24]{};
             std::snprintf(ValBuf, sizeof(ValBuf), "%u", Facts[Col].first);
-            WorkspacePaneVisuals::DrawWeightedText(
+            WorkspacePaneAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Light,
                 { ColX, DividerY + 15.0f },
                 21.0f,
-                ProjectZeroSurfaceColors::FolderHeadingInk,
+                WorkspaceSurfaceColors::FolderHeadingInk,
                 ValBuf);
-            WorkspacePaneVisuals::DrawWeightedText(
+            WorkspacePaneAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Regular,
                 { ColX, DividerY + 41.0f },
@@ -656,13 +657,13 @@ float InspectorPanel::RenderFolderInspector(
         const Rectangle2D VisBlock{ LeftX, CurY, HalfW, 92.0f };
         const Rectangle2D HidBlock{ VisBlock.Right() + 10.0f, CurY, HalfW, 92.0f };
 
-        auto DrawVisibilityBlock = [&](Rectangle2D Block, bool VisibleSlot, uint32_t Count, bool SelectedFilter)
+        auto ConstructVisibilityBlock = [&](Rectangle2D Block, bool VisibleSlot, uint32_t Count, bool SelectedFilter)
         {
             const bool Hovered = ScrollViewport.Contains(Cursor) && Block.Contains(Cursor);
-            Surface.FillRectangle(Block, Hovered ? ColorRgba{ 38, 38, 38, 255 } : ProjectZeroSurfaceColors::SectionSurface, 23.0f);
+            Surface.FillRectangle(Block, Hovered ? ColorRgba{ 38, 38, 38, 255 } : WorkspaceSurfaceColors::SectionSurface, 23.0f);
             Surface.StrokeRectangle(
                 Block,
-                SelectedFilter ? ColorRgba{ 165, 185, 154, 130 } : ProjectZeroSurfaceColors::HairlineLight,
+                SelectedFilter ? ColorRgba{ 165, 185, 154, 130 } : WorkspaceSurfaceColors::HairlineLight,
                 23.0f,
                 1.0f);
 
@@ -670,34 +671,34 @@ float InspectorPanel::RenderFolderInspector(
                 { Block.X + 22.0f, Block.Y + 24.0f },
                 3.5f,
                 VisibleSlot ? ColorRgba{ 91, 185, 121, 255 } : ColorRgba{ 160, 135, 111, 255 });
-            WorkspacePaneVisuals::DrawWeightedText(
+            WorkspacePaneAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Regular,
                 { Block.X + 33.0f, Block.Y + 18.0f },
                 11.0f,
-                ProjectZeroSurfaceColors::FolderHeadingInk,
+                WorkspaceSurfaceColors::FolderHeadingInk,
                 VisibleSlot ? "Visible" : "Hidden");
 
             char NumBuf[24]{};
             std::snprintf(NumBuf, sizeof(NumBuf), "%u", Count);
-            WorkspacePaneVisuals::DrawWeightedText(
+            WorkspacePaneAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Light,
                 { Block.X + 18.0f, Block.Y + 42.0f },
                 32.0f,
-                ProjectZeroSurfaceColors::FolderHeadingInk,
+                WorkspaceSurfaceColors::FolderHeadingInk,
                 NumBuf);
 
             return Hovered && Input.PrimaryPointer.Pressed;
         };
 
-        if (DrawVisibilityBlock(VisBlock, true, FolderVisibleCount, FolderVisibilityFilter == OutlinerVisibilityFilter::VisibleOnly))
+        if (ConstructVisibilityBlock(VisBlock, true, FolderVisibleCount, FolderVisibilityFilter == OutlinerVisibilityFilter::VisibleOnly))
         {
             FolderVisibilityFilter = (FolderVisibilityFilter == OutlinerVisibilityFilter::VisibleOnly)
                                          ? OutlinerVisibilityFilter::All
                                          : OutlinerVisibilityFilter::VisibleOnly;
         }
-        if (DrawVisibilityBlock(HidBlock, false, FolderHiddenCount, FolderVisibilityFilter == OutlinerVisibilityFilter::HiddenOnly))
+        if (ConstructVisibilityBlock(HidBlock, false, FolderHiddenCount, FolderVisibilityFilter == OutlinerVisibilityFilter::HiddenOnly))
         {
             FolderVisibilityFilter = (FolderVisibilityFilter == OutlinerVisibilityFilter::HiddenOnly)
                                          ? OutlinerVisibilityFilter::All
@@ -710,16 +711,16 @@ float InspectorPanel::RenderFolderInspector(
     // 8. Composition block (#202020, 25px radius, 12px stacked bar + 2-column category breakdown)
     {
         const Rectangle2D CompBlock{ LeftX, CurY, InnerW, 136.0f };
-        Surface.FillRectangle(CompBlock, ProjectZeroSurfaceColors::SectionSurface, 25.0f);
-        Surface.StrokeRectangle(CompBlock, ProjectZeroSurfaceColors::HairlineLight, 25.0f, 1.0f);
+        Surface.FillRectangle(CompBlock, WorkspaceSurfaceColors::SectionSurface, 25.0f);
+        Surface.StrokeRectangle(CompBlock, WorkspaceSurfaceColors::HairlineLight, 25.0f, 1.0f);
 
         Surface.FillRectangle({ CompBlock.X + 23.0f, CompBlock.Y + 22.0f, 3.0f, 15.0f }, FolderEntry.FolderTint, 1.5f);
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { CompBlock.X + 35.0f, CompBlock.Y + 21.0f },
             13.0f,
-            ProjectZeroSurfaceColors::FolderHeadingInk,
+            WorkspaceSurfaceColors::FolderHeadingInk,
             "Composition");
 
         const Rectangle2D BarTrack{ CompBlock.X + 23.0f, CompBlock.Y + 50.0f, InnerW - 46.0f, 12.0f };
@@ -738,8 +739,8 @@ float InspectorPanel::RenderFolderInspector(
                 const float ClampedW = std::min(SegW, BarTrack.Right() - SegX);
                 if (ClampedW > 0.5f)
                 {
-                    const ColorRgba SegColor = WorkspacePaneVisuals::QuerySlotCategoryColor(
-                        static_cast<OutlinerSlotCategory>(Cat),
+                    const ColorRgba SegColor = WorkspacePaneAppearance::QueryCategoryAccent(
+                        static_cast<ConstructSlotCategory>(Cat),
                         FolderEntry.FolderTint);
                     Surface.FillRectangle({ SegX, BarTrack.Y, ClampedW, BarTrack.Height }, SegColor, 4.0f);
                     SegX += ClampedW + 2.0f;
@@ -757,13 +758,16 @@ float InspectorPanel::RenderFolderInspector(
         const float HalfCol = (InnerW - 56.0f) * 0.5f;
         for (std::size_t Cat = 0u; Cat < 4u; ++Cat)
         {
-            const std::size_t SlotOrd = Cat + 1u;
-            const float       LegendX   = CompBlock.X + 23.0f + static_cast<float>(Cat % 2u) * (HalfCol + 10.0f);
-            const float       LegendY   = CompBlock.Y + 76.0f + static_cast<float>(Cat / 2u) * 22.0f;
-            const ColorRgba   DotCol  = WorkspacePaneVisuals::QuerySlotCategoryColor(static_cast<OutlinerSlotCategory>(SlotOrd), FolderEntry.FolderTint);
+            const std::size_t SlotOrd  = Cat + 1u;
+            const float       LegendX  = CompBlock.X + 23.0f + static_cast<float>(Cat % 2u) * (HalfCol + 10.0f);
+            const float       LegendY  = CompBlock.Y + 76.0f + static_cast<float>(Cat / 2u) * 22.0f;
+            const VisualToken CatToken = WorkspacePaneAppearance::QueryCategoryVisualToken(
+                static_cast<ConstructSlotCategory>(SlotOrd),
+                6.5f,
+                FolderEntry.FolderTint);
 
-            Surface.FillCircle({ LegendX + 4.0f, LegendY + 6.5f }, 3.0f, DotCol);
-            WorkspacePaneVisuals::DrawWeightedText(
+            WorkspacePaneAppearance::ConstructVisualToken(Surface, { LegendX + 4.0f, LegendY + 6.5f }, CatToken);
+            WorkspacePaneAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Regular,
                 { LegendX + 13.0f, LegendY },
@@ -773,8 +777,8 @@ float InspectorPanel::RenderFolderInspector(
 
             char CntBuf[16]{};
             std::snprintf(CntBuf, sizeof(CntBuf), "%u", CategoryCounts[SlotOrd]);
-            const float CntW = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, CntBuf);
-            WorkspacePaneVisuals::DrawWeightedText(
+            const float CntW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, CntBuf);
+            WorkspacePaneAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Regular,
                 { LegendX + HalfCol - CntW, LegendY },
@@ -830,22 +834,22 @@ float InspectorPanel::RenderFolderInspector(
         const float       RowsHeight    = (DisplayedRows == 0u) ? 34.0f : static_cast<float>(DisplayedRows) * 36.0f;
         const Rectangle2D BrowseBlock{ LeftX, CurY, InnerW, 158.0f + RowsHeight };
 
-        Surface.FillRectangle(BrowseBlock, ProjectZeroSurfaceColors::SectionSurface, 25.0f);
-        Surface.StrokeRectangle(BrowseBlock, ProjectZeroSurfaceColors::HairlineLight, 25.0f, 1.0f);
+        Surface.FillRectangle(BrowseBlock, WorkspaceSurfaceColors::SectionSurface, 25.0f);
+        Surface.StrokeRectangle(BrowseBlock, WorkspaceSurfaceColors::HairlineLight, 25.0f, 1.0f);
 
         Surface.FillRectangle({ BrowseBlock.X + 23.0f, BrowseBlock.Y + 22.0f, 3.0f, 15.0f }, FolderEntry.FolderTint, 1.5f);
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { BrowseBlock.X + 35.0f, BrowseBlock.Y + 21.0f },
             13.0f,
-            ProjectZeroSurfaceColors::FolderHeadingInk,
+            WorkspaceSurfaceColors::FolderHeadingInk,
             "Browse contents");
 
         char ShownText[32]{};
         std::snprintf(ShownText, sizeof(ShownText), "%zu shown", FilteredEntries.size());
-        const float ShownW = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.5f, ShownText);
-        WorkspacePaneVisuals::DrawWeightedText(
+        const float ShownW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.5f, ShownText);
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { BrowseBlock.Right() - 23.0f - ShownW, BrowseBlock.Y + 24.0f },
@@ -853,7 +857,7 @@ float InspectorPanel::RenderFolderInspector(
             ColorRgba{ 140, 144, 136, 255 },
             ShownText);
 
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { BrowseBlock.X + 23.0f, BrowseBlock.Y + 48.0f },
@@ -885,7 +889,7 @@ float InspectorPanel::RenderFolderInspector(
 
         if (FolderSearchEditor.Length == 0u && !FolderSearchEditor.Active)
         {
-            WorkspacePaneVisuals::DrawWeightedText(
+            WorkspacePaneAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Regular,
                 { SearchField.X + 10.0f, SearchField.Y + 9.0f },
@@ -895,7 +899,7 @@ float InspectorPanel::RenderFolderInspector(
         }
         else
         {
-            WorkspacePaneVisuals::DrawTruncatedText(
+            WorkspacePaneAppearance::ConstructTruncatedText(
                 Surface,
                 FontWeightClass::Regular,
                 { SearchField.X + 10.0f, SearchField.Y + 9.0f },
@@ -905,45 +909,47 @@ float InspectorPanel::RenderFolderInspector(
                 SearchText);
         }
 
-        // Scope & Sort capsule buttons
+        // Scope & Sort dropdown selectors (Reusable Studio Controls DropdownSelector style)
         const float       FilterBtnW = (InnerW - 46.0f - 10.0f) * 0.5f;
-        const Rectangle2D ScopeBtn{ BrowseBlock.X + 23.0f, SearchField.Bottom() + 10.0f, FilterBtnW, 28.0f };
-        const Rectangle2D SortBtn{ ScopeBtn.Right() + 10.0f, SearchField.Bottom() + 10.0f, FilterBtnW, 28.0f };
+        const Rectangle2D ScopeBtn{ BrowseBlock.X + 23.0f, SearchField.Bottom() + 10.0f, FilterBtnW, 32.0f };
+        const Rectangle2D SortBtn{ ScopeBtn.Right() + 10.0f, SearchField.Bottom() + 10.0f, FilterBtnW, 32.0f };
+        ScopeButtonBounds = ScopeBtn;
+        SortButtonBounds  = SortBtn;
 
-        Surface.FillRectangle(ScopeBtn, ColorRgba{ 24, 26, 23, 255 }, 12.0f);
-        Surface.StrokeRectangle(ScopeBtn, ColorRgba{ 255, 255, 255, 18 }, 12.0f, 1.0f);
-        WorkspacePaneVisuals::DrawTruncatedText(
-            Surface,
-            FontWeightClass::Regular,
-            { ScopeBtn.X + 10.0f, ScopeBtn.Y + 7.5f },
-            ScopeBtn.Width - 20.0f,
-            10.0f,
-            ColorRgba{ 189, 197, 180, 255 },
-            (BrowseScope == FolderBrowseScope::NestedAll) ? "Scope: Nested" : "Scope: Direct");
-        if (ScrollViewport.Contains(Cursor) && ScopeBtn.Contains(Cursor) && Input.PrimaryPointer.Pressed)
+        ControlPointer DropdownPointer = Input.PrimaryPointer;
+        if (!ScrollViewport.Contains(Cursor) || ScopeDropdownOpen || SortDropdownOpen)
         {
-            BrowseScope = (BrowseScope == FolderBrowseScope::NestedAll) ? FolderBrowseScope::DirectOnly : FolderBrowseScope::NestedAll;
+            DropdownPointer.Enabled = ScrollViewport.Contains(Cursor) && !ScopeDropdownOpen && !SortDropdownOpen;
         }
 
-        Surface.FillRectangle(SortBtn, ColorRgba{ 24, 26, 23, 255 }, 12.0f);
-        Surface.StrokeRectangle(SortBtn, ColorRgba{ 255, 255, 255, 18 }, 12.0f, 1.0f);
-        WorkspacePaneVisuals::DrawTruncatedText(
+        const ControlContact ScopeHit = DropdownSelector::ConstructButton(
             Surface,
-            FontWeightClass::Regular,
-            { SortBtn.X + 10.0f, SortBtn.Y + 7.5f },
-            SortBtn.Width - 20.0f,
-            10.0f,
-            ColorRgba{ 189, 197, 180, 255 },
-            (BrowseSort == FolderBrowseSort::OutlinerOrder) ? "Sort: Order" : "Sort: Name");
-        if (ScrollViewport.Contains(Cursor) && SortBtn.Contains(Cursor) && Input.PrimaryPointer.Pressed)
+            ScopeBtn,
+            (BrowseScope == FolderBrowseScope::NestedAll) ? "Scope: Nested" : "Scope: Direct",
+            ScopeDropdownOpen,
+            DropdownPointer);
+        if (ScopeHit.Pressed)
         {
-            BrowseSort = (BrowseSort == FolderBrowseSort::OutlinerOrder) ? FolderBrowseSort::Alphabetical : FolderBrowseSort::OutlinerOrder;
+            ScopeDropdownOpen = !ScopeDropdownOpen;
+            SortDropdownOpen  = false;
+        }
+
+        const ControlContact SortHit = DropdownSelector::ConstructButton(
+            Surface,
+            SortBtn,
+            (BrowseSort == FolderBrowseSort::OutlinerOrder) ? "Sort: Order" : "Sort: Name",
+            SortDropdownOpen,
+            DropdownPointer);
+        if (SortHit.Pressed)
+        {
+            SortDropdownOpen  = !SortDropdownOpen;
+            ScopeDropdownOpen = false;
         }
 
         float EntryRowY = ScopeBtn.Bottom() + 12.0f;
         if (DisplayedRows == 0u)
         {
-            WorkspacePaneVisuals::DrawWeightedText(
+            WorkspacePaneAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Regular,
                 { BrowseBlock.X + 23.0f, EntryRowY + 6.0f },
@@ -957,7 +963,7 @@ float InspectorPanel::RenderFolderInspector(
             {
                 const OutlinerRecordEntry* SubEntry = FilteredEntries[RowIdx];
                 const Rectangle2D          RowRect{ BrowseBlock.X + 23.0f, EntryRowY, InnerW - 46.0f, 34.0f };
-                Surface.StrokeLine({ RowRect.X, RowRect.Y }, { RowRect.Right(), RowRect.Y }, ProjectZeroSurfaceColors::HairlineLight, 1.0f);
+                Surface.StrokeLine({ RowRect.X, RowRect.Y }, { RowRect.Right(), RowRect.Y }, WorkspaceSurfaceColors::HairlineLight, 1.0f);
 
                 const bool RowHover = ScrollViewport.Contains(Cursor) && RowRect.Contains(Cursor);
                 if (RowHover)
@@ -965,18 +971,18 @@ float InspectorPanel::RenderFolderInspector(
                     Surface.FillRectangle({ RowRect.X - 4.0f, RowRect.Y + 2.0f, RowRect.Width + 8.0f, RowRect.Height - 4.0f }, ColorRgba{ 42, 44, 40, 255 }, 6.0f);
                 }
 
-                WorkspacePaneVisuals::DrawSlotCategoryEmblem(Surface, SubEntry->Category, { RowRect.X + 2.0f, RowRect.Y + 8.0f }, 18.0f, SubEntry->FolderTint, 1.0f);
-                WorkspacePaneVisuals::DrawTruncatedText(
+                WorkspacePaneAppearance::ConstructSlotCategoryIcon(Surface, SubEntry->Category, { RowRect.X + 2.0f, RowRect.Y + 8.0f }, 18.0f, SubEntry->FolderTint, 1.0f);
+                WorkspacePaneAppearance::ConstructTruncatedText(
                     Surface,
                     FontWeightClass::Regular,
                     { RowRect.X + 27.0f, RowRect.Y + 10.0f },
                     RowRect.Width - 62.0f,
                     11.0f,
-                    ProjectZeroSurfaceColors::FolderHeadingInk,
+                    WorkspaceSurfaceColors::FolderHeadingInk,
                     SubEntry->Title);
 
                 const Rectangle2D EyeBtn{ RowRect.Right() - 22.0f, RowRect.Y + 7.0f, 20.0f, 20.0f };
-                VectorIconRepository::DrawControl(
+                VectorIconRepository::ConstructControl(
                     Surface,
                     SubEntry->VisibilityEnabled ? ControlIcon::EyeVisible : ControlIcon::EyeHidden,
                     VectorIconPlacement{ EyeBtn.X + 3.0f, EyeBtn.Y + 3.0f, 14.0f, ColorRgba{ 150, 156, 144, 255 }, 1.8f });
@@ -1005,19 +1011,19 @@ float InspectorPanel::RenderFolderInspector(
     // 10. Collection appearance / Folder tint section (#202020, 25px radius, warm #B9A969 bar)
     {
         const Rectangle2D TintBlock{ LeftX, CurY, InnerW, 96.0f };
-        Surface.FillRectangle(TintBlock, ProjectZeroSurfaceColors::SectionSurface, 25.0f);
-        Surface.StrokeRectangle(TintBlock, ProjectZeroSurfaceColors::HairlineLight, 25.0f, 1.0f);
+        Surface.FillRectangle(TintBlock, WorkspaceSurfaceColors::SectionSurface, 25.0f);
+        Surface.StrokeRectangle(TintBlock, WorkspaceSurfaceColors::HairlineLight, 25.0f, 1.0f);
 
-        Surface.FillRectangle({ TintBlock.X + 23.0f, TintBlock.Y + 22.0f, 3.0f, 15.0f }, ProjectZeroSurfaceColors::ShowcaseWarmGold, 1.5f);
-        WorkspacePaneVisuals::DrawWeightedText(
+        Surface.FillRectangle({ TintBlock.X + 23.0f, TintBlock.Y + 22.0f, 3.0f, 15.0f }, WorkspaceSurfaceColors::ShowcaseWarmGold, 1.5f);
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { TintBlock.X + 35.0f, TintBlock.Y + 21.0f },
             13.0f,
-            ProjectZeroSurfaceColors::FolderHeadingInk,
+            WorkspaceSurfaceColors::FolderHeadingInk,
             "Collection appearance");
 
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { TintBlock.X + 23.0f, TintBlock.Y + 56.0f },
@@ -1037,10 +1043,14 @@ float InspectorPanel::RenderFolderInspector(
         for (const ColorRgba Swatch : Swatches)
         {
             const Point2D SwatchCenter{ SwatchX + 10.0f, TintBlock.Y + 62.0f };
-            Surface.FillCircle(SwatchCenter, 9.5f, Swatch);
+            VisualToken   SwatchToken{};
+            SwatchToken.Shape     = VisualTokenShape::Circle;
+            SwatchToken.FillColor = Swatch;
+            SwatchToken.Extent    = 19.0f;
+            WorkspacePaneAppearance::ConstructVisualToken(Surface, SwatchCenter, SwatchToken);
             if (FolderEntry.FolderTint == Swatch)
             {
-                Surface.StrokeCircle(SwatchCenter, 12.0f, ProjectZeroSurfaceColors::PrimaryInk, 1.4f);
+                Surface.StrokeCircle(SwatchCenter, 12.0f, WorkspaceSurfaceColors::PrimaryInk, 1.4f);
             }
             const Rectangle2D Hit{ SwatchCenter.X - 11.0f, SwatchCenter.Y - 11.0f, 22.0f, 22.0f };
             if (ScrollViewport.Contains(Cursor) && Hit.Contains(Cursor) && Input.PrimaryPointer.Pressed)
@@ -1073,17 +1083,17 @@ float InspectorPanel::RenderStandardEntryInspector(
     const float   InnerW = std::max(120.0f, ScrollViewport.Width - PadX * 2.0f);
     float         CurY   = OriginY + 26.0f;
 
-    // 1. ProjectZeroEditor .inspector-heading (8px breadcrumbs, 25px Light h1, 10px eyebrow, top-right + Add notes)
+    // 1. workspace .inspector-heading (8px breadcrumbs, 25px Light h1, 10px eyebrow, top-right + Add notes)
     std::string Breadcrumb = "Inspector / ";
     Breadcrumb += Entry.CategoryLabel.empty() ? "General" : Entry.CategoryLabel;
 
-    WorkspacePaneVisuals::DrawTruncatedText(
+    WorkspacePaneAppearance::ConstructTruncatedText(
         Surface,
         FontWeightClass::Regular,
         { LeftX, CurY + 4.0f },
         InnerW - 96.0f,
         9.0f,
-        ProjectZeroSurfaceColors::MutedInk,
+        WorkspaceSurfaceColors::MutedInk,
         Breadcrumb);
 
     if (!NotesBoxExpanded)
@@ -1091,22 +1101,22 @@ float InspectorPanel::RenderStandardEntryInspector(
         RenderNotesControl(Surface, LeftX, CurY, InnerW, true, LeftX + InnerW, CurY, Entry, Input);
     }
 
-    WorkspacePaneVisuals::DrawTruncatedText(
+    WorkspacePaneAppearance::ConstructTruncatedText(
         Surface,
         FontWeightClass::Light,
         { LeftX, CurY + 34.0f },
         InnerW,
         25.0f,
-        ProjectZeroSurfaceColors::PrimaryInk,
+        WorkspaceSurfaceColors::PrimaryInk,
         Entry.Title);
 
-    WorkspacePaneVisuals::DrawTruncatedText(
+    WorkspacePaneAppearance::ConstructTruncatedText(
         Surface,
         FontWeightClass::Regular,
         { LeftX, CurY + 67.0f },
         InnerW,
         10.5f,
-        ProjectZeroSurfaceColors::MutedInk,
+        WorkspaceSurfaceColors::MutedInk,
         Entry.Subtitle.empty() ? Entry.CategoryLabel : Entry.Subtitle);
 
     CurY += 96.0f;
@@ -1118,7 +1128,7 @@ float InspectorPanel::RenderStandardEntryInspector(
     }
 
     // 2. PROPERTIES section caption + Reset capsule button
-    WorkspacePaneVisuals::DrawWeightedText(
+    WorkspacePaneAppearance::ConstructWeightedText(
         Surface,
         FontWeightClass::Medium,
         { LeftX, CurY + 8.0f },
@@ -1127,8 +1137,8 @@ float InspectorPanel::RenderStandardEntryInspector(
         "PROPERTIES");
 
     const char* SubCaption = "Capabilities & spatial transform";
-    const float SubCapW    = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, SubCaption);
-    WorkspacePaneVisuals::DrawWeightedText(
+    const float SubCapW    = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, SubCaption);
+    WorkspacePaneAppearance::ConstructWeightedText(
         Surface,
         FontWeightClass::Regular,
         { LeftX + InnerW - SubCapW, CurY + 8.0f },
@@ -1137,13 +1147,13 @@ float InspectorPanel::RenderStandardEntryInspector(
         SubCaption);
     CurY += 30.0f;
 
-    // 3. 2x2 Quick Controls Tile Grid (matching ProjectZeroEditorOverview.png Enabled / Static tiles)
+    // 3. 2x2 Quick Controls Tile Grid (matching reference layout Enabled / Static tiles)
     {
         const float TileGap = 10.0f;
         const float TileW   = (InnerW - TileGap) * 0.5f;
         const float TileH   = 104.0f;
 
-        auto DrawCapabilityTile = [&](Rectangle2D Tile, const char* Label, ControlIcon Icon, bool& CapabilityToggle)
+        auto ConstructCapabilityTile = [&](Rectangle2D Tile, const char* Label, CapabilityIconId CapabilityIcon, bool& CapabilityToggle)
         {
             const bool Hovered = ScrollViewport.Contains(Cursor) && Tile.Contains(Cursor);
             Surface.FillRectangle(
@@ -1156,38 +1166,34 @@ float InspectorPanel::RenderStandardEntryInspector(
                 20.0f,
                 1.0f);
 
+            const ColorRgba   SeatFill = CapabilityToggle ? ColorRgba{ 32, 68, 46, 255 } : ColorRgba{ 38, 38, 38, 255 };
             const Rectangle2D Seat{ Tile.Center().X - 19.0f, Tile.Y + 15.0f, 38.0f, 36.0f };
-            Surface.FillRectangle(
-                Seat,
-                CapabilityToggle ? ColorRgba{ 32, 68, 46, 255 } : ColorRgba{ 38, 38, 38, 255 },
-                11.0f);
-            VectorIconRepository::DrawControl(
+            Surface.FillRectangle(Seat, SeatFill, 11.0f);
+            WorkspacePaneAppearance::ConstructCapabilityIcon(
                 Surface,
-                Icon,
-                VectorIconPlacement{
-                    Seat.X + 9.0f,
-                    Seat.Y + 8.0f,
-                    20.0f,
-                    CapabilityToggle ? ColorRgba{ 102, 214, 138, 255 } : ColorRgba{ 176, 132, 116, 255 },
-                    1.85f });
+                { Seat.X + 9.0f, Seat.Y + 8.0f },
+                20.0f,
+                CapabilityIcon,
+                CapabilityToggle ? ColorRgba{ 102, 214, 138, 255 } : ColorRgba{ 176, 132, 116, 255 },
+                SeatFill);
 
-            const float LabelW = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.5f, Label);
-            WorkspacePaneVisuals::DrawWeightedText(
+            const float LabelW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.5f, Label);
+            WorkspacePaneAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Regular,
                 { Tile.Center().X - LabelW * 0.5f, Tile.Y + 60.0f },
                 11.5f,
-                CapabilityToggle ? ProjectZeroSurfaceColors::PrimaryInk : ColorRgba{ 186, 186, 186, 255 },
+                CapabilityToggle ? WorkspaceSurfaceColors::PrimaryInk : ColorRgba{ 186, 186, 186, 255 },
                 Label);
 
             const char* StatusStr = CapabilityToggle ? "ON" : "OFF";
-            const float StatusW   = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.5f, StatusStr);
-            WorkspacePaneVisuals::DrawWeightedText(
+            const float StatusW   = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 8.5f, StatusStr);
+            WorkspacePaneAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Medium,
                 { Tile.Center().X - StatusW * 0.5f, Tile.Y + 79.0f },
                 8.5f,
-                CapabilityToggle ? ProjectZeroSurfaceColors::StatusGreen : ColorRgba{ 188, 122, 102, 255 },
+                CapabilityToggle ? WorkspaceSurfaceColors::StatusGreen : ColorRgba{ 188, 122, 102, 255 },
                 StatusStr);
 
             if (Hovered && Input.PrimaryPointer.Pressed)
@@ -1196,22 +1202,22 @@ float InspectorPanel::RenderStandardEntryInspector(
             }
         };
 
-        DrawCapabilityTile({ LeftX, CurY, TileW, TileH }, "Enabled", ControlIcon::EyeVisible, Entry.VisibilityEnabled);
-        DrawCapabilityTile({ LeftX + TileW + TileGap, CurY, TileW, TileH }, "Cast shadows", ControlIcon::SunIllumination, Entry.CastShadows);
+        ConstructCapabilityTile({ LeftX, CurY, TileW, TileH }, "Enabled", CapabilityIconId::Visibility, Entry.VisibilityEnabled);
+        ConstructCapabilityTile({ LeftX + TileW + TileGap, CurY, TileW, TileH }, "Cast shadows", CapabilityIconId::ShadowCaster, Entry.CastShadows);
         CurY += TileH + TileGap;
 
-        DrawCapabilityTile({ LeftX, CurY, TileW, TileH }, "Dynamic", ControlIcon::MotionActivity, Entry.DynamicMotion);
-        DrawCapabilityTile({ LeftX + TileW + TileGap, CurY, TileW, TileH }, "Locked", Entry.Locked ? ControlIcon::LockClosed : ControlIcon::LockOpen, Entry.Locked);
+        ConstructCapabilityTile({ LeftX, CurY, TileW, TileH }, "Dynamic", CapabilityIconId::DynamicMotion, Entry.DynamicMotion);
+        ConstructCapabilityTile({ LeftX + TileW + TileGap, CurY, TileW, TileH }, "Locked", CapabilityIconId::TransformLock, Entry.Locked);
         CurY += TileH + 16.0f;
     }
 
     // 4. Transform section (#1A1A1A, 22px radius) with interactive X/Y/Z sliders + Reset button
     {
         const Rectangle2D TransformSection{ LeftX, CurY, InnerW, 186.0f };
-        Surface.FillRectangle(TransformSection, ProjectZeroSurfaceColors::GenericSurface, 22.0f);
-        Surface.StrokeRectangle(TransformSection, ProjectZeroSurfaceColors::HairlineLight, 22.0f, 1.0f);
+        Surface.FillRectangle(TransformSection, WorkspaceSurfaceColors::GenericSurface, 22.0f);
+        Surface.StrokeRectangle(TransformSection, WorkspaceSurfaceColors::HairlineLight, 22.0f, 1.0f);
 
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Medium,
             { TransformSection.X + 18.0f, TransformSection.Y + 18.0f },
@@ -1222,7 +1228,7 @@ float InspectorPanel::RenderStandardEntryInspector(
         const Rectangle2D ResetBtn{ TransformSection.Right() - 82.0f, TransformSection.Y + 13.0f, 64.0f, 24.0f };
         const bool        ResetHover = ScrollViewport.Contains(Cursor) && ResetBtn.Contains(Cursor);
         Surface.FillRectangle(ResetBtn, ResetHover ? ColorRgba{ 46, 46, 46, 255 } : ColorRgba{ 36, 36, 36, 255 }, 12.0f);
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { ResetBtn.X + 17.0f, ResetBtn.Y + 6.0f },
@@ -1238,9 +1244,9 @@ float InspectorPanel::RenderStandardEntryInspector(
             FormatTransformSubtitle(Entry);
         }
 
-        auto DrawAxisRow = [&](const char* AxisLabel, float RowTopY, float& Coordinate)
+        auto ConstructAxisRow = [&](const char* AxisLabel, float RowTopY, float& Coordinate)
         {
-            WorkspacePaneVisuals::DrawWeightedText(
+            WorkspacePaneAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Regular,
                 { TransformSection.X + 18.0f, RowTopY + 7.0f },
@@ -1250,8 +1256,8 @@ float InspectorPanel::RenderStandardEntryInspector(
 
             char CoordinateText[32]{};
             std::snprintf(CoordinateText, sizeof(CoordinateText), "%.1f m", Coordinate);
-            const float ValW = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.5f, CoordinateText);
-            WorkspacePaneVisuals::DrawWeightedText(
+            const float ValW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.5f, CoordinateText);
+            WorkspacePaneAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Regular,
                 { TransformSection.Right() - 18.0f - ValW, RowTopY + 7.0f },
@@ -1278,9 +1284,9 @@ float InspectorPanel::RenderStandardEntryInspector(
             }
         };
 
-        DrawAxisRow("Position X", TransformSection.Y + 50.0f, Entry.PositionX);
-        DrawAxisRow("Position Y", TransformSection.Y + 92.0f, Entry.PositionY);
-        DrawAxisRow("Position Z", TransformSection.Y + 134.0f, Entry.PositionZ);
+        ConstructAxisRow("Position X", TransformSection.Y + 50.0f, Entry.PositionX);
+        ConstructAxisRow("Position Y", TransformSection.Y + 92.0f, Entry.PositionY);
+        ConstructAxisRow("Position Z", TransformSection.Y + 134.0f, Entry.PositionZ);
 
         CurY += TransformSection.Height + 28.0f;
     }
@@ -1303,8 +1309,8 @@ void InspectorPanel::Render(
         return;
     }
 
-    WorkspacePaneVisuals::ForwardInputToTextBuffer(NotesEditor, Input, Δt);
-    WorkspacePaneVisuals::ForwardInputToTextBuffer(FolderSearchEditor, Input, Δt);
+    WorkspacePaneAppearance::ForwardInputToTextBuffer(NotesEditor, Input, Δt);
+    WorkspacePaneAppearance::ForwardInputToTextBuffer(FolderSearchEditor, Input, Δt);
 
     const Point2D     Cursor{ Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
     constexpr float   FooterHeight = 45.0f;
@@ -1326,7 +1332,7 @@ void InspectorPanel::Render(
     }
 
     Surface.PushClip(Bounds);
-    Surface.FillRectangle(Bounds, ProjectZeroSurfaceColors::DockBackground);
+    Surface.FillRectangle(Bounds, WorkspaceSurfaceColors::DockBackground);
 
     const std::span<const OutlinerSlotToken> Selected =
         (AttachedOutliner != nullptr) ? AttachedOutliner->QuerySelectedTokens() : std::span<const OutlinerSlotToken>{};
@@ -1345,27 +1351,27 @@ void InspectorPanel::Render(
 
         const float LeftX = ScrollViewport.X + 28.0f;
         const float TopY  = ScrollViewport.Y + 30.0f;
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { LeftX, TopY },
             9.0f,
-            ProjectZeroSurfaceColors::MutedInk,
+            WorkspaceSurfaceColors::MutedInk,
             "Inspector");
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Light,
             { LeftX, TopY + 30.0f },
             25.0f,
-            ProjectZeroSurfaceColors::PrimaryInk,
+            WorkspaceSurfaceColors::PrimaryInk,
             "No selection");
-        WorkspacePaneVisuals::DrawTruncatedText(
+        WorkspacePaneAppearance::ConstructTruncatedText(
             Surface,
             FontWeightClass::Regular,
             { LeftX, TopY + 66.0f },
             std::max(60.0f, ScrollViewport.Width - 56.0f),
             11.0f,
-            ProjectZeroSurfaceColors::MutedInk,
+            WorkspaceSurfaceColors::MutedInk,
             "Select an entry or folder in the Outliner to inspect properties.");
     }
     else if (Selected.size() > 1u)
@@ -1375,51 +1381,51 @@ void InspectorPanel::Render(
 
         const float LeftX = ScrollViewport.X + 26.0f;
         const float TopY  = ScrollViewport.Y + 28.0f;
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { LeftX, TopY },
             9.0f,
-            ProjectZeroSurfaceColors::MutedInk,
+            WorkspaceSurfaceColors::MutedInk,
             "Inspector / Multi-selection");
 
         char Headline[64]{};
         std::snprintf(Headline, sizeof(Headline), "%zu Selected", Selected.size());
         FooterLeftLabel = Headline;
 
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Light,
             { LeftX, TopY + 30.0f },
             25.0f,
-            ProjectZeroSurfaceColors::PrimaryInk,
+            WorkspaceSurfaceColors::PrimaryInk,
             Headline);
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { LeftX, TopY + 64.0f },
             10.5f,
-            ProjectZeroSurfaceColors::MutedInk,
+            WorkspaceSurfaceColors::MutedInk,
             "Shift / Ctrl selection active");
 
         const float       InnerW = std::max(100.0f, ScrollViewport.Width - 52.0f);
         const Rectangle2D BatchSection{ LeftX, TopY + 96.0f, InnerW, 32.0f + static_cast<float>(std::min<std::size_t>(Selected.size(), 8u)) * 30.0f };
-        Surface.FillRectangle(BatchSection, ProjectZeroSurfaceColors::GenericSurface, 20.0f);
-        Surface.StrokeRectangle(BatchSection, ProjectZeroSurfaceColors::HairlineLight, 20.0f, 1.0f);
+        Surface.FillRectangle(BatchSection, WorkspaceSurfaceColors::GenericSurface, 20.0f);
+        Surface.StrokeRectangle(BatchSection, WorkspaceSurfaceColors::HairlineLight, 20.0f, 1.0f);
 
         float RowY = BatchSection.Y + 16.0f;
         for (std::size_t Idx = 0u; Idx < std::min<std::size_t>(Selected.size(), 8u); ++Idx)
         {
             if (const OutlinerRecordEntry* SubEntry = AttachedOutliner->FindEntry(Selected[Idx]))
             {
-                WorkspacePaneVisuals::DrawSlotCategoryEmblem(Surface, SubEntry->Category, { BatchSection.X + 16.0f, RowY + 2.0f }, 18.0f, SubEntry->FolderTint, 1.0f);
-                WorkspacePaneVisuals::DrawTruncatedText(
+                WorkspacePaneAppearance::ConstructSlotCategoryIcon(Surface, SubEntry->Category, { BatchSection.X + 16.0f, RowY + 2.0f }, 18.0f, SubEntry->FolderTint, 1.0f);
+                WorkspacePaneAppearance::ConstructTruncatedText(
                     Surface,
                     FontWeightClass::Regular,
                     { BatchSection.X + 42.0f, RowY + 4.0f },
                     BatchSection.Width - 58.0f,
                     11.5f,
-                    ProjectZeroSurfaceColors::PrimaryInk,
+                    WorkspaceSurfaceColors::PrimaryInk,
                     SubEntry->Title);
                 RowY += 30.0f;
             }
@@ -1428,31 +1434,33 @@ void InspectorPanel::Render(
     else if (PrimaryEntry != nullptr)
     {
         FooterLeftLabel = PrimaryEntry->CategoryLabel.empty() ? PrimaryEntry->Title : PrimaryEntry->CategoryLabel;
-        if (PrimaryEntry->Category == OutlinerSlotCategory::Folder)
+        if (PrimaryEntry->Category == ConstructSlotCategory::Folder)
         {
             LastContentHeight = RenderFolderInspector(Surface, ScrollViewport, ScrollViewport.Y - ScrollOffsetY, *PrimaryEntry, Input);
         }
         else
         {
+            ScopeDropdownOpen = false;
+            SortDropdownOpen  = false;
             LastContentHeight = RenderStandardEntryInspector(Surface, ScrollViewport, ScrollViewport.Y - ScrollOffsetY, *PrimaryEntry, Input);
         }
     }
 
     const float MaxScrollAfter = std::max(0.0f, LastContentHeight - ScrollViewport.Height);
     ScrollOffsetY              = std::clamp(ScrollOffsetY, 0.0f, MaxScrollAfter);
-    WorkspacePaneVisuals::DrawVerticalScrollbar(Surface, ScrollViewport, LastContentHeight, ScrollOffsetY, Cursor);
+    WorkspacePaneAppearance::ConstructVerticalScrollIndicator(Surface, ScrollViewport, LastContentHeight, ScrollOffsetY, Cursor);
     Surface.PopClip();
 
-    // ProjectZeroEditor Inspector Footer (.inspector-footer: 45px height, #151515)
+    // workspace Inspector Footer (.inspector-footer: 45px height, #151515)
     const Rectangle2D FooterBounds{ Bounds.X, Bounds.Bottom() - FooterHeight, Bounds.Width, FooterHeight };
-    Surface.FillRectangle(FooterBounds, ProjectZeroSurfaceColors::FooterBackground);
+    Surface.FillRectangle(FooterBounds, WorkspaceSurfaceColors::FooterBackground);
     Surface.StrokeLine(
         { FooterBounds.X, FooterBounds.Y },
         { FooterBounds.Right(), FooterBounds.Y },
-        ProjectZeroSurfaceColors::HairlineLight,
+        WorkspaceSurfaceColors::HairlineLight,
         1.0f);
 
-    WorkspacePaneVisuals::DrawTruncatedText(
+    WorkspacePaneAppearance::ConstructTruncatedText(
         Surface,
         FontWeightClass::Regular,
         { FooterBounds.X + 14.0f, FooterBounds.Y + 16.5f },
@@ -1462,14 +1470,63 @@ void InspectorPanel::Render(
         FooterLeftLabel);
 
     const char* RightTag = "Native workspace";
-    const float RightW   = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, RightTag);
-    WorkspacePaneVisuals::DrawWeightedText(
+    const float RightW   = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, RightTag);
+    WorkspacePaneAppearance::ConstructWeightedText(
         Surface,
         FontWeightClass::Regular,
         { FooterBounds.Right() - 14.0f - RightW, FooterBounds.Y + 16.5f },
         10.0f,
         ColorRgba{ 112, 112, 112, 255 },
         RightTag);
+
+    // Reusable Studio Controls Scope & Sort dropdown option sheets (above scroll clip, zero shadow)
+    if (ScopeDropdownOpen)
+    {
+        constexpr std::array<const char*, 2> ScopeOptions = {{ "Scope: Nested", "Scope: Direct" }};
+        const Rectangle2D SheetBounds = DropdownSelector::QuerySheetBounds(ScopeButtonBounds, static_cast<uint32_t>(ScopeOptions.size()));
+        const uint32_t    CurrentIdx  = (BrowseScope == FolderBrowseScope::NestedAll) ? 0u : 1u;
+        uint32_t          ChosenIdx   = CurrentIdx;
+        if (DropdownSelector::ConstructOptionSheet(
+                Surface,
+                ScopeButtonBounds,
+                ScopeOptions.data(),
+                static_cast<uint32_t>(ScopeOptions.size()),
+                CurrentIdx,
+                Input.PrimaryPointer,
+                ChosenIdx).Clicked)
+        {
+            BrowseScope       = (ChosenIdx == 0u) ? FolderBrowseScope::NestedAll : FolderBrowseScope::DirectOnly;
+            ScopeDropdownOpen = false;
+        }
+        else if (Input.PrimaryPointer.Pressed && !SheetBounds.Contains(Cursor) && !ScopeButtonBounds.Contains(Cursor))
+        {
+            ScopeDropdownOpen = false;
+        }
+    }
+
+    if (SortDropdownOpen)
+    {
+        constexpr std::array<const char*, 2> SortOptions = {{ "Sort: Order", "Sort: Name" }};
+        const Rectangle2D SheetBounds = DropdownSelector::QuerySheetBounds(SortButtonBounds, static_cast<uint32_t>(SortOptions.size()));
+        const uint32_t    CurrentIdx  = (BrowseSort == FolderBrowseSort::OutlinerOrder) ? 0u : 1u;
+        uint32_t          ChosenIdx   = CurrentIdx;
+        if (DropdownSelector::ConstructOptionSheet(
+                Surface,
+                SortButtonBounds,
+                SortOptions.data(),
+                static_cast<uint32_t>(SortOptions.size()),
+                CurrentIdx,
+                Input.PrimaryPointer,
+                ChosenIdx).Clicked)
+        {
+            BrowseSort       = (ChosenIdx == 0u) ? FolderBrowseSort::OutlinerOrder : FolderBrowseSort::Alphabetical;
+            SortDropdownOpen = false;
+        }
+        else if (Input.PrimaryPointer.Pressed && !SheetBounds.Contains(Cursor) && !SortButtonBounds.Contains(Cursor))
+        {
+            SortDropdownOpen = false;
+        }
+    }
 
     Surface.PopClip();
 }
@@ -1494,7 +1551,7 @@ void InspectorPanel::PresentInImGuiPane(double Δt, float ScaleFactor)
     const Rectangle2D LogicalBounds{ 0.0f, 0.0f, WinSize.x / SafeScale, PaneH / SafeScale };
 
     PixelSpace             WindowSurface(ImGui::GetWindowDrawList(), { ScreenBounds.X, ScreenBounds.Y }, SafeScale);
-    const PaneInputReading Input = WorkspacePaneVisuals::CaptureImGuiPaneInput(ScreenBounds, SafeScale);
+    const PaneInputReading Input = WorkspacePaneAppearance::CaptureImGuiPaneInput(ScreenBounds, SafeScale);
     Render(WindowSurface, LogicalBounds, Input, Δt);
 }
 

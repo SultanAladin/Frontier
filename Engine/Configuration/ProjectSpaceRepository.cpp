@@ -243,7 +243,7 @@ bool ProjectSpaceRepository::Save(
             { "Shortcuts",               std::move(ShortcutArray) },
         };
 
-        toml::table NotificationSectionData{
+        toml::table NotificationTable{
             { "FormatVersion",        1 },
             { "RateOverlayEnabled",   Document.Notifications.RateOverlayEnabled },
             { "AppliedAlertsEnabled", Document.Notifications.AppliedAlertsEnabled },
@@ -258,7 +258,7 @@ bool ProjectSpaceRepository::Save(
             { FontSpaceSection,         std::move(FontSection) },
             { WorkspaceLayoutSection,   std::move(LayoutSection) },
             { InputSettingsSection,     std::move(InputSection) },
-            { NotificationSection,      std::move(NotificationSectionData) },
+            { NotificationSection,      std::move(NotificationTable) },
         };
 
         std::error_code IoFailure{};
@@ -445,16 +445,16 @@ bool ProjectSpaceRepository::Load(
             }
         }
 
-        if (const auto* NotificationSectionData = Root[NotificationSection].as_table())
-        {
-            Candidate.Notifications.RateOverlayEnabled   = (*NotificationSectionData)["RateOverlayEnabled"].value_or(false);
-            Candidate.Notifications.AppliedAlertsEnabled = (*NotificationSectionData)["AppliedAlertsEnabled"].value_or(true);
-            Candidate.Notifications.ErrorAlertsEnabled   = (*NotificationSectionData)["ErrorAlertsEnabled"].value_or(true);
-            Candidate.Notifications.AlertHoldSeconds     = std::clamp(
-                (*NotificationSectionData)["AlertHoldSeconds"].value_or(3.5f),
-                1.0f,
-                10.0f);
-        }
+    if (const auto* NotificationTable = Root[NotificationSection].as_table())
+    {
+        Candidate.Notifications.RateOverlayEnabled   = (*NotificationTable)["RateOverlayEnabled"].value_or(false);
+        Candidate.Notifications.AppliedAlertsEnabled = (*NotificationTable)["AppliedAlertsEnabled"].value_or(true);
+        Candidate.Notifications.ErrorAlertsEnabled   = (*NotificationTable)["ErrorAlertsEnabled"].value_or(true);
+        Candidate.Notifications.AlertHoldSeconds     = std::clamp(
+            (*NotificationTable)["AlertHoldSeconds"].value_or(3.5f),
+            1.0f,
+            10.0f);
+    }
 
         Document = std::move(Candidate);
         Diagnostic.clear();

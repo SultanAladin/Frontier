@@ -150,7 +150,7 @@ set(FRONTIER_UI_COMPONENT_SOURCES
     Engine/Components/Appearance/TypographyRepository.cpp
     Engine/Components/Motion/SpringIntegrator.cpp
     Engine/Components/Notch/PanelExpansionTab.cpp
-    Engine/Components/Controls/ControlStyle.cpp
+    Engine/Components/Controls/ControlAppearance.cpp
     Engine/Components/Controls/ScalarSlider.cpp
     Engine/Components/Controls/ExclusiveSelector.cpp
     Engine/Components/Controls/CapsuleButton.cpp
@@ -161,7 +161,7 @@ set(FRONTIER_UI_COMPONENT_SOURCES
     Engine/Components/Controls/NotificationSequence.cpp
     Engine/Components/Docking/WorkspaceTab.cpp
     Engine/Components/Docking/WorkspaceDockContainer.cpp
-    Engine/Components/Panes/WorkspacePaneVisuals.cpp
+    Engine/Components/Panes/WorkspacePaneAppearance.cpp
     Engine/Components/Panes/OutlinerPanel.cpp
     Engine/Components/Panes/InspectorPanel.cpp
     Engine/Components/Panes/ViewportPanel.cpp

@@ -1,6 +1,6 @@
 # Third-party fetched packages & toolchains (reproduced via Automation/)
 ExternalPackages/
-EngineContent/Fonts/
+EngineContent/FontsArchives/
 
 # Local transient scratchpad
 _ClaudeScratch/

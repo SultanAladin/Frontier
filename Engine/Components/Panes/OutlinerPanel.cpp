@@ -1,13 +1,14 @@
 /*============================================================================================================================================
                                                               OUTLINERPANEL.CPP
 ============================================================================================================================================*/
-// 🧩 Generic Project-Zero Outliner and LayerStack tree pane with Showcase folders, search, filters, drag-reorder, and context directives
+// 🧩 Generic Workspace Outliner and LayerStack tree pane with Showcase folders, search, filters, drag-reorder, and slot directives
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Components/Panes/OutlinerPanel.h"
+#include "Engine/Components/Controls/DropdownSelector.h"
 #include "Engine/Components/VectorIcons/VectorIconRepository.h"
 
 #include <imgui.h>
@@ -60,62 +61,6 @@ namespace
     return false;
 }
 
-void DrawSmallCheckMark(PixelSpace& Surface, Point2D Center, float Radius, ColorRgba Ink, float StrokeWidth = 1.7f) noexcept
-{
-    const std::array<Point2D, 3> Check = {{
-        { Center.X - Radius * 0.44f, Center.Y + Radius * 0.02f },
-        { Center.X - Radius * 0.10f, Center.Y + Radius * 0.36f },
-        { Center.X + Radius * 0.48f, Center.Y - Radius * 0.34f },
-    }};
-    Surface.StrokePolyline(Check, Ink, StrokeWidth, false);
-}
-
-[[nodiscard]] bool DrawSheetDirectiveRow(
-    PixelSpace&      Surface,
-    Rectangle2D      RowBounds,
-    std::string_view Label,
-    std::string_view ShortcutHint,
-    Point2D          Cursor,
-    bool             PrimaryClicked,
-    ColorRgba        LeadingDotColor = { 0, 0, 0, 0 },
-    bool             ShowLeadingDot  = false) noexcept
-{
-    const bool Hovered = RowBounds.Contains(Cursor);
-    if (Hovered)
-    {
-        Surface.FillRectangle(RowBounds, ProjectZeroSurfaceColors::OverlayHover, 8.0f);
-    }
-
-    float TextX = RowBounds.X + 12.0f;
-    if (ShowLeadingDot)
-    {
-        Surface.FillCircle({ RowBounds.X + 14.0f, RowBounds.Center().Y }, 3.2f, LeadingDotColor);
-        TextX = RowBounds.X + 25.0f;
-    }
-
-    WorkspacePaneVisuals::DrawWeightedText(
-        Surface,
-        FontWeightClass::Regular,
-        { TextX, RowBounds.Y + 7.5f },
-        12.0f,
-        ProjectZeroSurfaceColors::PrimaryInk,
-        Label);
-
-    if (!ShortcutHint.empty())
-    {
-        const float HintW = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, ShortcutHint);
-        WorkspacePaneVisuals::DrawWeightedText(
-            Surface,
-            FontWeightClass::Regular,
-            { RowBounds.Right() - 12.0f - HintW, RowBounds.Y + 9.0f },
-            10.0f,
-            ProjectZeroSurfaceColors::FaintInk,
-            ShortcutHint);
-    }
-
-    return Hovered && PrimaryClicked;
-}
-
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -125,10 +70,10 @@ void DrawSmallCheckMark(PixelSpace& Surface, Point2D Center, float Radius, Color
 OutlinerPanel::OutlinerPanel() noexcept
 {
     ConstructTemplates = {
-        { "Add Item 1", "Item 1", "Type 1", "Position 0, 0, 0 m", OutlinerSlotCategory::ConstructableFirst  },
-        { "Add Item 2", "Item 2", "Type 2", "Position 0, 0, 0 m", OutlinerSlotCategory::ConstructableSecond },
-        { "Add Item 3", "Item 3", "Type 3", "Position 0, 0, 0 m", OutlinerSlotCategory::ConstructableThird  },
-        { "Add Item 4", "Item 4", "Type 4", "Position 0, 0, 0 m", OutlinerSlotCategory::ConstructableFourth },
+        { "Add Item 1", "Item 1", "Type 1", "Position 0, 0, 0 m", ConstructSlotCategory::CategoryOne  },
+        { "Add Item 2", "Item 2", "Type 2", "Position 0, 0, 0 m", ConstructSlotCategory::CategoryTwo },
+        { "Add Item 3", "Item 3", "Type 3", "Position 0, 0, 0 m", ConstructSlotCategory::CategoryThree  },
+        { "Add Item 4", "Item 4", "Type 4", "Position 0, 0, 0 m", ConstructSlotCategory::CategoryFour },
     };
 }
 
@@ -198,7 +143,7 @@ OutlinerSlotToken OutlinerPanel::ConstructFromTemplate(uint32_t TemplateIndex, O
         const OutlinerSlotToken Primary = QueryPrimarySelection();
         if (const OutlinerRecordEntry* Selected = FindEntry(Primary))
         {
-            if (Selected->Category == OutlinerSlotCategory::Folder)
+            if (Selected->Category == ConstructSlotCategory::Folder)
             {
                 TargetEnclosure = Selected->Token;
             }
@@ -241,11 +186,11 @@ OutlinerSlotToken OutlinerPanel::ConstructFolder(std::string_view FolderTitle, O
     OutlinerRecordEntry Created{};
     Created.Token             = OutlinerSlotToken{ NextTokenCounter++ };
     Created.EnclosingToken    = TargetEnclosure;
-    Created.Category          = OutlinerSlotCategory::Folder;
+    Created.Category          = ConstructSlotCategory::Folder;
     Created.Title             = GenerateUniqueTitle(FolderTitle.empty() ? "Folder" : FolderTitle);
     Created.CategoryLabel     = "Collection";
     Created.Subtitle          = "Scene collection";
-    Created.FolderTint        = ProjectZeroSurfaceColors::ShowcaseSage;
+    Created.FolderTint        = WorkspaceSurfaceColors::ShowcaseSage;
     Created.VisibilityEnabled = true;
     Created.Expanded          = true;
 
@@ -685,7 +630,7 @@ uint32_t OutlinerPanel::CountNestedFolders(OutlinerSlotToken Enclosure) const no
     uint32_t Count = 0u;
     for (const auto& Entry : Entries)
     {
-        if (Entry.Category == OutlinerSlotCategory::Folder && ContainsNestedSlot(Enclosure, Entry.Token))
+        if (Entry.Category == ConstructSlotCategory::Folder && ContainsNestedSlot(Enclosure, Entry.Token))
         {
             ++Count;
         }
@@ -769,11 +714,11 @@ bool OutlinerPanel::MatchesActiveFilters(const OutlinerRecordEntry& Entry) const
     switch (CategoryFilter)
     {
         case OutlinerCategoryFilter::All:         break;
-        case OutlinerCategoryFilter::FoldersOnly: if (Entry.Category != OutlinerSlotCategory::Folder) return false; break;
-        case OutlinerCategoryFilter::FirstType:   if (Entry.Category != OutlinerSlotCategory::ConstructableFirst) return false; break;
-        case OutlinerCategoryFilter::SecondType:  if (Entry.Category != OutlinerSlotCategory::ConstructableSecond) return false; break;
-        case OutlinerCategoryFilter::ThirdType:   if (Entry.Category != OutlinerSlotCategory::ConstructableThird) return false; break;
-        case OutlinerCategoryFilter::FourthType:  if (Entry.Category != OutlinerSlotCategory::ConstructableFourth) return false; break;
+        case OutlinerCategoryFilter::FoldersOnly: if (Entry.Category != ConstructSlotCategory::Folder) return false; break;
+        case OutlinerCategoryFilter::FirstType:   if (Entry.Category != ConstructSlotCategory::CategoryOne) return false; break;
+        case OutlinerCategoryFilter::SecondType:  if (Entry.Category != ConstructSlotCategory::CategoryTwo) return false; break;
+        case OutlinerCategoryFilter::ThirdType:   if (Entry.Category != ConstructSlotCategory::CategoryThree) return false; break;
+        case OutlinerCategoryFilter::FourthType:  if (Entry.Category != ConstructSlotCategory::CategoryFour) return false; break;
         case OutlinerCategoryFilter::WithNotes:   if (Entry.AuthorNotes.empty()) return false; break;
     }
 
@@ -913,7 +858,7 @@ void OutlinerPanel::Render(
     const Point2D Cursor{ Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
     const bool    OverlayOpenBefore = ConstructDropdownOpen || SettingsDropdownOpen || DirectiveSheetOpen;
 
-    WorkspacePaneVisuals::ForwardInputToTextBuffer(SearchEditor, Input, Δt);
+    WorkspacePaneAppearance::ForwardInputToTextBuffer(SearchEditor, Input, Δt);
     if (Input.EscapePressed)
     {
         CloseOverlays();
@@ -921,20 +866,20 @@ void OutlinerPanel::Render(
     }
 
     Surface.PushClip(Bounds);
-    Surface.FillRectangle(Bounds, ProjectZeroSurfaceColors::DockBackground);
+    Surface.FillRectangle(Bounds, WorkspaceSurfaceColors::DockBackground);
 
     // 1. Heading row (.outliner-heading: 63px height, 14px 22px 12px padding)
     const Rectangle2D HeadingBounds{ Bounds.X, Bounds.Y, Bounds.Width, 63.0f };
     const char*       HeadingTitle = QueryHeadingText();
-    WorkspacePaneVisuals::DrawWeightedText(
+    WorkspacePaneAppearance::ConstructWeightedText(
         Surface,
         FontWeightClass::Light,
         { HeadingBounds.X + 22.0f, HeadingBounds.Y + 18.0f },
         20.0f,
-        ProjectZeroSurfaceColors::PrimaryInk,
+        WorkspaceSurfaceColors::PrimaryInk,
         HeadingTitle);
 
-    const float TitleW = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Light, 20.0f, HeadingTitle);
+    const float TitleW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Light, 20.0f, HeadingTitle);
     char        CountCaption[96]{};
     std::snprintf(
         CountCaption,
@@ -948,7 +893,7 @@ void OutlinerPanel::Render(
 
     const float SubtitleX    = HeadingBounds.X + 22.0f + TitleW + 10.0f;
     const float SubtitleMaxW = std::max(0.0f, PlusButton.X - 8.0f - SubtitleX);
-    WorkspacePaneVisuals::DrawTruncatedText(
+    WorkspacePaneAppearance::ConstructTruncatedText(
         Surface,
         FontWeightClass::Regular,
         { SubtitleX, HeadingBounds.Y + 25.0f },
@@ -969,14 +914,14 @@ void OutlinerPanel::Render(
             Surface.FillCircle(PlusButton.Center(), 14.5f, ColorRgba{ 28, 28, 28, 255 });
             Surface.StrokeCircle(PlusButton.Center(), 14.5f, ColorRgba{ 48, 48, 48, 255 }, 1.0f);
         }
-        VectorIconRepository::DrawControl(
+        VectorIconRepository::ConstructControl(
             Surface,
             ControlIcon::PlusAdd,
             VectorIconPlacement{
                 PlusButton.X + 6.5f,
                 PlusButton.Y + 6.5f,
                 16.0f,
-                (Hovered || ConstructDropdownOpen) ? ProjectZeroSurfaceColors::PrimaryInk : ColorRgba{ 186, 186, 186, 255 },
+                (Hovered || ConstructDropdownOpen) ? WorkspaceSurfaceColors::PrimaryInk : ColorRgba{ 186, 186, 186, 255 },
                 2.0f });
 
         ConstructDropdownAnchor = { PlusButton.Right(), PlusButton.Bottom() + 5.0f };
@@ -988,22 +933,22 @@ void OutlinerPanel::Render(
         }
     }
 
-    // Header Settings button (SlidersQuality)
+    // Header Settings button (filter sliders icon)
     {
-        const bool Hovered = SettingsButton.Contains(Cursor);
+        const bool Hovered  = SettingsButton.Contains(Cursor);
+        const ColorRgba BtnBg = (Hovered || SettingsDropdownOpen)
+                                    ? (SettingsDropdownOpen ? ColorRgba{ 56, 56, 56, 255 } : ColorRgba{ 38, 38, 38, 255 })
+                                    : WorkspaceSurfaceColors::DockBackground;
         if (Hovered || SettingsDropdownOpen)
         {
-            Surface.FillCircle(SettingsButton.Center(), 14.5f, SettingsDropdownOpen ? ColorRgba{ 56, 56, 56, 255 } : ColorRgba{ 38, 38, 38, 255 });
+            Surface.FillCircle(SettingsButton.Center(), 14.5f, BtnBg);
         }
-        VectorIconRepository::DrawControl(
+        WorkspacePaneAppearance::ConstructFilterSlidersIcon(
             Surface,
-            ControlIcon::SlidersQuality,
-            VectorIconPlacement{
-                SettingsButton.X + 6.5f,
-                SettingsButton.Y + 6.5f,
-                16.0f,
-                (Hovered || SettingsDropdownOpen) ? ProjectZeroSurfaceColors::PrimaryInk : ColorRgba{ 112, 112, 112, 255 },
-                1.85f });
+            { SettingsButton.X + 6.5f, SettingsButton.Y + 6.5f },
+            16.0f,
+            (Hovered || SettingsDropdownOpen) ? WorkspaceSurfaceColors::PrimaryInk : ColorRgba{ 122, 122, 122, 255 },
+            BtnBg);
 
         SettingsDropdownAnchor = { SettingsButton.Right(), SettingsButton.Bottom() + 5.0f };
         if (Hovered && Input.PrimaryPointer.Pressed)
@@ -1020,32 +965,37 @@ void OutlinerPanel::Render(
     const Rectangle2D VisibleTile{ Bounds.X + 14.0f, StatsY, StatsTileW, 64.0f };
     const Rectangle2D HiddenTile{ VisibleTile.Right() + 8.0f, StatsY, StatsTileW, 64.0f };
 
-    auto DrawStatsCounterTile = [&](Rectangle2D Tile, bool VisibleSlot, uint32_t Count, bool ActiveFilter)
+    auto ConstructStatsCounterTile = [&](Rectangle2D Tile, bool VisibleSlot, uint32_t Count, bool ActiveFilter)
     {
         const bool Hovered = !OverlayOpenBefore && Tile.Contains(Cursor);
-        Surface.FillRectangle(Tile, Hovered ? ColorRgba{ 31, 31, 31, 255 } : ProjectZeroSurfaceColors::ControlWell, 20.0f);
+        Surface.FillRectangle(Tile, Hovered ? ColorRgba{ 31, 31, 31, 255 } : WorkspaceSurfaceColors::ControlWell, 20.0f);
         Surface.StrokeRectangle(
             Tile,
-            ActiveFilter ? ProjectZeroSurfaceColors::SelectionAmber : ProjectZeroSurfaceColors::ControlWellBorder,
+            ActiveFilter ? WorkspaceSurfaceColors::SelectionAmber : WorkspaceSurfaceColors::ControlWellBorder,
             20.0f,
             1.0f);
 
         const Point2D DiscCenter{ Tile.X + 23.0f, Tile.Y + 22.0f };
         if (VisibleSlot)
         {
-            Surface.FillCircle(DiscCenter, 11.0f, ProjectZeroSurfaceColors::StatusGreen);
-            DrawSmallCheckMark(Surface, DiscCenter, 10.0f, ProjectZeroSurfaceColors::StatusGreenInk, 1.9f);
+            VisualToken VisibleDisc{};
+            VisibleDisc.Shape     = VisualTokenShape::Circle;
+            VisibleDisc.FillColor = WorkspaceSurfaceColors::StatusGreen;
+            VisibleDisc.Extent    = 22.0f;
+            WorkspacePaneAppearance::ConstructVisualToken(Surface, DiscCenter, VisibleDisc);
+            WorkspacePaneAppearance::ConstructCheckSymbol(Surface, DiscCenter, 10.5f, WorkspaceSurfaceColors::StatusGreenInk, 1.9f);
         }
         else
         {
-            Surface.FillCircle(DiscCenter, 11.0f, ColorRgba{ 36, 36, 36, 255 });
-            VectorIconRepository::DrawControl(
-                Surface,
-                ControlIcon::TriangleAlert,
-                VectorIconPlacement{ DiscCenter.X - 6.5f, DiscCenter.Y - 6.5f, 13.0f, ColorRgba{ 102, 102, 102, 255 }, 1.8f });
+            VisualToken HiddenDisc{};
+            HiddenDisc.Shape     = VisualTokenShape::Circle;
+            HiddenDisc.FillColor = ColorRgba{ 36, 36, 36, 255 };
+            HiddenDisc.Extent    = 22.0f;
+            WorkspacePaneAppearance::ConstructVisualToken(Surface, DiscCenter, HiddenDisc);
+            WorkspacePaneAppearance::ConstructCautionTriangleSign(Surface, DiscCenter, 11.5f, ColorRgba{ 126, 126, 126, 255 });
         }
 
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { Tile.X + 12.0f, Tile.Bottom() - 21.0f },
@@ -1055,19 +1005,19 @@ void OutlinerPanel::Render(
 
         char NumberBuffer[32]{};
         std::snprintf(NumberBuffer, sizeof(NumberBuffer), "%u", Count);
-        const float NumberW = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Light, 28.0f, NumberBuffer);
-        WorkspacePaneVisuals::DrawWeightedText(
+        const float NumberW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Light, 28.0f, NumberBuffer);
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Light,
             { Tile.Right() - 14.0f - NumberW, Tile.Bottom() - 36.0f },
             28.0f,
-            ProjectZeroSurfaceColors::PrimaryInk,
+            WorkspaceSurfaceColors::PrimaryInk,
             NumberBuffer);
 
         return Hovered && Input.PrimaryPointer.Pressed;
     };
 
-    if (DrawStatsCounterTile(
+    if (ConstructStatsCounterTile(
             VisibleTile,
             true,
             QueryVisibleCount(),
@@ -1077,7 +1027,7 @@ void OutlinerPanel::Render(
                                ? OutlinerVisibilityFilter::All
                                : OutlinerVisibilityFilter::VisibleOnly;
     }
-    if (DrawStatsCounterTile(
+    if (ConstructStatsCounterTile(
             HiddenTile,
             false,
             QueryHiddenCount(),
@@ -1088,19 +1038,19 @@ void OutlinerPanel::Render(
                                : OutlinerVisibilityFilter::HiddenOnly;
     }
 
-    // 3. Search + Filter row (.outliner-search: 40px height)
+    // 3. Search + Reusable Studio Controls Filter dropdown button (.outliner-search: 40px height)
     const float       SearchY      = VisibleTile.Bottom() + 10.0f;
-    const float       FilterBtnW   = 74.0f;
+    const float       FilterBtnW   = 108.0f;
     const Rectangle2D SearchBounds{ Bounds.X + 14.0f, SearchY, std::max(60.0f, Bounds.Width - 28.0f - 8.0f - FilterBtnW), 40.0f };
     const Rectangle2D FilterButton{ SearchBounds.Right() + 8.0f, SearchY, FilterBtnW, 40.0f };
 
-    Surface.FillRectangle(SearchBounds, ProjectZeroSurfaceColors::ControlWell, 20.0f);
+    Surface.FillRectangle(SearchBounds, WorkspaceSurfaceColors::ControlWell, 20.0f);
     Surface.StrokeRectangle(
         SearchBounds,
-        SearchEditor.Active ? ColorRgba{ 120, 126, 142, 255 } : ProjectZeroSurfaceColors::ControlWellBorder,
+        SearchEditor.Active ? ColorRgba{ 120, 126, 142, 255 } : WorkspaceSurfaceColors::ControlWellBorder,
         20.0f,
         1.0f);
-    VectorIconRepository::DrawControl(
+    VectorIconRepository::ConstructControl(
         Surface,
         ControlIcon::SearchGlass,
         VectorIconPlacement{ SearchBounds.X + 12.0f, SearchBounds.Y + 12.0f, 15.0f, ColorRgba{ 108, 108, 108, 255 }, 1.85f });
@@ -1124,7 +1074,7 @@ void OutlinerPanel::Render(
 
     if (SearchEditor.Length == 0u && !SearchEditor.Active)
     {
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { SearchBounds.X + 34.0f, SearchBounds.Y + 13.0f },
@@ -1135,13 +1085,13 @@ void OutlinerPanel::Render(
     else
     {
         const std::string_view QueryView(SearchEditor.Text, SearchEditor.Length);
-        WorkspacePaneVisuals::DrawTruncatedText(
+        WorkspacePaneAppearance::ConstructTruncatedText(
             Surface,
             FontWeightClass::Regular,
             { SearchBounds.X + 34.0f, SearchBounds.Y + 13.0f },
             SearchBounds.Width - 60.0f,
             11.0f,
-            ProjectZeroSurfaceColors::PrimaryInk,
+            WorkspaceSurfaceColors::PrimaryInk,
             QueryView);
 
         if (SearchEditor.Active && SearchEditor.BlinkPhase < ControlMetrics::CaretBlinkSeconds * 0.5f)
@@ -1149,14 +1099,14 @@ void OutlinerPanel::Render(
             const float CaretX = SearchBounds.X + 34.0f +
                                  std::min(
                                      SearchBounds.Width - 64.0f,
-                                     WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.0f, QueryView));
-            Surface.StrokeLine({ CaretX, SearchBounds.Y + 11.0f }, { CaretX, SearchBounds.Bottom() - 11.0f }, ProjectZeroSurfaceColors::PrimaryInk, 1.2f);
+                                     WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.0f, QueryView));
+            Surface.StrokeLine({ CaretX, SearchBounds.Y + 11.0f }, { CaretX, SearchBounds.Bottom() - 11.0f }, WorkspaceSurfaceColors::PrimaryInk, 1.2f);
         }
 
         if (SearchEditor.Length > 0u)
         {
             const Rectangle2D ClearHit{ SearchBounds.Right() - 26.0f, SearchBounds.Y + 10.0f, 20.0f, 20.0f };
-            VectorIconRepository::DrawControl(
+            VectorIconRepository::ConstructControl(
                 Surface,
                 ControlIcon::CloseCross,
                 VectorIconPlacement{ ClearHit.X + 4.0f, ClearHit.Y + 4.0f, 12.0f, ColorRgba{ 132, 132, 132, 255 }, 1.8f });
@@ -1167,33 +1117,22 @@ void OutlinerPanel::Render(
         }
     }
 
-    // Filter capsule button
+    // Filter dropdown trigger (Reusable Studio Controls DropdownSelector style)
     {
-        const bool FilterActive = FilterStripOpen || (CategoryFilter != OutlinerCategoryFilter::All);
-        const bool FilterHover  = !OverlayOpenBefore && FilterButton.Contains(Cursor);
-        Surface.FillRectangle(FilterButton, FilterHover ? ColorRgba{ 33, 33, 33, 255 } : ProjectZeroSurfaceColors::ControlWell, 20.0f);
-        Surface.StrokeRectangle(
+        ControlPointer FilterPointer = Input.PrimaryPointer;
+        if (OverlayOpenBefore)
+        {
+            FilterPointer.Enabled = false;
+        }
+        const ControlContact FilterHit = DropdownSelector::ConstructButton(
+            Surface,
             FilterButton,
-            FilterActive ? ProjectZeroSurfaceColors::SelectionAmber : ProjectZeroSurfaceColors::ControlWellBorder,
-            20.0f,
-            1.0f);
-        VectorIconRepository::DrawControl(
-            Surface,
-            ControlIcon::SlidersQuality,
-            VectorIconPlacement{ FilterButton.X + 11.0f, FilterButton.Y + 13.0f, 13.0f, ColorRgba{ 147, 147, 147, 255 }, 1.8f });
-        WorkspacePaneVisuals::DrawWeightedText(
-            Surface,
-            FontWeightClass::Regular,
-            { FilterButton.X + 28.0f, FilterButton.Y + 13.5f },
-            10.0f,
-            ColorRgba{ 165, 165, 165, 255 },
-            "Filter");
-        VectorIconRepository::DrawNavigation(
-            Surface,
-            FilterStripOpen ? NavigationIcon::ChevronUp : NavigationIcon::ChevronDown,
-            VectorIconPlacement{ FilterButton.Right() - 19.0f, FilterButton.Y + 14.5f, 11.0f, ColorRgba{ 132, 132, 132, 255 }, 1.9f });
-
-        if (FilterHover && Input.PrimaryPointer.Pressed)
+            "Filter",
+            FilterStripOpen,
+            FilterPointer,
+            1.0f,
+            ControlIcon::SlidersQuality);
+        if (FilterHit.Pressed)
         {
             FilterStripOpen = !FilterStripOpen;
         }
@@ -1223,7 +1162,7 @@ void OutlinerPanel::Render(
         float ChipY = ContentTopY + 2.0f;
         for (const auto& Chip : Chips)
         {
-            const float ChipW = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, Chip.Label) + 18.0f;
+            const float ChipW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, Chip.Label) + 18.0f;
             if (ChipX + ChipW > Bounds.Right() - 14.0f && ChipX > Bounds.X + 15.0f)
             {
                 ChipX = Bounds.X + 14.0f;
@@ -1239,15 +1178,15 @@ void OutlinerPanel::Render(
                 12.0f);
             Surface.StrokeRectangle(
                 ChipRect,
-                Selected ? ProjectZeroSurfaceColors::SelectionAmber : ColorRgba{ 52, 52, 52, 255 },
+                Selected ? WorkspaceSurfaceColors::SelectionAmber : ColorRgba{ 52, 52, 52, 255 },
                 12.0f,
                 1.0f);
-            WorkspacePaneVisuals::DrawWeightedText(
+            WorkspacePaneAppearance::ConstructWeightedText(
                 Surface,
                 FontWeightClass::Regular,
                 { ChipRect.X + 9.0f, ChipRect.Y + 6.0f },
                 10.0f,
-                Selected ? ProjectZeroSurfaceColors::PrimaryInk : ColorRgba{ 165, 165, 165, 255 },
+                Selected ? WorkspaceSurfaceColors::PrimaryInk : ColorRgba{ 165, 165, 165, 255 },
                 Chip.Label);
 
             if (Hovered && Input.PrimaryPointer.Pressed)
@@ -1289,18 +1228,18 @@ void OutlinerPanel::Render(
     {
         const char* EmptyHeadline = Entries.empty() ? "No entries yet" : "No matching entries";
         const char* EmptyHint     = Entries.empty() ? "Use + in the header to construct items or folders" : "Adjust search or filter criteria";
-        const float HeadW         = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 12.0f, EmptyHeadline);
-        const float HintW         = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, EmptyHint);
+        const float HeadW         = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 12.0f, EmptyHeadline);
+        const float HintW         = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, EmptyHint);
         const float CenterY       = TreeViewport.Center().Y;
 
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { TreeViewport.Center().X - HeadW * 0.5f, CenterY - 14.0f },
             12.0f,
             ColorRgba{ 132, 132, 132, 255 },
             EmptyHeadline);
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { TreeViewport.Center().X - HintW * 0.5f, CenterY + 4.0f },
@@ -1345,13 +1284,13 @@ void OutlinerPanel::Render(
 
             if (Selected)
             {
-                Surface.FillRectangle(RowRect, ProjectZeroSurfaceColors::RowSelected, 8.0f);
-                Surface.StrokeRectangle(RowRect, ProjectZeroSurfaceColors::RowSelectedBorder, 8.0f, 1.0f);
-                Surface.FillRectangle({ RowRect.X, RowRect.Y + 2.0f, 3.0f, RowRect.Height - 4.0f }, ProjectZeroSurfaceColors::SelectionAmber, 1.5f);
+                Surface.FillRectangle(RowRect, WorkspaceSurfaceColors::RowSelected, 8.0f);
+                Surface.StrokeRectangle(RowRect, WorkspaceSurfaceColors::RowSelectedBorder, 8.0f, 1.0f);
+                Surface.FillRectangle({ RowRect.X, RowRect.Y + 2.0f, 3.0f, RowRect.Height - 4.0f }, WorkspaceSurfaceColors::SelectionAmber, 1.5f);
             }
             else if (RowHovered)
             {
-                Surface.FillRectangle(RowRect, ProjectZeroSurfaceColors::RowHover, 8.0f);
+                Surface.FillRectangle(RowRect, WorkspaceSurfaceColors::RowHover, 8.0f);
             }
 
             const float IndentX = RowRect.X + 4.0f + static_cast<float>(VisRow.DepthLevel) * 13.0f;
@@ -1361,7 +1300,7 @@ void OutlinerPanel::Render(
             bool              ConsumedDisclosureClick = false;
             if (VisRow.NestedBranchPresent)
             {
-                VectorIconRepository::DrawNavigation(
+                VectorIconRepository::ConstructNavigation(
                     Surface,
                     Entry->Expanded ? NavigationIcon::ChevronDown : NavigationIcon::ChevronRight,
                     VectorIconPlacement{
@@ -1379,7 +1318,7 @@ void OutlinerPanel::Render(
 
             // 24px Showcase folder or category icon
             const Point2D IconOrigin{ DisclosureRect.Right() + 4.0f, RowRect.Y + 7.5f };
-            WorkspacePaneVisuals::DrawSlotCategoryEmblem(
+            WorkspacePaneAppearance::ConstructSlotCategoryIcon(
                 Surface,
                 Entry->Category,
                 IconOrigin,
@@ -1387,33 +1326,23 @@ void OutlinerPanel::Render(
                 Entry->FolderTint,
                 RowAlpha);
 
-            // Right-side status check disc & visibility eye toggle
+            // Right-side visibility status indicator & eye toggle
             const Rectangle2D EyeHit{ RowRect.Right() - 24.0f, RowRect.Y + 9.5f, 18.0f, 20.0f };
             const Point2D     StatusCenter{ EyeHit.X - 11.0f, RowRect.Center().Y };
-
-            if (VisRow.EffectiveVisible)
-            {
-                Surface.FillCircle(StatusCenter, 8.0f, ProjectZeroSurfaceColors::StatusGreen);
-                DrawSmallCheckMark(Surface, StatusCenter, 7.2f, ColorRgba{ 13, 60, 22, 255 }, 1.7f);
-            }
-            else
-            {
-                Surface.FillCircle(StatusCenter, 8.0f, ColorRgba{ 46, 46, 46, 255 });
-                Surface.StrokeCircle(StatusCenter, 8.0f, ColorRgba{ 76, 76, 76, 255 }, 1.0f);
-            }
+            WorkspacePaneAppearance::ConstructVisibilityIndicator(Surface, StatusCenter, VisRow.EffectiveVisible, 1.0f);
 
             bool ConsumedEyeClick = false;
             if (RowHovered || Selected || !Entry->VisibilityEnabled)
             {
                 const bool EyeHovered = RowHovered && EyeHit.Contains(Cursor);
-                VectorIconRepository::DrawControl(
+                VectorIconRepository::ConstructControl(
                     Surface,
                     Entry->VisibilityEnabled ? ControlIcon::EyeVisible : ControlIcon::EyeHidden,
                     VectorIconPlacement{
                         EyeHit.X + 2.0f,
                         EyeHit.Y + 3.0f,
                         14.0f,
-                        EyeHovered ? ProjectZeroSurfaceColors::PrimaryInk : ColorRgba{ 124, 124, 124, 255 },
+                        EyeHovered ? WorkspaceSurfaceColors::PrimaryInk : ColorRgba{ 124, 124, 124, 255 },
                         1.8f });
                 if (EyeHovered && Input.PrimaryPointer.Pressed)
                 {
@@ -1426,18 +1355,18 @@ void OutlinerPanel::Render(
             const float IdentityX    = IconOrigin.X + 31.0f;
             const float IdentityMaxW = std::max(24.0f, StatusCenter.X - 14.0f - IdentityX);
 
-            WorkspacePaneVisuals::DrawTruncatedText(
+            WorkspacePaneAppearance::ConstructTruncatedText(
                 Surface,
                 FontWeightClass::Regular,
                 { IdentityX, RowRect.Y + 7.5f },
                 IdentityMaxW,
                 12.0f,
-                (Selected ? ProjectZeroSurfaceColors::PrimaryInk : ProjectZeroSurfaceColors::SecondaryInk).ScaledAlpha(RowAlpha),
+                (Selected ? WorkspaceSurfaceColors::PrimaryInk : WorkspaceSurfaceColors::SecondaryInk).ScaledAlpha(RowAlpha),
                 Entry->Title);
 
             char FolderSubBuffer[64]{};
             std::string_view SubText = Entry->Subtitle;
-            if (Entry->Category == OutlinerSlotCategory::Folder)
+            if (Entry->Category == ConstructSlotCategory::Folder)
             {
                 std::snprintf(
                     FolderSubBuffer,
@@ -1447,7 +1376,7 @@ void OutlinerPanel::Render(
                     (VisRow.NestedEntryCount == 1u) ? "entry" : "entries");
                 SubText = FolderSubBuffer;
             }
-            WorkspacePaneVisuals::DrawTruncatedText(
+            WorkspacePaneAppearance::ConstructTruncatedText(
                 Surface,
                 FontWeightClass::Regular,
                 { IdentityX, RowRect.Y + 23.0f },
@@ -1482,9 +1411,9 @@ void OutlinerPanel::Render(
                     Surface.StrokeLine(
                         { RowRect.X + 6.0f, RowRect.Y },
                         { RowRect.Right() - 6.0f, RowRect.Y },
-                        ProjectZeroSurfaceColors::SelectionAmber,
+                        WorkspaceSurfaceColors::SelectionAmber,
                         2.0f);
-                    Surface.FillCircle({ RowRect.X + 6.0f, RowRect.Y }, 3.2f, ProjectZeroSurfaceColors::SelectionAmber);
+                    Surface.FillCircle({ RowRect.X + 6.0f, RowRect.Y }, 3.2f, WorkspaceSurfaceColors::SelectionAmber);
                 }
                 else if (LocalT > 0.72f)
                 {
@@ -1492,14 +1421,14 @@ void OutlinerPanel::Render(
                     Surface.StrokeLine(
                         { RowRect.X + 6.0f, RowRect.Bottom() },
                         { RowRect.Right() - 6.0f, RowRect.Bottom() },
-                        ProjectZeroSurfaceColors::SelectionAmber,
+                        WorkspaceSurfaceColors::SelectionAmber,
                         2.0f);
-                    Surface.FillCircle({ RowRect.X + 6.0f, RowRect.Bottom() }, 3.2f, ProjectZeroSurfaceColors::SelectionAmber);
+                    Surface.FillCircle({ RowRect.X + 6.0f, RowRect.Bottom() }, 3.2f, WorkspaceSurfaceColors::SelectionAmber);
                 }
                 else
                 {
                     HoverDropPlacement = DropRelativePlacement::InsideTarget;
-                    Surface.StrokeRectangle(RowRect, ProjectZeroSurfaceColors::SelectionAmber, 8.0f, 1.5f);
+                    Surface.StrokeRectangle(RowRect, WorkspaceSurfaceColors::SelectionAmber, 8.0f, 1.5f);
                 }
             }
         }
@@ -1537,16 +1466,16 @@ void OutlinerPanel::Render(
         }
     }
 
-    WorkspacePaneVisuals::DrawVerticalScrollbar(Surface, TreeViewport, ContentHeight, ScrollOffsetY, Cursor);
+    WorkspacePaneAppearance::ConstructVerticalScrollIndicator(Surface, TreeViewport, ContentHeight, ScrollOffsetY, Cursor);
     Surface.PopClip();
 
-    // 5. ProjectZeroEditor Outliner Footer (.outliner-footer: 45px height, #151515)
+    // 5. workspace Outliner Footer (.outliner-footer: 45px height, #151515)
     const Rectangle2D FooterBounds{ Bounds.X, Bounds.Bottom() - FooterHeight, Bounds.Width, FooterHeight };
-    Surface.FillRectangle(FooterBounds, ProjectZeroSurfaceColors::FooterBackground);
+    Surface.FillRectangle(FooterBounds, WorkspaceSurfaceColors::FooterBackground);
     Surface.StrokeLine(
         { FooterBounds.X, FooterBounds.Y },
         { FooterBounds.Right(), FooterBounds.Y },
-        ProjectZeroSurfaceColors::HairlineLight,
+        WorkspaceSurfaceColors::HairlineLight,
         1.0f);
 
     struct FooterSlotView
@@ -1570,83 +1499,70 @@ void OutlinerPanel::Render(
         {
             break;
         }
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { FooterX, FooterBounds.Y + 9.0f },
             7.5f,
             ColorRgba{ 88, 88, 88, 255 },
             Slot.Caption);
-        WorkspacePaneVisuals::DrawWeightedText(
+        WorkspacePaneAppearance::ConstructWeightedText(
             Surface,
             FontWeightClass::Regular,
             { FooterX, FooterBounds.Y + 21.0f },
             10.0f,
-            Slot.HighlightGreen ? ProjectZeroSurfaceColors::StatusGreen : ColorRgba{ 176, 176, 176, 255 },
+            Slot.HighlightGreen ? WorkspaceSurfaceColors::StatusGreen : ColorRgba{ 176, 176, 176, 255 },
             Slot.Reading);
 
-        const float CapW = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 7.5f, Slot.Caption);
-        const float ValW = WorkspacePaneVisuals::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, Slot.Reading);
+        const float CapW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 7.5f, Slot.Caption);
+        const float ValW = WorkspacePaneAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, Slot.Reading);
         FooterX += std::max(CapW, ValW) + 14.0f;
     }
 
     Surface.PopClip();
 
-    // 6. Overlay Dropdowns & Right-Click Context Sheet
+    // 6. Reusable Studio Controls Dropdown Sheets (+ Construct, Outliner Settings, Right-Click Directives — zero shadow)
     if (ConstructDropdownOpen)
     {
-        const float SheetW      = 214.0f;
-        const float RowH        = 30.0f;
-        const float SheetH      = 34.0f + static_cast<float>(ConstructTemplates.size() + 1u) * RowH + 18.0f;
-        const float SheetX      = std::clamp(ConstructDropdownAnchor.X - SheetW, Bounds.X + 8.0f, std::max(Bounds.X + 8.0f, Bounds.Right() - SheetW - 8.0f));
-        const float SheetY      = ConstructDropdownAnchor.Y;
-        const Rectangle2D Sheet{ SheetX, SheetY, SheetW, SheetH };
+        std::vector<DropdownDirectiveEntry> SheetRows{};
+        SheetRows.reserve(ConstructTemplates.size() + 2u);
 
-        ActiveOverlay.FillRectangle({ Sheet.X + 2.0f, Sheet.Y + 5.0f, Sheet.Width, Sheet.Height }, ColorRgba{ 0, 0, 0, 120 }, 14.0f);
-        ActiveOverlay.FillRectangle(Sheet, ProjectZeroSurfaceColors::OverlaySheet, 14.0f);
-        ActiveOverlay.StrokeRectangle(Sheet, ColorRgba{ 255, 255, 255, 28 }, 14.0f, 1.0f);
+        DropdownDirectiveEntry HeaderRow{};
+        HeaderRow.Label          = "CONSTRUCT";
+        HeaderRow.SectionCaption = true;
+        SheetRows.push_back(HeaderRow);
 
-        WorkspacePaneVisuals::DrawWeightedText(
-            ActiveOverlay,
-            FontWeightClass::Medium,
-            { Sheet.X + 16.0f, Sheet.Y + 11.0f },
-            9.0f,
-            ColorRgba{ 122, 122, 122, 255 },
-            "CONSTRUCT");
-
-        float RowY = Sheet.Y + 28.0f;
-        for (std::size_t Index = 0u; Index < ConstructTemplates.size(); ++Index)
+        for (const auto& Preset : ConstructTemplates)
         {
-            const auto&       Preset = ConstructTemplates[Index];
-            const Rectangle2D Row{ Sheet.X + 8.0f, RowY, Sheet.Width - 16.0f, RowH };
-            const ColorRgba   Dot = WorkspacePaneVisuals::QuerySlotCategoryColor(Preset.Category, ProjectZeroSurfaceColors::ShowcaseSage);
-            if (DrawSheetDirectiveRow(ActiveOverlay, Row, Preset.DropdownLabel, "", Cursor, Input.PrimaryPointer.Pressed, Dot, true))
-            {
-                ConstructFromTemplate(static_cast<uint32_t>(Index));
-                ConstructDropdownOpen = false;
-            }
-            RowY += RowH;
+            DropdownDirectiveEntry Row{};
+            Row.Label       = Preset.DropdownLabel.c_str();
+            Row.LeadingTint = WorkspacePaneAppearance::QueryCategoryAccent(Preset.Category, WorkspaceSurfaceColors::ShowcaseSage);
+            SheetRows.push_back(Row);
         }
 
-        ActiveOverlay.StrokeLine(
-            { Sheet.X + 12.0f, RowY + 4.0f },
-            { Sheet.Right() - 12.0f, RowY + 4.0f },
-            ProjectZeroSurfaceColors::HairlineLight,
-            1.0f);
-        RowY += 10.0f;
+        DropdownDirectiveEntry FolderRow{};
+        FolderRow.Label        = "+ Add Folder";
+        FolderRow.ShortcutHint = "Ctrl+G";
+        FolderRow.LeadingTint  = WorkspaceSurfaceColors::ShowcaseSage;
+        FolderRow.DividerAbove = true;
+        SheetRows.push_back(FolderRow);
 
-        const Rectangle2D FolderRow{ Sheet.X + 8.0f, RowY, Sheet.Width - 16.0f, RowH };
-        if (DrawSheetDirectiveRow(
-                ActiveOverlay,
-                FolderRow,
-                "+ Add Folder",
-                "Ctrl+G",
-                Cursor,
-                Input.PrimaryPointer.Pressed,
-                ProjectZeroSurfaceColors::ShowcaseSage,
-                true))
+        const float       SheetW = 216.0f;
+        const float       SheetX = std::clamp(ConstructDropdownAnchor.X - SheetW, Bounds.X + 8.0f, std::max(Bounds.X + 8.0f, Bounds.Right() - SheetW - 8.0f));
+        const Rectangle2D Sheet  = DropdownSelector::QueryDirectiveSheetBounds({ SheetX, ConstructDropdownAnchor.Y }, SheetW, SheetRows);
+
+        int32_t ChosenRow = -1;
+        if (DropdownSelector::ConstructDirectiveSheet(ActiveOverlay, Sheet, SheetRows, Input.PrimaryPointer, ChosenRow).Clicked && ChosenRow >= 1)
         {
-            ConstructFolder("Folder");
+            const auto TemplateIdx = static_cast<std::size_t>(ChosenRow - 1);
+            if (TemplateIdx < ConstructTemplates.size())
+            {
+                ConstructFromTemplate(static_cast<uint32_t>(TemplateIdx));
+            }
+            else
+            {
+                ConstructFolder("Folder");
+            }
             ConstructDropdownOpen = false;
         }
         else if (OverlayOpenBefore && Input.PrimaryPointer.Pressed && !Sheet.Contains(Cursor) && !PlusButton.Contains(Cursor))
@@ -1657,53 +1573,37 @@ void OutlinerPanel::Render(
 
     if (SettingsDropdownOpen)
     {
-        const float SheetW      = 218.0f;
-        const float RowH        = 30.0f;
-        const float SheetH      = 34.0f + 6.0f * RowH + 18.0f;
-        const float SheetX      = std::clamp(SettingsDropdownAnchor.X - SheetW, Bounds.X + 8.0f, std::max(Bounds.X + 8.0f, Bounds.Right() - SheetW - 8.0f));
-        const float SheetY      = SettingsDropdownAnchor.Y;
-        const Rectangle2D Sheet{ SheetX, SheetY, SheetW, SheetH };
+        constexpr std::array<DropdownDirectiveEntry, 7> SettingsRows = {{
+            { "OUTLINER SETTINGS",   "",       { 0u, 0u, 0u, 0u }, ControlIcon::Count, false, false, false, true  },
+            { "Import...",           "Ctrl+I", { 0u, 0u, 0u, 0u }, ControlIcon::Count, false, false, false, false },
+            { "Export Selection...", "Ctrl+E", { 0u, 0u, 0u, 0u }, ControlIcon::Count, false, false, false, false },
+            { "Expand All",          "",       { 0u, 0u, 0u, 0u }, ControlIcon::Count, false, false, true,  false },
+            { "Collapse All",        "",       { 0u, 0u, 0u, 0u }, ControlIcon::Count, false, false, false, false },
+            { "Show All Hidden",     "",       { 0u, 0u, 0u, 0u }, ControlIcon::Count, false, false, false, false },
+            { "Clear Workspace",     "",       { 0u, 0u, 0u, 0u }, ControlIcon::Count, false, true,  false, false },
+        }};
+        constexpr std::array<OutlinerSettingsDirective, 7> MappedDirectives = {{
+            OutlinerSettingsDirective::None,
+            OutlinerSettingsDirective::ImportEntries,
+            OutlinerSettingsDirective::ExportSelection,
+            OutlinerSettingsDirective::ExpandAll,
+            OutlinerSettingsDirective::CollapseAll,
+            OutlinerSettingsDirective::ShowAllHidden,
+            OutlinerSettingsDirective::ClearWorkspace,
+        }};
 
-        ActiveOverlay.FillRectangle({ Sheet.X + 2.0f, Sheet.Y + 5.0f, Sheet.Width, Sheet.Height }, ColorRgba{ 0, 0, 0, 120 }, 14.0f);
-        ActiveOverlay.FillRectangle(Sheet, ProjectZeroSurfaceColors::OverlaySheet, 14.0f);
-        ActiveOverlay.StrokeRectangle(Sheet, ColorRgba{ 255, 255, 255, 28 }, 14.0f, 1.0f);
+        const float       SheetW = 222.0f;
+        const float       SheetX = std::clamp(SettingsDropdownAnchor.X - SheetW, Bounds.X + 8.0f, std::max(Bounds.X + 8.0f, Bounds.Right() - SheetW - 8.0f));
+        const Rectangle2D Sheet  = DropdownSelector::QueryDirectiveSheetBounds({ SheetX, SettingsDropdownAnchor.Y }, SheetW, SettingsRows);
 
-        WorkspacePaneVisuals::DrawWeightedText(
-            ActiveOverlay,
-            FontWeightClass::Medium,
-            { Sheet.X + 16.0f, Sheet.Y + 11.0f },
-            9.0f,
-            ColorRgba{ 122, 122, 122, 255 },
-            "OUTLINER SETTINGS");
-
-        float RowY = Sheet.Y + 28.0f;
-        auto  RunRow = [&](std::string_view Label, std::string_view Shortcut, OutlinerSettingsDirective Directive)
+        int32_t ChosenRow = -1;
+        if (DropdownSelector::ConstructDirectiveSheet(ActiveOverlay, Sheet, SettingsRows, Input.PrimaryPointer, ChosenRow).Clicked &&
+            ChosenRow >= 1 && ChosenRow < static_cast<int32_t>(MappedDirectives.size()))
         {
-            const Rectangle2D Row{ Sheet.X + 8.0f, RowY, Sheet.Width - 16.0f, RowH };
-            if (DrawSheetDirectiveRow(ActiveOverlay, Row, Label, Shortcut, Cursor, Input.PrimaryPointer.Pressed))
-            {
-                ExecuteSettingsDirective(Directive);
-                SettingsDropdownOpen = false;
-            }
-            RowY += RowH;
-        };
-
-        RunRow("Import...",           "Ctrl+I", OutlinerSettingsDirective::ImportEntries);
-        RunRow("Export Selection...", "Ctrl+E", OutlinerSettingsDirective::ExportSelection);
-
-        ActiveOverlay.StrokeLine(
-            { Sheet.X + 12.0f, RowY + 4.0f },
-            { Sheet.Right() - 12.0f, RowY + 4.0f },
-            ProjectZeroSurfaceColors::HairlineLight,
-            1.0f);
-        RowY += 10.0f;
-
-        RunRow("Expand All",      "", OutlinerSettingsDirective::ExpandAll);
-        RunRow("Collapse All",    "", OutlinerSettingsDirective::CollapseAll);
-        RunRow("Show All Hidden", "", OutlinerSettingsDirective::ShowAllHidden);
-        RunRow("Clear Workspace", "", OutlinerSettingsDirective::ClearWorkspace);
-
-        if (OverlayOpenBefore && Input.PrimaryPointer.Pressed && !Sheet.Contains(Cursor) && !SettingsButton.Contains(Cursor))
+            ExecuteSettingsDirective(MappedDirectives[static_cast<std::size_t>(ChosenRow)]);
+            SettingsDropdownOpen = false;
+        }
+        else if (OverlayOpenBefore && Input.PrimaryPointer.Pressed && !Sheet.Contains(Cursor) && !SettingsButton.Contains(Cursor))
         {
             SettingsDropdownOpen = false;
         }
@@ -1711,104 +1611,86 @@ void OutlinerPanel::Render(
 
     if (DirectiveSheetOpen)
     {
-        OutlinerRecordEntry* TargetEntry = AccessEntry(DirectiveTargetToken);
-        const bool           TargetPresent   = (TargetEntry != nullptr);
-        const bool           Nested      = TargetPresent && TargetEntry->EnclosingToken.Valid();
-        const uint32_t       RowCount    = TargetPresent ? (Nested ? 6u : 5u) : 2u;
-        const float          RowH        = 30.0f;
-        const float          SheetW      = 222.0f;
-        const float          SheetH      = 16.0f + static_cast<float>(RowCount) * RowH + (TargetPresent ? 10.0f : 0.0f);
-        const float          SheetX      = std::clamp(DirectiveSheetAnchor.X, Bounds.X + 8.0f, std::max(Bounds.X + 8.0f, Bounds.Right() - SheetW - 8.0f));
-        const float          SheetY      = std::clamp(DirectiveSheetAnchor.Y, Bounds.Y + 8.0f, std::max(Bounds.Y + 8.0f, Bounds.Bottom() - SheetH - 8.0f));
-        const Rectangle2D    Sheet{ SheetX, SheetY, SheetW, SheetH };
+        OutlinerRecordEntry* TargetEntry   = AccessEntry(DirectiveTargetToken);
+        const bool           TargetPresent = (TargetEntry != nullptr);
+        const bool           Nested        = TargetPresent && TargetEntry->EnclosingToken.Valid();
 
-        ActiveOverlay.FillRectangle({ Sheet.X + 2.0f, Sheet.Y + 6.0f, Sheet.Width, Sheet.Height }, ColorRgba{ 0, 0, 0, 135 }, 14.0f);
-        ActiveOverlay.FillRectangle(Sheet, ProjectZeroSurfaceColors::OverlaySheet, 14.0f);
-        ActiveOverlay.StrokeRectangle(Sheet, ColorRgba{ 255, 255, 255, 28 }, 14.0f, 1.0f);
-
-        float RowY = Sheet.Y + 8.0f;
+        std::vector<DropdownDirectiveEntry> DirectiveRows{};
         if (TargetPresent)
         {
-            if (DrawSheetDirectiveRow(ActiveOverlay, { Sheet.X + 8.0f, RowY, Sheet.Width - 16.0f, RowH }, "Inspect", "Enter", Cursor, Input.PrimaryPointer.Pressed))
-            {
-                SelectSingle(TargetEntry->Token);
-                DirectiveSheetOpen = false;
-            }
-            RowY += RowH;
-
-            if (DrawSheetDirectiveRow(
-                    ActiveOverlay,
-                    { Sheet.X + 8.0f, RowY, Sheet.Width - 16.0f, RowH },
-                    TargetEntry->VisibilityEnabled ? "Hide" : "Show",
-                    "H",
-                    Cursor,
-                    Input.PrimaryPointer.Pressed))
-            {
-                TargetEntry->VisibilityEnabled = !TargetEntry->VisibilityEnabled;
-                DirectiveSheetOpen               = false;
-            }
-            RowY += RowH;
-
-            if (DrawSheetDirectiveRow(ActiveOverlay, { Sheet.X + 8.0f, RowY, Sheet.Width - 16.0f, RowH }, "Duplicate", "Ctrl+D", Cursor, Input.PrimaryPointer.Pressed))
-            {
-                DuplicateSlot(TargetEntry->Token);
-                DirectiveSheetOpen = false;
-            }
-            RowY += RowH;
-
-            if (DrawSheetDirectiveRow(ActiveOverlay, { Sheet.X + 8.0f, RowY, Sheet.Width - 16.0f, RowH }, "Group in Folder", "Ctrl+G", Cursor, Input.PrimaryPointer.Pressed))
-            {
-                GroupSelectionIntoFolder("Folder");
-                DirectiveSheetOpen = false;
-            }
-            RowY += RowH;
-
+            DirectiveRows.push_back({ "Inspect", "Enter", { 0u, 0u, 0u, 0u }, ControlIcon::Count, false, false, false, false });
+            DirectiveRows.push_back({ TargetEntry->VisibilityEnabled ? "Hide" : "Show", "H", { 0u, 0u, 0u, 0u }, ControlIcon::Count, false, false, false, false });
+            DirectiveRows.push_back({ "Duplicate", "Ctrl+D", { 0u, 0u, 0u, 0u }, ControlIcon::Count, false, false, false, false });
+            DirectiveRows.push_back({ "Group in Folder", "Ctrl+G", { 0u, 0u, 0u, 0u }, ControlIcon::Count, false, false, false, false });
             if (Nested)
             {
-                if (DrawSheetDirectiveRow(ActiveOverlay, { Sheet.X + 8.0f, RowY, Sheet.Width - 16.0f, RowH }, "Move to Root", "", Cursor, Input.PrimaryPointer.Pressed))
-                {
-                    AttachToEnclosure(TargetEntry->Token, OutlinerSlotToken{});
-                    DirectiveSheetOpen = false;
-                }
-                RowY += RowH;
+                DirectiveRows.push_back({ "Move to Root", "", { 0u, 0u, 0u, 0u }, ControlIcon::Count, false, false, false, false });
             }
-
-            ActiveOverlay.StrokeLine(
-                { Sheet.X + 12.0f, RowY + 4.0f },
-                { Sheet.Right() - 12.0f, RowY + 4.0f },
-                ProjectZeroSurfaceColors::HairlineLight,
-                1.0f);
-            RowY += 10.0f;
-
-            if (DrawSheetDirectiveRow(ActiveOverlay, { Sheet.X + 8.0f, RowY, Sheet.Width - 16.0f, RowH }, "Delete", "Del", Cursor, Input.PrimaryPointer.Pressed))
-            {
-                if (SelectedTokens.size() > 1u && QuerySlotSelected(TargetEntry->Token))
-                {
-                    DeleteSelection();
-                }
-                else
-                {
-                    DeleteSlot(TargetEntry->Token);
-                }
-                DirectiveSheetOpen = false;
-            }
+            DirectiveRows.push_back({ "Delete", "Del", { 0u, 0u, 0u, 0u }, ControlIcon::Count, false, true, true, false });
         }
         else
         {
-            if (DrawSheetDirectiveRow(ActiveOverlay, { Sheet.X + 8.0f, RowY, Sheet.Width - 16.0f, RowH }, "Add Item 1", "", Cursor, Input.PrimaryPointer.Pressed))
-            {
-                ConstructFromTemplate(0u);
-                DirectiveSheetOpen = false;
-            }
-            RowY += RowH;
-            if (DrawSheetDirectiveRow(ActiveOverlay, { Sheet.X + 8.0f, RowY, Sheet.Width - 16.0f, RowH }, "+ Add Folder", "Ctrl+G", Cursor, Input.PrimaryPointer.Pressed))
-            {
-                ConstructFolder("Folder");
-                DirectiveSheetOpen = false;
-            }
+            DirectiveRows.push_back({ "Add Item 1", "", { 0u, 0u, 0u, 0u }, ControlIcon::Count, false, false, false, false });
+            DirectiveRows.push_back({ "+ Add Folder", "Ctrl+G", { 0u, 0u, 0u, 0u }, ControlIcon::Count, false, false, false, false });
         }
 
-        if (OverlayOpenBefore && Input.PrimaryPointer.Pressed && !Sheet.Contains(Cursor))
+        const float       SheetW   = 222.0f;
+        const Rectangle2D RawSheet = DropdownSelector::QueryDirectiveSheetBounds(DirectiveSheetAnchor, SheetW, DirectiveRows);
+        const Rectangle2D Sheet{
+            std::clamp(RawSheet.X, Bounds.X + 8.0f, std::max(Bounds.X + 8.0f, Bounds.Right() - RawSheet.Width - 8.0f)),
+            std::clamp(RawSheet.Y, Bounds.Y + 8.0f, std::max(Bounds.Y + 8.0f, Bounds.Bottom() - RawSheet.Height - 8.0f)),
+            RawSheet.Width,
+            RawSheet.Height,
+        };
+
+        int32_t ChosenRow = -1;
+        if (DropdownSelector::ConstructDirectiveSheet(ActiveOverlay, Sheet, DirectiveRows, Input.PrimaryPointer, ChosenRow).Clicked && ChosenRow >= 0)
+        {
+            if (TargetPresent)
+            {
+                if (ChosenRow == 0)
+                {
+                    SelectSingle(TargetEntry->Token);
+                }
+                else if (ChosenRow == 1)
+                {
+                    TargetEntry->VisibilityEnabled = !TargetEntry->VisibilityEnabled;
+                }
+                else if (ChosenRow == 2)
+                {
+                    DuplicateSlot(TargetEntry->Token);
+                }
+                else if (ChosenRow == 3)
+                {
+                    GroupSelectionIntoFolder("Folder");
+                }
+                else if (Nested && ChosenRow == 4)
+                {
+                    AttachToEnclosure(TargetEntry->Token, OutlinerSlotToken{});
+                }
+                else
+                {
+                    if (SelectedTokens.size() > 1u && QuerySlotSelected(TargetEntry->Token))
+                    {
+                        DeleteSelection();
+                    }
+                    else
+                    {
+                        DeleteSlot(TargetEntry->Token);
+                    }
+                }
+            }
+            else if (ChosenRow == 0)
+            {
+                ConstructFromTemplate(0u);
+            }
+            else if (ChosenRow == 1)
+            {
+                ConstructFolder("Folder");
+            }
+            DirectiveSheetOpen = false;
+        }
+        else if (OverlayOpenBefore && Input.PrimaryPointer.Pressed && !Sheet.Contains(Cursor))
         {
             DirectiveSheetOpen = false;
         }
@@ -1837,7 +1719,7 @@ void OutlinerPanel::PresentInImGuiPane(double Δt, float ScaleFactor)
     PixelSpace WindowSurface(ImGui::GetWindowDrawList(), { ScreenBounds.X, ScreenBounds.Y }, SafeScale);
     PixelSpace ForegroundSurface(ImGui::GetForegroundDrawList(), { ScreenBounds.X, ScreenBounds.Y }, SafeScale);
 
-    const PaneInputReading Input = WorkspacePaneVisuals::CaptureImGuiPaneInput(ScreenBounds, SafeScale);
+    const PaneInputReading Input = WorkspacePaneAppearance::CaptureImGuiPaneInput(ScreenBounds, SafeScale);
     Render(WindowSurface, LogicalBounds, Input, Δt, &ForegroundSurface);
 }
 

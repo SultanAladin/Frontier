@@ -1,7 +1,7 @@
 #==========================================================================================================================================
 #                                                          PREPAREFONTS.PY
 #==========================================================================================================================================
-# 🧩 Download pinned OFL typefaces into EngineContent/Fonts/ and generate FontRepository.FontSpace.
+# 🧩 Download pinned OFL typefaces into EngineContent/FontsArchives/ and generate FontRepository.FontSpace.
 
 from pathlib import Path
 import argparse
@@ -78,7 +78,7 @@ def Main():
     Parser = argparse.ArgumentParser(description='Prepare pinned Frontier font repository.')
     Parser.add_argument('--scan-only', dest='ScanOnly', action='store_true', help='Enumerate local fonts without network access')
     Parser.add_argument('--verify', dest='VerifyOnly', action='store_true', help='Verify pinned fonts exist without downloading')
-    Parser.add_argument('--root', dest='RootDirectory', type=Path, default=RepositoryRoot / 'EngineContent/Fonts')
+    Parser.add_argument('--root', dest='RootDirectory', type=Path, default=RepositoryRoot / 'EngineContent/FontsArchives')
     Arguments = Parser.parse_args()
 
     Manifest = json.loads((RepositoryRoot / 'Automation/FontSources.json').read_text(encoding='utf-8'))

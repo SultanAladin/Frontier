@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Controls/ControlStyle.h"
+#include "Engine/Components/Controls/ControlAppearance.h"
 
 namespace Frontier
 {
@@ -21,7 +21,7 @@ namespace ScalarSlider
 //                                                  FUNCTION PROTOTYPES
 //------------------------------------------------------------------------------------------------------------------------
 
-[[nodiscard]] ControlContact Draw(
+[[nodiscard]] ControlContact Construct(
     PixelSpace&           Surface,
     Rectangle2D           Bounds,
     float                 Minimum,
@@ -34,7 +34,7 @@ namespace ScalarSlider
     float                 RailHeight   = ControlMetrics::SliderHeight,
     float                 KnobDiameter = ControlMetrics::SliderThumbDiameter) noexcept;
 
-void DrawReadoutCapsule(
+void ConstructReadoutCapsule(
     PixelSpace& Surface,
     float       X,
     float       Y,
@@ -44,7 +44,7 @@ void DrawReadoutCapsule(
     float       TotalWidth    = ControlMetrics::ReadoutCapsuleWidth,
     float       UnitCellWidth = ControlMetrics::ReadoutUnitWidth) noexcept;
 
-[[nodiscard]] ControlContact DrawWithReadout(
+[[nodiscard]] ControlContact ConstructWithReadout(
     PixelSpace&           Surface,
     Rectangle2D           RowBounds,
     const char*           NumberText,

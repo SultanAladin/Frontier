@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Controls/ControlStyle.h"
+#include "Engine/Components/Controls/ControlAppearance.h"
 
 namespace Frontier
 {
@@ -24,7 +24,7 @@ namespace ThemePreviewTile
 [[nodiscard]] ThemePreset PresetAtDisplayOrder(uint32_t DisplayOrdinal) noexcept;
 [[nodiscard]] const char* LabelAtDisplayOrder(uint32_t DisplayOrdinal) noexcept;
 
-[[nodiscard]] ControlContact Draw(
+[[nodiscard]] ControlContact Construct(
     PixelSpace&           Surface,
     Rectangle2D           TileBounds,
     ThemePreset           Preset,
@@ -33,7 +33,7 @@ namespace ThemePreviewTile
     const ControlPointer& Pointer,
     float                 Opacity = 1.0f) noexcept;
 
-[[nodiscard]] ControlContact DrawColorSwatch(
+[[nodiscard]] ControlContact ConstructColorSwatch(
     PixelSpace&           Surface,
     float                 CenterX,
     float                 CenterY,

@@ -14,7 +14,7 @@
 #include "Engine/Components/Controls/ExclusiveSelector.h"
 #include "Engine/Components/Controls/CapsuleButton.h"
 #include "Engine/Components/Controls/ConfirmationDialogue.h"
-#include "Engine/Components/Controls/ControlStyle.h"
+#include "Engine/Components/Controls/ControlAppearance.h"
 #include "Engine/Components/Controls/DropdownSelector.h"
 #include "Engine/Components/Controls/NotificationSequence.h"
 #include "Engine/Components/Controls/ScalarSlider.h"
@@ -120,73 +120,73 @@ private:
     [[nodiscard]] bool QueryCurrentPageDirty() const noexcept;
     void               ResolveConfirmationResponse(DialogueResponse Response);
 
-    void DrawPageContents(
+    void ConstructPageContents(
         PixelSpace&           Surface,
         ControlCentrePage     Page,
         Rectangle2D           ContainerBounds,
         const ControlPointer& Pointer,
         float                 Opacity);
 
-    void DrawQuickControlsPage(
+    void ConstructQuickControlsPage(
         PixelSpace&           Surface,
         Rectangle2D           ContainerBounds,
         const ControlPointer& Pointer,
         float                 Opacity);
 
-    void DrawSettingsDirectoryPage(
+    void ConstructSettingsDirectoryPage(
         PixelSpace&           Surface,
         Rectangle2D           ContainerBounds,
         const ControlPointer& Pointer,
         float                 Opacity);
 
-    void DrawSubPageContainer(
+    void ConstructSubPageContainer(
         PixelSpace&           Surface,
         ControlCentrePage     Page,
         Rectangle2D           ContainerBounds,
         const ControlPointer& Pointer,
         float                 Opacity);
 
-    float DrawAppearanceDisplayBody(
+    float ConstructAppearanceDisplayBody(
         PixelSpace&           Surface,
         Rectangle2D           BodyBounds,
         float                 ScrollY,
         const ControlPointer& Pointer,
         float                 Opacity);
 
-    float DrawAppearanceTypographyBody(
+    float ConstructAppearanceTypographyBody(
         PixelSpace&           Surface,
         Rectangle2D           BodyBounds,
         float                 ScrollY,
         const ControlPointer& Pointer,
         float                 Opacity);
 
-    float DrawAppearanceThemeBody(
+    float ConstructAppearanceThemeBody(
         PixelSpace&           Surface,
         Rectangle2D           BodyBounds,
         float                 ScrollY,
         const ControlPointer& Pointer,
         float                 Opacity);
 
-    float DrawInputSettingsBody(
+    float ConstructInputSettingsBody(
         PixelSpace&           Surface,
         Rectangle2D           BodyBounds,
         float                 ScrollY,
         const ControlPointer& Pointer,
         float                 Opacity);
 
-    void DrawInputProfileOverlay(
+    void ConstructInputProfileOverlay(
         PixelSpace&           Surface,
         const ControlPointer& Pointer,
         float                 Opacity);
 
-    float DrawNotificationsBody(
+    float ConstructNotificationsBody(
         PixelSpace&           Surface,
         Rectangle2D           BodyBounds,
         float                 ScrollY,
         const ControlPointer& Pointer,
         float                 Opacity);
 
-    float DrawWorkspaceBody(
+    float ConstructWorkspaceBody(
         PixelSpace&           Surface,
         Rectangle2D           BodyBounds,
         float                 ScrollY,
@@ -208,7 +208,7 @@ private:
     uint32_t                  WidthSpringAxis           = 0u;                             // [idx] - Sheet width spring axis index
     uint32_t                  HeightSpringAxis          = 0u;                             // [idx] - Sheet height spring axis index
     bool                      SheetGeometrySeeded       = false;                          // [-]   - Initial spring seeding guard
-    ControlCentrePage         ActivePage                = ControlCentrePage::QuickControls;// [-]  - Active drawer page
+    ControlCentrePage         ActivePage                = ControlCentrePage::QuickControls;// [-]  - Active tray page
     AppearanceSectionTab      ActiveAppearanceTab       = AppearanceSectionTab::Display;  // [-]   - Active Appearance tab
     float                     ScrollOffset              = 0.0f;                           // [px]  - Sub-page vertical scroll offset
     float                     LastContentHeight         = 0.0f;                           // [px]  - Measured sub-page content height

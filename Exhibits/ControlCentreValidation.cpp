@@ -62,7 +62,7 @@ using Frontier::Exhibits::SoftwareRasterCanvas;
 using Frontier::Windowing::WindowConfigurationDescriptor;
 
 namespace CapsuleButton        = Frontier::CapsuleButton;
-namespace ControlStyle         = Frontier::ControlStyle;
+namespace ControlAppearance         = Frontier::ControlAppearance;
 namespace DropdownSelector     = Frontier::DropdownSelector;
 namespace InputSettingsRepository = Frontier::InputSettingsRepository;
 namespace TextInputField       = Frontier::TextInputField;
@@ -221,7 +221,7 @@ bool RenderSnapshotSuite(const std::filesystem::path& OutputDirectory)
     const auto      RepositoryRoot = ResolveRepositoryRootPath();
     TypographyRepository Typefaces{};
     if (!VerifyAssertion(
-            Typefaces.LoadRepository(RepositoryRoot / "EngineContent/Fonts") == 5u,
+            Typefaces.LoadRepository(RepositoryRoot / "EngineContent/FontsArchives") == 5u,
             "Load FontRepository.FontSpace (zero .toml)"))
     {
         ImGui::DestroyContext(GuiSession);
@@ -460,7 +460,7 @@ bool RenderSnapshotSuite(const std::filesystem::path& OutputDirectory)
         ThemeRepository ShowcaseTheme{};
         ShowcaseTheme.ConfigureTheme(ThemePreset::Oled);
         ShowcaseTheme.ConfigureAccent(AccentPreset::Blue);
-        ControlStyle::ConfigureTheme(
+        ControlAppearance::ConfigureTheme(
             ShowcaseTheme,
             ThemeRepository::QuerySemanticColor(0u, 0u),
             ThemeRepository::QuerySemanticColor(1u, 0u),
@@ -485,12 +485,12 @@ bool RenderSnapshotSuite(const std::filesystem::path& OutputDirectory)
 
         ImFont*    RegularFont = Typefaces.QueryFont(0u, Frontier::FontWeightClass::Regular);
         PixelSpace Surface(ImGui::GetForegroundDrawList(), { 0.0f, 0.0f }, 1.0f, RegularFont);
-        const ControlColorSet& Colors = ControlStyle::Colors();
+        const ControlColorSet& Colors = ControlAppearance::Colors();
 
         Surface.FillRectangle({ 0.0f, 0.0f, 1280.0f, 800.0f }, Colors.Field.ToRgba8(), 0.0f);
         const Rectangle2D Sheet{ 64.0f, 48.0f, 1152.0f, 704.0f };
         Surface.FillRectangle(Sheet, Colors.Panel.ToRgba8(), 28.0f);
-        ControlStyle::DrawRoundedOutline(Surface, Sheet, Colors.Stroke, 28.0f);
+        ControlAppearance::ConstructRoundedOutline(Surface, Sheet, Colors.Stroke, 28.0f);
 
         Surface.Text({ 104.0f, 84.0f }, 24.0f, Colors.Text.ToRgba8(), "Reusable Studio Controls");
         Surface.Text(
@@ -501,29 +501,29 @@ bool RenderSnapshotSuite(const std::filesystem::path& OutputDirectory)
 
         ControlPointer IdlePointer{};
         Surface.Text({ 104.0f, 174.0f }, 13.0f, Colors.TextDim.ToRgba8(), "Focused TextInputField (active selection)");
-        (void)TextInputField::Draw(Surface, { 104.0f, 200.0f, 460.0f, 40.0f }, ProjectNameInput, IdlePointer, 13.0f, 1.0f);
+        (void)TextInputField::Construct(Surface, { 104.0f, 200.0f, 460.0f, 40.0f }, ProjectNameInput, IdlePointer, 13.0f, 1.0f);
 
         Surface.Text({ 104.0f, 266.0f }, 13.0f, Colors.TextDim.ToRgba8(), "Inactive TextInputField");
-        (void)TextInputField::Draw(Surface, { 104.0f, 292.0f, 460.0f, 40.0f }, SearchInput, IdlePointer, 13.0f, 1.0f);
+        (void)TextInputField::Construct(Surface, { 104.0f, 292.0f, 460.0f, 40.0f }, SearchInput, IdlePointer, 13.0f, 1.0f);
 
         Surface.Text({ 640.0f, 174.0f }, 13.0f, Colors.TextDim.ToRgba8(), "DropdownSelector (expanded options)");
         constexpr const char* Options[3] = { "Editor Default", "Custom Studio Profile", "Laptop Compact" };
         const Rectangle2D     DropAnchor{ 640.0f, 200.0f, 440.0f, 40.0f };
-        (void)DropdownSelector::DrawButton(Surface, DropAnchor, Options[SelectedProfile], true, IdlePointer);
-        (void)DropdownSelector::DrawOptionSheet(Surface, DropAnchor, Options, 3u, SelectedProfile, IdlePointer, ChosenProfile);
+        (void)DropdownSelector::ConstructButton(Surface, DropAnchor, Options[SelectedProfile], true, IdlePointer);
+        (void)DropdownSelector::ConstructOptionSheet(Surface, DropAnchor, Options, 3u, SelectedProfile, IdlePointer, ChosenProfile);
 
         Surface.Text({ 104.0f, 384.0f }, 13.0f, Colors.TextDim.ToRgba8(), "CapsuleButton Tones");
-        (void)CapsuleButton::Draw(
+        (void)CapsuleButton::Construct(
             Surface,
             { 104.0f, 412.0f, 128.0f, 40.0f },
             ButtonDescriptor{ "Apply", ButtonTone::Primary, 14.0f, 24.0f, false, {} },
             IdlePointer);
-        (void)CapsuleButton::Draw(
+        (void)CapsuleButton::Construct(
             Surface,
             { 248.0f, 412.0f, 136.0f, 40.0f },
             ButtonDescriptor{ "Discard", ButtonTone::Secondary, 14.0f, 24.0f, false, {} },
             IdlePointer);
-        (void)CapsuleButton::Draw(
+        (void)CapsuleButton::Construct(
             Surface,
             { 400.0f, 412.0f, 136.0f, 40.0f },
             ButtonDescriptor{ "Delete", ButtonTone::Danger, 14.0f, 24.0f, false, {} },

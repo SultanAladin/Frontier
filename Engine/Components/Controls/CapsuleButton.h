@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Controls/ControlStyle.h"
+#include "Engine/Components/Controls/ControlAppearance.h"
 
 namespace Frontier
 {
@@ -49,7 +49,7 @@ namespace CapsuleButton
 {
 
 [[nodiscard]] float          MeasureWidth(PixelSpace& Surface, const ButtonDescriptor& Button) noexcept;
-[[nodiscard]] ControlContact Draw(
+[[nodiscard]] ControlContact Construct(
     PixelSpace&             Surface,
     Rectangle2D             Bounds,
     const ButtonDescriptor& Button,
@@ -57,7 +57,7 @@ namespace CapsuleButton
     float                   Opacity = 1.0f) noexcept;
 
 [[nodiscard]] float          MeasureChipWidth(PixelSpace& Surface, const char* Label) noexcept;
-[[nodiscard]] ControlContact DrawChip(
+[[nodiscard]] ControlContact ConstructChip(
     PixelSpace&           Surface,
     Rectangle2D           Bounds,
     const char*           Label,
@@ -65,7 +65,7 @@ namespace CapsuleButton
     const ControlPointer& Pointer,
     float                 Opacity = 1.0f) noexcept;
 
-[[nodiscard]] ControlContact DrawRoundIcon(
+[[nodiscard]] ControlContact ConstructRoundIcon(
     PixelSpace&           Surface,
     float                 CenterX,
     float                 CenterY,
@@ -73,7 +73,7 @@ namespace CapsuleButton
     const ControlPointer& Pointer,
     float                 Opacity = 1.0f) noexcept;
 
-[[nodiscard]] ControlContact DrawSegmented(
+[[nodiscard]] ControlContact ConstructSegmented(
     PixelSpace&           Surface,
     Rectangle2D           Bounds,
     const char* const*    Labels,
@@ -83,7 +83,7 @@ namespace CapsuleButton
     uint32_t&             SelectedIndex,
     float                 Opacity = 1.0f) noexcept;
 
-[[nodiscard]] ControlContact DrawQuickCircleTile(
+[[nodiscard]] ControlContact ConstructQuickCircleTile(
     PixelSpace&           Surface,
     Rectangle2D           DiscBounds,
     ControlIcon           Icon,
