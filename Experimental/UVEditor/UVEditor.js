@@ -146,7 +146,10 @@ function CreateDocumentFromFactory(FactorySpec, IdOverride = null)
         activeUdim: Created.udimTiles[0]?.id || 1001,
         islands: [],
         diagnostics: null,
-        lastPackReport: null
+        lastPackReport: null,
+        customFolders: [],
+        collapsedFolders: new Set(),
+        foldersInitialized: false
     };
     RefreshDocAnalysis(Doc);
     Doc.surface.AutoAssignMatcapsByPart(Doc.islands);
@@ -300,10 +303,118 @@ function ComputeSelectionPivot(Doc)
     return [SumU / Sel.size, SumV / Sel.size];
 }
 
+function CollectTargetUvIndices(Doc)
+{
+    const UvSet = new Set();
+    if (!Doc?.surface) return UvSet;
+    if (Doc.surface.selectedUVs.size > 0)
+    {
+        for (const U of Doc.surface.selectedUVs) UvSet.add(U);
+        return UvSet;
+    }
+    if (Doc.surface.selectedFaces.size > 0)
+    {
+        for (const Fi of Doc.surface.selectedFaces)
+        {
+            const F = Doc.surface.faces[Fi];
+            if (F) for (const C of F.corners) UvSet.add(C.uv);
+        }
+        return UvSet;
+    }
+    if (Doc.surface.selectedIslands.size > 0)
+    {
+        for (const Isl of Doc.islands)
+        {
+            if (!Doc.surface.selectedIslands.has(Isl.id)) continue;
+            for (const Fi of Isl.faceIndices)
+            {
+                const F = Doc.surface.faces[Fi];
+                if (F) for (const C of F.corners) UvSet.add(C.uv);
+            }
+        }
+        return UvSet;
+    }
+    for (let i = 0; i < Doc.surface.uvCoords.length; i++) UvSet.add(i);
+    return UvSet;
+}
+
+function ComputeSelectionUvTransformStats(Doc)
+{
+    const UvSet = CollectTargetUvIndices(Doc);
+    if (!UvSet.size)
+    {
+        return { cx: 0.5, cy: 0.5, du: 1.0, dv: 1.0, udim: Doc?.activeUdim || 1001, count: 0, hasExplicitSel: false };
+    }
+    let MinU = Infinity, MinV = Infinity, MaxU = -Infinity, MaxV = -Infinity;
+    for (const Idx of UvSet)
+    {
+        const P = Doc.surface.uvCoords[Idx];
+        if (!P) continue;
+        if (P[0] < MinU) MinU = P[0];
+        if (P[0] > MaxU) MaxU = P[0];
+        if (P[1] < MinV) MinV = P[1];
+        if (P[1] > MaxV) MaxV = P[1];
+    }
+    const Cx = Number.isFinite(MinU) ? 0.5 * (MinU + MaxU) : 0.5;
+    const Cy = Number.isFinite(MinV) ? 0.5 * (MinV + MaxV) : 0.5;
+    const Du = Number.isFinite(MinU) ? Math.max(0.0001, MaxU - MinU) : 1.0;
+    const Dv = Number.isFinite(MinV) ? Math.max(0.0001, MaxV - MinV) : 1.0;
+    const HasExplicit = Doc.surface.selectedUVs.size > 0 || Doc.surface.selectedFaces.size > 0 || Doc.surface.selectedIslands.size > 0;
+    return {
+        cx: Cx,
+        cy: Cy,
+        du: Du,
+        dv: Dv,
+        udim: UdimFromUV(Cx, Cy),
+        count: UvSet.size,
+        hasExplicitSel: HasExplicit
+    };
+}
+
+function ClassifyIslandHealth(Doc, Isl)
+{
+    const HasError = Isl.faceIndices.some(Fi =>
+        Doc.diagnostics?.OverlappingFaces?.has(Fi) || Doc.diagnostics?.FlippedFaces?.has(Fi));
+    if (HasError) return 'error';
+
+    let Pinned = false;
+    for (const Fi of Isl.faceIndices)
+    {
+        const F = Doc.surface.faces[Fi];
+        if (!F) continue;
+        for (const C of F.corners) if (Doc.surface.pinned.has(C.uv)) { Pinned = true; break; }
+        if (Pinned) break;
+    }
+    if ((Isl.angleStretch ?? 0) > 0.30) return 'caution';
+    if (Pinned) return 'pinned';
+    return 'ok';
+}
+
 function UpdateHeaderAndHud(Doc)
 {
-    document.getElementById('stat-islands-count').textContent = String(Doc.islands.length);
-    document.getElementById('stat-udim-count').textContent = String(Doc.udimTiles.length);
+    let CleanCharts = 0, ErrorCharts = 0, CautionCharts = 0;
+    for (const Isl of Doc.islands)
+    {
+        const St = ClassifyIslandHealth(Doc, Isl);
+        if (St === 'error') ErrorCharts++;
+        else if (St === 'caution') CautionCharts++;
+        else CleanCharts++;
+    }
+    const TotalIssues = ErrorCharts + CautionCharts;
+    document.getElementById('stat-islands-count').textContent = String(CleanCharts);
+    document.getElementById('stat-udim-count').textContent = String(TotalIssues);
+
+    const IssuesCard = document.getElementById('stat-issues-card');
+    if (IssuesCard)
+    {
+        IssuesCard.classList.toggle('has-error', ErrorCharts > 0);
+        IssuesCard.classList.toggle('has-caution', ErrorCharts === 0 && CautionCharts > 0);
+    }
+    const IssuesLbl = document.getElementById('stat-issues-label');
+    if (IssuesLbl) IssuesLbl.textContent = ErrorCharts > 0 ? 'Overlaps / Flips' : CautionCharts > 0 ? 'Stretch Caution' : 'Warnings';
+
+    const NodeSummary = document.getElementById('pz-outliner-node-summary');
+    if (NodeSummary) NodeSummary.textContent = `Showcase · ${Doc.islands.length} charts`;
 
     const ActiveTile = Doc.udimTiles.find(T => T.id === Doc.activeUdim) || Doc.udimTiles[0];
     const ResK = ActiveTile ? (ActiveTile.resolution >= 1024 ? `${ActiveTile.resolution / 1024}K` : `${ActiveTile.resolution}px`) : '2K';
@@ -319,20 +430,16 @@ function UpdateHeaderAndHud(Doc)
     document.getElementById('hud-selection').innerHTML = `Sel <b>${Doc.surface.selectedEdges3D.size} ed · ${Doc.surface.selectedIslands.size} isl · ${Doc.surface.selectedUVs.size} uv</b>`;
     document.getElementById('hud-stretch').innerHTML = `Seams <b>${Doc.surface.seams.size}</b> · Stretch <b>${(Doc.diagnostics.meanAngleStretch * 100).toFixed(1)}%</b>`;
 
-    const MeshHint = document.getElementById('mesh-hint-pill');
-    if (MeshHint)
-    {
-        if (StudioState.activeTool === 'seam')
-            MeshHint.textContent = 'Seam Brush (K): Click edge to toggle seam · Alt+Click seam loop';
-        else if (StudioState.selectionMode === 'edge')
-            MeshHint.textContent = 'Edge: Alt Loop · ^Alt Ring · ^Path · ⇧G Similar · RMB Menu';
-        else if (StudioState.selectionMode === 'vertex')
-            MeshHint.textContent = 'Vertex: Click · Alt Loop · ^Path · ⇧G Similar';
-        else if (StudioState.selectionMode === 'face')
-            MeshHint.textContent = 'Face: Alt Loop · ^Path · Dbl Island · ⇧G Similar · K Seam';
-        else
-            MeshHint.textContent = 'Island: Click / DblClick · ⇧G Select Similar · L Linked';
-    }
+    // Update Live 2D UV Selection Position & Extent Pill
+    const Tf = ComputeSelectionUvTransformStats(Doc);
+    const PosUEl = document.getElementById('pz-hud-pos-u');
+    const PosVEl = document.getElementById('pz-hud-pos-v');
+    const SizeEl = document.getElementById('pz-hud-size');
+    const UdimEl = document.getElementById('pz-hud-udim');
+    if (PosUEl) PosUEl.textContent = `U ${Tf.cx.toFixed(3)}`;
+    if (PosVEl) PosVEl.textContent = `V ${Tf.cy.toFixed(3)}`;
+    if (SizeEl) SizeEl.textContent = `Δ ${Tf.du.toFixed(2)} × ${Tf.dv.toFixed(2)}`;
+    if (UdimEl) UdimEl.textContent = `UDIM ${Tf.udim}`;
 
     document.getElementById('undo-btn').disabled = !Doc.surface.CanUndo();
     document.getElementById('redo-btn').disabled = !Doc.surface.CanRedo();
@@ -340,13 +447,12 @@ function UpdateHeaderAndHud(Doc)
     const NameInput = document.getElementById('inspector-object-name');
     if (document.activeElement !== NameInput) NameInput.value = Doc.name;
 
-    const ExplicitPct = Doc.importanceGroups.reduce((S, G) => S + G.targetPercent, 0);
-    const RemPct = Math.max(0, 100 - ExplicitPct);
     document.getElementById('inspector-object-sub').textContent =
-        `${Doc.islands.length} ISLANDS · ${Doc.udimTiles.length} UDIM · ${Doc.importanceGroups.length} PRIORITY GROUPS · REST ${RemPct.toFixed(0)}%`;
+        `${Doc.islands.length} UV charts · ${Doc.udimTiles.length} UDIM · Per-face Multi-MatCap`;
 
     document.getElementById('inspector-footer-right').textContent = `UDIM ${Doc.activeUdim} · ${ActiveTile?.resolution || 2048} px`;
-    document.getElementById('status-counts').textContent = `${Doc.surface.positions.length} verts · ${Doc.surface.faces.length} faces · ${Doc.islands.length} islands`;
+    document.getElementById('status-counts').innerHTML =
+        `<b>${Doc.surface.positions.length}</b> verts · <b>${Doc.surface.faces.length}</b> faces · <b>${Doc.islands.length}</b> charts`;
 
     const AvgDen = Doc.islands.reduce((S, I) => S + I.texelDensity, 0) / Math.max(1, Doc.islands.length);
     document.getElementById('status-density').textContent = `Avg Texel: ${AvgDen.toFixed(2)} px/cm`;
@@ -408,12 +514,37 @@ function RenderUdimChipStrip(Doc)
 }
 
 let _lastOutlinerSig = null;
+function BuildFolderSvg()
+{
+    const Svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    Svg.setAttribute('viewBox', '0 0 24 24');
+    Svg.innerHTML = '<path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h3.9l2 2.2H18.5A2.5 2.5 0 0 1 21 8.7v8.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/>';
+    return Svg;
+}
+
+function SemanticFolderKeyForIsland(Isl)
+{
+    const Tag = `${Isl.displayName || ''} ${Isl.materialName || ''}`.toLowerCase();
+    if (/tyre|tire|rubber|tread/.test(Tag)) return { key: 'part-tyres', title: 'Wheels & Tyres', color: '#a78bfa' };
+    if (/rim|wheel|spoke|caliper|disc|hub/.test(Tag)) return { key: 'part-rims', title: 'Rims & Brakes', color: '#60a5fa' };
+    if (/glass|visor|windshield|canopy|lens/.test(Tag)) return { key: 'part-glass', title: 'Glass & Optics', color: '#38bdf8' };
+    if (/body|hood|door|fender|roof|bumper|chest|torso|helm|hull|wall|facade/.test(Tag)) return { key: 'part-body', title: 'Primary Bodywork', color: '#f59e0b' };
+    if (/trim|latch|strap|handle|grille|spoiler|pauldron|pillar|arch/.test(Tag)) return { key: 'part-trim', title: 'Trim & Hardware', color: '#34d399' };
+    return { key: `udim-${Isl.udimTile}`, title: `UDIM ${Isl.udimTile} · Surface`, color: '#9ca3af' };
+}
+
 function RenderOutliner(Doc)
 {
+    if (!Doc.collapsedFolders) Doc.collapsedFolders = new Set();
+    if (!Doc.customFolders) Doc.customFolders = [];
+
     const SelIslList = [...Doc.surface.selectedIslands].sort((a, b) => a - b).join(',');
     const GrpSig = Doc.importanceGroups.map(G => `${G.id}:${G.name}:${G.targetPercent}:${G.color}`).join(';');
+    const CustomSig = Doc.customFolders.map(F => `${F.id}:${F.name}:${F.islandIds.join(',')}`).join(';');
+    const ColSig = [...Doc.collapsedFolders].sort().join(',');
+    const PinSig = Doc.surface.pinned.size;
     const SurfSig = typeof Doc.surface.ComputeDataSignature === 'function' ? Doc.surface.ComputeDataSignature() : `${Doc.islands.length}`;
-    const OutlinerSig = `${Doc.id}|${StudioState.outlinerFilter}|${StudioState.searchQuery.trim()}|${SurfSig}|${GrpSig}|${SelIslList}|${Doc.diagnostics?.overlapCount || 0}|${Doc.diagnostics?.flippedCount || 0}`;
+    const OutlinerSig = `${Doc.id}|${StudioState.outlinerFilter}|${StudioState.searchQuery.trim()}|${SurfSig}|${GrpSig}|${CustomSig}|${ColSig}|${PinSig}|${SelIslList}|${Doc.diagnostics?.overlapCount || 0}|${Doc.diagnostics?.flippedCount || 0}`;
     if (_lastOutlinerSig === OutlinerSig) return;
     _lastOutlinerSig = OutlinerSig;
 
@@ -428,8 +559,8 @@ function RenderOutliner(Doc)
         if (StudioState.outlinerFilter === 'grouped' && !Isl.importanceGroupId) return false;
         if (StudioState.outlinerFilter === 'issues')
         {
-            const HasIssue = Isl.faceIndices.some(Fi => Doc.diagnostics.OverlappingFaces.has(Fi) || Doc.diagnostics.FlippedFaces.has(Fi));
-            if (!HasIssue) return false;
+            const Health = ClassifyIslandHealth(Doc, Isl);
+            if (Health !== 'error' && Health !== 'caution') return false;
         }
         if (Query)
         {
@@ -440,70 +571,165 @@ function RenderOutliner(Doc)
         return true;
     };
 
-    // Group islands by Importance Group (plus Remaining Unassigned)
-    const Buckets = [];
+    // Build Collapsible Project-Zero Folders (Custom -> Priority -> Semantic Part / Batched UDIM Folders)
+    const ClaimedIds = new Set();
+    const Folders = [];
+
+    for (const Cf of Doc.customFolders)
+    {
+        const IdSet = new Set(Cf.islandIds);
+        const List = Doc.islands.filter(I => IdSet.has(I.id) && Matches(I));
+        for (const I of List) ClaimedIds.add(I.id);
+        if (List.length) Folders.push({ id: Cf.id, title: Cf.name, color: Cf.color || '#eab308', islands: List });
+    }
+
     for (const Grp of Doc.importanceGroups)
     {
-        const List = Doc.islands.filter(I => I.importanceGroupId === Grp.id && Matches(I));
-        if (List.length) Buckets.push({ title: `${Grp.name} (${Grp.targetPercent}%)`, color: Grp.color, islands: List });
+        const List = Doc.islands.filter(I => !ClaimedIds.has(I.id) && I.importanceGroupId === Grp.id && Matches(I));
+        for (const I of List) ClaimedIds.add(I.id);
+        if (List.length) Folders.push({ id: `prio-${Grp.id}`, title: `${Grp.name} (${Grp.targetPercent}%)`, color: Grp.color, islands: List });
     }
-    const Rem = Doc.islands.filter(I => (!I.importanceGroupId || !GroupMap.has(I.importanceGroupId)) && Matches(I));
-    if (Rem.length) Buckets.push({ title: 'Remaining Islands (Auto-Fill)', color: '#787f88', islands: Rem });
 
-    for (const Bucket of Buckets)
+    const SemanticMap = new Map();
+    for (const Isl of Doc.islands)
     {
-        const Section = Construct('div', 'tree-group');
-        const Dot = Construct('span', 'tree-group-dot');
-        Dot.style.background = Bucket.color;
-        Section.append(Construct('div', 'tree-group-title', [
-            Dot,
-            Construct('span', null, Bucket.title),
-            Construct('span', 'group-count', `${Bucket.islands.length}`)
-        ]));
+        if (ClaimedIds.has(Isl.id) || !Matches(Isl)) continue;
+        const Spec = SemanticFolderKeyForIsland(Isl);
+        if (!SemanticMap.has(Spec.key)) SemanticMap.set(Spec.key, { ...Spec, list: [] });
+        SemanticMap.get(Spec.key).list.push(Isl);
+    }
 
-        for (const Isl of Bucket.islands)
+    for (const [, Entry] of SemanticMap)
+    {
+        if (Entry.list.length <= 24)
+        {
+            Folders.push({ id: Entry.key, title: Entry.title, color: Entry.color, islands: Entry.list });
+        }
+        else
+        {
+            // Sub-batch large groups into clean 20-chart folders so Outliner never floods vertically
+            let BatchIdx = 1;
+            for (let i = 0; i < Entry.list.length; i += 20)
+            {
+                const Slice = Entry.list.slice(i, i + 20);
+                Folders.push({
+                    id: `${Entry.key}-b${BatchIdx}`,
+                    title: `${Entry.title} · Set ${String(BatchIdx).padStart(2, '0')}`,
+                    color: Entry.color,
+                    islands: Slice
+                });
+                BatchIdx++;
+            }
+        }
+    }
+
+    // Collapse folders beyond the first 2 on initial load when asset has many charts so Outliner stays crisp
+    if (!Doc.foldersInitialized)
+    {
+        Doc.foldersInitialized = true;
+        if (Doc.islands.length > 26)
+        {
+            Folders.slice(2).forEach(F => Doc.collapsedFolders.add(F.id));
+        }
+    }
+
+    const ChartPalette = ['#60a5fa', '#f59e0b', '#34d399', '#a78bfa', '#f472b6', '#38bdf8'];
+
+    for (let FiIdx = 0; FiIdx < Folders.length; FiIdx++)
+    {
+        const Folder = Folders[FiIdx];
+        const IsCollapsed = !Query && StudioState.outlinerFilter === 'all' && Doc.collapsedFolders.has(Folder.id);
+        const AllSelected = Folder.islands.length > 0 && Folder.islands.every(I => Doc.surface.selectedIslands.has(I.id));
+        const FolderIssues = Folder.islands.filter(I =>
+        {
+            const H = ClassifyIslandHealth(Doc, I);
+            return H === 'error' || H === 'caution';
+        }).length;
+
+        const GroupEl = Construct('div', `pz-folder-group${IsCollapsed ? ' collapsed' : ''}`);
+        const Chev = Construct('span', 'pz-folder-chevron', [ConstructGlyph('ChevronDown')]);
+        const FIcon = Construct('span', 'pz-folder-icon', [BuildFolderSvg()]);
+        FIcon.style.setProperty('--folder-tint', Folder.color);
+
+        const SubText = FolderIssues > 0
+            ? `${Folder.islands.length} items · ${FolderIssues} warning${FolderIssues > 1 ? 's' : ''}`
+            : `${Folder.islands.length} item${Folder.islands.length === 1 ? '' : 's'}`;
+
+        const FolderStatusBadge = FolderIssues > 0
+            ? Construct('span', 'pz-status-badge caution', '!')
+            : null;
+
+        const HeaderBtn = Construct('button', `pz-folder-header${AllSelected ? ' selected' : ''}`, [
+            Chev,
+            FIcon,
+            Construct('div', 'pz-folder-copy', [
+                Construct('strong', null, Folder.title),
+                Construct('small', null, SubText)
+            ]),
+            FolderStatusBadge
+        ]);
+        HeaderBtn.type = 'button';
+
+        Chev.addEventListener('click', E =>
+        {
+            E.stopPropagation();
+            if (Doc.collapsedFolders.has(Folder.id)) Doc.collapsedFolders.delete(Folder.id);
+            else Doc.collapsedFolders.add(Folder.id);
+            _lastOutlinerSig = null;
+            RenderOutliner(Doc);
+        });
+
+        HeaderBtn.addEventListener('click', E =>
+        {
+            if (!E.shiftKey && !E.ctrlKey) Doc.surface.ClearSelection();
+            for (const Isl of Folder.islands) Doc.surface.SelectIsland(Isl.id, true);
+            SyncAllViews(true);
+        });
+        HeaderBtn.addEventListener('dblclick', () =>
+        {
+            if (Doc.collapsedFolders.has(Folder.id)) Doc.collapsedFolders.delete(Folder.id);
+            else Doc.collapsedFolders.add(Folder.id);
+            _lastOutlinerSig = null;
+            RenderOutliner(Doc);
+        });
+
+        const ChildrenWrap = Construct('div', 'pz-folder-children');
+        for (const Isl of Folder.islands)
         {
             const IsSel = Doc.surface.selectedIslands.has(Isl.id);
-            const Row = Construct('div', 'tree-row' + (IsSel ? ' selected' : '') + (Isl.hidden ? ' is-off' : ''));
-            Row.style.setProperty('--row-accent', Bucket.color);
+            const Health = ClassifyIslandHealth(Doc, Isl);
+            const Cx = 0.5 * (Isl.bounds.minU + Isl.bounds.maxU);
+            const Cy = 0.5 * (Isl.bounds.minV + Isl.bounds.maxV);
+            const RowTint = Folder.color || ChartPalette[Isl.id % ChartPalette.length];
 
-            const Swatch = Construct('span', 'row-swatch');
-            Swatch.style.background = Bucket.color;
+            const GlyphSeat = Construct('span', 'pz-chart-glyph', [ConstructGlyph('Island')]);
+            GlyphSeat.style.setProperty('--chart-tint', RowTint);
 
-            const MainBtn = Construct('button', 'row-select', [
-                Swatch,
-                Construct('div', 'row-copy', [
-                    Construct('div', 'row-name', Isl.displayName),
-                    Construct('div', 'row-meta', `${Isl.faceIndices.length}f · ${Isl.texelDensity.toFixed(1)} px/cm · ${(Isl.areaUV * 100).toFixed(1)}%`)
-                ]),
-                Construct('span', 'row-pill', String(Isl.udimTile))
-            ]);
-            MainBtn.type = 'button';
-            MainBtn.addEventListener('click', E =>
+            let StatusBadge;
+            if (Health === 'error')
             {
-                Doc.surface.SelectIsland(Isl.id, E.shiftKey || E.ctrlKey);
-                SyncAllViews(true);
-            });
-            MainBtn.addEventListener('dblclick', () =>
+                StatusBadge = Construct('span', 'pz-status-badge error', '!');
+                StatusBadge.title = 'Error: UV Overlap or Flipped Winding';
+            }
+            else if (Health === 'caution')
             {
-                Doc.surface.SelectIsland(Isl.id, false);
-                Canvas2D.FrameBounds(Isl.bounds.minU, Isl.bounds.minV, Isl.bounds.maxU, Isl.bounds.maxV, 0.25);
-                SyncAllViews(true);
-            });
-
-            const LockBtn = Construct('button', 'row-action-btn' + (Isl.locked ? ' locked' : ''), ConstructGlyph('Lock'));
-            LockBtn.type = 'button';
-            LockBtn.title = Isl.locked ? 'Unlock Island for Packing' : 'Lock Island Position';
-            LockBtn.addEventListener('click', E =>
+                StatusBadge = Construct('span', 'pz-status-badge caution', '!');
+                StatusBadge.title = `Caution: High UV Stretch (${Math.round((Isl.angleStretch || 0) * 100)}%)`;
+            }
+            else if (Health === 'pinned')
             {
-                E.stopPropagation();
-                Doc.surface.SetIslandLocked(Isl.id, !Isl.locked);
-                SyncAllViews();
-            });
+                StatusBadge = Construct('span', 'pz-status-badge pinned', 'P');
+                StatusBadge.title = 'Contains Pinned UV Coordinates';
+            }
+            else
+            {
+                StatusBadge = Construct('span', 'pz-status-badge ok', '✓');
+                StatusBadge.title = 'Clean UV Chart (0 overlaps, 0 flips)';
+            }
 
-            const EyeBtn = Construct('button', 'row-action-btn', ConstructGlyph(Isl.hidden ? 'EyeOff' : 'Eye'));
+            const EyeBtn = Construct('button', 'pz-row-eye', ConstructGlyph(Isl.hidden ? 'EyeOff' : 'Eye'));
             EyeBtn.type = 'button';
-            EyeBtn.title = Isl.hidden ? 'Show Island' : 'Hide Island';
+            EyeBtn.title = Isl.hidden ? 'Show Chart' : 'Hide Chart';
             EyeBtn.addEventListener('click', E =>
             {
                 E.stopPropagation();
@@ -511,15 +737,37 @@ function RenderOutliner(Doc)
                 SyncAllViews();
             });
 
-            Row.append(MainBtn, LockBtn, EyeBtn);
-            Section.append(Row);
+            const Row = Construct('div', `pz-chart-row${IsSel ? ' selected' : ''}${Isl.hidden ? ' is-hidden' : ''}`, [
+                GlyphSeat,
+                Construct('div', 'pz-chart-copy', [
+                    Construct('div', 'pz-chart-title', Isl.displayName),
+                    Construct('div', 'pz-chart-pos', `Position ${Cx.toFixed(2)}, ${Cy.toFixed(2)} · UDIM ${Isl.udimTile}`)
+                ]),
+                StatusBadge,
+                EyeBtn
+            ]);
+            Row.addEventListener('click', E =>
+            {
+                Doc.surface.SelectIsland(Isl.id, E.shiftKey || E.ctrlKey);
+                SyncAllViews(true);
+            });
+            Row.addEventListener('dblclick', () =>
+            {
+                Doc.surface.SelectIsland(Isl.id, false);
+                Canvas2D.FrameBounds(Isl.bounds.minU, Isl.bounds.minV, Isl.bounds.maxU, Isl.bounds.maxV, 0.25);
+                SyncAllViews(true);
+            });
+
+            ChildrenWrap.append(Row);
         }
-        Container.append(Section);
+
+        GroupEl.append(HeaderBtn, ChildrenWrap);
+        Container.append(GroupEl);
     }
 
-    if (!Buckets.length)
+    if (!Folders.length)
     {
-        Container.append(Construct('p', 'property-hint', 'No UV islands match the active filter.'));
+        Container.append(Construct('p', 'property-hint', 'No UV charts match the active filter.'));
     }
 }
 
@@ -1267,6 +1515,224 @@ function GetCachedMatcapThumb(Slot)
     return MatcapThumbCache.get(Slot);
 }
 
+function RenderUvSelectionTransformCard(Parent, Doc)
+{
+    const Stats = ComputeSelectionUvTransformStats(Doc);
+    const ScopeLabel = Stats.hasExplicitSel ? `UV SPACE · ${Stats.count} UVS` : `UV SPACE · ALL`;
+
+    const MakeScrubInput = (InitVal, Step, Digits, ApplyFn) =>
+    {
+        const Inp = Construct('input');
+        Inp.type = 'number';
+        Inp.step = String(Step);
+        Inp.value = Number(InitVal).toFixed(Digits);
+        Inp.addEventListener('change', () =>
+        {
+            const Next = Number(Inp.value);
+            if (Number.isFinite(Next)) ApplyFn(Next);
+        });
+        let Drag = null;
+        Inp.addEventListener('pointerdown', E =>
+        {
+            if (E.button !== 0 || document.activeElement === Inp) return;
+            Drag = { x: E.clientX, start: Number(Inp.value) || 0, moved: false };
+            Inp.setPointerCapture(E.pointerId);
+        });
+        Inp.addEventListener('pointermove', E =>
+        {
+            if (!Drag) return;
+            const Dx = E.clientX - Drag.x;
+            if (!Drag.moved && Math.abs(Dx) < 3) return;
+            if (!Drag.moved) { Drag.moved = true; Doc.surface.PushUndo('Transform UV Selection'); }
+            const Mult = E.shiftKey ? 0.15 : 1.0;
+            const Next = Drag.start + Dx * Step * Mult;
+            Inp.value = Next.toFixed(Digits);
+            ApplyFn(Next, true);
+        });
+        const Stop = () =>
+        {
+            if (Drag && Drag.moved) SyncAllViews(true);
+            Drag = null;
+        };
+        Inp.addEventListener('pointerup', Stop);
+        Inp.addEventListener('pointercancel', Stop);
+        return Inp;
+    };
+
+    const TranslateTo = (TargetAxis, TargetVal, LiveOnly = false) =>
+    {
+        const Cur = ComputeSelectionUvTransformStats(Doc);
+        const Delta = TargetVal - (TargetAxis === 0 ? Cur.cx : Cur.cy);
+        if (Math.abs(Delta) < 1e-6) return;
+        const Action = () =>
+        {
+            for (const Idx of CollectTargetUvIndices(Doc))
+            {
+                Doc.surface.uvCoords[Idx][TargetAxis] += Delta;
+            }
+            Doc.surface.MarkUvDirty?.();
+        };
+        if (LiveOnly) { Action(); FastPaintVisualSync(Doc); if (Viewport3D) Viewport3D.SyncFromSurface(Doc.surface, Doc.islands, Doc.importanceGroups, StudioState.targetTexelDensity); }
+        else RunWithUndo('Move UV Selection', Action);
+    };
+
+    let LastRotDeg = 0;
+    const RotateDelta = (NextDeg, LiveOnly = false) =>
+    {
+        const DeltaDeg = NextDeg - LastRotDeg;
+        if (Math.abs(DeltaDeg) < 1e-4) return;
+        LastRotDeg = NextDeg;
+        const Rad = (DeltaDeg * Math.PI) / 180.0;
+        const Cos = Math.cos(Rad), Sin = Math.sin(Rad);
+        const Cur = ComputeSelectionUvTransformStats(Doc);
+        const Action = () =>
+        {
+            for (const Idx of CollectTargetUvIndices(Doc))
+            {
+                const P = Doc.surface.uvCoords[Idx];
+                const Du = P[0] - Cur.cx, Dv = P[1] - Cur.cy;
+                P[0] = Cur.cx + Du * Cos - Dv * Sin;
+                P[1] = Cur.cy + Du * Sin + Dv * Cos;
+            }
+            Doc.surface.MarkUvDirty?.();
+        };
+        if (LiveOnly) { Action(); FastPaintVisualSync(Doc); }
+        else RunWithUndo('Rotate UV Selection', Action);
+    };
+
+    const ScaleAxis = (Axis, NextExtent, LiveOnly = false) =>
+    {
+        const Cur = ComputeSelectionUvTransformStats(Doc);
+        const CurSpan = Axis === 0 ? Cur.du : Axis === 1 ? Cur.dv : Math.max(Cur.du, Cur.dv);
+        const Factor = Math.max(0.02, Math.min(20.0, NextExtent / Math.max(1e-4, CurSpan)));
+        if (Math.abs(Factor - 1.0) < 1e-4) return;
+        const Action = () =>
+        {
+            for (const Idx of CollectTargetUvIndices(Doc))
+            {
+                const P = Doc.surface.uvCoords[Idx];
+                if (Axis === 0 || Axis === 2) P[0] = Cur.cx + (P[0] - Cur.cx) * Factor;
+                if (Axis === 1 || Axis === 2) P[1] = Cur.cy + (P[1] - Cur.cy) * Factor;
+            }
+            Doc.surface.MarkUvDirty?.();
+        };
+        if (LiveOnly) { Action(); FastPaintVisualSync(Doc); }
+        else RunWithUndo('Scale UV Selection', Action);
+    };
+
+    const PosUIn = MakeScrubInput(Stats.cx, 0.005, 3, (V, Live) => TranslateTo(0, V, Live));
+    const PosVIn = MakeScrubInput(Stats.cy, 0.005, 3, (V, Live) => TranslateTo(1, V, Live));
+    const UdimIn = Construct('input');
+    UdimIn.type = 'number';
+    UdimIn.step = '1';
+    UdimIn.value = String(Stats.udim);
+    UdimIn.title = 'Target UDIM Tile (1001+)';
+    UdimIn.addEventListener('change', () =>
+    {
+        const TargetTile = Math.max(1001, Math.round(Number(UdimIn.value) || 1001));
+        const CurOrigin = UdimOrigin(Stats.udim);
+        const NextOrigin = UdimOrigin(TargetTile);
+        const Du = NextOrigin.u - CurOrigin.u, Dv = NextOrigin.v - CurOrigin.v;
+        if (Du === 0 && Dv === 0) return;
+        RunWithUndo(`Move Selection to UDIM ${TargetTile}`, () =>
+        {
+            for (const Idx of CollectTargetUvIndices(Doc))
+            {
+                Doc.surface.uvCoords[Idx][0] += Du;
+                Doc.surface.uvCoords[Idx][1] += Dv;
+            }
+            Doc.activeUdim = TargetTile;
+        });
+    });
+
+    const RotIn = MakeScrubInput(0, 1, 1, (V, Live) => RotateDelta(V, Live));
+    const SpanURead = Construct('input');
+    SpanURead.type = 'text';
+    SpanURead.readOnly = true;
+    SpanURead.value = `${(Doc.diagnostics?.meanAngleStretch * 100 || 0).toFixed(1)}%`;
+    SpanURead.title = 'Mean Angle Stretch';
+    const PinsRead = Construct('input');
+    PinsRead.type = 'text';
+    PinsRead.readOnly = true;
+    PinsRead.value = `${Doc.surface.pinned.size}`;
+    PinsRead.title = 'Pinned UV Vertices';
+
+    const SizeUIn = MakeScrubInput(Stats.du, 0.01, 3, (V, Live) => ScaleAxis(0, Math.max(0.01, V), Live));
+    const SizeVIn = MakeScrubInput(Stats.dv, 0.01, 3, (V, Live) => ScaleAxis(1, Math.max(0.01, V), Live));
+    const SizeUniIn = MakeScrubInput(Math.max(Stats.du, Stats.dv), 0.01, 3, (V, Live) => ScaleAxis(2, Math.max(0.01, V), Live));
+
+    const Table = Construct('table', 'pz-transform-table', [
+        Construct('thead', null, [
+            Construct('tr', null, [
+                Construct('th', null, 'COMPONENT'),
+                Construct('th', 'axis-U', 'U'),
+                Construct('th', 'axis-V', 'V'),
+                Construct('th', 'axis-W', 'UDIM')
+            ])
+        ]),
+        Construct('tbody', null, [
+            Construct('tr', null, [
+                Construct('th', null, ['Position', Construct('small', null, 'uv')]),
+                Construct('td', null, [PosUIn]),
+                Construct('td', null, [PosVIn]),
+                Construct('td', null, [UdimIn])
+            ]),
+            Construct('tr', null, [
+                Construct('th', null, ['Extent', Construct('small', null, 'size ×')]),
+                Construct('td', null, [SizeUIn]),
+                Construct('td', null, [SizeVIn]),
+                Construct('td', null, [SizeUniIn])
+            ]),
+            Construct('tr', null, [
+                Construct('th', null, ['Orient', Construct('small', null, 'deg / str')]),
+                Construct('td', null, [RotIn]),
+                Construct('td', null, [SpanURead]),
+                Construct('td', null, [PinsRead])
+            ])
+        ])
+    ]);
+
+    const CenterBtn = Construct('button', null, 'Center Tile');
+    CenterBtn.type = 'button';
+    CenterBtn.addEventListener('click', () =>
+    {
+        const Cur = ComputeSelectionUvTransformStats(Doc);
+        const Orig = UdimOrigin(Cur.udim);
+        RunWithUndo('Center in UDIM Tile', () =>
+        {
+            const Du = (Orig.u + 0.5) - Cur.cx, Dv = (Orig.v + 0.5) - Cur.cy;
+            for (const Idx of CollectTargetUvIndices(Doc))
+            {
+                Doc.surface.uvCoords[Idx][0] += Du;
+                Doc.surface.uvCoords[Idx][1] += Dv;
+            }
+        });
+    });
+
+    const Rot90Btn = Construct('button', null, 'Rotate 90°');
+    Rot90Btn.type = 'button';
+    Rot90Btn.addEventListener('click', () => RotateDelta(LastRotDeg + 90, false));
+
+    const FitBtn = Construct('button', null, 'Frame UV');
+    FitBtn.type = 'button';
+    FitBtn.addEventListener('click', () =>
+    {
+        const Cur = ComputeSelectionUvTransformStats(Doc);
+        Canvas2D.FrameBounds(Cur.cx - Cur.du * 0.5, Cur.cy - Cur.dv * 0.5, Cur.cx + Cur.du * 0.5, Cur.cy + Cur.dv * 0.5, 0.22);
+        SyncAllViews();
+    });
+
+    const Card = Construct('section', 'pz-transform-card', [
+        Construct('header', null, [
+            Construct('h3', null, 'Transform · 2D UV'),
+            Construct('span', null, ScopeLabel)
+        ]),
+        Table,
+        Construct('div', 'pz-transform-resets', [CenterBtn, Rot90Btn, FitBtn])
+    ]);
+    Parent.append(Card);
+}
+
 function RenderShadingTab(Body, Doc)
 {
     const Counts = Doc.surface.GetMatcapUsageCounts();
@@ -1279,38 +1745,106 @@ function RenderShadingTab(Body, Doc)
 
     const CurMode = Viewport3D ? Viewport3D.shadingMode : 'lit-matcap';
     const ModePretty = {
-        'lit-matcap': 'Lit + MatCap',
+        'lit-matcap': 'Lit + Multi-MatCap',
         'lit-eon': 'Fast Lit · EON',
-        'multi-matcap': 'Multi-MatCap',
+        'multi-matcap': 'Multi-MatCap Studio',
         checker: 'UV Checker',
-        flat: 'Flat',
-        matcap: 'Clay',
-        'matcap-satin': 'Satin',
-        importance: 'Importance',
-        texel: 'Density',
-        stretch: 'Stretch'
+        flat: 'Flat Shaded',
+        matcap: 'Sculpt Clay',
+        'matcap-satin': 'Satin Pearl',
+        importance: 'Priority Shares',
+        texel: 'Texel Density',
+        stretch: 'UV Angle Stretch'
     }[CurMode] || CurMode;
 
-    // 1. Project-Zero 2x2 Readout Tiles
-    const ReadoutGrid = Construct('div', 'pz-readout-grid', [
-        Construct('div', 'pz-readout-tile', [
-            Construct('strong', null, ModePretty),
-            Construct('span', null, 'SHADING MODEL')
+    // 1A. Visual Studio Hero Banner (0bab...jpg + Project-Zero "Low sun" style)
+    const ActiveOrbImgs = [];
+    for (const Spec of MATCAP_STUDIO_CATALOG)
+    {
+        if (Counts[Spec.slot] > 0 || ActiveOrbImgs.length === 0)
+        {
+            const Im = Construct('img');
+            Im.src = GetCachedMatcapThumb(Spec.slot);
+            Im.alt = Spec.label;
+            ActiveOrbImgs.push(Im);
+            if (ActiveOrbImgs.length >= 5) break;
+        }
+    }
+    const SlotBarColors = ['#9ca3af', '#e5e7eb', '#ef4444', '#34d399', '#f59e0b', '#60a5fa', '#64748b', '#fb923c'];
+    const TotalFaces = Math.max(1, Doc.surface.faces.length);
+    const BarSpans = [];
+    for (let s = 0; s < 8; s++)
+    {
+        if (Counts[s] <= 0) continue;
+        const Seg = Construct('span');
+        Seg.style.width = `${Math.max(4, (Counts[s] / TotalFaces) * 100).toFixed(1)}%`;
+        Seg.style.background = SlotBarColors[s];
+        BarSpans.push(Seg);
+    }
+
+    const HeroBanner = Construct('div', 'pz-shading-hero', [
+        Construct('div', 'pz-hero-top', [
+            Construct('div', null, [
+                Construct('span', 'pz-hero-eyebrow', ModePretty),
+                Construct('div', 'pz-hero-big', [
+                    document.createTextNode(String(DistinctMatcaps)),
+                    Construct('small', null, '/ 8 MatCaps')
+                ])
+            ]),
+            Construct('div', 'pz-hero-orb-stack', ActiveOrbImgs)
         ]),
-        Construct('div', 'pz-readout-tile', [
-            Construct('strong', null, `${DistinctMatcaps} / 8`),
-            Construct('span', null, 'MATCAPS ON SURFACE')
-        ]),
-        Construct('div', 'pz-readout-tile', [
-            Construct('strong', null, `${Math.round((Viewport3D?.eonRoughness ?? 0.42) * 100)}%`),
-            Construct('span', null, 'EON ROUGHNESS')
-        ]),
-        Construct('div', 'pz-readout-tile', [
-            Construct('strong', null, SelFacesCount > 0 ? `${SelFacesCount} faces` : 'All / Active'),
-            Construct('span', null, 'MATCAP TARGET')
+        Construct('div', 'pz-hero-bar', BarSpans),
+        Construct('div', 'pz-hero-foot', [
+            Construct('span', null, `EON Roughness σ ${(Viewport3D?.eonRoughness ?? 0.42).toFixed(2)}`),
+            Construct('span', null, Viewport3D?.shadowsEnabled !== false ? 'PCF 2048² Shadows' : 'Shadows Off')
         ])
     ]);
-    Body.append(ReadoutGrid);
+    Body.append(HeroBanner);
+
+    // 1B. Asymmetric Coloured-Icon & Large Thin-Number Bento Tiles (0bab...jpg style)
+    const TotalIssues = (Doc.diagnostics?.overlapCount || 0) + (Doc.diagnostics?.flippedCount || 0);
+    const RoughPct = Math.round((Viewport3D?.eonRoughness ?? 0.42) * 100);
+    const ShinVal = Math.round(Viewport3D?.blinnShininess ?? 48);
+    const TargetCount = SelFacesCount > 0 ? SelFacesCount : Doc.surface.faces.length;
+
+    const BentoGrid = Construct('div', 'pz-bento-grid', [
+        Construct('div', 'pz-bento-tile', [
+            Construct('span', `pz-bento-icon ${TotalIssues > 0 ? 'coral' : 'emerald'}`, TotalIssues > 0 ? '!' : '✓'),
+            Construct('span', 'pz-bento-label', TotalIssues > 0 ? 'Overlaps' : 'UV Health'),
+            Construct('div', 'pz-bento-num', [
+                document.createTextNode(String(TotalIssues)),
+                Construct('small', null, TotalIssues > 0 ? 'err' : 'ok')
+            ])
+        ]),
+        Construct('div', 'pz-bento-tile', [
+            Construct('span', 'pz-bento-icon amber', 'σ'),
+            Construct('span', 'pz-bento-label', 'EON Diffuse'),
+            Construct('div', 'pz-bento-num', [
+                document.createTextNode(String(RoughPct)),
+                Construct('small', null, '%')
+            ])
+        ]),
+        Construct('div', 'pz-bento-tile', [
+            Construct('span', 'pz-bento-icon cobalt', '✦'),
+            Construct('span', 'pz-bento-label', 'Blinn Specular'),
+            Construct('div', 'pz-bento-num', [
+                document.createTextNode(String(ShinVal)),
+                Construct('small', null, 'n')
+            ])
+        ]),
+        Construct('div', 'pz-bento-tile', [
+            Construct('span', 'pz-bento-icon emerald', '▣'),
+            Construct('span', 'pz-bento-label', SelFacesCount > 0 ? 'Selected' : 'Surface'),
+            Construct('div', 'pz-bento-num', [
+                document.createTextNode(String(TargetCount)),
+                Construct('small', null, 'f')
+            ])
+        ])
+    ]);
+    Body.append(BentoGrid);
+
+    // 1C. Project-Zero 2D UV Selection Transform Card (Position U/V, Extent, UDIM, Rotation)
+    RenderUvSelectionTransformCard(Body, Doc);
 
     // 2. Per-Face Multi-MatCap Studio Swatches
     const MatcapSec = SectionCard(Body, {
@@ -1797,6 +2331,8 @@ function RenderPackingTab(Body, Doc)
 
 function RenderUnwrapTab(Body, Doc)
 {
+    RenderUvSelectionTransformCard(Body, Doc);
+
     const UnwrapSec = SectionCard(Body, {
         Id: 'unwrap-ops',
         Title: 'Unwrap & Analytic Projections',
@@ -3348,6 +3884,7 @@ function SyncMeshHintPill()
 function UpdateToolRailActive()
 {
     document.querySelectorAll('#uv-tool-rail button').forEach(B => B.classList.toggle('active', B.dataset.tool === StudioState.activeTool));
+    document.querySelectorAll('#pz-context-rail [data-rail-tool]').forEach(B => B.classList.toggle('active', B.dataset.railTool === StudioState.activeTool));
 }
 
 /*==========================================================================================================================================
@@ -3524,7 +4061,15 @@ function InitStudioIconsAndBindings()
     document.getElementById('prop-edit-btn').addEventListener('click', E => { StudioState.proportional.enabled = !StudioState.proportional.enabled; E.currentTarget.classList.toggle('active', StudioState.proportional.enabled); SyncAllViews(); });
     document.getElementById('pivot-select').addEventListener('change', E => { StudioState.pivotMode = E.target.value; SyncAllViews(); });
     document.getElementById('snap-select').addEventListener('change', E => { StudioState.snapMode = E.target.value; });
-    document.getElementById('uv-lens-select').addEventListener('change', E => { StudioState.overlayLens = E.target.value; SyncAllViews(); });
+    document.getElementById('uv-lens-select').addEventListener('change', E =>
+    {
+        const Val = E.target.value;
+        StudioState.overlayLens = Val;
+        if (Val === 'stretch-angle' || Val === 'stretch-area') Set3DShadingMode('stretch');
+        else if (Val === 'texel') Set3DShadingMode('texel');
+        else if (Val === 'clean') Set3DShadingMode('lit-matcap');
+        SyncAllViews();
+    });
     document.getElementById('mesh-shade-select').addEventListener('change', E => Set3DShadingMode(E.target.value));
     document.querySelectorAll('.mesh-camera-bar button[data-shade3d]').forEach(B => B.addEventListener('click', () => Set3DShadingMode(B.dataset.shade3d)));
     document.getElementById('toggle-checker-btn').addEventListener('click', E => { StudioState.showChecker = !StudioState.showChecker; E.currentTarget.classList.toggle('active', StudioState.showChecker); ScheduleFast2DRender(ActiveDoc()); });
@@ -3673,6 +4218,115 @@ function InitStudioIconsAndBindings()
         SpawnMenu.hidden = !SpawnMenu.hidden;
     });
     document.getElementById('pz-inspector-export-plus')?.addEventListener('click', OpenExportModal);
+    document.getElementById('pz-export-pill-btn')?.addEventListener('click', OpenExportModal);
+
+    // Outliner Bento Stat Card Quick Filters + "+ Folder" Grouping
+    document.getElementById('stat-clean-card')?.addEventListener('click', () =>
+    {
+        StudioState.outlinerFilter = 'all';
+        document.querySelectorAll('#outliner-filters button').forEach(B => B.classList.toggle('active', B.dataset.filter === 'all'));
+        _lastOutlinerSig = null;
+        RenderOutliner(ActiveDoc());
+    });
+    document.getElementById('stat-issues-card')?.addEventListener('click', () =>
+    {
+        StudioState.outlinerFilter = StudioState.outlinerFilter === 'issues' ? 'all' : 'issues';
+        document.querySelectorAll('#outliner-filters button').forEach(B => B.classList.toggle('active', B.dataset.filter === StudioState.outlinerFilter));
+        _lastOutlinerSig = null;
+        RenderOutliner(ActiveDoc());
+    });
+    document.getElementById('pz-new-folder-btn')?.addEventListener('click', () =>
+    {
+        const Doc = ActiveDoc();
+        if (!Doc) return;
+        const SelectedIds = [...Doc.surface.selectedIslands];
+        if (!SelectedIds.length)
+        {
+            Toast('Select one or more UV charts first to group into a Folder');
+            return;
+        }
+        const NextNum = (Doc.customFolders?.length || 0) + 1;
+        const FolderColors = ['#f59e0b', '#60a5fa', '#34d399', '#a78bfa', '#f472b6'];
+        Doc.customFolders.push({
+            id: `cf-${Date.now()}`,
+            name: `Folder ${String(NextNum).padStart(2, '0')} (${SelectedIds.length})`,
+            color: FolderColors[(NextNum - 1) % FolderColors.length],
+            islandIds: SelectedIds
+        });
+        _lastOutlinerSig = null;
+        RenderOutliner(Doc);
+        Toast(`Grouped ${SelectedIds.length} chart(s) into Folder ${String(NextNum).padStart(2, '0')}`);
+    });
+
+    // Viewport Camera Dropdown (Persp / Top / Front / Side / Frame)
+    document.getElementById('pz-cam-select')?.addEventListener('change', E =>
+    {
+        const Val = E.target.value;
+        const Doc = ActiveDoc();
+        if (Val === 'Frame')
+        {
+            if (Doc) Canvas2D.FrameUdimTiles(Doc.udimTiles);
+            Viewport3D?.CameraPreset('Persp');
+            E.target.value = 'Persp';
+        }
+        else
+        {
+            Viewport3D?.CameraPreset(Val);
+        }
+        SyncAllViews();
+    });
+
+    // Floating Left Context Tool Rail (Same Quick Tools as Right-Click Context Menu)
+    const RailGlyphMap = {
+        select: 'Select',
+        box: 'BoxSel',
+        circle: 'CircleSel',
+        move: 'Move',
+        rotate: 'Rotate',
+        scale: 'Scale',
+        seam: 'Scissors',
+        'mark-seam': 'Edge',
+        'clear-seam-weld': 'Merge',
+        pin: 'Pin',
+        relax: 'Relax',
+        'select-menu': 'Sparkles'
+    };
+    document.querySelectorAll('#pz-context-rail button').forEach(Btn =>
+    {
+        const Key = Btn.dataset.railTool || Btn.dataset.railOp;
+        if (Key && RailGlyphMap[Key]) Btn.append(ConstructGlyph(RailGlyphMap[Key]));
+        if (Btn.dataset.railTool)
+        {
+            Btn.addEventListener('click', () =>
+            {
+                const Tool = Btn.dataset.railTool;
+                if ((Tool === 'move' || Tool === 'rotate' || Tool === 'scale') && StudioState.stageMode === 'mesh')
+                {
+                    // Automatically open Split view when a 2D UV transform tool is clicked from 3D mode
+                    document.querySelector('[data-stage-mode="split"]')?.click();
+                }
+                SetActiveTool(Tool);
+            });
+        }
+        else if (Btn.dataset.railOp)
+        {
+            Btn.addEventListener('click', E =>
+            {
+                const Op = Btn.dataset.railOp;
+                const Doc = ActiveDoc();
+                if (!Doc) return;
+                if (Op === 'mark-seam') document.getElementById('op-seam')?.click();
+                else if (Op === 'clear-seam-weld') RunEdgeMenuOp('clear-seam-weld');
+                else if (Op === 'pin') document.getElementById('op-pin')?.click();
+                else if (Op === 'relax') RunWithUndo('Relax Stretch', () => MinimizeStretch(Doc.surface, { iterations: StudioState.relaxIterations, onlySelected: Doc.surface.selectedUVs.size > 0, islands: Doc.islands }));
+                else if (Op === 'select-menu')
+                {
+                    const R = Btn.getBoundingClientRect();
+                    OpenSelectMenu(R.right + 8, R.top);
+                }
+            });
+        }
+    });
 
     // Context Menu Per-Face Multi-MatCap Quick Strip
     const CtxMatcapStrip = document.getElementById('ctx-matcap-strip');

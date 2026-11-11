@@ -47,26 +47,27 @@
       </div>
 
       <div class="outliner-heading">
-        <div>
+        <div class="pz-outliner-title-row">
           <h1>Outliner</h1>
-          <span class="outliner-subtitle">UV charts, UDIM tiles &amp; priority shares</span>
+          <span class="outliner-subtitle" id="pz-outliner-node-summary">Showcase · 0 charts</span>
         </div>
         <div class="outliner-heading-actions">
+          <button class="pz-folder-add-btn" id="pz-new-folder-btn" type="button" title="Group selected charts into a Folder">+ Folder</button>
           <button class="icon-button" id="add-udim-quick" type="button" title="Add UDIM Tile"></button>
         </div>
       </div>
 
       <div class="scene-statistics">
-        <div class="scene-stat">
+        <button class="scene-stat pz-bento-stat" id="stat-clean-card" type="button" title="Show all clean UV charts">
           <div class="stat-symbol enabled-symbol" id="stat-islands-icon"></div>
-          <span class="stat-label">UV Charts</span>
+          <span class="stat-label">Clean Charts</span>
           <strong id="stat-islands-count">0</strong>
-        </div>
-        <div class="scene-stat">
-          <div class="stat-symbol warm-symbol" id="stat-udim-icon"></div>
-          <span class="stat-label">UDIM Tiles</span>
-          <strong id="stat-udim-count">1</strong>
-        </div>
+        </button>
+        <button class="scene-stat pz-bento-stat" id="stat-issues-card" type="button" title="Filter to overlaps, flips, or high stretch cautions">
+          <div class="stat-symbol pz-warn-triangle-symbol" id="stat-udim-icon">!</div>
+          <span class="stat-label" id="stat-issues-label">Warnings</span>
+          <strong id="stat-udim-count">0</strong>
+        </button>
       </div>
 
       <label class="search">
@@ -144,7 +145,7 @@
         </nav>
       </div>
 
-      <!-- Project-Zero Row 2: Crisp White Primary Unwrap Pill + Compact Selection & Shading Controls -->
+      <!-- Project-Zero Row 2: Unwrap + Pack + [1 2 3 4] + Shading + Debug + Viewport Dropdowns -->
       <div class="viewport-bar pz-action-strip">
         <button class="pz-primary-pill" id="op-unwrap" type="button" title="LSCM Conformal Unwrap (U)">
           <span class="pz-plus-glyph">+</span><span>Unwrap</span><kbd>U</kbd>
@@ -156,42 +157,61 @@
         <span class="bar-divider"></span>
 
         <div class="sel-mode-group" id="sel-mode-pills" title="Selection Modes (Keys 1 / 2 / 3 / 4)">
-          <button type="button" data-mode="vertex" title="Junction / Vertex Mode (1)">1</button>
-          <button type="button" data-mode="edge" title="Seam / Edge Mode (2)">2</button>
-          <button type="button" data-mode="face" title="Polygon / Face Mode (3)">3</button>
-          <button type="button" class="active" data-mode="island" title="UV Chart / Island Mode (4)">4 Chart</button>
+          <button type="button" data-mode="vertex" title="Vertex Mode (1)">1</button>
+          <button type="button" data-mode="edge" title="Edge / Seam Mode (2)">2</button>
+          <button type="button" data-mode="face" title="Face Mode (3)">3</button>
+          <button type="button" class="active" data-mode="island" title="UV Chart Mode (4)">4</button>
         </div>
-        <button class="pill-btn" id="select-menu-btn" type="button" title="Selection Loops, Rings &amp; Similar (Shift+G)">Select ▾</button>
+        <button class="pill-btn pz-compact-hidden" id="select-menu-btn" type="button" title="Selection Menu">Select ▾</button>
 
+        <span class="bar-divider"></span>
+
+        <!-- Dropdown 1: Surface Shading -->
         <div class="select-pill-wrap vp-compact-select">
           <select id="mesh-shade-select" title="3D Surface Shading (Z)">
-            <option value="lit-matcap" selected>Lit + Multi-MatCap</option>
-            <option value="lit-eon">Fast Lit · EON + Blinn</option>
-            <option value="multi-matcap">Per-Face Multi-MatCap</option>
+            <option value="lit-matcap" selected>Lit + MatCap</option>
+            <option value="lit-eon">Fast Lit · EON</option>
+            <option value="multi-matcap">Multi-MatCap</option>
             <option value="checker">UV Checker</option>
-            <option value="flat">Flat Faceted</option>
-            <option value="matcap">Uniform Clay</option>
-            <option value="matcap-satin">Uniform Satin</option>
-            <option value="importance">Importance Shares</option>
+            <option value="flat">Flat Shaded</option>
+            <option value="matcap">Sculpt Clay</option>
+            <option value="matcap-satin">Satin Pearl</option>
+            <option value="importance">Priority Tint</option>
             <option value="texel">Texel Density</option>
             <option value="stretch">UV Stretch</option>
           </select>
           <span class="pill-caret-divider"><svg class="glyph chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
         </div>
 
+        <!-- Dropdown 2: Debug / UV Inspection Lens -->
         <div class="select-pill-wrap vp-compact-select">
-          <select id="uv-lens-select" title="2D UV Overlay Lens">
-            <option value="importance">2D: Importance</option>
-            <option value="clean">2D: Clean Wire</option>
-            <option value="texel">2D: Density</option>
-            <option value="stretch-angle">2D: Angle Stretch</option>
-            <option value="stretch-area">2D: Area Stretch</option>
-            <option value="overlap">2D: Overlaps</option>
+          <select id="uv-lens-select" title="Debug Inspection Lens (Stretch, Density, Overlaps, UV Space)">
+            <option value="importance">Debug: Priority</option>
+            <option value="clean">Debug: Clean UV</option>
+            <option value="stretch-angle">Debug: Angle Stretch</option>
+            <option value="stretch-area">Debug: Area Stretch</option>
+            <option value="texel">Debug: Texel Density</option>
+            <option value="overlap">Debug: Overlaps</option>
           </select>
           <span class="pill-caret-divider"><svg class="glyph chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
         </div>
 
-        <!-- Hidden Advanced Transform Selects (Accessible via Shortcuts . / Shift+Tab / O & Tools Shelf) -->
+        <!-- Dropdown 3: Viewport Camera Angle (Persp / Top / Bottom / Front / Back / Left / Right / Frame) -->
+        <div class="select-pill-wrap vp-compact-select">
+          <select id="pz-cam-select" title="Viewport Camera Orientation">
+            <option value="Persp" selected>View: Perspective</option>
+            <option value="Top">View: Top</option>
+            <option value="Bottom">View: Bottom</option>
+            <option value="Front">View: Front</option>
+            <option value="Back">View: Back</option>
+            <option value="Right">View: Right</option>
+            <option value="Left">View: Left</option>
+            <option value="Frame">View: Frame UV (F)</option>
+          </select>
+          <span class="pill-caret-divider"><svg class="glyph chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+        </div>
+
+        <!-- Hidden Legacy Selects Preserved for Shortcut Binding -->
         <div class="select-pill-wrap vp-compact-select pz-compact-hidden">
           <select id="pivot-select" title="Pivot Point (.)">
             <option value="median">Pivot: Median</option>
@@ -212,10 +232,11 @@
         </div>
 
         <div class="viewport-bar-end">
-          <button class="pill-btn active" id="sync-sel-btn" type="button" title="Sync 2D ↔ 3D Selection">Sync</button>
+          <button class="pill-btn active" id="toggle-wire3d-btn" type="button" title="Toggle 3D Wireframe">Wire</button>
           <button class="pill-btn active" id="toggle-seams-btn" type="button" title="Toggle Red Seam Overlay">Seams</button>
-          <button class="pill-btn" id="pz-more-ops-btn" type="button" title="Toggle Secondary Seam / Stitch / Weld Shelf">Tools ▾</button>
+          <button class="pill-btn" id="pz-more-ops-btn" type="button" title="Toggle Extra Seam / Weld Shelf">More ▾</button>
           <button class="icon-button" id="maximize-stage-btn" type="button" title="Maximize Viewport"></button>
+          <button class="pill-btn active pz-compact-hidden" id="sync-sel-btn" type="button">Sync</button>
           <button class="pill-btn pz-compact-hidden" id="prop-edit-btn" type="button">Prop</button>
           <button class="pill-btn active pz-compact-hidden" id="toggle-checker-btn" type="button">Checker</button>
           <button class="pill-btn active pz-compact-hidden" id="toggle-boundaries-btn" type="button">Bounds</button>
@@ -240,16 +261,34 @@
       </div>
 
       <div class="stage-split mode-mesh" id="stage-split">
+        <!-- FLOATING CONTEXT TOOL RAIL (Same Quick Tools as Right-Click Context Menu — Active in 3D, Split & 2D!) -->
+        <div class="pz-context-rail" id="pz-context-rail" aria-label="Quick Context Tools">
+          <button class="pz-rail-btn active" data-rail-tool="select" type="button" title="Click / Tweak Select (W)"></button>
+          <button class="pz-rail-btn" data-rail-tool="box" type="button" title="Box Marquee Select (B)"></button>
+          <button class="pz-rail-btn" data-rail-tool="circle" type="button" title="Brush / Paint Select (C)"></button>
+          <span class="pz-rail-sep"></span>
+          <button class="pz-rail-btn" data-rail-tool="move" type="button" title="Move UVs (G)"></button>
+          <button class="pz-rail-btn" data-rail-tool="rotate" type="button" title="Rotate UVs (R)"></button>
+          <button class="pz-rail-btn" data-rail-tool="scale" type="button" title="Scale UVs (S)"></button>
+          <span class="pz-rail-sep"></span>
+          <button class="pz-rail-btn" data-rail-tool="seam" type="button" title="Seam Cut Brush (K)"></button>
+          <button class="pz-rail-btn" data-rail-op="mark-seam" type="button" title="Mark Seam on Selection"></button>
+          <button class="pz-rail-btn" data-rail-op="clear-seam-weld" type="button" title="Clear Seam &amp; Weld"></button>
+          <button class="pz-rail-btn" data-rail-op="pin" type="button" title="Pin Selected UVs (P)"></button>
+          <button class="pz-rail-btn" data-rail-op="relax" type="button" title="Relax / Minimize Stretch (Ctrl+V)"></button>
+          <button class="pz-rail-btn" data-rail-op="select-menu" type="button" title="Select Similar / Loops / Boundaries (Shift+G)"></button>
+        </div>
+
         <!-- 2D UV & UDIM STAGE -->
         <div class="uv-stage" id="uv-stage">
           <canvas id="uv-canvas-2d"></canvas>
 
-          <div class="viewport-caption">
+          <div class="viewport-caption pz-compact-hidden">
             <span class="live-pill"><i></i><span>2D UV</span></span>
             <span id="viewport-udim-pill" class="udim-caption-pill">UDIM 1001 · 4K</span>
           </div>
 
-          <div class="viewport-tools" id="uv-tool-rail">
+          <div class="viewport-tools pz-compact-hidden" id="uv-tool-rail">
             <button class="icon-button active" data-tool="select" type="button" title="Select (W / Click)"></button>
             <button class="icon-button" data-tool="move" type="button" title="Move (G)"></button>
             <button class="icon-button" data-tool="rotate" type="button" title="Rotate (R)"></button>
@@ -260,7 +299,15 @@
             <button class="icon-button" data-tool="cursor" type="button" title="2D Cursor (Shift+RMB)"></button>
           </div>
 
-          <div class="viewport-right-hud">
+          <!-- Clean 2D UV Selection Position & Extent Pill (Project-Zero Style) -->
+          <div class="pz-uv-transform-pill" id="pz-uv-transform-hud">
+            <span class="pz-uv-axis-u" id="pz-hud-pos-u">U 0.500</span>
+            <span class="pz-uv-axis-v" id="pz-hud-pos-v">V 0.500</span>
+            <span class="pz-uv-extent" id="pz-hud-size">Δ 1.00 × 1.00</span>
+            <span class="pz-uv-udim" id="pz-hud-udim">UDIM 1001</span>
+          </div>
+
+          <div class="viewport-right-hud pz-compact-hidden">
             <span class="hud-pill" id="hud-cursor">UV <b>0.50, 0.50</b></span>
             <span class="hud-pill" id="hud-selection">Sel <b>0</b></span>
             <span class="hud-pill" id="hud-stretch">Stretch <b>0.0%</b></span>
@@ -272,26 +319,24 @@
 
         <div class="split-divider" id="split-divider" title="Drag to resize 2D UV / 3D Surface viewports"></div>
 
-        <!-- 3D SURFACE VIEWPORT -->
+        <!-- 3D SURFACE VIEWPORT (Clean Unobstructed Canvas — All Controls Live in Row 2 & Context Rail) -->
         <div class="mesh-stage" id="mesh-stage">
           <div class="viewport-canvas-mount" id="mesh-viewport-mount"></div>
-          <div class="viewport-caption">
+          <div class="viewport-caption pz-compact-hidden">
             <span class="live-pill mesh-pill"><i></i><span>3D SURFACE</span></span>
             <span id="mesh-object-pill" class="udim-caption-pill">Aero Coupe GT</span>
           </div>
-          <div class="mesh-camera-bar">
-            <button class="pill-btn active" data-shade3d="lit-matcap" type="button" title="Fast Lit (EON + Blinn-Phong + Shadows) + Per-Face Multi-MatCap">Lit+MatCap</button>
-            <button class="pill-btn" data-shade3d="lit-eon" type="button" title="Fast Lit (EON Rough Diffuse + Blinn-Phong + Shadows)">Fast Lit</button>
-            <button class="pill-btn" data-shade3d="multi-matcap" type="button" title="Per-Face Multi-MatCap Studio">Multi-MatCap</button>
-            <button class="pill-btn" data-shade3d="checker" type="button" title="UV Checker">Checker</button>
-            <span class="bar-divider"></span>
+          <div class="mesh-camera-bar pz-compact-hidden">
+            <button class="pill-btn active" data-shade3d="lit-matcap" type="button">Lit+MatCap</button>
+            <button class="pill-btn" data-shade3d="lit-eon" type="button">Fast Lit</button>
+            <button class="pill-btn" data-shade3d="multi-matcap" type="button">Multi-MatCap</button>
+            <button class="pill-btn" data-shade3d="checker" type="button">Checker</button>
             <button class="pill-btn" data-cam="Persp" type="button">Persp</button>
             <button class="pill-btn" data-cam="Front" type="button">Front</button>
             <button class="pill-btn" data-cam="Side" type="button">Side</button>
             <button class="pill-btn" data-cam="Top" type="button">Top</button>
-            <button class="pill-btn active" id="toggle-wire3d-btn" type="button">Wire</button>
           </div>
-          <div class="mesh-hint-pill" id="mesh-hint-pill">Select faces/charts · Click any MatCap orb in Inspector to assign per-face MatCaps</div>
+          <div class="mesh-hint-pill pz-compact-hidden" id="mesh-hint-pill"></div>
         </div>
       </div>
 
@@ -327,14 +372,17 @@
 
       <div class="panel-heading inspector-top-heading">
         <span class="inspector-crumb" id="inspector-crumb">Inspector / Surface &amp; MatCap</span>
-        <button class="reset-pill" id="reset-doc-btn" type="button">Reset</button>
+        <div class="pz-inspector-head-actions">
+          <button class="pz-dashed-action-btn" id="pz-export-pill-btn" type="button">+ Export OBJ</button>
+          <button class="reset-pill" id="reset-doc-btn" type="button">Reset</button>
+        </div>
       </div>
 
-      <div class="object-heading">
-        <div class="object-symbol" id="inspector-object-icon"></div>
+      <div class="object-heading pz-borderless-heading">
+        <div class="object-symbol pz-compact-hidden" id="inspector-object-icon"></div>
         <div class="object-heading-copy">
-          <input id="inspector-object-name" type="text" value="Aero Coupe GT" aria-label="Asset Name">
-          <span id="inspector-object-sub">PER-FACE MULTI-MATCAP · EON + BLINN-PHONG · PCF SHADOWS</span>
+          <input id="inspector-object-name" class="pz-borderless-title" type="text" value="Controlled Integrator" aria-label="Asset Name" spellcheck="false">
+          <span id="inspector-object-sub">Directional EON + Blinn-Phong · Per-face Multi-MatCap</span>
         </div>
       </div>
 

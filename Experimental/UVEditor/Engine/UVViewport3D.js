@@ -2035,9 +2035,12 @@ export class UVViewport3D
         }
         const Scale = Radius / 1.85;
         this.controls.target.copy(Target);
-        if (Preset === 'Front') this.camera.position.set(Target.x + 5.2 * Scale, Target.y + 0.4 * Scale, Target.z + 0.01);
-        else if (Preset === 'Side') this.camera.position.set(Target.x, Target.y + 0.4 * Scale, Target.z + 5.2 * Scale);
+        if (Preset === 'Front') this.camera.position.set(Target.x + 5.2 * Scale, Target.y + 0.35 * Scale, Target.z + 0.01);
+        else if (Preset === 'Back') this.camera.position.set(Target.x - 5.2 * Scale, Target.y + 0.35 * Scale, Target.z - 0.01);
+        else if (Preset === 'Side' || Preset === 'Right') this.camera.position.set(Target.x, Target.y + 0.35 * Scale, Target.z + 5.2 * Scale);
+        else if (Preset === 'Left') this.camera.position.set(Target.x, Target.y + 0.35 * Scale, Target.z - 5.2 * Scale);
         else if (Preset === 'Top') this.camera.position.set(Target.x, Target.y + 5.4 * Scale, Target.z + 0.01);
+        else if (Preset === 'Bottom') this.camera.position.set(Target.x, Target.y - 5.4 * Scale, Target.z + 0.01);
         else this.camera.position.set(Target.x + 3.8 * Scale, Target.y + 1.8 * Scale, Target.z + 4.4 * Scale);
         this.controls.update();
     }
