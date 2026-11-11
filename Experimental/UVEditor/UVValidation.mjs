@@ -691,14 +691,20 @@ console.log('11. Testing Multi-Surface Engineering MatCaps, Stack Similar UVs, F
               !PackSlice.includes('hero-card') && !PackSlice.includes('allocation-spectrum'),
         'UDIM Space Budget must live in the UV Space footer with zero per-layer % text chips');
 
+    assert.ok(EditorJs.indexOf('function DescribeHexColorName') > 0 &&
+              EditorJs.indexOf('function DescribeHexColorName') < EditorJs.indexOf('function RenderShadingTab'),
+        'DescribeHexColorName must be declared at module scope so RenderPackingTab never throws ReferenceError');
+
     assert.ok(IndexHtml.includes('class="pz-outliner-plus-btn" id="pz-new-folder-btn"') &&
               OutlinerSlice.includes('pz-frontier-layer-box') && OutlinerSlice.includes('SelectFaceGroupRef') &&
               OutlinerSlice.includes('FastSyncSelectionViews') && !OutlinerSlice.includes('pz-prio-add-btn') &&
               !OutlinerSlice.includes('Surface Parts') && !OutlinerSlice.includes('pz-part-square') &&
               !OutlinerSlice.includes('pz-chart-row') &&
+              PackSlice.includes('MetricTrio(Body') && PackSlice.includes('Selected · UDIM') &&
               PackSlice.includes('Importance Space Allocation') && PackSlice.includes('SliderRow(AllocSec.Inner') &&
+              PackSlice.includes("Unit: '%'") &&
               PackSlice.includes('pz-inspector-text-input') && PackSlice.includes('pz-cpp-color-picker'),
-        'UV Space must use unrounded colour-coded Frontier Editor Outliner boxes (+ in header), with Inspector SliderRow + rename in Pack');
+        'UV Space must use unrounded colour-coded Frontier Editor Outliner boxes (+ in header), with UDIM selection cards + Inspector % SliderRow in Pack');
 
     // Benchmark & verify saved FaceGroupRef (zero ExtractIslands re-iteration + cross-object face references!)
     {

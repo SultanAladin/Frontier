@@ -974,7 +974,7 @@ function RenderOutliner(Doc)
                 Viewport3D.SyncFromSurface(Doc.surface, Doc.islands, Doc.importanceGroups, StudioState.targetTexelDensity);
             }
             ScheduleFast2DRender(Doc);
-            if (StudioState.activeInspectorTab === 'packing') RebuildInspector();
+            if (StudioState.inspectorTab === 'packing') RebuildInspector();
         });
         ColorInput.addEventListener('change', () => { _lastOutlinerSig = null; });
 
@@ -2193,6 +2193,47 @@ function IconStripBlock(Parent, { Label, Meta = '', Items = [] })
     return Wrap;
 }
 
+function DescribeHexColorName(HexStr)
+{
+    const Clean = String(HexStr || '#4c7dc9').replace('#', '').toLowerCase();
+    const Known = {
+        '4c7dc9': 'Steel Blue',
+        'c4ccd8': 'Machined Alu',
+        'c7bdb0': 'Titanium',
+        '363b44': 'Gunmetal',
+        'd9a448': 'Turned Brass',
+        '7b9478': 'CAD Sage',
+        'eff4cf': 'Studio Ivory'
+    };
+    if (Known[Clean]) return Known[Clean];
+    const R = parseInt(Clean.slice(0, 2), 16) / 255;
+    const G = parseInt(Clean.slice(2, 4), 16) / 255;
+    const B = parseInt(Clean.slice(4, 6), 16) / 255;
+    const Max = Math.max(R, G, B), Min = Math.min(R, G, B);
+    const L = (Max + Min) * 0.5;
+    const D = Max - Min;
+    if (D < 0.08)
+    {
+        if (L < 0.16) return 'Obsidian';
+        if (L < 0.36) return 'Charcoal';
+        if (L < 0.68) return 'Neutral Grey';
+        if (L < 0.88) return 'Silver';
+        return 'Ivory White';
+    }
+    let H = 0;
+    if (Max === R) H = ((G - B) / D + (G < B ? 6 : 0)) * 60;
+    else if (Max === G) H = ((B - R) / D + 2) * 60;
+    else H = ((R - G) / D + 4) * 60;
+    if (H < 18 || H >= 345) return 'Crimson';
+    if (H < 42) return 'Copper';
+    if (H < 66) return 'Warm Gold';
+    if (H < 155) return 'Sage Green';
+    if (H < 195) return 'Teal';
+    if (H < 250) return 'Cobalt Blue';
+    if (H < 295) return 'Violet';
+    return 'Magenta';
+}
+
 function RenderShadingTab(Body, Doc)
 {
     const Sel = ComputeInspectorSelectionInfo(Doc);
@@ -2539,46 +2580,6 @@ function RenderShadingTab(Body, Doc)
     // Sub-section B: Clean C++-Portable Surface Finish (Colour [(circle) Name · #HEX] + Metallic, Roughness, Specular)
     if (IsPbrMode)
     {
-        const DescribeHexColorName = HexStr =>
-        {
-            const Clean = String(HexStr || '#4c7dc9').replace('#', '').toLowerCase();
-            const Known = {
-                '4c7dc9': 'Steel Blue',
-                'c4ccd8': 'Machined Alu',
-                'c7bdb0': 'Titanium',
-                '363b44': 'Gunmetal',
-                'd9a448': 'Turned Brass',
-                '7b9478': 'CAD Sage'
-            };
-            if (Known[Clean]) return Known[Clean];
-            const R = parseInt(Clean.slice(0, 2), 16) / 255;
-            const G = parseInt(Clean.slice(2, 4), 16) / 255;
-            const B = parseInt(Clean.slice(4, 6), 16) / 255;
-            const Max = Math.max(R, G, B), Min = Math.min(R, G, B);
-            const L = (Max + Min) * 0.5;
-            const D = Max - Min;
-            if (D < 0.08)
-            {
-                if (L < 0.16) return 'Obsidian';
-                if (L < 0.36) return 'Charcoal';
-                if (L < 0.68) return 'Neutral Grey';
-                if (L < 0.88) return 'Silver';
-                return 'Ivory White';
-            }
-            let H = 0;
-            if (Max === R) H = ((G - B) / D + (G < B ? 6 : 0)) * 60;
-            else if (Max === G) H = ((B - R) / D + 2) * 60;
-            else H = ((R - G) / D + 4) * 60;
-            if (H < 18 || H >= 345) return 'Crimson';
-            if (H < 42) return 'Copper';
-            if (H < 66) return 'Warm Gold';
-            if (H < 155) return 'Sage Green';
-            if (H < 195) return 'Teal';
-            if (H < 250) return 'Cobalt Blue';
-            if (H < 295) return 'Violet';
-            return 'Magenta';
-        };
-
         const CurHex = (Brush.pbrColor || '#4c7dc9').toLowerCase();
         const SwatchCircle = Construct('span', 'pz-cpp-color-circle');
         SwatchCircle.style.background = CurHex;
@@ -2643,7 +2644,87 @@ function RenderShadingTab(Body, Doc)
 
 function RenderPackingTab(Body, Doc)
 {
-    // 1. Importance Space Allocation Settings (Same SliderRow component as Inspector + %, Rename, Colour & UDIM)
+    const FilterTileId = StudioState.udimFilter === 'all' ? Doc.activeUdim : Number(StudioState.udimFilter);
+    const ComputeTileSelectionStats = () =>
+    {
+        let TotalInTile = 0;
+        let SelInTile = 0;
+        let SelFacesInTile = 0;
+        let RawUvArea = 0;
+        for (const Isl of Doc.islands)
+        {
+            if (Isl.hidden || Isl.udimTile !== FilterTileId) continue;
+            TotalInTile++;
+            RawUvArea += Isl.areaUV || 0;
+            if (Doc.surface.selectedIslands.has(Isl.id))
+            {
+                SelInTile++;
+                SelFacesInTile += Isl.faces.length;
+            }
+            else if (Doc.surface.selectedFaces.size > 0)
+            {
+                let HitFace = 0;
+                for (let k = 0; k < Isl.faces.length; k++)
+                {
+                    if (Doc.surface.selectedFaces.has(Isl.faces[k])) HitFace++;
+                }
+                if (HitFace > 0)
+                {
+                    SelInTile++;
+                    SelFacesInTile += HitFace;
+                }
+            }
+        }
+        const ActiveReport = Doc.lastPackReport?.tileReports?.find(R => R.tileId === FilterTileId) || Doc.lastPackReport?.tileReports?.[0];
+        const DisplayOcc = (ActiveReport && ActiveReport.tileId === FilterTileId) ? ActiveReport.tileUtilizationPct : (RawUvArea * 100);
+        const TileObj = Doc.udimTiles.find(T => T.id === FilterTileId);
+        const TileRes = TileObj?.resolution || 2048;
+        const ExplicitSum = Doc.importanceGroups.reduce((S, G) => S + G.targetPercent, 0);
+        const RemPct = Math.max(0, 100 - ExplicitSum);
+        return { TotalInTile, SelInTile, SelFacesInTile, DisplayOcc, TileRes, RemPct };
+    };
+
+    const InitialStats = ComputeTileSelectionStats();
+
+    // 0. Live UDIM Tile & Selected Objects Cards (Top of Pack Inspector)
+    MetricTrio(Body, [
+        {
+            Label: `Selected · UDIM ${FilterTileId}`,
+            Highlight: InitialStats.SelInTile > 0,
+            Read: () =>
+            {
+                const S = ComputeTileSelectionStats();
+                return {
+                    value: `${S.SelInTile} / ${S.TotalInTile}`,
+                    sub: S.SelFacesInTile > 0 ? `${S.SelFacesInTile.toLocaleString()} faces selected` : `Objects in UDIM ${FilterTileId}`
+                };
+            }
+        },
+        {
+            Label: `UDIM ${FilterTileId} Fill`,
+            Read: () =>
+            {
+                const S = ComputeTileSelectionStats();
+                return {
+                    value: `${S.DisplayOcc.toFixed(1)}%`,
+                    sub: `${S.TotalInTile} charts · ${S.TileRes}px`
+                };
+            }
+        },
+        {
+            Label: 'Auto Remainder',
+            Read: () =>
+            {
+                const S = ComputeTileSelectionStats();
+                return {
+                    value: `${S.RemPct.toFixed(0)}%`,
+                    sub: `${Doc.importanceGroups.length} layer${Doc.importanceGroups.length === 1 ? '' : 's'} active`
+                };
+            }
+        }
+    ]);
+
+    // 1. Importance Space Allocation Settings (Inspector SliderRow + %, Rename, Colour & UDIM)
     const ActiveLayer = Doc.importanceGroups.find(G => G.id === Doc.activeLayerId) || Doc.importanceGroups[0] || null;
     if (ActiveLayer && Doc.activeLayerId !== ActiveLayer.id) Doc.activeLayerId = ActiveLayer.id;
 
@@ -2651,12 +2732,24 @@ function RenderPackingTab(Body, Doc)
         Id: 'pack-layer-allocation',
         Title: 'Importance Space Allocation',
         Glyph: 'Layers',
-        Badge: ActiveLayer ? `${Math.round(ActiveLayer.targetPercent)}%` : '0 LAYERS'
+        Status: () => ActiveLayer ? `${Math.round(ActiveLayer.targetPercent)}%` : '0 LAYERS'
     });
 
     if (!ActiveLayer)
     {
-        AllocSec.Inner.append(Construct('p', 'property-hint', 'Use the + button in the UV Space Outliner header to create a layer.'));
+        SliderRow(AllocSec.Inner, {
+            Label: 'New Layer Share',
+            Minimum: 0,
+            Maximum: 100,
+            Step: 1,
+            Digits: 0,
+            Unit: '%',
+            Read: () => StudioState.pendingGroupPct,
+            Write: Val => { StudioState.pendingGroupPct = Math.max(0, Math.min(100, Math.round(Val))); }
+        });
+        ActionRow(AllocSec.Inner, [
+            { Label: 'Create Layer from Selection', Glyph: 'Plus', Tone: 'accent', Act: () => AssignSelectedIslandsToNewGroup(StudioState.pendingGroupPct) }
+        ]);
     }
     else
     {
@@ -2675,6 +2768,22 @@ function RenderPackingTab(Body, Doc)
                 }
             });
         }
+
+        // Space Share (%) — Front-and-center Inspector SliderRow component!
+        SliderRow(AllocSec.Inner, {
+            Label: 'Space Share',
+            Minimum: 0,
+            Maximum: 100,
+            Step: 1,
+            Digits: 0,
+            Unit: '%',
+            Read: () => ActiveLayer.targetPercent,
+            Write: Val =>
+            {
+                ActiveLayer.targetPercent = Math.max(0, Math.min(100, Math.round(Val)));
+                RefreshLayerBudgetLive(Doc);
+            }
+        });
 
         // Layer Name (Rename)
         const NameInput = Construct('input', 'pz-inspector-text-input');
@@ -2761,24 +2870,6 @@ function RenderPackingTab(Body, Doc)
                     _lastOutlinerSig = null;
                     RenderOutliner(Doc);
                 }
-            }
-        });
-
-        // Space Share (%) — Exact same Inspector SliderRow component!
-        SliderRow(AllocSec.Inner, {
-            Label: 'Space Share',
-            Minimum: 0,
-            Maximum: 100,
-            Step: 1,
-            Digits: 0,
-            Unit: '%',
-            Read: () => ActiveLayer.targetPercent,
-            Write: Val =>
-            {
-                ActiveLayer.targetPercent = Math.max(0, Math.min(100, Math.round(Val)));
-                const BadgeNode = AllocSec.Card.querySelector('.section-badge');
-                if (BadgeNode) BadgeNode.textContent = `${ActiveLayer.targetPercent}%`;
-                RefreshLayerBudgetLive(Doc);
             }
         });
 
