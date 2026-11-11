@@ -137,14 +137,14 @@ export class TopologySurface
     {
         const S = String(PartLabel || '').toLowerCase();
         if (!S || S === 'surface' || S === 'default') return 0; // CNC Aluminum
-        if (S.includes('tyre') || S.includes('tire') || S.includes('rubber') || S.includes('grip') || S.includes('seal')) return 4; // Gunmetal Ano
-        if (S.includes('rim') || S.includes('trim') || S.includes('spoke') || S.includes('exhaust') || S.includes('frame')) return 1; // Grade-5 Titanium
-        if (S.includes('glass') || S.includes('visor') || S.includes('chrome') || S.includes('lens') || S.includes('mirror')) return 3; // Class-A Chrome
-        if (S.includes('latch') || S.includes('strap') || S.includes('bolt') || S.includes('brass') || S.includes('gold')) return 6; // Turned Brass
-        if (S.includes('caliper') || S.includes('brake') || S.includes('accent') || S.includes('badge') || S.includes('crest')) return 5; // Steel Blue
-        if (S.includes('arch') || S.includes('stone') || S.includes('pillar') || S.includes('wall') || S.includes('clay')) return 2; // CAD Clay
-        if (S.includes('body') || S.includes('hood') || S.includes('roof') || S.includes('door') || S.includes('fender') || S.includes('chest') || S.includes('helm') || S.includes('hull')) return 0; // CNC Aluminum
-        const EngMetals = [0, 1, 4, 5, 6, 2];
+        if (/\b(tyre|tire|rubber|grip|seal|bumper)\b/.test(S)) return 4; // Gunmetal Ano
+        if (/\b(rim|wheel|spoke|hub|pauldron|lid)\b/.test(S)) return 0; // CNC Aluminum
+        if (/\b(glass|visor|chrome|canopy|windshield|mirror)\b/.test(S)) return 3; // Class-A Chrome
+        if (S.includes('optic') || S.includes('light') || S.includes('latch') || S.includes('strap') || S.includes('bolt') || S.includes('brass') || S.includes('gold') || S.includes('lock') || S.includes('ring') || S.includes('badge') || S.includes('crest')) return 6; // Turned Brass
+        if (S.includes('body') || S.includes('hood') || S.includes('roof') || S.includes('door') || S.includes('fender') || S.includes('chest') || S.includes('torso') || S.includes('helm') || S.includes('hull') || S.includes('caliper') || S.includes('brake') || S.includes('accent')) return 5; // Steel Blue
+        if (S.includes('chassis') || S.includes('trim') || S.includes('exhaust') || S.includes('frame') || S.includes('grille') || S.includes('spoiler') || S.includes('iron') || S.includes('panel')) return 1; // Grade-5 Titanium
+        if (S.includes('arch') || S.includes('stone') || S.includes('pillar') || S.includes('column') || S.includes('capital') || S.includes('plinth') || S.includes('wall') || S.includes('clay') || S.includes('sculpt') || S.includes('bust') || S.includes('head')) return 2; // CAD Clay
+        const EngMetals = [5, 0, 1, 6, 4, 2];
         let Hash = 0;
         for (let i = 0; i < S.length; i++) Hash = ((Hash * 31) + S.charCodeAt(i)) | 0;
         return EngMetals[Math.abs(Hash || FallbackIndex) % EngMetals.length];
@@ -153,16 +153,16 @@ export class TopologySurface
     AssignMatcapToFaces(FaceIndices, Slot)
     {
         const ClampedSlot = (Slot | 0) & 7;
-        let Changed = 0;
+        let Assigned = 0;
         for (const Fi of FaceIndices)
         {
-            if (Fi >= 0 && Fi < this.faces.length && this.faces[Fi].matcapSlot !== ClampedSlot)
+            if (Fi >= 0 && Fi < this.faces.length)
             {
                 this.faces[Fi].matcapSlot = ClampedSlot;
-                Changed++;
+                Assigned++;
             }
         }
-        return Changed;
+        return Assigned;
     }
 
     AssignMatcapToSelection(Slot, Islands = [])
@@ -178,9 +178,17 @@ export class TopologySurface
                 }
             }
         }
-        if (TargetFaces.size === 0 && this.activeFace !== null && this.activeFace >= 0 && this.activeFace < this.faces.length)
+        if (TargetFaces.size === 0 && (this.selectedEdges3D.size > 0 || this.selectedUVs.size > 0))
         {
-            TargetFaces.add(this.activeFace);
+            const Adj = this.EnsureAdjacencyIndices();
+            for (const K3 of this.selectedEdges3D)
+            {
+                for (const Fi of Adj.edge3dFaces.get(K3) || []) TargetFaces.add(Fi);
+            }
+            for (const UvId of this.selectedUVs)
+            {
+                for (const Fi of Adj.uvToFaces[UvId] || []) TargetFaces.add(Fi);
+            }
         }
         if (TargetFaces.size === 0)
         {
@@ -191,15 +199,15 @@ export class TopologySurface
 
     AutoAssignMatcapsByPart(Islands = [])
     {
-        const EngSet = [0, 1, 4, 5, 6, 2, 3];
+        const EngSet = [5, 0, 1, 6, 4, 2, 3];
         if (Islands && Islands.length)
         {
-            const DistinctLabels = new Set(Islands.map(I => `${I.displayName || ''}:${I.materialName || ''}`));
+            const DistinctLabels = new Set(Islands.map(I => `${I.partId || I.name || ''}:${I.materialName || ''}`));
             for (let i = 0; i < Islands.length; i++)
             {
                 const Isl = Islands[i];
-                const Tag = `${Isl.displayName || ''} ${Isl.materialName || ''}`.trim();
-                const Slot = DistinctLabels.size > 2
+                const Tag = `${Isl.partId || Isl.name || ''} ${Isl.materialName || ''}`.trim();
+                const Slot = DistinctLabels.size >= 2
                     ? this._DefaultMatcapForPart(Tag, i)
                     : EngSet[i % EngSet.length];
                 for (const Fi of Isl.faceIndices) this.faces[Fi].matcapSlot = Slot;
@@ -208,7 +216,7 @@ export class TopologySurface
         }
         for (let Fi = 0; Fi < this.faces.length; Fi++)
         {
-            this.faces[Fi].matcapSlot = this._DefaultMatcapForPart(this.faces[Fi].partId || this.faces[Fi].materialName, Fi);
+            this.faces[Fi].matcapSlot = this._DefaultMatcapForPart(`${this.faces[Fi].partId || ''} ${this.faces[Fi].materialName || ''}`, Fi);
         }
         return this.faces.length;
     }
@@ -664,6 +672,7 @@ export class TopologySurface
             let WeightedU = 0, WeightedV = 0, WeightTotal = 0;
             let AngleStretchSum = 0;
             const PartCounts = new Map();
+            const MatCounts = new Map();
             const GroupCounts = new Map();
 
             for (const Fi of FaceIndices)
@@ -684,6 +693,7 @@ export class TopologySurface
                 if (SA2 < -1e-9) FlippedFaces++;
 
                 PartCounts.set(F.partId, (PartCounts.get(F.partId) || 0) + 1);
+                if (F.materialName) MatCounts.set(F.materialName, (MatCounts.get(F.materialName) || 0) + 1);
                 const GroupId = this.importanceByFace.get(Fi) || null;
                 if (GroupId) GroupCounts.set(GroupId, (GroupCounts.get(GroupId) || 0) + 1);
 
@@ -721,6 +731,13 @@ export class TopologySurface
                 if (Count > BestCount) { BestCount = Count; DominantPart = Part; }
             }
 
+            let DominantMat = 'Default';
+            let BestMatCount = -1;
+            for (const [Mat, Count] of MatCounts)
+            {
+                if (Count > BestMatCount) { BestMatCount = Count; DominantMat = Mat; }
+            }
+
             let DominantGroup = null;
             let BestGroupCount = 0;
             for (const [Gid, Count] of GroupCounts)
@@ -743,6 +760,7 @@ export class TopologySurface
                 stableKey: Key,
                 name: DominantPart,
                 partId: DominantPart,
+                materialName: DominantMat,
                 faceIndices: FaceIndices,
                 uvIndices: [...UvSet],
                 uvEdgeKeys: [...EdgeSet],

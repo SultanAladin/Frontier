@@ -2556,3 +2556,308 @@ body.pz-uv-theme #inspector-object-sub {
     background: #26262a;
     color: #ffffff;
 }
+
+/* Compact Icon-Only Tool Strips (Decluttered Unwrap, Alignment, Pin, Seam & Pack Controls) */
+.pz-icon-strip-block {
+    margin: 8px 0;
+}
+.pz-icon-strip-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 5px;
+    font-size: 9.5px;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: #82858c;
+}
+.pz-icon-strip-head span:last-child {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: #a6aab2;
+    text-transform: none;
+    letter-spacing: 0;
+}
+.pz-icon-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 11px;
+    background: #121215;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.pz-icon-btn {
+    flex: 1 1 28px;
+    min-width: 28px;
+    height: 30px;
+    min-height: 30px;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: #1a1a1e;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    color: #d4d6dc;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    font-size: 10px;
+    transition: background 120ms, border-color 120ms, color 120ms, transform 100ms;
+}
+.pz-icon-btn svg.glyph {
+    width: 14px;
+    height: 14px;
+    stroke: currentColor;
+    stroke-width: 1.75;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex: none;
+}
+.pz-icon-btn:hover:not(:disabled) {
+    background: #27282e;
+    border-color: rgba(255, 255, 255, 0.18);
+    color: #ffffff;
+}
+.pz-icon-btn.accent {
+    background: rgba(239, 244, 207, 0.14);
+    border-color: rgba(239, 244, 207, 0.42);
+    color: #eff4cf;
+}
+.pz-icon-btn.accent:hover:not(:disabled) {
+    background: rgba(239, 244, 207, 0.24);
+}
+.pz-icon-btn.warm {
+    background: rgba(232, 194, 122, 0.14);
+    border-color: rgba(232, 194, 122, 0.34);
+    color: #f6dcb0;
+}
+.pz-icon-sep {
+    width: 1px;
+    height: 18px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 0 2px;
+    flex: none;
+}
+
+/* Selection Scope Chip inside Inspector Cards */
+.pz-sel-scope-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 10px;
+    margin-bottom: 8px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 10px;
+    color: #b8bcc4;
+}
+.pz-sel-scope-bar strong {
+    color: #eff4cf;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pz-sel-scope-bar span {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: #8a8f98;
+    flex: none;
+}
+
+/* Redesigned Spatial UDIM Atlas Matrix + Per-Tile Resolution Deck */
+.pz-udim-atlas-shell {
+    background: radial-gradient(120% 110% at 50% 0%, rgba(56, 189, 248, 0.06), rgba(14, 14, 18, 0.96));
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 10px;
+    margin-bottom: 10px;
+}
+.pz-udim-atlas-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 9.5px;
+    color: #8d939e;
+}
+.pz-udim-atlas-top strong {
+    color: #eceef2;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+}
+.pz-udim-coord-wrap {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    gap: 6px;
+    align-items: stretch;
+}
+.pz-udim-v-rail {
+    display: grid;
+    gap: 6px;
+}
+.pz-udim-v-rail span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 8.5px;
+    color: #6b7280;
+    border-right: 1px dashed rgba(255, 255, 255, 0.08);
+    padding-right: 3px;
+}
+.pz-udim-spatial-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+}
+.pz-udim-u-rail {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-left: 26px;
+    margin-top: 5px;
+}
+.pz-udim-u-rail span {
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 8.5px;
+    color: #6b7280;
+}
+.pz-udim-tile-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 4px;
+    padding: 6px;
+    min-height: 76px;
+    border-radius: 10px;
+    background: rgba(20, 21, 26, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 130ms, background 130ms, box-shadow 130ms;
+}
+.pz-udim-tile-card.empty {
+    background: rgba(15, 16, 20, 0.55);
+    border-style: dashed;
+    border-color: rgba(255, 255, 255, 0.08);
+    opacity: 0.78;
+}
+.pz-udim-tile-card:hover {
+    background: #1d1f27;
+    border-color: rgba(255, 255, 255, 0.22);
+    opacity: 1;
+}
+.pz-udim-tile-card.active {
+    background: linear-gradient(180deg, rgba(239, 244, 207, 0.12), rgba(24, 26, 32, 0.95));
+    border-color: rgba(239, 244, 207, 0.65);
+    box-shadow: 0 0 0 1px rgba(239, 244, 207, 0.18), 0 6px 16px rgba(0, 0, 0, 0.35);
+    opacity: 1;
+}
+.pz-udim-cell-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 3px;
+    width: 100%;
+}
+.pz-udim-cell-id {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: #e6e8ec;
+}
+.pz-udim-tile-card.active .pz-udim-cell-id {
+    color: #eff4cf;
+}
+.pz-udim-res-badge {
+    padding: 1px 4px;
+    border-radius: 5px;
+    font-family: var(--mono);
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    border: 1px solid transparent;
+    cursor: pointer;
+}
+.pz-udim-res-badge.res-8k { background: rgba(245, 158, 11, 0.20); border-color: rgba(245, 158, 11, 0.45); color: #fcd34d; }
+.pz-udim-res-badge.res-4k { background: rgba(56, 189, 248, 0.18); border-color: rgba(56, 189, 248, 0.42); color: #7dd3fc; }
+.pz-udim-res-badge.res-2k { background: rgba(52, 211, 153, 0.16); border-color: rgba(52, 211, 153, 0.38); color: #6ee7b7; }
+.pz-udim-res-badge.res-1k { background: rgba(156, 163, 175, 0.16); border-color: rgba(156, 163, 175, 0.32); color: #d1d5db; }
+.pz-udim-mini-canvas {
+    width: 100%;
+    height: 34px;
+    border-radius: 5px;
+    background: #0c0d10;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    display: block;
+}
+.pz-udim-empty-plus {
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    color: #5c616d;
+    font-family: var(--mono);
+}
+.pz-udim-cell-foot {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.pz-udim-cell-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 8.5px;
+    font-family: var(--mono);
+    color: #8b909a;
+}
+.pz-udim-occ-track {
+    width: 100%;
+    height: 3px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.07);
+    overflow: hidden;
+}
+.pz-udim-occ-fill {
+    height: 100%;
+    border-radius: 99px;
+    background: linear-gradient(90deg, #38bdf8, #eff4cf);
+}
+.pz-udim-res-pills {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 5px;
+    margin: 6px 0 10px;
+}
+.pz-udim-res-pill {
+    height: 32px;
+    border-radius: 9px;
+    background: #17181c;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    color: #a4a8b3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    line-height: 1.1;
+    cursor: pointer;
+}
+.pz-udim-res-pill strong { font-size: 10.5px; font-family: var(--mono); color: #e5e7eb; }
+.pz-udim-res-pill small { font-size: 7.5px; color: #6e737e; }
+.pz-udim-res-pill:hover { background: #22242b; border-color: rgba(255, 255, 255, 0.18); }
+.pz-udim-res-pill.active {
+    background: rgba(239, 244, 207, 0.15);
+    border-color: rgba(239, 244, 207, 0.58);
+}
+.pz-udim-res-pill.active strong { color: #eff4cf; }
+

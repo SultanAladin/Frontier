@@ -20,8 +20,11 @@ import {
     FollowActiveQuads,
     MinimizeStretch,
     AverageIslandScale,
-    ApplyAlignOrRectify
+    ApplyAlignOrRectify,
+    StackSimilarIslands,
+    UnstackOverlappingIslands
 } from './Engine/UnwrapSolver.js';
+import { MATCAP_STUDIO_CATALOG, SynthesizeMatcapPixels } from './Engine/EngineeringMatcaps.js';
 import { SolveImportancePack } from './Engine/ImportancePackingSolver.js';
 import { SampleAssetCatalog } from './Engine/SampleAssets.js';
 import { SerializeTopologySurfaceForBridge } from '../Shared/UvTextureBridge.js';
@@ -522,5 +525,69 @@ console.log('10. Testing GPU Wireframe/Edge/Vertex Shaders, Spatial Grid, Adjace
     console.log('   OK: GPU wireframe/edge/vertex shaders, spatial grid, adjacency & caching verified.');
 }
 
+// 11. Multi-Surface Engineering MatCaps, Stack Similar UVs, Follow Active Quads & Decluttered UI Checks
+console.log('11. Testing Multi-Surface Engineering MatCaps, Stack Similar UVs, Follow Active Quads & UI Polish...');
+{
+    assert.equal(MATCAP_STUDIO_CATALOG.length, 8, 'MATCAP_STUDIO_CATALOG must expose 8 Engineering MatCap finishes');
+    const Pixels = SynthesizeMatcapPixels(MATCAP_STUDIO_CATALOG[0], 64);
+    assert.equal(Pixels.length, 64 * 64 * 4, 'SynthesizeMatcapPixels must generate RGBA buffer');
+
+    // Multi-part surface must receive multiple distinct MatCap slots (never 1 single uniform colour)
+    const { surface: Vehicle } = SampleAssetCatalog[0].create(); // Controlled Integrator (multi-part vehicle)
+    const VehIslands = Vehicle.ExtractIslands();
+    Vehicle.AutoAssignMatcapsByPart(VehIslands);
+    const DistinctSlots = new Set(Vehicle.faces.map(F => F.matcapSlot));
+    assert.ok(DistinctSlots.size >= 5, `Expected >= 5 distinct Engineering MatCap slots across multi-part vehicle, got ${DistinctSlots.size}`);
+
+    // Assigning MatCap to a selected island updates ONLY that island's faces
+    Vehicle.ClearSelection();
+    Vehicle.SelectIslands([VehIslands[0].id], false);
+    const AssignedIsl = Vehicle.AssignMatcapToSelection(7, VehIslands);
+    assert.equal(AssignedIsl, VehIslands[0].faceIndices.length, 'AssignMatcapToSelection must target selected island faces');
+    for (const Fi of VehIslands[0].faceIndices)
+        assert.equal(Vehicle.faces[Fi].matcapSlot, 7, 'Selected island face must receive slot 7 (Zebra CAD)');
+
+    // Clearing selection after selecting a face must NOT trap AssignMatcapToSelection on old activeFace
+    Vehicle.SelectFace(0, false);
+    Vehicle.ClearSelection();
+    const AssignedAll = Vehicle.AssignMatcapToSelection(5, VehIslands);
+    assert.equal(AssignedAll, Vehicle.faces.length, 'When nothing is selected, AssignMatcapToSelection must apply to entire surface');
+    assert.ok(Vehicle.faces.every(F => F.matcapSlot === 5), 'Whole-surface fallback must assign slot 5 to every face');
+
+    // StackSimilarIslands & UnstackOverlappingIslands on Tactical Crate (6 congruent quad faces / straps)
+    const CrateSpec = SampleAssetCatalog.find(S => S.id === 'crate');
+    const { surface: Crate } = CrateSpec.create();
+    const CrateIslandsBefore = Crate.ExtractIslands();
+    const StackRes = StackSimilarIslands(Crate, { islands: CrateIslandsBefore, tolerance: 0.12 });
+    assert.ok(StackRes.stackedIslands >= 2 && StackRes.masterGroups >= 1,
+        `StackSimilarIslands should stack >= 2 congruent crate islands (got ${StackRes.stackedIslands} in ${StackRes.masterGroups} groups)`);
+    assert.ok(Crate.AnalyzeDiagnostics().overlapCount > 0, 'Stacked congruent islands must overlap in UV space to share texels');
+
+    // UnstackOverlappingIslands separates stacked duplicates cleanly
+    const Unstacked = UnstackOverlappingIslands(Crate, { stepU: 0.22 });
+    assert.ok(Unstacked >= 1, 'UnstackOverlappingIslands should offset stacked duplicate islands');
+
+    // FollowActiveQuads works even when activeFace is null (auto-seeds from selected faces)
+    Crate.ClearSelection();
+    Crate.activeFace = null;
+    Crate.selectedFaces = new Set([0, 1, 2]);
+    assert.ok(FollowActiveQuads(Crate, 'length-avg') >= 1, 'FollowActiveQuads must auto-seed when activeFace is null');
+
+    // Verify UI / shader invariants
+    const Vp3dJs = ReadText('Engine/UVViewport3D.js');
+    const EditorJs = ReadText('UVEditor.js');
+    const IndexHtml = ReadText('index.html');
+    assert.ok(Vp3dJs.includes('attribute float aMatcapSlot;') && Vp3dJs.includes('precision highp float;'),
+        'UVViewport3D.js must pass lossless per-vertex aMatcapSlot with highp float precision');
+    assert.ok(Vp3dJs.includes('this.showSeams = false;'), 'Seam debug overlay must default to false in UVViewport3D');
+    assert.ok(EditorJs.includes('showSeams: false') && !IndexHtml.includes('class="pill-btn active" id="toggle-seams-btn"'),
+        'Seam debug overlay toggle must start inactive by default');
+    assert.ok(EditorJs.includes('RenderStudioPreviewAndFlatDebugCard(Body)') && EditorJs.includes('pz-udim-atlas-shell') && EditorJs.includes('IconStripBlock('),
+        'Checks tab must host Studio Preview & Flat Debug, UDIM tab must render spatial matrix, and Unwrap/Pack must use compact icon strips');
+
+    console.log(`   OK: ${DistinctSlots.size} distinct MatCaps on vehicle, StackSimilarIslands (${StackRes.stackedIslands} stacked onto ${StackRes.masterGroups} masters), FollowActiveQuads & UI checks verified.`);
+}
+
 console.log('\nALL UV STUDIO VALIDATIONS PASSED SUCCESSFULLY.');
+
 

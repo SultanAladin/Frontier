@@ -256,8 +256,8 @@ export class UVViewport3D
         this.activeTool = 'select';
         this.paintRadiusPx = 36;
         this.showWireframe = true;
-        this.showSeams = true;
-        this.showBoundaries = true;
+        this.showSeams = false;
+        this.showBoundaries = false;
         this.webglReady = false;
         this.triToFace = [];
         this.surface = null;
@@ -472,9 +472,12 @@ export class UVViewport3D
                 uEonEnergyComp: { value: 1.0 }
             },
             vertexShader: `
+                precision highp float;
                 attribute float aFaceId;
+                attribute float aMatcapSlot;
                 uniform mat4 uShadowMatrix;
                 varying float vFaceId;
+                varying float vMatcapSlot;
                 varying vec3 vWorldPos;
                 varying vec3 vWorldNormal;
                 varying vec3 vViewNormal;
@@ -482,6 +485,7 @@ export class UVViewport3D
                 varying vec4 vShadowCoord;
                 void main() {
                     vFaceId = aFaceId;
+                    vMatcapSlot = aMatcapSlot;
                     vColor = color;
                     vec4 worldPos = modelMatrix * vec4(position, 1.0);
                     vWorldPos = worldPos.xyz;
@@ -492,6 +496,7 @@ export class UVViewport3D
                 }
             `,
             fragmentShader: `
+                precision highp float;
                 uniform sampler2D uFaceStateTex;
                 uniform vec2 uFaceTexSize;
                 uniform sampler2D uMatcapSheet;
@@ -506,6 +511,7 @@ export class UVViewport3D
                 uniform float uShadowsEnabled;
                 uniform float uEonEnergyComp;
                 varying float vFaceId;
+                varying float vMatcapSlot;
                 varying vec3 vWorldPos;
                 varying vec3 vWorldNormal;
                 varying vec3 vViewNormal;
@@ -568,11 +574,7 @@ export class UVViewport3D
                 }
 
                 void main() {
-                    float fid = floor(vFaceId + 0.5);
-                    float tx = mod(fid, uFaceTexSize.x);
-                    float ty = floor(fid / uFaceTexSize.x);
-                    vec4 faceState = texture2D(uFaceStateTex, (vec2(tx, ty) + 0.5) / uFaceTexSize);
-                    float matcapSlot = clamp(floor(faceState.b * 255.0 / 16.0 + 0.5), 0.0, 7.0);
+                    float matcapSlot = clamp(floor(vMatcapSlot + 0.5), 0.0, 7.0);
 
                     vec3 N = normalize(gl_FrontFacing ? vWorldNormal : -vWorldNormal);
                     vec3 Vn = normalize(gl_FrontFacing ? vViewNormal : -vViewNormal);
@@ -652,13 +654,17 @@ export class UVViewport3D
                 uOutlineInk: { value: 0.16 }
             },
             vertexShader: `
+                precision highp float;
                 attribute float aFaceId;
+                attribute float aMatcapSlot;
                 varying float vFaceId;
+                varying float vMatcapSlot;
                 varying vec3 vColor;
                 varying vec2 vUv;
                 varying vec3 vViewNormal;
                 void main() {
                     vFaceId = aFaceId;
+                    vMatcapSlot = aMatcapSlot;
                     vColor = color;
                     vUv = uv;
                     vViewNormal = normalize(normalMatrix * normal);
@@ -666,12 +672,14 @@ export class UVViewport3D
                 }
             `,
             fragmentShader: `
+                precision highp float;
                 uniform sampler2D uFaceStateTex;
                 uniform vec2 uFaceTexSize;
                 uniform sampler2D uCheckerTex;
                 uniform float uFlatMode;
                 uniform float uOutlineInk;
                 varying float vFaceId;
+                varying float vMatcapSlot;
                 varying vec3 vColor;
                 varying vec2 vUv;
                 varying vec3 vViewNormal;
@@ -691,11 +699,7 @@ export class UVViewport3D
                 void main() {
                     vec3 col = vColor;
                     if (abs(uFlatMode - 1.0) < 0.25) {
-                        float fid = floor(vFaceId + 0.5);
-                        float tx = mod(fid, uFaceTexSize.x);
-                        float ty = floor(fid / uFaceTexSize.x);
-                        vec4 st = texture2D(uFaceStateTex, (vec2(tx, ty) + 0.5) / uFaceTexSize);
-                        float slot = clamp(floor(st.b * 255.0 / 16.0 + 0.5), 0.0, 7.0);
+                        float slot = clamp(floor(vMatcapSlot + 0.5), 0.0, 7.0);
                         col = FlatSlotPalette(slot);
                     } else if (uFlatMode > 1.5) {
                         vec3 chk = texture2D(uCheckerTex, vUv).rgb;
@@ -720,6 +724,7 @@ export class UVViewport3D
                 uTexSize: { value: new THREE.Vector2(this.gpuSelTexW, this.gpuSelTexH) }
             },
             vertexShader: `
+                precision highp float;
                 attribute float aFaceId;
                 varying float vFaceId;
                 void main() {
@@ -728,6 +733,7 @@ export class UVViewport3D
                 }
             `,
             fragmentShader: `
+                precision highp float;
                 varying float vFaceId;
                 uniform sampler2D uSelTex;
                 uniform vec2 uTexSize;
@@ -773,7 +779,7 @@ export class UVViewport3D
                     vec3 a3 = smoothstep(vec3(0.0), d * 1.15, vBary + (1.0 - vEdgeMask) * 10.0);
                     float edgeFactor = 1.0 - min(min(a3.x, a3.y), a3.z);
                     if (edgeFactor < 0.02) discard;
-                    gl_FragColor = vec4(1.0, 1.0, 1.0, edgeFactor * 0.20);
+                    gl_FragColor = vec4(1.0, 1.0, 1.0, edgeFactor * 0.09);
                 }
             `,
             transparent: true,
@@ -1502,6 +1508,20 @@ export class UVViewport3D
         }
         this.gpuSelectionTex.needsUpdate = true;
         this.selectedFaceOverlayMesh.visible = true;
+        const SlotAttr = this.geometry?.getAttribute('aMatcapSlot');
+        if (SlotAttr && this.triToFace.length)
+        {
+            const SArr = SlotAttr.array;
+            let ChangedSlot = false;
+            for (let t = 0; t < this.triToFace.length; t++)
+            {
+                const fi = this.triToFace[t];
+                const s = (Surface.faces[fi]?.matcapSlot || 0) & 7;
+                const b = t * 3;
+                if (SArr[b] !== s) { SArr[b] = s; SArr[b + 1] = s; SArr[b + 2] = s; ChangedSlot = true; }
+            }
+            if (ChangedSlot) SlotAttr.needsUpdate = true;
+        }
         this.FastUpdateGpuEdgeAndVertMasks(Surface, UseIslands);
     }
 
@@ -2164,6 +2184,7 @@ export class UVViewport3D
         const UvArr = [];
         const ColArr = [];
         const FaceIdArr = [];
+        const SlotArr = [];
         const BaryArr = [];
         const EdgeMaskArr = [];
         this.triToFace = [];
@@ -2262,6 +2283,7 @@ export class UVViewport3D
                     UvArr.push(Uv[0], Uv[1]);
                     ColArr.push(R, G, B);
                     FaceIdArr.push(fi);
+                    SlotArr.push((F.matcapSlot || 0) & 7);
                     BaryArr.push(Barys[b][0], Barys[b][1], Barys[b][2]);
                     EdgeMaskArr.push(M0, M1, M2);
                 }
@@ -2290,6 +2312,7 @@ export class UVViewport3D
         this.geometry.setAttribute('uv', new THREE.Float32BufferAttribute(UvArr, 2));
         this.geometry.setAttribute('color', new THREE.Float32BufferAttribute(ColArr, 3));
         this.geometry.setAttribute('aFaceId', new THREE.Float32BufferAttribute(FaceIdArr, 1));
+        this.geometry.setAttribute('aMatcapSlot', new THREE.Float32BufferAttribute(SlotArr, 1));
         this.geometry.setAttribute('aBary', new THREE.Float32BufferAttribute(BaryArr, 3));
         this.geometry.setAttribute('aEdgeMask', new THREE.Float32BufferAttribute(EdgeMaskArr, 3));
         this.geometry.computeBoundingSphere();

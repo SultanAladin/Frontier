@@ -233,13 +233,13 @@
 
         <div class="viewport-bar-end">
           <button class="pill-btn active" id="toggle-wire3d-btn" type="button" title="Toggle 3D Wireframe">Wire</button>
-          <button class="pill-btn active" id="toggle-seams-btn" type="button" title="Toggle Red Seam Overlay">Seams</button>
+          <button class="pill-btn" id="toggle-seams-btn" type="button" title="Toggle Optional Seam &amp; Boundary Debug Overlay">Seams</button>
           <button class="pill-btn" id="pz-more-ops-btn" type="button" title="Toggle Extra Seam / Weld Shelf">More ▾</button>
           <button class="icon-button" id="maximize-stage-btn" type="button" title="Maximize Viewport"></button>
           <button class="pill-btn active pz-compact-hidden" id="sync-sel-btn" type="button">Sync</button>
           <button class="pill-btn pz-compact-hidden" id="prop-edit-btn" type="button">Prop</button>
           <button class="pill-btn active pz-compact-hidden" id="toggle-checker-btn" type="button">Checker</button>
-          <button class="pill-btn active pz-compact-hidden" id="toggle-boundaries-btn" type="button">Bounds</button>
+          <button class="pill-btn pz-compact-hidden" id="toggle-boundaries-btn" type="button">Bounds</button>
         </div>
       </div>
 
@@ -381,8 +381,8 @@
       <div class="object-heading pz-borderless-heading">
         <div class="object-symbol pz-compact-hidden" id="inspector-object-icon"></div>
         <div class="object-heading-copy">
-          <input id="inspector-object-name" class="pz-borderless-title" type="text" value="Controlled Integrator" aria-label="Asset Name" spellcheck="false">
-          <span id="inspector-object-sub">Directional EON + Blinn-Phong · Per-face Multi-MatCap</span>
+          <input id="inspector-object-name" class="pz-borderless-title" type="text" value="" aria-label="Selected Target Name" spellcheck="false">
+          <span id="inspector-object-sub">No selection · Entire Surface</span>
         </div>
       </div>
 
@@ -391,7 +391,7 @@
         <button data-tab="packing" type="button">Pack</button>
         <button data-tab="unwrap" type="button">Unwrap</button>
         <button data-tab="udim" type="button">UDIM</button>
-        <button data-tab="check" type="button">Check</button>
+        <button data-tab="check" type="button">Checks</button>
       </div>
 
       <div class="panel-scroll inspector-scroll" id="inspector-scroll">
@@ -399,7 +399,7 @@
       </div>
 
       <div class="inspector-footer">
-        <span id="inspector-footer-left">EON + Blinn-Phong + Multi-MatCap</span>
+        <span id="inspector-footer-left">Studio + Multi-MatCap</span>
         <span id="inspector-footer-right" class="tabular">UDIM 1001 · 4096 px</span>
       </div>
     </aside>
@@ -541,6 +541,8 @@
     <button class="ctx-chip" data-ctx-op="unpin" type="button"><span>Unpin UVs</span><kbd>⌥P</kbd></button>
     <button class="ctx-chip" data-ctx-op="mirror-u" type="button"><span>Mirror X (U)</span><kbd>Flip</kbd></button>
     <button class="ctx-chip" data-ctx-op="rotate-90" type="button"><span>Rotate 90°</span><kbd>90°</kbd></button>
+    <button class="ctx-chip" data-ctx-op="follow-quads" type="button"><span>Follow Quads</span><kbd>Grid</kbd></button>
+    <button class="ctx-chip" data-ctx-op="stack-similar" type="button"><span>Stack Similar</span><kbd>Stack</kbd></button>
   </div>
   <div class="menu-divider"></div>
   <div class="popover-label">EDGES &amp; SEAMS</div>

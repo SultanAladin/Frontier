@@ -15,7 +15,9 @@ import {
     FollowActiveQuads,
     MinimizeStretch,
     AverageIslandScale,
-    ApplyAlignOrRectify
+    ApplyAlignOrRectify,
+    StackSimilarIslands,
+    UnstackOverlappingIslands
 } from './Engine/UnwrapSolver.js';
 import { SolveImportancePack } from './Engine/ImportancePackingSolver.js';
 import { SampleAssetCatalog } from './Engine/SampleAssets.js';
@@ -61,10 +63,11 @@ const StudioState = {
     snapMode: 'off', // 'off' | 'grid' | 'pixel' | 'vertex'
     overlayLens: 'importance',
     showChecker: true,
-    showSeams: true,
-    showBoundaries: true,
+    showSeams: false,
+    showBoundaries: false,
     showPins: true,
     showIslandBadges: true,
+    udimMatrixRows: 3,
     proportional: { enabled: false, radius: 0.22 },
     cursorUV: [0.5, 0.5],
     liveUnwrap: false,
@@ -274,7 +277,11 @@ function SyncAllViews(UpdateInspector = false)
     RenderOutliner(Doc);
     RenderLegendStrip(Doc);
 
-    if (UpdateInspector) RebuildInspector();
+    const SelSig = `${Doc.id}|${Doc.surface.selectedIslands.size}:${[...Doc.surface.selectedIslands].slice(0, 6).join(',')}|${Doc.surface.selectedFaces.size}:${Doc.surface.activeFace ?? -1}|${Doc.surface.selectedEdges3D.size}|${Doc.surface.selectedUVs.size}`;
+    const SelectionChanged = SelSig !== StudioState._lastInspectorSelSig;
+    StudioState._lastInspectorSelSig = SelSig;
+
+    if (UpdateInspector || SelectionChanged) RebuildInspector();
     else Broadcast();
 }
 
@@ -390,6 +397,141 @@ function ClassifyIslandHealth(Doc, Isl)
     return 'ok';
 }
 
+function ComputeInspectorSelectionInfo(Doc)
+{
+    const S = Doc.surface;
+    const SelIslList = Doc.islands.filter(I => S.selectedIslands.has(I.id));
+    const FaceSet = new Set(S.selectedFaces);
+    for (const Isl of SelIslList)
+    {
+        for (const Fi of Isl.faceIndices) FaceSet.add(Fi);
+    }
+    if (FaceSet.size === 0 && (S.selectedEdges3D.size > 0 || S.selectedUVs.size > 0))
+    {
+        const Adj = S.EnsureAdjacencyIndices();
+        for (const K3 of S.selectedEdges3D)
+        {
+            for (const Fi of Adj.edge3dFaces.get(K3) || []) FaceSet.add(Fi);
+        }
+        for (const UvId of S.selectedUVs)
+        {
+            for (const Fi of Adj.uvToFaces[UvId] || []) FaceSet.add(Fi);
+        }
+    }
+
+    const HasSelection = FaceSet.size > 0;
+    const TargetFaces = HasSelection ? [...FaceSet] : S.faces.map((_, i) => i);
+    const MatcapCounts = new Int32Array(8);
+    let OverlapCount = 0, FlippedCount = 0;
+    let StretchWeighted = 0, Area3DSum = 0, AreaUvSum = 0;
+    const UvSet = new Set();
+    const UdimSet = new Set();
+
+    const Diag = Doc.diagnostics;
+    for (const Fi of TargetFaces)
+    {
+        const F = S.faces[Fi];
+        if (!F) continue;
+        const Slot = (F.matcapSlot || 0) & 7;
+        MatcapCounts[Slot]++;
+        if (Diag?.OverlappingFaces?.has(Fi)) OverlapCount++;
+        if (Diag?.FlippedFaces?.has(Fi)) FlippedCount++;
+        const D = typeof S.GetFaceDistortionFast === 'function' ? S.GetFaceDistortionFast(Fi) : { area3D: S.FaceArea3D(Fi), angleStretch: S.FaceTrianglesDistortion(Fi).angleStretch };
+        Area3DSum += D.area3D;
+        StretchWeighted += D.angleStretch * Math.max(1e-7, D.area3D);
+        AreaUvSum += Math.abs(S.FaceSignedAreaUV(Fi));
+        for (const C of F.corners) UvSet.add(C.uv);
+    }
+
+    let DominantSlot = 0, BestSlotCnt = -1, DistinctSlots = 0;
+    for (let i = 0; i < 8; i++)
+    {
+        if (MatcapCounts[i] > 0) DistinctSlots++;
+        if (MatcapCounts[i] > BestSlotCnt) { BestSlotCnt = MatcapCounts[i]; DominantSlot = i; }
+    }
+
+    let PinnedCount = 0;
+    for (const U of UvSet) if (S.pinned.has(U)) PinnedCount++;
+
+    const RefIslands = SelIslList.length > 0
+        ? SelIslList
+        : (HasSelection ? Doc.islands.filter(I => I.faceIndices.some(Fi => FaceSet.has(Fi))) : Doc.islands);
+    for (const I of RefIslands) UdimSet.add(I.udimTile);
+    const AvgDensity = RefIslands.length
+        ? RefIslands.reduce((Sum, I) => Sum + (I.texelDensity || 0), 0) / RefIslands.length
+        : 0;
+    const MeanStretchPct = Area3DSum > 1e-8 ? (StretchWeighted / Area3DSum) * 100 : 0;
+
+    const DominantSpec = MATCAP_STUDIO_CATALOG[DominantSlot] || MATCAP_STUDIO_CATALOG[0];
+    let Title = Doc.name;
+    let Subtitle = `${Doc.islands.length} charts · ${S.faces.length} faces · Whole Surface`;
+    let ScopeTag = `Entire Surface (${S.faces.length} faces)`;
+
+    if (HasSelection)
+    {
+        if (SelIslList.length === 1)
+        {
+            const Isl = SelIslList[0];
+            Title = Isl.displayName || Isl.partId || `Chart #${Isl.id + 1}`;
+            Subtitle = `${TargetFaces.length} faces · ${UvSet.size} UVs · UDIM ${Isl.udimTile} · ${AvgDensity.toFixed(1)} px/cm`;
+            ScopeTag = `${Title} · ${TargetFaces.length} faces`;
+        }
+        else if (SelIslList.length > 1)
+        {
+            const UniqueParts = [...new Set(SelIslList.map(I => I.partId || I.displayName).filter(Boolean))];
+            Title = UniqueParts.length === 1 ? `${UniqueParts[0]} (${SelIslList.length} charts)` : `${SelIslList.length} UV Charts Selected`;
+            Subtitle = `${TargetFaces.length} faces · ${UvSet.size} UVs · Stretch ${MeanStretchPct.toFixed(1)}% · ${AvgDensity.toFixed(1)} px/cm`;
+            ScopeTag = `${SelIslList.length} charts · ${TargetFaces.length} faces`;
+        }
+        else if (S.selectedEdges3D.size > 0 && S.selectedFaces.size === 0)
+        {
+            Title = `${S.selectedEdges3D.size} Edge${S.selectedEdges3D.size > 1 ? 's' : ''} Selected`;
+            Subtitle = `${TargetFaces.length} adj faces · ${UvSet.size} UVs · ${S.seams.size} total seams`;
+            ScopeTag = `${S.selectedEdges3D.size} edges (${TargetFaces.length} adj faces)`;
+        }
+        else if (S.selectedUVs.size > 0 && S.selectedFaces.size === 0)
+        {
+            Title = `${S.selectedUVs.size} UV Vert${S.selectedUVs.size > 1 ? 's' : ''} Selected`;
+            Subtitle = `${PinnedCount} pinned · ${TargetFaces.length} adj faces · Stretch ${MeanStretchPct.toFixed(1)}%`;
+            ScopeTag = `${S.selectedUVs.size} UVs (${PinnedCount} pinned)`;
+        }
+        else
+        {
+            const SamplePart = S.faces[TargetFaces[0]]?.partId || 'Surface';
+            Title = TargetFaces.length === 1 ? `${SamplePart} · Face #${TargetFaces[0]}` : `${SamplePart} · ${TargetFaces.length} Faces`;
+            Subtitle = `${UvSet.size} UVs · Stretch ${MeanStretchPct.toFixed(1)}% · ${AvgDensity.toFixed(1)} px/cm`;
+            ScopeTag = `${TargetFaces.length} selected faces`;
+        }
+    }
+
+    const FooterLeft = DistinctSlots > 1
+        ? `${DistinctSlots} MatCaps (${DominantSpec.short}+)`
+        : `MatCap: ${DominantSpec.label}`;
+
+    return {
+        hasSelection: HasSelection,
+        title: Title,
+        subtitle: Subtitle,
+        scopeTag: ScopeTag,
+        footerLeft: FooterLeft,
+        targetFaces: TargetFaces,
+        faceCount: TargetFaces.length,
+        uvCount: UvSet.size,
+        islandCount: SelIslList.length,
+        matcapCounts: MatcapCounts,
+        distinctSlots: DistinctSlots,
+        dominantSlot: DominantSlot,
+        overlapCount: OverlapCount,
+        flippedCount: FlippedCount,
+        meanStretchPct: MeanStretchPct,
+        avgDensity: AvgDensity,
+        area3D: Area3DSum,
+        areaUV: AreaUvSum,
+        pinnedCount: PinnedCount,
+        udims: [...UdimSet]
+    };
+}
+
 function UpdateHeaderAndHud(Doc)
 {
     let CleanCharts = 0, ErrorCharts = 0, CautionCharts = 0;
@@ -444,13 +586,17 @@ function UpdateHeaderAndHud(Doc)
     document.getElementById('undo-btn').disabled = !Doc.surface.CanUndo();
     document.getElementById('redo-btn').disabled = !Doc.surface.CanRedo();
 
+    const SelInfo = ComputeInspectorSelectionInfo(Doc);
     const NameInput = document.getElementById('inspector-object-name');
-    if (document.activeElement !== NameInput) NameInput.value = Doc.name;
+    if (document.activeElement !== NameInput) NameInput.value = SelInfo.title;
 
-    document.getElementById('inspector-object-sub').textContent =
-        `${Doc.islands.length} UV charts · ${Doc.udimTiles.length} UDIM · Per-face Multi-MatCap`;
+    document.getElementById('inspector-object-sub').textContent = SelInfo.subtitle;
+    const FootLeftEl = document.getElementById('inspector-footer-left');
+    if (FootLeftEl) FootLeftEl.textContent = SelInfo.footerLeft;
 
-    document.getElementById('inspector-footer-right').textContent = `UDIM ${Doc.activeUdim} · ${ActiveTile?.resolution || 2048} px`;
+    const TargetUdim = SelInfo.udims.length === 1 ? SelInfo.udims[0] : Doc.activeUdim;
+    const TargetTile = Doc.udimTiles.find(T => T.id === TargetUdim) || ActiveTile;
+    document.getElementById('inspector-footer-right').textContent = `UDIM ${TargetUdim} · ${TargetTile?.resolution || 2048} px`;
     document.getElementById('status-counts').innerHTML =
         `<b>${Doc.surface.positions.length}</b> verts · <b>${Doc.surface.faces.length}</b> faces · <b>${Doc.islands.length}</b> charts`;
 
@@ -623,14 +769,11 @@ function RenderOutliner(Doc)
         }
     }
 
-    // Collapse folders beyond the first 2 on initial load when asset has many charts so Outliner stays crisp
+    // Collapse all Outliner folders by default on initial load so Outliner starts clean & compact
     if (!Doc.foldersInitialized)
     {
         Doc.foldersInitialized = true;
-        if (Doc.islands.length > 26)
-        {
-            Folders.slice(2).forEach(F => Doc.collapsedFolders.add(F.id));
-        }
+        Folders.forEach(F => Doc.collapsedFolders.add(F.id));
     }
 
     const ChartPalette = ['#60a5fa', '#f59e0b', '#34d399', '#a78bfa', '#f472b6', '#38bdf8'];
@@ -681,16 +824,23 @@ function RenderOutliner(Doc)
 
         HeaderBtn.addEventListener('click', E =>
         {
-            if (!E.shiftKey && !E.ctrlKey) Doc.surface.ClearSelection();
-            for (const Isl of Folder.islands) Doc.surface.SelectIsland(Isl.id, true);
-            SyncAllViews(true);
-        });
-        HeaderBtn.addEventListener('dblclick', () =>
-        {
+            if (E.shiftKey || E.ctrlKey)
+            {
+                if (!E.shiftKey) Doc.surface.ClearSelection();
+                for (const Isl of Folder.islands) Doc.surface.SelectIsland(Isl.id, true);
+                SyncAllViews(true);
+                return;
+            }
             if (Doc.collapsedFolders.has(Folder.id)) Doc.collapsedFolders.delete(Folder.id);
             else Doc.collapsedFolders.add(Folder.id);
             _lastOutlinerSig = null;
             RenderOutliner(Doc);
+        });
+        HeaderBtn.addEventListener('dblclick', () =>
+        {
+            Doc.surface.ClearSelection();
+            for (const Isl of Folder.islands) Doc.surface.SelectIsland(Isl.id, true);
+            SyncAllViews(true);
         });
 
         const ChildrenWrap = Construct('div', 'pz-folder-children');
@@ -1150,8 +1300,40 @@ function RunUvContextOperation(OpId)
     else if (OpId === 'pin') RunWithUndo('Pin', () => { Doc.surface.PinSelected(true); });
     else if (OpId === 'unpin') RunWithUndo('Unpin', () => { Doc.surface.PinSelected(false); });
     else if (OpId === 'mirror-u') RunWithUndo('Mirror U', () => { const P = ComputeSelectionPivot(Doc) || StudioState.cursorUV; Doc.surface.TransformSelectedUVs({ pivot: P, scaleU: -1, scaleV: 1 }); });
-    else if (OpId === 'rotate-90') RunWithUndo('Rotate 90°', () => { const P = ComputeSelectionPivot(Doc) || StudioState.cursorUV; Doc.surface.TransformSelectedUVs({ pivot: P, rotateRad: Math.PI / 2 }); });
+    else if (OpId === 'rotate-90') RunWithUndo('Rotate 90°', () => { const P = ComputeSelectionPivot(Doc) || StudioState.cursorUV; Doc.surface.TransformSelectedUVs({ pivot: P, angle: Math.PI / 2 }); });
+    else if (OpId === 'follow-quads') RunUnwrap('follow-quads');
+    else if (OpId === 'stack-similar') RunStackSimilarOp();
     else if (OpId === 'open-edge-menu') OpenEdgeSeamMenu(LastPointerClient[0], LastPointerClient[1]);
+}
+
+function RunStackSimilarOp()
+{
+    const Doc = ActiveDoc();
+    if (!Doc) return;
+    RunWithUndo('Stack Similar UV Islands', () =>
+    {
+        const Res = StackSimilarIslands(Doc.surface, { islands: Doc.islands, tolerance: StudioState.selectSimilarTol || 0.08 });
+        if (!Res.stackedIslands)
+        {
+            Toast('No duplicate/similar UV charts found in current scope');
+            return;
+        }
+        LogEvent('STACK', `Stacked ${Res.stackedIslands} similar UV island(s) onto ${Res.masterGroups} master chart(s)`, 'live');
+        Toast(`Stacked ${Res.stackedIslands} similar UV chart(s) onto ${Res.masterGroups} master(s)`);
+    });
+}
+
+function RunUnstackOp()
+{
+    const Doc = ActiveDoc();
+    if (!Doc) return;
+    RunWithUndo('Unstack UV Islands', () =>
+    {
+        const Moved = UnstackOverlappingIslands(Doc.surface, { islands: Doc.islands });
+        if (!Moved) { Toast('No stacked duplicate UV charts detected'); return; }
+        LogEvent('STACK', `Unstacked ${Moved} overlapping duplicate UV chart(s)`, 'live');
+        Toast(`Spread ${Moved} stacked UV chart(s)`);
+    });
 }
 
 function OpenSelectMenu(ClientX, ClientY)
@@ -1459,9 +1641,14 @@ function RunUnwrap(Kind)
         }
         else if (Kind === 'follow-quads')
         {
-            const Count = FollowActiveQuads(Doc.surface);
-            LogEvent('UNWRAP', `Follow Active Quads aligned ${Count} faces`, 'live');
-            Toast(`Follow Quads: ${Count} faces`);
+            const Count = FollowActiveQuads(Doc.surface, 'length-avg', Doc.islands);
+            if (!Count)
+            {
+                Toast('Select quad faces/charts first (pure triangle meshes have 0 quad faces)');
+                return;
+            }
+            LogEvent('UNWRAP', `Follow Active Quads aligned ${Count} quad face(s)`, 'live');
+            Toast(`Follow Active Quads: ${Count} faces aligned`);
         }
         else
         {
@@ -1490,9 +1677,9 @@ function RebuildInspector()
     const Crumb = {
         shading: 'Inspector / Surface & Multi-MatCap',
         packing: 'Inspector / Importance Packing',
-        unwrap: 'Inspector / Unwrap & Seams',
-        udim: 'Inspector / UDIM Tiles',
-        check: 'Inspector / Diagnostics & Export'
+        unwrap: 'Inspector / Unwrap & Tools',
+        udim: 'Inspector / Spatial UDIM Matrix',
+        check: 'Inspector / Checks, Studio & Flat Debug'
     }[StudioState.inspectorTab] || 'Inspector / UV Workspace';
     document.getElementById('inspector-crumb').textContent = Crumb;
     const ActiveLbl = document.getElementById('pz-active-surface-label');
@@ -1733,194 +1920,46 @@ function RenderUvSelectionTransformCard(Parent, Doc)
     Parent.append(Card);
 }
 
-function RenderShadingTab(Body, Doc)
+function IconStripBlock(Parent, { Label, Meta = '', Items = [] })
 {
-    const Counts = Doc.surface.GetMatcapUsageCounts();
-    let DistinctMatcaps = 0;
-    for (let i = 0; i < 8; i++) if (Counts[i] > 0) DistinctMatcaps++;
-
-    const SelFacesCount = Doc.surface.selectedFaces.size || (Doc.surface.selectedIslands.size
-        ? Doc.islands.filter(I => Doc.surface.selectedIslands.has(I.id)).reduce((S, I) => S + I.faceIndices.length, 0)
-        : 0);
-
-    const CurMode = Viewport3D ? Viewport3D.shadingMode : 'lit-matcap';
-    const ModePretty = {
-        'lit-matcap': 'Studio + Multi-MatCap',
-        'lit-eon': 'Studio Preview',
-        'multi-matcap': 'Multi-MatCap Studio',
-        flat: 'Flat · UV Charts',
-        'flat-slots': 'Flat · Face Slots',
-        checker: 'Flat · UV Checker',
-        matcap: 'Sculpt Clay',
-        'matcap-satin': 'Satin Pearl',
-        importance: 'Flat · Priority',
-        texel: 'Flat · Density',
-        stretch: 'Flat · Stretch',
-        overlap: 'Flat · Overlaps'
-    }[CurMode] || CurMode;
-
-    // 1A. Visual Studio Hero Banner (0bab...jpg + Project-Zero "Low sun" style)
-    const ActiveOrbImgs = [];
-    for (const Spec of MATCAP_STUDIO_CATALOG)
+    const Wrap = Construct('div', 'pz-icon-strip-block');
+    if (Label)
     {
-        if (Counts[Spec.slot] > 0 || ActiveOrbImgs.length === 0)
+        Wrap.append(Construct('div', 'pz-icon-strip-head', [
+            Construct('span', null, Label),
+            Meta ? Construct('span', null, Meta) : null
+        ]));
+    }
+    const Strip = Construct('div', 'pz-icon-strip');
+    for (const Item of Items)
+    {
+        if (Item === '|')
         {
-            const Im = Construct('img');
-            Im.src = GetCachedMatcapThumb(Spec.slot);
-            Im.alt = Spec.label;
-            ActiveOrbImgs.push(Im);
-            if (ActiveOrbImgs.length >= 5) break;
+            Strip.append(Construct('span', 'pz-icon-sep'));
+            continue;
         }
-    }
-    const SlotBarColors = ['#9ca3af', '#e5e7eb', '#ef4444', '#34d399', '#f59e0b', '#60a5fa', '#64748b', '#fb923c'];
-    const TotalFaces = Math.max(1, Doc.surface.faces.length);
-    const BarSpans = [];
-    for (let s = 0; s < 8; s++)
-    {
-        if (Counts[s] <= 0) continue;
-        const Seg = Construct('span');
-        Seg.style.width = `${Math.max(4, (Counts[s] / TotalFaces) * 100).toFixed(1)}%`;
-        Seg.style.background = SlotBarColors[s];
-        BarSpans.push(Seg);
-    }
-
-    const HeroBanner = Construct('div', 'pz-shading-hero', [
-        Construct('div', 'pz-hero-top', [
-            Construct('div', null, [
-                Construct('span', 'pz-hero-eyebrow', ModePretty),
-                Construct('div', 'pz-hero-big', [
-                    document.createTextNode(String(DistinctMatcaps)),
-                    Construct('small', null, '/ 8 MatCaps')
-                ])
-            ]),
-            Construct('div', 'pz-hero-orb-stack', ActiveOrbImgs)
-        ]),
-        Construct('div', 'pz-hero-bar', BarSpans),
-        Construct('div', 'pz-hero-foot', [
-            Construct('span', null, `Roughness α ${(Viewport3D?.eonRoughness ?? 0.42).toFixed(2)} · Cavity`),
-            Construct('span', null, Viewport3D?.shadowsEnabled !== false ? 'Studio GGX · PCF Shadows' : 'Unlit / Shadows Off')
-        ])
-    ]);
-    Body.append(HeroBanner);
-
-    // 1B. Asymmetric Coloured-Icon & Large Thin-Number Bento Tiles (0bab...jpg style)
-    const TotalIssues = (Doc.diagnostics?.overlapCount || 0) + (Doc.diagnostics?.flippedCount || 0);
-    const RoughPct = Math.round((Viewport3D?.eonRoughness ?? 0.42) * 100);
-    const SpecPct = Math.round((Viewport3D?.specularStrength ?? 0.65) * 100);
-    const TargetCount = SelFacesCount > 0 ? SelFacesCount : Doc.surface.faces.length;
-
-    const BentoGrid = Construct('div', 'pz-bento-grid', [
-        Construct('div', 'pz-bento-tile', [
-            Construct('span', `pz-bento-icon ${TotalIssues > 0 ? 'coral' : 'emerald'}`, TotalIssues > 0 ? '!' : '✓'),
-            Construct('span', 'pz-bento-label', TotalIssues > 0 ? 'Overlaps' : 'UV Health'),
-            Construct('div', 'pz-bento-num', [
-                document.createTextNode(String(TotalIssues)),
-                Construct('small', null, TotalIssues > 0 ? 'err' : 'ok')
-            ])
-        ]),
-        Construct('div', 'pz-bento-tile', [
-            Construct('span', 'pz-bento-icon amber', 'α'),
-            Construct('span', 'pz-bento-label', 'Roughness'),
-            Construct('div', 'pz-bento-num', [
-                document.createTextNode(String(RoughPct)),
-                Construct('small', null, '%')
-            ])
-        ]),
-        Construct('div', 'pz-bento-tile', [
-            Construct('span', 'pz-bento-icon cobalt', '✦'),
-            Construct('span', 'pz-bento-label', 'GGX Highlight'),
-            Construct('div', 'pz-bento-num', [
-                document.createTextNode(String(SpecPct)),
-                Construct('small', null, '%')
-            ])
-        ]),
-        Construct('div', 'pz-bento-tile', [
-            Construct('span', 'pz-bento-icon emerald', '▣'),
-            Construct('span', 'pz-bento-label', SelFacesCount > 0 ? 'Selected' : 'Surface'),
-            Construct('div', 'pz-bento-num', [
-                document.createTextNode(String(TargetCount)),
-                Construct('small', null, 'f')
-            ])
-        ])
-    ]);
-    Body.append(BentoGrid);
-
-    // 1C. Project-Zero 2D UV Selection Transform Card (Position U/V, Extent, UDIM, Rotation)
-    RenderUvSelectionTransformCard(Body, Doc);
-
-    // 2. Per-Face Multi-MatCap Studio Swatches
-    const MatcapSec = SectionCard(Body, {
-        Id: 'multi-matcap',
-        Title: 'Per-Face Multi-MatCap',
-        Glyph: 'Sparkles',
-        Badge: `${DistinctMatcaps} ACTIVE`,
-        Hint: 'Select any face(s) or UV chart(s) in 3D or 2D, then click any MatCap orb to assign multiple MatCaps simultaneously on one surface.'
-    });
-    const OrbGrid = Construct('div', 'pz-matcap-grid');
-    const ActiveFaceSlot = Doc.surface.activeFace !== null && Doc.surface.faces[Doc.surface.activeFace]
-        ? Doc.surface.faces[Doc.surface.activeFace].matcapSlot
-        : 0;
-
-    for (const Spec of MATCAP_STUDIO_CATALOG)
-    {
-        const UsedCount = Counts[Spec.slot];
-        const OrbImg = Construct('img');
-        OrbImg.src = GetCachedMatcapThumb(Spec.slot);
-        OrbImg.alt = Spec.label;
-        const Children = [OrbImg, Construct('small', null, Spec.label)];
-        if (UsedCount > 0) Children.push(Construct('span', 'pz-matcap-count', `${UsedCount}`));
-        const Btn = Construct('button', `pz-matcap-orb-btn${ActiveFaceSlot === Spec.slot ? ' active' : ''}`, Children);
+        const ToneCls = Item.Tone ? ` ${Item.Tone}` : '';
+        const Parts = [ConstructGlyph(Item.Glyph)];
+        if (Item.Short) Parts.push(Construct('span', null, Item.Short));
+        const Btn = Construct('button', `pz-icon-btn${ToneCls}`, Parts);
         Btn.type = 'button';
-        Btn.title = `Assign "${Spec.label}" to selected faces / charts`;
-        Btn.addEventListener('click', () =>
-        {
-            RunWithUndo(`Assign MatCap: ${Spec.label}`, () =>
-            {
-                const Changed = Doc.surface.AssignMatcapToSelection(Spec.slot, Doc.islands);
-                if (Viewport3D && !['lit-matcap', 'multi-matcap'].includes(Viewport3D.shadingMode))
-                {
-                    Set3DShadingMode('lit-matcap');
-                }
-                Toast(`Assigned "${Spec.label}" (${Changed} faces updated)`);
-            });
-        });
-        OrbGrid.append(Btn);
+        if (Item.Title) Btn.title = Item.Title;
+        Btn.addEventListener('click', Item.Act);
+        Strip.append(Btn);
     }
-    MatcapSec.Inner.append(OrbGrid);
+    Wrap.append(Strip);
+    Parent.append(Wrap);
+    return Wrap;
+}
 
-    ActionRow(MatcapSec.Inner, [
-        {
-            Label: 'Auto-Assign by Part',
-            Glyph: 'Layers',
-            Tone: 'accent',
-            Act: () => RunWithUndo('Auto-Assign Engineering MatCaps', () =>
-            {
-                Doc.surface.AutoAssignMatcapsByPart(Doc.islands);
-                if (Viewport3D && !['lit-matcap', 'multi-matcap'].includes(Viewport3D.shadingMode))
-                {
-                    Set3DShadingMode('lit-matcap');
-                }
-                Toast(`Assigned Engineering MatCaps across ${Doc.islands.length} UV charts`);
-            })
-        },
-        {
-            Label: 'Uniform CNC Alu',
-            Glyph: 'Reset',
-            Act: () => RunWithUndo('Reset CNC Aluminum MatCap', () =>
-            {
-                Doc.surface.AssignMatcapToFaces(Doc.surface.faces.map((_, i) => i), 0);
-                Toast('Reset all faces to CNC Aluminum');
-            })
-        }
-    ]);
-
-    // 3. Studio Preview + True Unlit Flat Color / Debug Renderer Controls
+function RenderStudioPreviewAndFlatDebugCard(Body)
+{
     const LitSec = SectionCard(Body, {
         Id: 'studio-flat-render',
         Title: 'Studio Preview & Flat Debug',
         Glyph: 'Sliders',
         Badge: 'GGX · FLAT',
-        Hint: 'Fast 3-point Studio hemisphere + GGX microfacet + geometric curvature cavity, plus true unlit Flat Color visualization.'
+        Hint: 'Fast 3-point Studio hemisphere + GGX microfacet + geometric curvature cavity, plus true unlit Flat Color & optional Seam/Wire overlays.'
     });
 
     SelectRow(LitSec.Inner, {
@@ -1941,6 +1980,57 @@ function RenderShadingTab(Body, Doc)
         Write: Val => Set3DShadingMode(Val)
     });
 
+    // Optional Seam / Wireframe / Shadow / Cavity Toggles
+    const QuickSpecs = [
+        {
+            title: 'Seam Overlay',
+            glyph: 'Scissors',
+            isOn: () => StudioState.showSeams,
+            flip: () => { document.getElementById('toggle-seams-btn')?.click(); RebuildInspector(); }
+        },
+        {
+            title: '3D Wireframe',
+            glyph: 'Grid',
+            isOn: () => Viewport3D?.showWireframe !== false,
+            flip: () => { document.getElementById('toggle-wire3d-btn')?.click(); RebuildInspector(); }
+        },
+        {
+            title: 'Cast Shadows',
+            glyph: 'Layers',
+            isOn: () => Viewport3D?.shadowsEnabled !== false,
+            flip: () => { if (Viewport3D) Viewport3D.UpdateLightingConfig({ shadowsEnabled: !Viewport3D.shadowsEnabled }); RebuildInspector(); }
+        },
+        {
+            title: 'Cavity & Outline',
+            glyph: 'Sparkles',
+            isOn: () => Viewport3D?.eonEnergyComp !== false,
+            flip: () =>
+            {
+                if (Viewport3D)
+                {
+                    Viewport3D.UpdateLightingConfig({ eonEnergyComp: !Viewport3D.eonEnergyComp });
+                    if (Viewport3D.flatDebugMat) Viewport3D.flatDebugMat.uniforms.uOutlineInk.value = Viewport3D.eonEnergyComp ? 0.16 : 0.0;
+                }
+                RebuildInspector();
+            }
+        }
+    ];
+    const QuickGrid = Construct('div', 'pz-quick-tiles');
+    for (const Q of QuickSpecs)
+    {
+        const On = Q.isOn();
+        const Seat = Construct('span', 'pz-quick-seat', [ConstructGlyph(Q.glyph)]);
+        const Tile = Construct('button', `pz-quick-tile ${On ? 'on' : 'off'}`, [
+            Seat,
+            Construct('span', 'pz-quick-label', Q.title),
+            Construct('span', 'pz-quick-status', On ? 'ACTIVE' : 'OFF')
+        ]);
+        Tile.type = 'button';
+        Tile.addEventListener('click', Q.flip);
+        QuickGrid.append(Tile);
+    }
+    LitSec.Inner.append(QuickGrid);
+
     SliderRow(LitSec.Inner, {
         Label: 'GGX Roughness',
         Minimum: 0.05,
@@ -1948,7 +2038,7 @@ function RenderShadingTab(Body, Doc)
         Step: 0.01,
         Digits: 2,
         Unit: 'α',
-        Read: () => Viewport3D?.eonRoughness ?? 0.42,
+        Read: () => Viewport3D?.eonRoughness ?? 0.36,
         Write: Val => Viewport3D?.UpdateLightingConfig({ eonRoughness: Val })
     });
 
@@ -1970,7 +2060,7 @@ function RenderShadingTab(Body, Doc)
         Step: 2,
         Digits: 0,
         Unit: '%',
-        Read: () => Math.round((Viewport3D?.matcapCoatBlend ?? 0.68) * 100),
+        Read: () => Math.round((Viewport3D?.matcapCoatBlend ?? 0.90) * 100),
         Write: Val => Viewport3D?.UpdateLightingConfig({ matcapCoatBlend: Val / 100 })
     });
 
@@ -2012,57 +2102,185 @@ function RenderShadingTab(Body, Doc)
         Read: () => Viewport3D?.lightAzimuthDeg ?? 42,
         Write: Val => Viewport3D?.UpdateLightingConfig({ lightAzimuthDeg: Val })
     });
+}
 
-    // 4. Exact Project-Zero 2x2 .pz-quick-tile Toggle Grid
-    const QuickSpecs = [
-        {
-            title: 'Cast Shadows',
-            glyph: 'Layers',
-            isOn: () => Viewport3D?.shadowsEnabled !== false,
-            flip: () => { if (Viewport3D) Viewport3D.UpdateLightingConfig({ shadowsEnabled: !Viewport3D.shadowsEnabled }); RebuildInspector(); }
-        },
-        {
-            title: 'Cavity & Outline',
-            glyph: 'Sparkles',
-            isOn: () => Viewport3D?.eonEnergyComp !== false,
-            flip: () =>
-            {
-                if (Viewport3D)
-                {
-                    Viewport3D.UpdateLightingConfig({ eonEnergyComp: !Viewport3D.eonEnergyComp });
-                    if (Viewport3D.flatDebugMat) Viewport3D.flatDebugMat.uniforms.uOutlineInk.value = Viewport3D.eonEnergyComp ? 0.16 : 0.0;
-                }
-                RebuildInspector();
-            }
-        },
-        {
-            title: 'Seam Overlay',
-            glyph: 'Scissors',
-            isOn: () => StudioState.showSeams,
-            flip: () => { document.getElementById('toggle-seams-btn')?.click(); RebuildInspector(); }
-        },
-        {
-            title: '3D Wireframe',
-            glyph: 'Grid',
-            isOn: () => Viewport3D?.showWireframe !== false,
-            flip: () => { document.getElementById('toggle-wire3d-btn')?.click(); RebuildInspector(); }
-        }
-    ];
-    const QuickGrid = Construct('div', 'pz-quick-tiles');
-    for (const Q of QuickSpecs)
+function RenderShadingTab(Body, Doc)
+{
+    const Sel = ComputeInspectorSelectionInfo(Doc);
+    const Counts = Sel.matcapCounts;
+    const DistinctMatcaps = Sel.distinctSlots;
+
+    const CurMode = Viewport3D ? Viewport3D.shadingMode : 'lit-matcap';
+    const ModePretty = {
+        'lit-matcap': 'Studio + Multi-MatCap',
+        'lit-eon': 'Studio Preview',
+        'multi-matcap': 'Multi-MatCap Studio',
+        flat: 'Flat · UV Charts',
+        'flat-slots': 'Flat · Face Slots',
+        checker: 'Flat · UV Checker',
+        matcap: 'CNC Aluminum',
+        'matcap-satin': 'Grade-5 Titanium',
+        importance: 'Flat · Priority',
+        texel: 'Flat · Density',
+        stretch: 'Flat · Stretch',
+        overlap: 'Flat · Overlaps'
+    }[CurMode] || CurMode;
+
+    // 1A. Visual Studio Hero Banner (Selection-aware MatCap usage & active Engineering Orbs)
+    const ActiveOrbImgs = [];
+    for (const Spec of MATCAP_STUDIO_CATALOG)
     {
-        const On = Q.isOn();
-        const Seat = Construct('span', 'pz-quick-seat', [ConstructGlyph(Q.glyph)]);
-        const Tile = Construct('button', `pz-quick-tile ${On ? 'on' : 'off'}`, [
-            Seat,
-            Construct('span', 'pz-quick-label', Q.title),
-            Construct('span', 'pz-quick-status', On ? 'ACTIVE' : 'OFF')
-        ]);
-        Tile.type = 'button';
-        Tile.addEventListener('click', Q.flip);
-        QuickGrid.append(Tile);
+        if (Counts[Spec.slot] > 0)
+        {
+            const Im = Construct('img');
+            Im.src = GetCachedMatcapThumb(Spec.slot);
+            Im.alt = Spec.label;
+            ActiveOrbImgs.push(Im);
+            if (ActiveOrbImgs.length >= 5) break;
+        }
     }
-    LitSec.Inner.append(QuickGrid);
+    const SlotBarColors = ['#9fb2c8', '#b8b3aa', '#a8a29a', '#dbeafe', '#4b5563', '#3b82f6', '#d9a441', '#34d399'];
+    const TotalFaces = Math.max(1, Sel.faceCount);
+    const BarSpans = [];
+    for (let s = 0; s < 8; s++)
+    {
+        if (Counts[s] <= 0) continue;
+        const Seg = Construct('span');
+        Seg.style.width = `${Math.max(4, (Counts[s] / TotalFaces) * 100).toFixed(1)}%`;
+        Seg.style.background = SlotBarColors[s];
+        BarSpans.push(Seg);
+    }
+
+    const HeroBanner = Construct('div', 'pz-shading-hero', [
+        Construct('div', 'pz-hero-top', [
+            Construct('div', null, [
+                Construct('span', 'pz-hero-eyebrow', Sel.hasSelection ? `SELECTED · ${Sel.title}` : ModePretty),
+                Construct('div', 'pz-hero-big', [
+                    document.createTextNode(String(DistinctMatcaps)),
+                    Construct('small', null, Sel.hasSelection ? 'MatCap(s) on Sel' : '/ 8 MatCaps')
+                ])
+            ]),
+            Construct('div', 'pz-hero-orb-stack', ActiveOrbImgs)
+        ]),
+        Construct('div', 'pz-hero-bar', BarSpans),
+        Construct('div', 'pz-hero-foot', [
+            Construct('span', null, Sel.scopeTag),
+            Construct('span', null, `${Sel.area3D.toFixed(2)} m² · ${Sel.uvCount} UVs`)
+        ])
+    ]);
+    Body.append(HeroBanner);
+
+    // 1B. Infographic Bento Tiles (Preserved design, driven dynamically by Selected Object / Surface!)
+    const TotalIssues = Sel.overlapCount + Sel.flippedCount;
+    const BentoGrid = Construct('div', 'pz-bento-grid', [
+        Construct('div', 'pz-bento-tile', [
+            Construct('span', `pz-bento-icon ${TotalIssues > 0 ? 'coral' : 'emerald'}`, TotalIssues > 0 ? '!' : '✓'),
+            Construct('span', 'pz-bento-label', TotalIssues > 0 ? 'Overlaps' : 'UV Health'),
+            Construct('div', 'pz-bento-num', [
+                document.createTextNode(String(TotalIssues)),
+                Construct('small', null, TotalIssues > 0 ? 'err' : 'ok')
+            ])
+        ]),
+        Construct('div', 'pz-bento-tile', [
+            Construct('span', 'pz-bento-icon amber', 'α'),
+            Construct('span', 'pz-bento-label', 'Stretch'),
+            Construct('div', 'pz-bento-num', [
+                document.createTextNode(Sel.meanStretchPct.toFixed(1)),
+                Construct('small', null, '%')
+            ])
+        ]),
+        Construct('div', 'pz-bento-tile', [
+            Construct('span', 'pz-bento-icon cobalt', '✦'),
+            Construct('span', 'pz-bento-label', 'Density'),
+            Construct('div', 'pz-bento-num', [
+                document.createTextNode(Sel.avgDensity.toFixed(1)),
+                Construct('small', null, 'px')
+            ])
+        ]),
+        Construct('div', 'pz-bento-tile', [
+            Construct('span', 'pz-bento-icon emerald', '▣'),
+            Construct('span', 'pz-bento-label', Sel.hasSelection ? 'Selected' : 'Surface'),
+            Construct('div', 'pz-bento-num', [
+                document.createTextNode(String(Sel.faceCount)),
+                Construct('small', null, 'f')
+            ])
+        ])
+    ]);
+    Body.append(BentoGrid);
+
+    // 1C. Project-Zero 2D UV Selection Transform Card
+    RenderUvSelectionTransformCard(Body, Doc);
+
+    // 2. Per-Face Multi-MatCap Studio Swatches
+    const MatcapSec = SectionCard(Body, {
+        Id: 'multi-matcap',
+        Title: 'Per-Face Multi-MatCap',
+        Glyph: 'Sparkles',
+        Badge: Sel.hasSelection ? 'SELECTION' : `${DistinctMatcaps} ACTIVE`
+    });
+    MatcapSec.Inner.append(Construct('div', 'pz-sel-scope-bar', [
+        Construct('strong', null, Sel.hasSelection ? `Target: ${Sel.title}` : 'Target: Entire Surface (select part to isolate)'),
+        Construct('span', null, `${Sel.faceCount}f`)
+    ]));
+
+    const OrbGrid = Construct('div', 'pz-matcap-grid');
+    for (const Spec of MATCAP_STUDIO_CATALOG)
+    {
+        const UsedCount = Counts[Spec.slot];
+        const IsActiveSlot = Sel.dominantSlot === Spec.slot && UsedCount > 0;
+        const OrbImg = Construct('img');
+        OrbImg.src = GetCachedMatcapThumb(Spec.slot);
+        OrbImg.alt = Spec.label;
+        const Children = [OrbImg, Construct('small', null, Spec.label)];
+        if (UsedCount > 0) Children.push(Construct('span', 'pz-matcap-count', `${UsedCount}`));
+        const Btn = Construct('button', `pz-matcap-orb-btn${IsActiveSlot ? ' active' : ''}`, Children);
+        Btn.type = 'button';
+        Btn.title = Sel.hasSelection
+            ? `Assign "${Spec.label}" to ${Sel.title} (${Sel.faceCount} faces)`
+            : `Assign "${Spec.label}" to entire surface`;
+        Btn.addEventListener('click', () =>
+        {
+            RunWithUndo(`Assign MatCap: ${Spec.label}`, () =>
+            {
+                const Changed = Doc.surface.AssignMatcapToSelection(Spec.slot, Doc.islands);
+                if (Viewport3D && !['lit-matcap', 'multi-matcap'].includes(Viewport3D.shadingMode))
+                {
+                    Set3DShadingMode('lit-matcap');
+                }
+                Toast(Sel.hasSelection
+                    ? `Assigned "${Spec.label}" to ${Sel.title} (${Changed} faces)`
+                    : `Assigned "${Spec.label}" across surface (${Changed} faces)`);
+            });
+        });
+        OrbGrid.append(Btn);
+    }
+    MatcapSec.Inner.append(OrbGrid);
+
+    ActionRow(MatcapSec.Inner, [
+        {
+            Label: 'Auto-Assign by Part',
+            Glyph: 'Layers',
+            Tone: 'accent',
+            Act: () => RunWithUndo('Auto-Assign Engineering MatCaps', () =>
+            {
+                Doc.surface.AutoAssignMatcapsByPart(Doc.islands);
+                if (Viewport3D && !['lit-matcap', 'multi-matcap'].includes(Viewport3D.shadingMode))
+                {
+                    Set3DShadingMode('lit-matcap');
+                }
+                Toast(`Assigned multi-part Engineering MatCaps across ${Doc.islands.length} charts`);
+            })
+        },
+        {
+            Label: 'Uniform CNC Alu',
+            Glyph: 'Reset',
+            Act: () => RunWithUndo('Reset CNC Aluminum MatCap', () =>
+            {
+                Doc.surface.AssignMatcapToFaces(Doc.surface.faces.map((_, i) => i), 0);
+                Toast('Reset all faces to CNC Aluminum');
+            })
+        }
+    ]);
 }
 
 function RenderPackingTab(Body, Doc)
@@ -2197,10 +2415,16 @@ function RenderPackingTab(Body, Doc)
         Write: V => { StudioState.pendingGroupPct = V; }
     });
 
-    ActionRow(SelBox, [
-        { Label: 'Assign Selection -> New Group', Glyph: 'Plus', Tone: 'accent', Act: () => AssignSelectedIslandsToNewGroup(StudioState.pendingGroupPct) },
-        { Label: 'Unassign -> Remainder', Glyph: 'Reset', Act: () => AssignSelectedToGroup(null) }
-    ]);
+    IconStripBlock(SelBox, {
+        Label: 'Selection Priority & Stacking',
+        Meta: `${StudioState.pendingGroupPct}% budget`,
+        Items: [
+            { Glyph: 'Plus', Short: 'New Group', Tone: 'accent', Title: `Assign selected islands to a new ${StudioState.pendingGroupPct}% priority group`, Act: () => AssignSelectedIslandsToNewGroup(StudioState.pendingGroupPct) },
+            { Glyph: 'StackUv', Short: 'Stack Sim', Title: 'Stack duplicate/similar UV islands on top of each other to share texels', Act: RunStackSimilarOp },
+            { Glyph: 'UnstackUv', Title: 'Unstack / spread overlapping duplicate islands', Act: RunUnstackOp },
+            { Glyph: 'Reset', Title: 'Return selected islands to automatic remainder pool', Act: () => AssignSelectedToGroup(null) }
+        ]
+    });
     AllocSec.Inner.append(SelBox);
 
     // Explicit Group Cards
@@ -2351,30 +2575,46 @@ function RenderPackingTab(Body, Doc)
 
 function RenderUnwrapTab(Body, Doc)
 {
+    const Sel = ComputeInspectorSelectionInfo(Doc);
     RenderUvSelectionTransformCard(Body, Doc);
 
+    // 1. Unwrap, Projections, Follow Active Quads & Stack Similar UVs (Compact Icon-Driven)
     const UnwrapSec = SectionCard(Body, {
         Id: 'unwrap-ops',
-        Title: 'Unwrap & Analytic Projections',
+        Title: 'Unwrap, Quads & Stacking',
         Glyph: 'Unwrap',
-        Badge: 'BLENDER TOOLSET'
+        Badge: Sel.hasSelection ? `${Sel.faceCount}F` : 'SURFACE'
     });
     ActionRow(UnwrapSec.Inner, [
         { Label: 'LSCM Unwrap (U)', Glyph: 'Unwrap', Tone: 'accent', Act: () => RunUnwrap('lscm') },
-        { Label: 'Smart UV Project', Glyph: 'Sparkles', Act: () => RunUnwrap('smart') }
+        { Label: 'Smart UV', Glyph: 'Sparkles', Act: () => RunUnwrap('smart') }
     ]);
-    ActionRow(UnwrapSec.Inner, [
-        { Label: 'Cube', Act: () => RunUnwrap('cube') },
-        { Label: 'Cylinder', Act: () => RunUnwrap('cylinder') },
-        { Label: 'Sphere', Act: () => RunUnwrap('sphere') },
-        { Label: 'Follow Quads', Act: () => RunUnwrap('follow-quads') }
-    ]);
-    ActionRow(UnwrapSec.Inner, [
-        { Label: 'View Project', Act: () => RunUnwrap('view') },
-        { Label: 'Reset UVs', Act: () => RunUnwrap('reset') }
-    ]);
+
+    IconStripBlock(UnwrapSec.Inner, {
+        Label: 'Quad Strip & Similar Stacking',
+        Meta: '1-click',
+        Items: [
+            { Glyph: 'FollowQuads', Short: 'Follow Quads', Tone: 'warm', Title: 'Follow Active Quads — unwrap connected quads into an orthogonal UV strip', Act: () => RunUnwrap('follow-quads') },
+            { Glyph: 'StackUv', Short: 'Stack Similar', Tone: 'accent', Title: 'Stack Similar UVs — align & snap matching UV islands directly on top of each other', Act: RunStackSimilarOp },
+            { Glyph: 'UnstackUv', Title: 'Spread / Unstack overlapping duplicate UV islands', Act: RunUnstackOp }
+        ]
+    });
+
+    IconStripBlock(UnwrapSec.Inner, {
+        Label: 'Analytic Projections',
+        Meta: `${StudioState.smartAngleDeg}°`,
+        Items: [
+            { Glyph: 'Cube', Title: 'Cube Projection', Act: () => RunUnwrap('cube') },
+            { Glyph: 'Cylinder', Title: 'Cylinder Projection', Act: () => RunUnwrap('cylinder') },
+            { Glyph: 'Sphere', Title: 'Sphere Projection', Act: () => RunUnwrap('sphere') },
+            { Glyph: 'CameraView', Title: 'Project from Camera View', Act: () => RunUnwrap('view') },
+            '|',
+            { Glyph: 'Reset', Title: 'Reset Face UVs to [0..1]', Act: () => RunUnwrap('reset') }
+        ]
+    });
+
     SliderRow(UnwrapSec.Inner, {
-        Label: 'Smart Project Angle Limit',
+        Label: 'Smart Angle Limit',
         Minimum: 10,
         Maximum: 89,
         Step: 1,
@@ -2385,19 +2625,83 @@ function RenderUnwrapTab(Body, Doc)
     });
     SwitchRow(UnwrapSec.Inner, {
         Label: 'Live Unwrap',
-        Detail: 'Re-solve LSCM continuously when pinning or moving pins',
+        Detail: 'Continuously re-solve LSCM while moving pins',
         Read: () => StudioState.liveUnwrap,
         Write: V => { StudioState.liveUnwrap = V; }
     });
 
+    // 2. Unified Icon Toolbars: Alignment, Pinning, Seam & Weld (Zero Text Clutter!)
+    const ToolSec = SectionCard(Body, {
+        Id: 'align-rectify',
+        Title: 'Align, Pin & Seam Icons',
+        Glyph: 'Align',
+        Badge: `${Doc.surface.pinned.size} PIN · ${Doc.surface.seams.size} SEAM`
+    });
+
+    const ExecAlign = (Lbl, Op) => RunWithUndo(Lbl, () =>
+    {
+        const Piv = ComputeSelectionPivot(Doc) || StudioState.cursorUV;
+        ApplyAlignOrRectify(Doc.surface, Op, Piv);
+        Toast(`${Lbl} applied`);
+    });
+
+    IconStripBlock(ToolSec.Inner, {
+        Label: 'Alignment & Rectify',
+        Meta: 'U / V',
+        Items: [
+            { Glyph: 'AlignLeft', Title: 'Align Left (Min U)', Act: () => ExecAlign('Align Min U', 'align-u-min') },
+            { Glyph: 'AlignCenterH', Title: 'Align Horizontal Center (U)', Act: () => ExecAlign('Align U Center', 'align-u-center') },
+            { Glyph: 'AlignRight', Title: 'Align Right (Max U)', Act: () => ExecAlign('Align Max U', 'align-u-max') },
+            '|',
+            { Glyph: 'AlignTop', Title: 'Align Top (Max V)', Act: () => ExecAlign('Align Top V', 'align-v-max') },
+            { Glyph: 'AlignCenterV', Title: 'Align Vertical Middle (V)', Act: () => ExecAlign('Align V Center', 'align-v-center') },
+            { Glyph: 'AlignBottom', Title: 'Align Bottom (Min V)', Act: () => ExecAlign('Align Bottom V', 'align-v-min') },
+            '|',
+            { Glyph: 'Straighten', Title: 'Straighten UV Line', Act: () => ExecAlign('Straighten', 'straighten') },
+            { Glyph: 'Rectify', Title: 'Rectify Selected Quads', Act: () => ExecAlign('Rectify Quads', 'rectify-quads') },
+            { Glyph: 'Mirror', Title: 'Mirror Horizontal (U)', Act: () => ExecAlign('Mirror U', 'mirror-u') },
+            { Glyph: 'MirrorV', Title: 'Mirror Vertical (V)', Act: () => ExecAlign('Mirror V', 'mirror-v') }
+        ]
+    });
+
+    IconStripBlock(ToolSec.Inner, {
+        Label: 'Pin & Topology',
+        Meta: `${Sel.pinnedCount}/${Doc.surface.pinned.size} pinned`,
+        Items: [
+            { Glyph: 'Pin', Tone: 'warm', Title: 'Pin Selected UVs (P)', Act: () => RunWithUndo('Pin', () => { const C = Doc.surface.PinSelected(true); Toast(`Pinned ${C} UV(s)`); }) },
+            { Glyph: 'PinOff', Title: 'Unpin Selected UVs (Alt+P)', Act: () => RunWithUndo('Unpin', () => { const C = Doc.surface.PinSelected(false); Toast(`Unpinned ${C} UV(s)`); }) },
+            { Glyph: 'PinBorder', Title: 'Pin Chart Boundary UVs', Act: () => RunWithUndo('Pin Boundary', () => { const C = Doc.surface.PinIslandBoundaries(); Toast(`Pinned ${C} boundary UVs`); }) },
+            { Glyph: 'Trash', Title: 'Clear All Pins on Surface', Act: () => RunWithUndo('Clear Pins', () => { const N = Doc.surface.pinned.size; Doc.surface.pinned.clear(); Toast(`Cleared ${N} pin(s)`); }) },
+            '|',
+            { Glyph: 'Split', Title: 'Split UV Island (Y)', Act: () => RunWithUndo('Split Island', () => { Doc.surface.SplitSelection(); }) },
+            { Glyph: 'Stitch', Title: 'Stitch Shared Boundary UVs (V)', Act: () => RunWithUndo('Stitch', () => { const N = Doc.surface.StitchSelected(Doc.islands); Toast(`Stitched ${N} UV pairs`); }) },
+            { Glyph: 'Merge', Title: 'Weld / Merge Selected UVs (M)', Act: () => RunWithUndo('Weld', () => { const N = Doc.surface.WeldSelected(); Toast(`Welded ${N} UVs`); }) }
+        ]
+    });
+
+    IconStripBlock(ToolSec.Inner, {
+        Label: 'Seams & Loops',
+        Meta: `${Doc.surface.seams.size} seams`,
+        Items: [
+            { Glyph: 'Scissors', Tone: 'accent', Title: 'Mark Seam on Selected Edges/Bounds', Act: () => RunEdgeOrSeamOp('mark-seam') },
+            { Glyph: 'Close', Title: 'Clear Seam on Selection', Act: () => RunEdgeOrSeamOp('clear-seam') },
+            { Glyph: 'SeamWeld', Title: 'Clear Seam & Weld Shared UVs', Act: () => RunEdgeOrSeamOp('clear-seam-weld') },
+            '|',
+            { Glyph: 'SharpEdge', Title: `Mark Sharp Edges (>= ${StudioState.sharpAngleDeg}°) as Seams`, Act: () => RunEdgeOrSeamOp('mark-sharp-seam') },
+            { Glyph: 'Island', Title: 'Mark Seams from Current UV Island Borders', Act: () => RunEdgeOrSeamOp('seams-from-islands') },
+            { Glyph: 'Edge', Title: 'Select Edge Loop (Alt+Click)', Act: () => RunEdgeOrSeamOp('select-loop') }
+        ]
+    });
+
+    // 3. Relax & Texel Density (Compact)
     const RelaxSec = SectionCard(Body, {
         Id: 'relax-density',
-        Title: 'Minimize Stretch & Texel Density',
+        Title: 'Relax & Texel Density',
         Glyph: 'Relax',
-        Badge: 'PX/CM'
+        Badge: `${Sel.avgDensity.toFixed(1)} PX/CM`
     });
     SliderRow(RelaxSec.Inner, {
-        Label: 'Relax Iterations',
+        Label: 'Relax Passes',
         Minimum: 4,
         Maximum: 60,
         Step: 2,
@@ -2407,7 +2711,7 @@ function RenderUnwrapTab(Body, Doc)
         Write: V => { StudioState.relaxIterations = V; }
     });
     SliderRow(RelaxSec.Inner, {
-        Label: 'Target Texel Density',
+        Label: 'Target Density',
         Minimum: 1,
         Maximum: 64,
         Step: 0.5,
@@ -2416,324 +2720,362 @@ function RenderUnwrapTab(Body, Doc)
         Read: () => StudioState.targetTexelDensity,
         Write: V => { StudioState.targetTexelDensity = V; SyncAllViews(); }
     });
-    ActionRow(RelaxSec.Inner, [
-        {
-            Label: 'Minimize Stretch (Ctrl+V)',
-            Glyph: 'Relax',
-            Tone: 'warm',
-            Act: () => RunWithUndo('Minimize Stretch', () =>
+    IconStripBlock(RelaxSec.Inner, {
+        Label: 'Stretch & Density Actions',
+        Items: [
             {
-                const Moved = MinimizeStretch(Doc.surface, { iterations: StudioState.relaxIterations, onlySelected: Doc.surface.selectedUVs.size > 0, islands: Doc.islands });
-                LogEvent('RELAX', `Minimized stretch (${Moved} UVs, ${StudioState.relaxIterations} passes)`, 'live');
-                Toast(`Stretch relaxed (${Moved} UVs)`);
-            })
-        },
-        {
-            Label: 'Average Scale (Ctrl+A)',
-            Glyph: 'Scale',
-            Act: () => RunWithUndo('Average Scale', () =>
-            {
-                AverageIslandScale(Doc.surface, Doc.islands, Doc.surface.selectedIslands.size > 0);
-                LogEvent('SCALE', 'Equalized island texel density');
-                Toast('Average Island Scale applied');
-            })
-        }
-    ]);
-    ActionRow(RelaxSec.Inner, [
-        {
-            Label: 'Apply Target Texel Density',
-            Glyph: 'Gauge',
-            Act: () => RunWithUndo('Apply Texel Density', () =>
-            {
-                const TileResMap = new Map(Doc.udimTiles.map(T => [T.id, T.resolution || 2048]));
-                const Islands = Doc.surface.ExtractIslands(Id => TileResMap.get(Id) || 2048, 100);
-                const Targets = Doc.surface.selectedIslands.size
-                    ? Islands.filter(I => Doc.surface.selectedIslands.has(I.id))
-                    : Islands;
-                for (const Isl of Targets)
+                Glyph: 'Relax', Short: 'Relax', Tone: 'warm', Title: 'Minimize Stretch (Ctrl+V)',
+                Act: () => RunWithUndo('Minimize Stretch', () =>
                 {
-                    if (Isl.texelDensity <= 1e-6) continue;
-                    const K = StudioState.targetTexelDensity / Isl.texelDensity;
-                    const Cx = Isl.bounds.centerU, Cy = Isl.bounds.centerV;
-                    for (const UvIdx of Isl.uvIndices)
-                    {
-                        Doc.surface.uvCoords[UvIdx][0] = Cx + (Doc.surface.uvCoords[UvIdx][0] - Cx) * K;
-                        Doc.surface.uvCoords[UvIdx][1] = Cy + (Doc.surface.uvCoords[UvIdx][1] - Cy) * K;
-                    }
-                }
-                Toast(`Scaled ${Targets.length} islands to ${StudioState.targetTexelDensity} px/cm`);
-            })
-        }
-    ]);
-
-    const TopoSec = SectionCard(Body, {
-        Id: 'edges-boundaries-seams',
-        Title: 'Edges, Boundaries & Seams',
-        Glyph: 'Scissors',
-        Badge: `${Doc.surface.seams.size} SEAMS`,
-        Hint: 'Select 2 Edge mode to click edges (Alt Loop · Ctrl+Alt Ring · Ctrl Shortest Path) or use Seam Brush [K].'
-    });
-    SliderRow(TopoSec.Inner, {
-        Label: 'Sharp Edge Angle Threshold',
-        Minimum: 5,
-        Maximum: 120,
-        Step: 1,
-        Digits: 0,
-        Unit: '°',
-        Read: () => StudioState.sharpAngleDeg,
-        Write: V => { StudioState.sharpAngleDeg = V; }
-    });
-    ActionRow(TopoSec.Inner, [
-        { Label: 'Edge Loop', Glyph: 'Edge', Act: () => RunEdgeOrSeamOp('select-loop') },
-        { Label: 'Edge Ring', Act: () => RunEdgeOrSeamOp('select-ring') },
-        { Label: 'Boundary Loop', Act: () => RunEdgeOrSeamOp('select-boundary-auto') },
-        { Label: 'Sharp Edges', Act: () => RunEdgeOrSeamOp('select-sharp') }
-    ]);
-    ActionRow(TopoSec.Inner, [
-        { Label: 'Select Seams', Act: () => RunEdgeOrSeamOp('select-seams') },
-        { Label: 'Open Mesh Bounds', Act: () => RunEdgeOrSeamOp('select-boundary-mesh') },
-        { Label: 'Grow (+)', Act: () => RunEdgeOrSeamOp('grow-sel') },
-        { Label: 'Shrink (-)', Act: () => RunEdgeOrSeamOp('shrink-sel') }
-    ]);
-    ActionRow(TopoSec.Inner, [
-        { Label: 'Mark Seam', Glyph: 'Scissors', Tone: 'accent', Act: () => RunEdgeOrSeamOp('mark-seam') },
-        { Label: 'Clear Seam', Act: () => RunEdgeOrSeamOp('clear-seam') },
-        { Label: 'Clear & Weld', Act: () => RunEdgeOrSeamOp('clear-seam-weld') }
-    ]);
-    ActionRow(TopoSec.Inner, [
-        { Label: 'Mark Bounds -> Seams', Tone: 'warm', Act: () => RunEdgeOrSeamOp('mark-boundary-seam') },
-        { Label: 'Mark Sharp -> Seams', Act: () => RunEdgeOrSeamOp('mark-sharp-seam') },
-        { Label: 'Seams from Islands', Act: () => RunEdgeOrSeamOp('seams-from-islands') }
-    ]);
-
-    const PinWeldSec = SectionCard(Body, {
-        Id: 'topo-pins',
-        Title: 'Pins, Split, Stitch & Weld',
-        Glyph: 'Pin',
-        Badge: 'WELD / SPLIT'
-    });
-    ActionRow(PinWeldSec.Inner, [
-        { Label: 'Pin (P)', Glyph: 'Pin', Act: () => RunWithUndo('Pin', () => { Doc.surface.PinSelected(true); }) },
-        { Label: 'Unpin (Alt+P)', Glyph: 'PinOff', Act: () => RunWithUndo('Unpin', () => { Doc.surface.PinSelected(false); }) },
-        { Label: 'Pin Boundary', Act: () => RunWithUndo('Pin Boundary', () => { const C = Doc.surface.PinIslandBoundaries(); Toast(`Pinned ${C} boundary verts`); }) }
-    ]);
-    ActionRow(PinWeldSec.Inner, [
-        { Label: 'Split Island (Y)', Glyph: 'Split', Act: () => RunWithUndo('Split Island', () => { Doc.surface.SplitSelection(); }) },
-        { Label: 'Stitch (V)', Glyph: 'Stitch', Act: () => RunWithUndo('Stitch', () => { const N = Doc.surface.StitchSelected(Doc.islands); Toast(`Stitched ${N} UV pairs`); }) },
-        { Label: 'Merge / Weld (M)', Glyph: 'Merge', Act: () => RunWithUndo('Weld', () => { const N = Doc.surface.WeldSelected(); Toast(`Merged ${N} UVs`); }) }
-    ]);
-
-    const AlignSec = SectionCard(Body, {
-        Id: 'align-rectify',
-        Title: 'Align, Straighten, Mirror & Rectify',
-        Glyph: 'Align',
-        Badge: 'UV PRECISION'
-    });
-    const AlignGrid = Construct('div', 'align-grid');
-    const AlignOps = [
-        ['Align U Ctr', 'align-u-center'], ['Align V Ctr', 'align-v-center'], ['Straighten', 'straighten'],
-        ['Align Min U', 'align-u-min'], ['Align Max U', 'align-u-max'], ['Rectify Quads', 'rectify-quads'],
-        ['Align Top V', 'align-v-max'], ['Align Bot V', 'align-v-min'], ['Mirror U', 'mirror-u']
-    ];
-    for (const [Lbl, Op] of AlignOps)
-    {
-        const Btn = Construct('button', 'action-button', Lbl);
-        Btn.type = 'button';
-        Btn.addEventListener('click', () =>
-        {
-            RunWithUndo(Lbl, () =>
+                    const Moved = MinimizeStretch(Doc.surface, { iterations: StudioState.relaxIterations, onlySelected: Doc.surface.selectedUVs.size > 0, islands: Doc.islands });
+                    LogEvent('RELAX', `Minimized stretch (${Moved} UVs, ${StudioState.relaxIterations} passes)`, 'live');
+                    Toast(`Stretch relaxed (${Moved} UVs)`);
+                })
+            },
             {
-                const Piv = ComputeSelectionPivot(Doc) || StudioState.cursorUV;
-                ApplyAlignOrRectify(Doc.surface, Op, Piv);
-                Toast(`${Lbl} applied`);
-            });
-        });
-        AlignGrid.append(Btn);
-    }
-    AlignSec.Inner.append(AlignGrid);
+                Glyph: 'Scale', Short: 'Avg Scale', Title: 'Average Island Scale (Ctrl+A)',
+                Act: () => RunWithUndo('Average Scale', () =>
+                {
+                    AverageIslandScale(Doc.surface, Doc.islands, Doc.surface.selectedIslands.size > 0);
+                    LogEvent('SCALE', 'Equalized island texel density');
+                    Toast('Average Island Scale applied');
+                })
+            },
+            {
+                Glyph: 'Gauge', Short: 'Set px/cm', Title: `Scale target charts to ${StudioState.targetTexelDensity} px/cm`,
+                Act: () => RunWithUndo('Apply Texel Density', () =>
+                {
+                    const TileResMap = new Map(Doc.udimTiles.map(T => [T.id, T.resolution || 2048]));
+                    const Islands = Doc.surface.ExtractIslands(Id => TileResMap.get(Id) || 2048, 100);
+                    const Targets = Doc.surface.selectedIslands.size
+                        ? Islands.filter(I => Doc.surface.selectedIslands.has(I.id))
+                        : Islands;
+                    for (const Isl of Targets)
+                    {
+                        if (Isl.texelDensity <= 1e-6) continue;
+                        const K = StudioState.targetTexelDensity / Isl.texelDensity;
+                        const Cx = Isl.bounds.centerU, Cy = Isl.bounds.centerV;
+                        for (const UvIdx of Isl.uvIndices)
+                        {
+                            Doc.surface.uvCoords[UvIdx][0] = Cx + (Doc.surface.uvCoords[UvIdx][0] - Cx) * K;
+                            Doc.surface.uvCoords[UvIdx][1] = Cy + (Doc.surface.uvCoords[UvIdx][1] - Cy) * K;
+                        }
+                    }
+                    Toast(`Scaled ${Targets.length} islands to ${StudioState.targetTexelDensity} px/cm`);
+                })
+            }
+        ]
+    });
+}
 
-    const BlenderSelSec = SectionCard(Body, {
-        Id: 'blender-selection-tools',
-        Title: 'Blender Selection, Loops & Random',
-        Glyph: 'Select',
-        Badge: 'SHIFT+G / RANDOM'
-    });
-    SliderPill(BlenderSelSec.Inner, {
-        Label: 'Similar Tolerance',
-        Min: 1,
-        Max: 80,
-        Step: 1,
-        Digits: 0,
-        Unit: '%',
-        Read: () => Math.round(StudioState.selectSimilarTol * 100),
-        Write: V => { StudioState.selectSimilarTol = V / 100; }
-    });
-    SliderPill(BlenderSelSec.Inner, {
-        Label: 'Normal / Flat Angle',
-        Min: 1,
-        Max: 90,
-        Step: 1,
-        Digits: 0,
-        Unit: '°',
-        Read: () => StudioState.selectSimilarAngle,
-        Write: V => { StudioState.selectSimilarAngle = V; }
-    });
-    SliderPill(BlenderSelSec.Inner, {
-        Label: 'Select Random Ratio',
-        Min: 5,
-        Max: 95,
-        Step: 5,
-        Digits: 0,
-        Unit: '%',
-        Read: () => Math.round(StudioState.selectRandomRatio * 100),
-        Write: V => { StudioState.selectRandomRatio = V / 100; }
-    });
-    ActionRow(BlenderSelSec.Inner, [
-        { Label: 'Face / Edge Loop', Act: () => RunSelectOp('loop') },
-        { Label: 'Inner Region', Act: () => RunSelectOp('loop-inner-region') },
-        { Label: 'Flat Faces', Act: () => RunSelectOp('linked-flat') },
-        { Label: 'Same UV Island', Tone: 'accent', Act: () => RunSelectOp('same-island') }
-    ]);
-    ActionRow(BlenderSelSec.Inner, [
-        { Label: 'Sim: UV Perim', Act: () => RunSelectOp('sim:perimeter_uv') },
-        { Label: 'Sim: 3D Perim', Act: () => RunSelectOp('sim:perimeter_3d') },
-        { Label: 'Sim: 3D Area', Act: () => RunSelectOp('sim:area_3d') },
-        { Label: 'Sim: Normal', Act: () => RunSelectOp('sim:normal') }
-    ]);
-    ActionRow(BlenderSelSec.Inner, [
-        { Label: 'Select Random', Tone: 'warm', Act: () => RunSelectOp('random') },
-        { Label: 'Checker Desel', Act: () => RunSelectOp('checker') },
-        { Label: 'Shift+G Menu', Act: () => OpenSelectSimilarMenu(LastPointerClient[0], LastPointerClient[1]) }
-    ]);
+function DrawMiniUdimBlueprint(CanvasEl, Doc, TileId, TileIslands)
+{
+    const W = 96, H = 56;
+    CanvasEl.width = W;
+    CanvasEl.height = H;
+    const Ctx = CanvasEl.getContext('2d');
+    if (!Ctx) return;
+
+    Ctx.fillStyle = '#0b0c10';
+    Ctx.fillRect(0, 0, W, H);
+    Ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    Ctx.lineWidth = 1;
+    for (let g = 1; g < 4; g++)
+    {
+        Ctx.beginPath(); Ctx.moveTo((W * g) / 4, 0); Ctx.lineTo((W * g) / 4, H); Ctx.stroke();
+        Ctx.beginPath(); Ctx.moveTo(0, (H * g) / 4); Ctx.lineTo(W, (H * g) / 4); Ctx.stroke();
+    }
+
+    const Orig = UdimOrigin(TileId);
+    const GroupColors = new Map(Doc.importanceGroups.map(G => [G.id, G.color]));
+    for (const Isl of TileIslands)
+    {
+        if (Isl.hidden) continue;
+        const IsSel = Doc.surface.selectedIslands.has(Isl.id);
+        const FillCol = IsSel ? 'rgba(239, 244, 207, 0.72)' : (GroupColors.get(Isl.importanceGroupId) ? `${GroupColors.get(Isl.importanceGroupId)}88` : 'rgba(96, 165, 250, 0.45)');
+        Ctx.fillStyle = FillCol;
+        const Step = Math.max(1, Math.floor(Isl.faceIndices.length / 80));
+        for (let idx = 0; idx < Isl.faceIndices.length; idx += Step)
+        {
+            const Cr = Doc.surface.faces[Isl.faceIndices[idx]]?.corners;
+            if (!Cr || Cr.length < 3) continue;
+            Ctx.beginPath();
+            for (let k = 0; k < Cr.length; k++)
+            {
+                const Uv = Doc.surface.uvCoords[Cr[k].uv];
+                const Px = (Uv[0] - Orig.u) * W;
+                const Py = (1.0 - (Uv[1] - Orig.v)) * H;
+                if (k === 0) Ctx.moveTo(Px, Py);
+                else Ctx.lineTo(Px, Py);
+            }
+            Ctx.closePath();
+            Ctx.fill();
+        }
+    }
 }
 
 function RenderUdimTab(Body, Doc)
 {
-    const GridSec = SectionCard(Body, {
-        Id: 'udim-matrix',
-        Title: 'UDIM Tile Matrix (1001+)',
-        Glyph: 'Grid',
-        Badge: `${Doc.udimTiles.length} ACTIVE`,
-        Hint: 'Mari / Blender UDIM addressing: 1001 + u + v*10. Click any slot to focus or activate.'
+    const TileMap = new Map(Doc.udimTiles.map(T => [T.id, T]));
+    const IslandsByTile = new Map();
+    const OccByTile = new Map();
+    let MaxRowUsed = 2;
+    for (const T of Doc.udimTiles)
+    {
+        const R = Math.floor(Math.max(0, T.id - 1001) / 10);
+        if (R > MaxRowUsed) MaxRowUsed = R;
+    }
+    const NumRows = Math.max(StudioState.udimMatrixRows || 3, MaxRowUsed + 1);
+
+    for (const Isl of Doc.islands)
+    {
+        if (!IslandsByTile.has(Isl.udimTile)) IslandsByTile.set(Isl.udimTile, []);
+        IslandsByTile.get(Isl.udimTile).push(Isl);
+        if (!Isl.hidden) OccByTile.set(Isl.udimTile, (OccByTile.get(Isl.udimTile) || 0) + Isl.areaUV);
+    }
+
+    const TotalMpx = Doc.udimTiles.reduce((S, T) => S + ((T.resolution || 2048) * (T.resolution || 2048)) / 1e6, 0);
+
+    // 1. Spatial Mari / Foundry UDIM Matrix with Live Mini UV Blueprints + Resolution Tier Badges
+    const Shell = Construct('section', 'pz-udim-atlas-shell');
+    const AddRowBtn = Construct('button', 'text-pill-btn', '+ V Row');
+    AddRowBtn.type = 'button';
+    AddRowBtn.title = 'Expand UDIM matrix vertically (1031+)';
+    AddRowBtn.addEventListener('click', () =>
+    {
+        StudioState.udimMatrixRows = NumRows + 1;
+        RebuildInspector();
     });
 
-    const Matrix = Construct('div', 'udim-matrix-grid');
-    const TileMap = new Map(Doc.udimTiles.map(T => [T.id, T]));
-    const CntMap = new Map();
-    for (const Isl of Doc.islands) CntMap.set(Isl.udimTile, (CntMap.get(Isl.udimTile) || 0) + 1);
+    Shell.append(Construct('div', 'pz-udim-atlas-top', [
+        Construct('strong', null, `Spatial UDIM Matrix · ${Doc.udimTiles.length} Tiles`),
+        Construct('div', null, [
+            Construct('span', null, `${TotalMpx.toFixed(1)} MP · `),
+            AddRowBtn
+        ])
+    ]));
 
-    for (let row = 2; row >= 0; row--)
+    const VRail = Construct('div', 'pz-udim-v-rail');
+    VRail.style.gridTemplateRows = `repeat(${NumRows}, 1fr)`;
+    const SpatialGrid = Construct('div', 'pz-udim-spatial-grid');
+    const ResCycle = [1024, 2048, 4096, 8192];
+
+    for (let row = NumRows - 1; row >= 0; row--)
     {
+        VRail.append(Construct('span', null, `V${row}`));
         for (let col = 0; col < 4; col++)
         {
             const Id = 1001 + col + row * 10;
             const Tile = TileMap.get(Id);
-            const Cell = Construct('button', 'udim-cell-btn' + (Doc.activeUdim === Id ? ' active' : ''), [
-                Construct('strong', null, String(Id)),
-                Construct('small', null, Tile ? `${Tile.resolution >= 1024 ? Tile.resolution / 1024 + 'K' : Tile.resolution} · ${CntMap.get(Id) || 0} isl` : 'Empty (+)')
+            const TileIslands = IslandsByTile.get(Id) || [];
+            const OccPct = Math.min(100, (OccByTile.get(Id) || 0) * 100);
+            const Res = Tile?.resolution || 2048;
+            const ResLabel = Res >= 1024 ? `${Res / 1024}K` : `${Res}`;
+            const ResTierCls = Res >= 8192 ? 'res-8k' : Res >= 4096 ? 'res-4k' : Res >= 2048 ? 'res-2k' : 'res-1k';
+
+            const ResBadge = Tile ? Construct('span', `pz-udim-res-badge ${ResTierCls}`, ResLabel) : null;
+            if (ResBadge)
+            {
+                ResBadge.title = `Click to cycle UDIM ${Id} resolution (1K / 2K / 4K / 8K)`;
+                ResBadge.addEventListener('click', E =>
+                {
+                    E.stopPropagation();
+                    const NextIdx = (ResCycle.indexOf(Res) + 1) % ResCycle.length;
+                    Tile.resolution = ResCycle[NextIdx];
+                    Doc.activeUdim = Id;
+                    SyncAllViews(true);
+                    Toast(`UDIM ${Id} resolution → ${Tile.resolution / 1024}K`);
+                });
+            }
+
+            let PreviewNode;
+            if (Tile)
+            {
+                const MiniCv = Construct('canvas', 'pz-udim-mini-canvas');
+                DrawMiniUdimBlueprint(MiniCv, Doc, Id, TileIslands);
+                PreviewNode = MiniCv;
+            }
+            else
+            {
+                PreviewNode = Construct('div', 'pz-udim-empty-plus', '+ Allocate');
+            }
+
+            const FillBar = Construct('div', 'pz-udim-occ-fill');
+            FillBar.style.width = `${Tile ? Math.max(3, OccPct) : 0}%`;
+
+            const Cell = Construct('div', `pz-udim-tile-card${Tile ? '' : ' empty'}${Doc.activeUdim === Id ? ' active' : ''}`, [
+                Construct('div', 'pz-udim-cell-head', [
+                    Construct('span', 'pz-udim-cell-id', String(Id)),
+                    ResBadge
+                ]),
+                PreviewNode,
+                Construct('div', 'pz-udim-cell-foot', [
+                    Construct('div', 'pz-udim-cell-meta', [
+                        Construct('span', null, Tile ? `${TileIslands.length} ch` : '—'),
+                        Construct('span', null, Tile ? `${OccPct.toFixed(0)}%` : `u${col},v${row}`)
+                    ]),
+                    Construct('div', 'pz-udim-occ-track', [FillBar])
+                ])
             ]);
-            Cell.type = 'button';
-            Cell.addEventListener('click', () =>
+            Cell.title = Tile
+                ? `Focus UDIM ${Id} (${Res}×${Res} px · ${TileIslands.length} charts · Shift+Click moves selection here)`
+                : `Click to allocate & focus UDIM ${Id}`;
+            Cell.addEventListener('click', E =>
             {
                 if (!Tile)
                 {
                     Doc.udimTiles.push({ id: Id, label: `Tile ${Id}`, resolution: 2048, checkerMode: 'color' });
                     Doc.udimTiles.sort((A, B) => A.id - B.id);
-                    LogEvent('UDIM', `Added UDIM tile ${Id}`, 'live');
+                    LogEvent('UDIM', `Allocated UDIM tile ${Id} (2K)`, 'live');
                 }
                 Doc.activeUdim = Id;
+                if (E.shiftKey && Doc.surface.selectedIslands.size > 0)
+                {
+                    RunWithUndo(`Move Selection to UDIM ${Id}`, () =>
+                    {
+                        const Moved = Doc.surface.MoveIslandsToUdim([...Doc.surface.selectedIslands], Id, Doc.islands);
+                        Toast(`Moved ${Moved} chart(s) to UDIM ${Id}`);
+                    });
+                    return;
+                }
                 const O = UdimOrigin(Id);
                 Canvas2D.FrameBounds(O.u, O.v, O.u + 1, O.v + 1, 0.14);
                 SyncAllViews(true);
             });
-            Matrix.append(Cell);
+            SpatialGrid.append(Cell);
         }
     }
-    GridSec.Inner.append(Matrix);
 
-    ActionRow(GridSec.Inner, [
-        {
-            Label: 'Move Selected -> Active UDIM',
-            Glyph: 'Move',
-            Tone: 'accent',
-            Act: () => RunWithUndo('Move to UDIM', () =>
-            {
-                if (!Doc.surface.selectedIslands.size) { Toast('Select islands first'); return; }
-                const Moved = Doc.surface.MoveIslandsToUdim([...Doc.surface.selectedIslands], Doc.activeUdim, Doc.islands);
-                Toast(`Moved ${Moved} island(s) to UDIM ${Doc.activeUdim}`);
-            })
-        },
-        {
-            Label: 'Equalize Cross-UDIM Density',
-            Glyph: 'Gauge',
-            Act: () => RunWithUndo('Cross-UDIM Density Match', () =>
-            {
-                const TileResMap = new Map(Doc.udimTiles.map(T => [T.id, T.resolution || 2048]));
-                const Islands = Doc.surface.ExtractIslands(Id => TileResMap.get(Id) || 2048, 100);
-                const MeanDen = Islands.reduce((S, I) => S + I.texelDensity, 0) / Math.max(1, Islands.length);
-                for (const Isl of Islands)
-                {
-                    if (Isl.texelDensity <= 1e-6) continue;
-                    const K = MeanDen / Isl.texelDensity;
-                    const Cx = Isl.bounds.centerU, Cy = Isl.bounds.centerV;
-                    for (const UvIdx of Isl.uvIndices)
-                    {
-                        Doc.surface.uvCoords[UvIdx][0] = Cx + (Doc.surface.uvCoords[UvIdx][0] - Cx) * K;
-                        Doc.surface.uvCoords[UvIdx][1] = Cy + (Doc.surface.uvCoords[UvIdx][1] - Cy) * K;
-                    }
-                }
-                Toast(`Matched texel density across mixed-resolution UDIMs (${MeanDen.toFixed(1)} px/cm)`);
-            })
-        }
+    const URail = Construct('div', 'pz-udim-u-rail', [
+        Construct('span', null, 'U0'),
+        Construct('span', null, 'U1'),
+        Construct('span', null, 'U2'),
+        Construct('span', null, 'U3')
     ]);
+    Shell.append(Construct('div', 'pz-udim-coord-wrap', [VRail, SpatialGrid]), URail);
+    Body.append(Shell);
 
+    // 2. Active UDIM Resolution Deck & Tile Controls
     const ActiveTile = Doc.udimTiles.find(T => T.id === Doc.activeUdim) || Doc.udimTiles[0];
     if (ActiveTile)
     {
+        const ActiveIslands = IslandsByTile.get(ActiveTile.id) || [];
+        const TileAvgDen = ActiveIslands.length
+            ? ActiveIslands.reduce((S, I) => S + I.texelDensity, 0) / ActiveIslands.length
+            : 0;
+
         const TileSec = SectionCard(Body, {
             Id: 'udim-tile-props',
-            Title: `UDIM ${ActiveTile.id} Properties`,
-            Glyph: 'Sliders',
-            Badge: ActiveTile.label || 'TILE'
+            Title: `UDIM ${ActiveTile.id} Resolution & Backing`,
+            Glyph: 'Grid',
+            Badge: `${ActiveTile.resolution >= 1024 ? ActiveTile.resolution / 1024 + 'K' : ActiveTile.resolution + 'px'} · ${TileAvgDen.toFixed(1)} px/cm`
         });
 
-        SelectRow(TileSec.Inner, {
-            Label: 'Tile Texture Resolution',
-            Options: [['512 px', 512], ['1024 px (1K)', 1024], ['2048 px (2K)', 2048], ['4096 px (4K)', 4096], ['8192 px (8K)', 8192]],
-            Read: () => ActiveTile.resolution,
-            Write: V => { ActiveTile.resolution = Number(V); SyncAllViews(); }
-        });
-        SelectRow(TileSec.Inner, {
-            Label: 'Tile Backing Pattern',
-            Options: [['Color Calibration Grid', 'color'], ['UV Letter Grid', 'uv'], ['Classic Checkerboard', 'checker'], ['Solid Slate', 'blank']],
+        const ResDeck = Construct('div', 'pz-udim-res-pills');
+        for (const [Tag, Sub, Px] of [
+            ['512', '0.3 MP', 512],
+            ['1K', '1.0 MP', 1024],
+            ['2K', '4.2 MP', 2048],
+            ['4K', '16.8 MP', 4096],
+            ['8K', '67.1 MP', 8192]
+        ])
+        {
+            const Pill = Construct('button', `pz-udim-res-pill${ActiveTile.resolution === Px ? ' active' : ''}`, [
+                Construct('strong', null, Tag),
+                Construct('small', null, Sub)
+            ]);
+            Pill.type = 'button';
+            Pill.title = `Set UDIM ${ActiveTile.id} resolution to ${Px}×${Px}`;
+            Pill.addEventListener('click', () =>
+            {
+                ActiveTile.resolution = Px;
+                SyncAllViews(true);
+                Toast(`UDIM ${ActiveTile.id} set to ${Px}×${Px} (${Tag})`);
+            });
+            ResDeck.append(Pill);
+        }
+        TileSec.Inner.append(ResDeck);
+
+        SegmentedRow(TileSec.Inner, {
+            Label: 'Backing Pattern',
+            Options: [['Color', 'color'], ['UV Code', 'uv'], ['Checker', 'checker'], ['Slate', 'blank']],
             Read: () => ActiveTile.checkerMode || 'color',
             Write: V => { ActiveTile.checkerMode = V; SyncAllViews(); }
         });
-        ActionRow(TileSec.Inner, [
-            { Label: 'Load Custom Texture…', Glyph: 'Upload', Act: () => document.getElementById('tex-file-input').click() },
-            {
-                Label: 'Remove Tile',
-                Glyph: 'Trash',
-                Availability: () => ({ Enabled: Doc.udimTiles.length > 1, Reason: 'At least 1 UDIM tile is required' }),
-                Act: () =>
+
+        IconStripBlock(TileSec.Inner, {
+            Label: 'Tile Operations',
+            Meta: `${ActiveIslands.length} charts`,
+            Items: [
                 {
-                    Doc.udimTiles = Doc.udimTiles.filter(T => T.id !== ActiveTile.id);
-                    Doc.activeUdim = Doc.udimTiles[0].id;
-                    SyncAllViews(true);
+                    Glyph: 'Move', Short: `Move → ${ActiveTile.id}`, Tone: 'accent', Title: `Move selected UV charts into UDIM ${ActiveTile.id}`,
+                    Act: () => RunWithUndo('Move to UDIM', () =>
+                    {
+                        if (!Doc.surface.selectedIslands.size) { Toast('Select UV charts first'); return; }
+                        const Moved = Doc.surface.MoveIslandsToUdim([...Doc.surface.selectedIslands], Doc.activeUdim, Doc.islands);
+                        Toast(`Moved ${Moved} chart(s) to UDIM ${Doc.activeUdim}`);
+                    })
+                },
+                {
+                    Glyph: 'Gauge', Short: 'Match Density', Title: 'Equalize texel density across mixed-resolution UDIM tiles',
+                    Act: () => RunWithUndo('Cross-UDIM Density Match', () =>
+                    {
+                        const TileResMap = new Map(Doc.udimTiles.map(T => [T.id, T.resolution || 2048]));
+                        const Islands = Doc.surface.ExtractIslands(Id => TileResMap.get(Id) || 2048, 100);
+                        const MeanDen = Islands.reduce((S, I) => S + I.texelDensity, 0) / Math.max(1, Islands.length);
+                        for (const Isl of Islands)
+                        {
+                            if (Isl.texelDensity <= 1e-6) continue;
+                            const K = MeanDen / Isl.texelDensity;
+                            const Cx = Isl.bounds.centerU, Cy = Isl.bounds.centerV;
+                            for (const UvIdx of Isl.uvIndices)
+                            {
+                                Doc.surface.uvCoords[UvIdx][0] = Cx + (Doc.surface.uvCoords[UvIdx][0] - Cx) * K;
+                                Doc.surface.uvCoords[UvIdx][1] = Cy + (Doc.surface.uvCoords[UvIdx][1] - Cy) * K;
+                            }
+                        }
+                        Toast(`Matched density across UDIMs (${MeanDen.toFixed(1)} px/cm)`);
+                    })
+                },
+                { Glyph: 'Upload', Title: 'Load custom reference texture onto active UDIM tile', Act: () => document.getElementById('tex-file-input').click() },
+                {
+                    Glyph: 'Trash', Title: 'Remove active UDIM tile',
+                    Act: () =>
+                    {
+                        if (Doc.udimTiles.length <= 1) { Toast('At least 1 UDIM tile is required'); return; }
+                        Doc.udimTiles = Doc.udimTiles.filter(T => T.id !== ActiveTile.id);
+                        Doc.activeUdim = Doc.udimTiles[0].id;
+                        SyncAllViews(true);
+                    }
                 }
-            }
-        ]);
+            ]
+        });
     }
 }
 
 function RenderDiagnosticsTab(Body, Doc)
 {
     const D = Doc.diagnostics;
+    const Sel = ComputeInspectorSelectionInfo(Doc);
+
     MetricTrio(Body, [
-        { Label: 'Overlapping Faces', Highlight: D.overlapCount === 0, Read: () => ({ value: `${D.overlapCount}`, sub: D.overlapCount ? 'Check Overlap lens' : 'Clean non-overlapping' }) },
-        { Label: 'Flipped Winding', Read: () => ({ value: `${D.flippedCount}`, sub: D.flippedCount ? 'Inverted UV normals' : 'All positive facing' }) },
-        { Label: 'Mean Angle Stretch', Read: () => ({ value: `${(D.meanAngleStretch * 100).toFixed(1)}%`, sub: `Max ${(D.maxAngleStretch * 100).toFixed(1)}%` }) }
+        {
+            Label: Sel.hasSelection ? 'Sel Overlaps' : 'Overlapping Faces',
+            Highlight: Sel.overlapCount === 0,
+            Read: () => ({ value: `${Sel.overlapCount}`, sub: Sel.hasSelection ? `Surface: ${D.overlapCount}` : (D.overlapCount ? 'Check Overlap lens' : 'Clean non-overlapping') })
+        },
+        {
+            Label: Sel.hasSelection ? 'Sel Flipped' : 'Flipped Winding',
+            Read: () => ({ value: `${Sel.flippedCount}`, sub: Sel.hasSelection ? `Surface: ${D.flippedCount}` : 'All positive facing' })
+        },
+        {
+            Label: Sel.hasSelection ? 'Sel Stretch' : 'Mean Stretch',
+            Read: () => ({ value: `${Sel.meanStretchPct.toFixed(1)}%`, sub: `Max ${(D.maxAngleStretch * 100).toFixed(1)}%` })
+        }
     ]);
+
+    // Moved here from Shading Tab: Studio Preview + True Unlit Flat Debug + Optional Seam/Wire Toggles
+    RenderStudioPreviewAndFlatDebugCard(Body);
 
     const RepairSec = SectionCard(Body, {
         Id: 'diag-repair',
@@ -2741,65 +3083,63 @@ function RenderDiagnosticsTab(Body, Doc)
         Glyph: 'Check',
         Badge: D.overlapCount ? 'ATTENTION' : 'CLEAN'
     });
-    ActionRow(RepairSec.Inner, [
-        {
-            Label: 'Select Overlaps',
-            Glyph: 'Alert',
-            Act: () =>
+    IconStripBlock(RepairSec.Inner, {
+        Label: 'Inspect & Auto-Repair',
+        Meta: `${D.overlapCount} ovl · ${D.flippedCount} flip`,
+        Items: [
             {
-                Doc.surface.ClearSelection();
-                for (const Fi of D.OverlappingFaces) Doc.surface.selectedFaces.add(Fi);
-                Doc.surface.SyncDerivedSelectionFromFaces();
-                StudioState.overlayLens = 'overlap';
-                document.getElementById('uv-lens-select').value = 'overlap';
-                SyncAllViews();
-                Toast(`Selected ${D.overlapCount} overlapping faces`);
+                Glyph: 'Alert', Short: 'Overlaps', Title: 'Select all overlapping UV faces and switch to Overlap lens',
+                Act: () =>
+                {
+                    Doc.surface.ClearSelection();
+                    for (const Fi of D.OverlappingFaces) Doc.surface.selectedFaces.add(Fi);
+                    Doc.surface.SyncDerivedSelectionFromFaces();
+                    StudioState.overlayLens = 'overlap';
+                    document.getElementById('uv-lens-select').value = 'overlap';
+                    SyncAllViews(true);
+                    Toast(`Selected ${D.overlapCount} overlapping faces`);
+                }
+            },
+            {
+                Glyph: 'Face', Short: 'Flipped', Title: 'Select inverted/flipped UV faces',
+                Act: () =>
+                {
+                    Doc.surface.ClearSelection();
+                    for (const Fi of D.FlippedFaces) Doc.surface.selectedFaces.add(Fi);
+                    Doc.surface.SyncDerivedSelectionFromFaces();
+                    StudioState.overlayLens = 'overlap';
+                    document.getElementById('uv-lens-select').value = 'overlap';
+                    SyncAllViews(true);
+                    Toast(`Selected ${D.flippedCount} flipped faces`);
+                }
+            },
+            {
+                Glyph: 'Mirror', Title: 'Flip UV orientation on selected islands/faces',
+                Act: () => RunWithUndo('Flip UVs', () =>
+                {
+                    const Piv = ComputeSelectionPivot(Doc) || [0.5, 0.5];
+                    Doc.surface.TransformSelectedUVs({ pivot: Piv, scaleU: -1, scaleV: 1 });
+                    Toast('Flipped selected UVs');
+                })
+            },
+            {
+                Glyph: 'Sparkles', Short: 'Repair', Tone: 'accent', Title: 'Auto-relax stretch and repack atlas with 0 overlaps',
+                Act: () =>
+                {
+                    Doc.surface.PushUndo('Auto Repair & Pack');
+                    MinimizeStretch(Doc.surface, { iterations: 16, onlySelected: false, islands: Doc.islands });
+                    SolveImportancePack(Doc.surface, {
+                        importanceGroups: Doc.importanceGroups,
+                        udimTiles: Doc.udimTiles,
+                        activeUdim: Doc.activeUdim,
+                        options: StudioState.packOptions
+                    });
+                    Toast('Relaxed & repacked atlas with 0 overlaps');
+                    SyncAllViews(true);
+                }
             }
-        },
-        {
-            Label: 'Select Flipped',
-            Act: () =>
-            {
-                Doc.surface.ClearSelection();
-                for (const Fi of D.FlippedFaces) Doc.surface.selectedFaces.add(Fi);
-                Doc.surface.SyncDerivedSelectionFromFaces();
-                StudioState.overlayLens = 'overlap';
-                document.getElementById('uv-lens-select').value = 'overlap';
-                SyncAllViews();
-                Toast(`Selected ${D.flippedCount} flipped faces`);
-            }
-        }
-    ]);
-    ActionRow(RepairSec.Inner, [
-        {
-            Label: 'Flip UV Winding',
-            Glyph: 'Mirror',
-            Act: () => RunWithUndo('Flip UVs', () =>
-            {
-                const Piv = ComputeSelectionPivot(Doc) || [0.5, 0.5];
-                Doc.surface.TransformSelectedUVs({ pivot: Piv, scaleU: -1, scaleV: 1 });
-                Toast('Flipped selected UVs');
-            })
-        },
-        {
-            Label: 'Auto-Relax & Repack',
-            Glyph: 'Sparkles',
-            Tone: 'accent',
-            Act: () =>
-            {
-                Doc.surface.PushUndo('Auto Repair & Pack');
-                MinimizeStretch(Doc.surface, { iterations: 16, onlySelected: false, islands: Doc.islands });
-                SolveImportancePack(Doc.surface, {
-                    importanceGroups: Doc.importanceGroups,
-                    udimTiles: Doc.udimTiles,
-                    activeUdim: Doc.activeUdim,
-                    options: StudioState.packOptions
-                });
-                Toast('Relaxed & repacked atlas with 0 overlaps');
-                SyncAllViews(true);
-            }
-        }
-    ]);
+        ]
+    });
 }
 
 /*==========================================================================================================================================
@@ -4095,9 +4435,20 @@ function InitStudioIconsAndBindings()
     document.getElementById('mesh-shade-select').addEventListener('change', E => Set3DShadingMode(E.target.value));
     document.querySelectorAll('.mesh-camera-bar button[data-shade3d]').forEach(B => B.addEventListener('click', () => Set3DShadingMode(B.dataset.shade3d)));
     document.getElementById('toggle-checker-btn').addEventListener('click', E => { StudioState.showChecker = !StudioState.showChecker; E.currentTarget.classList.toggle('active', StudioState.showChecker); ScheduleFast2DRender(ActiveDoc()); });
-    document.getElementById('toggle-seams-btn').addEventListener('click', E => { StudioState.showSeams = !StudioState.showSeams; Viewport3D.showSeams = StudioState.showSeams; E.currentTarget.classList.toggle('active', StudioState.showSeams); Viewport3D.SyncOverlayStates(); ScheduleFast2DRender(ActiveDoc()); });
+    document.getElementById('toggle-seams-btn').addEventListener('click', E =>
+    {
+        StudioState.showSeams = !StudioState.showSeams;
+        StudioState.showBoundaries = StudioState.showSeams;
+        Viewport3D.showSeams = StudioState.showSeams;
+        Viewport3D.showBoundaries = StudioState.showBoundaries;
+        E.currentTarget.classList.toggle('active', StudioState.showSeams);
+        document.getElementById('toggle-boundaries-btn')?.classList.toggle('active', StudioState.showBoundaries);
+        Viewport3D.SyncOverlayStates();
+        ScheduleFast2DRender(ActiveDoc());
+        RebuildInspector();
+    });
     document.getElementById('toggle-boundaries-btn').addEventListener('click', E => { StudioState.showBoundaries = !StudioState.showBoundaries; Viewport3D.showBoundaries = StudioState.showBoundaries; E.currentTarget.classList.toggle('active', StudioState.showBoundaries); Viewport3D.SyncOverlayStates(); ScheduleFast2DRender(ActiveDoc()); });
-    document.getElementById('toggle-wire3d-btn').addEventListener('click', E => { Viewport3D.showWireframe = !Viewport3D.showWireframe; E.currentTarget.classList.toggle('active', Viewport3D.showWireframe); Viewport3D.SyncOverlayStates(); });
+    document.getElementById('toggle-wire3d-btn').addEventListener('click', E => { Viewport3D.showWireframe = !Viewport3D.showWireframe; E.currentTarget.classList.toggle('active', Viewport3D.showWireframe); Viewport3D.SyncOverlayStates(); RebuildInspector(); });
 
     document.querySelectorAll('.mesh-camera-bar button[data-cam]').forEach(B => B.addEventListener('click', () => Viewport3D.CameraPreset(B.dataset.cam)));
 
@@ -4154,13 +4505,28 @@ function InitStudioIconsAndBindings()
     });
     Divider.addEventListener('pointerup', () => { SplitDrag = false; });
 
-    // Asset Name edit + Reset Asset
+    // Asset / Selected Part Name edit + Reset Asset
     document.getElementById('inspector-object-name').addEventListener('change', E =>
     {
         const Doc = ActiveDoc();
-        Doc.name = Doc.surface.name = E.target.value || Doc.name;
-        RenderDocumentTabs();
-        SyncAllViews();
+        const NewName = E.target.value.trim();
+        if (!NewName) { SyncAllViews(); return; }
+        const Sel = ComputeInspectorSelectionInfo(Doc);
+        if (Sel.hasSelection && Sel.faceIndices.length > 0)
+        {
+            for (const Fi of Sel.faceIndices)
+            {
+                if (Doc.surface.faces[Fi]) Doc.surface.faces[Fi].partId = NewName;
+            }
+            SyncAllViews(true);
+            Toast(`Renamed selected part to "${NewName}"`);
+        }
+        else
+        {
+            Doc.name = Doc.surface.name = NewName;
+            RenderDocumentTabs();
+            SyncAllViews();
+        }
     });
     document.getElementById('reset-doc-btn').addEventListener('click', () =>
     {

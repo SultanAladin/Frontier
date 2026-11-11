@@ -695,36 +695,36 @@ export function AnalyticProject(Surface, Type = 'cube', { cameraRight = [1, 0, 0
     return 1;
 }
 
-export function FollowActiveQuads(Surface, Mode = 'length-avg')
+export function FollowActiveQuads(Surface, Mode = 'length-avg', Islands = null)
 {
-    let Seed = Surface.activeFace;
-    if (Seed === null || !Surface.faces[Seed] || Surface.faces[Seed].corners.length !== 4)
+    const TargetSet = new Set(Surface.selectedFaces);
+    if (TargetSet.size === 0 && Surface.selectedIslands.size > 0)
     {
-        Seed = [...Surface.selectedFaces].find(Fi => Surface.faces[Fi]?.corners.length === 4) ?? null;
+        const List = Islands || Surface.ExtractIslands();
+        for (const Isl of List)
+        {
+            if (Surface.selectedIslands.has(Isl.id))
+            {
+                for (const Fi of Isl.faceIndices) TargetSet.add(Fi);
+            }
+        }
     }
-    if (Seed === null) return 0;
+    if (TargetSet.size === 0)
+    {
+        for (let Fi = 0; Fi < Surface.faces.length; Fi++) TargetSet.add(Fi);
+    }
 
-    // Average edge lengths from seed quad
-    const SeedC = Surface.faces[Seed].corners;
-    const SeedLenU = Math.hypot(
-        Surface.uvCoords[SeedC[1].uv][0] - Surface.uvCoords[SeedC[0].uv][0],
-        Surface.uvCoords[SeedC[1].uv][1] - Surface.uvCoords[SeedC[0].uv][1]
-    ) || 0.08;
-    const SeedLenV = Math.hypot(
-        Surface.uvCoords[SeedC[3].uv][0] - Surface.uvCoords[SeedC[0].uv][0],
-        Surface.uvCoords[SeedC[3].uv][1] - Surface.uvCoords[SeedC[0].uv][1]
-    ) || 0.08;
-
-    const TargetSet = Surface.selectedFaces.size > 1
-        ? new Set(Surface.selectedFaces)
-        : new Set(Surface.faces.map((_, I) => I));
-    TargetSet.add(Seed);
-
-    const EdgeQuads = new Map();
+    const QuadSet = new Set();
     for (const Fi of TargetSet)
     {
+        if (Surface.faces[Fi]?.corners.length === 4) QuadSet.add(Fi);
+    }
+    if (QuadSet.size === 0) return 0;
+
+    const EdgeQuads = new Map();
+    for (const Fi of QuadSet)
+    {
         const F = Surface.faces[Fi];
-        if (F.corners.length !== 4) continue;
         for (let k = 0; k < 4; k++)
         {
             const K = EdgeKey(F.corners[k].v, F.corners[(k + 1) % 4].v);
@@ -734,83 +734,137 @@ export function FollowActiveQuads(Surface, Mode = 'length-avg')
         }
     }
 
-    const Done = new Set([Seed]);
-    const Queue = [Seed];
-    while (Queue.length)
+    const Done = new Set();
+    const CandidateOrder = [];
+    if (Surface.activeFace !== null && QuadSet.has(Surface.activeFace)) CandidateOrder.push(Surface.activeFace);
+    for (const Fi of QuadSet) if (Fi !== Surface.activeFace) CandidateOrder.push(Fi);
+
+    for (const StartSeed of CandidateOrder)
     {
-        const CurFi = Queue.shift();
-        const CurF = Surface.faces[CurFi];
-        for (let ek = 0; ek < 4; ek++)
+        if (Done.has(StartSeed)) continue;
+        const SeedC = Surface.faces[StartSeed].corners;
+
+        // If seed quad isn't already orthogonal, rectify it gently around its UV centroid when no explicit activeFace was set
+        const P0s = Surface.uvCoords[SeedC[0].uv], P1s = Surface.uvCoords[SeedC[1].uv];
+        const P2s = Surface.uvCoords[SeedC[2].uv], P3s = Surface.uvCoords[SeedC[3].uv];
+        let SeedLenU = Math.hypot(P1s[0] - P0s[0], P1s[1] - P0s[1]) || 0.08;
+        let SeedLenV = Math.hypot(P3s[0] - P0s[0], P3s[1] - P0s[1]) || 0.08;
+        const DotOrtho = Math.abs((P1s[0] - P0s[0]) * (P3s[0] - P0s[0]) + (P1s[1] - P0s[1]) * (P3s[1] - P0s[1])) / Math.max(1e-8, SeedLenU * SeedLenV);
+        if (DotOrtho > 0.08)
         {
-            const Va = CurF.corners[ek].v, Vb = CurF.corners[(ek + 1) % 4].v;
-            const Ua = CurF.corners[ek].uv, Ub = CurF.corners[(ek + 1) % 4].uv;
-            const EK = EdgeKey(Va, Vb);
-            for (const NextFi of EdgeQuads.get(EK) || [])
+            const Cx = 0.25 * (P0s[0] + P1s[0] + P2s[0] + P3s[0]);
+            const Cy = 0.25 * (P0s[1] + P1s[1] + P2s[1] + P3s[1]);
+            const D3U = VecLen(VecSub(Surface.positions[SeedC[1].v], Surface.positions[SeedC[0].v])) || 1;
+            const D3V = VecLen(VecSub(Surface.positions[SeedC[3].v], Surface.positions[SeedC[0].v])) || 1;
+            const AvgScale = 0.5 * (SeedLenU / D3U + SeedLenV / D3V);
+            SeedLenU = Math.max(0.015, D3U * AvgScale);
+            SeedLenV = Math.max(0.015, D3V * AvgScale);
+            const RectPts = [
+                [Cx - SeedLenU * 0.5, Cy - SeedLenV * 0.5],
+                [Cx + SeedLenU * 0.5, Cy - SeedLenV * 0.5],
+                [Cx + SeedLenU * 0.5, Cy + SeedLenV * 0.5],
+                [Cx - SeedLenU * 0.5, Cy + SeedLenV * 0.5]
+            ];
+            for (let c = 0; c < 4; c++)
             {
-                if (Done.has(NextFi)) continue;
-                const NF = Surface.faces[NextFi];
-                if (NF.corners.length !== 4) continue;
+                const NewUv = Surface.uvCoords.length;
+                Surface.uvCoords.push(RectPts[c]);
+                SeedC[c].uv = NewUv;
+            }
+        }
 
-                // Find indices of Va, Vb in NextFi
-                const Ia = NF.corners.findIndex(C => C.v === Va);
-                const Ib = NF.corners.findIndex(C => C.v === Vb);
-                if (Ia < 0 || Ib < 0) continue;
+        Done.add(StartSeed);
+        const Queue = [StartSeed];
+        const StripVertMap = new Map();
+        for (let c = 0; c < 4; c++) StripVertMap.set(SeedC[c].v, SeedC[c].uv);
 
-                // Determine shared edge direction in NF
-                let I0, I1, I2, I3, U0, U1;
-                if ((Ia + 1) % 4 === Ib)
+        while (Queue.length)
+        {
+            const CurFi = Queue.shift();
+            const CurF = Surface.faces[CurFi];
+            for (let ek = 0; ek < 4; ek++)
+            {
+                const Va = CurF.corners[ek].v, Vb = CurF.corners[(ek + 1) % 4].v;
+                const Ua = CurF.corners[ek].uv, Ub = CurF.corners[(ek + 1) % 4].uv;
+                const EK = EdgeKey(Va, Vb);
+                for (const NextFi of EdgeQuads.get(EK) || [])
                 {
-                    I0 = Ia; I1 = Ib; I2 = (Ib + 1) % 4; I3 = (Ib + 2) % 4;
-                    U0 = Ua; U1 = Ub;
-                }
-                else if ((Ib + 1) % 4 === Ia)
-                {
-                    I0 = Ib; I1 = Ia; I2 = (Ia + 1) % 4; I3 = (Ia + 2) % 4;
-                    U0 = Ub; U1 = Ua;
-                }
-                else continue;
+                    if (Done.has(NextFi)) continue;
+                    const NF = Surface.faces[NextFi];
+                    if (NF.corners.length !== 4) continue;
 
-                // Also find backward corner in CurF to know outward direction
-                const CurOppA = CurF.corners[(ek + 3) % 4].uv;
-                const P0 = Surface.uvCoords[U0];
-                const P1 = Surface.uvCoords[U1];
-                const Du = P1[0] - P0[0], Dv = P1[1] - P0[1];
-                const EdgeUvLen = Math.hypot(Du, Dv) || SeedLenU;
-                // Perpendicular candidate (-Dv, Du) vs (Dv, -Du) -> pick direction pointing away from CurOppA
-                const BackPt = Surface.uvCoords[CurOppA];
-                let Px = -Dv / EdgeUvLen, Py = Du / EdgeUvLen;
-                if (Px * (BackPt[0] - P0[0]) + Py * (BackPt[1] - P0[1]) > 0)
-                {
-                    Px = -Px;
-                    Py = -Py;
+                    const Ia = NF.corners.findIndex(C => C.v === Va);
+                    const Ib = NF.corners.findIndex(C => C.v === Vb);
+                    if (Ia < 0 || Ib < 0) continue;
+
+                    let I0, I1, I2, I3, U0, U1;
+                    if ((Ia + 1) % 4 === Ib)
+                    {
+                        I0 = Ia; I1 = Ib; I2 = (Ib + 1) % 4; I3 = (Ib + 2) % 4;
+                        U0 = Ua; U1 = Ub;
+                    }
+                    else if ((Ib + 1) % 4 === Ia)
+                    {
+                        I0 = Ib; I1 = Ia; I2 = (Ia + 1) % 4; I3 = (Ia + 2) % 4;
+                        U0 = Ub; U1 = Ua;
+                    }
+                    else continue;
+
+                    const CurOppA = CurF.corners[(ek + 3) % 4].uv;
+                    const P0 = Surface.uvCoords[U0];
+                    const P1 = Surface.uvCoords[U1];
+                    const Du = P1[0] - P0[0], Dv = P1[1] - P0[1];
+                    const EdgeUvLen = Math.hypot(Du, Dv) || SeedLenU;
+                    const BackPt = Surface.uvCoords[CurOppA];
+                    let Px = -Dv / EdgeUvLen, Py = Du / EdgeUvLen;
+                    if (Px * (BackPt[0] - P0[0]) + Py * (BackPt[1] - P0[1]) > 0)
+                    {
+                        Px = -Px;
+                        Py = -Py;
+                    }
+
+                    let StepLen = SeedLenV;
+                    if (Mode === 'length-avg')
+                    {
+                        const D3Shared = VecLen(VecSub(Surface.positions[NF.corners[I1].v], Surface.positions[NF.corners[I0].v])) || 1;
+                        const D3Side = 0.5 * (
+                            VecLen(VecSub(Surface.positions[NF.corners[I2].v], Surface.positions[NF.corners[I1].v])) +
+                            VecLen(VecSub(Surface.positions[NF.corners[I3].v], Surface.positions[NF.corners[I0].v]))
+                        );
+                        StepLen = EdgeUvLen * (D3Side / D3Shared);
+                    }
+
+                    NF.corners[I0].uv = U0;
+                    NF.corners[I1].uv = U1;
+                    const Cand2 = [P1[0] + Px * StepLen, P1[1] + Py * StepLen];
+                    const Cand3 = [P0[0] + Px * StepLen, P0[1] + Py * StepLen];
+                    const V2 = NF.corners[I2].v, V3 = NF.corners[I3].v;
+
+                    let NextU2 = StripVertMap.get(V2);
+                    if (NextU2 === undefined || Math.hypot(Surface.uvCoords[NextU2][0] - Cand2[0], Surface.uvCoords[NextU2][1] - Cand2[1]) > EdgeUvLen * 0.45)
+                    {
+                        NextU2 = Surface.uvCoords.length;
+                        Surface.uvCoords.push(Cand2);
+                        StripVertMap.set(V2, NextU2);
+                    }
+                    let NextU3 = StripVertMap.get(V3);
+                    if (NextU3 === undefined || Math.hypot(Surface.uvCoords[NextU3][0] - Cand3[0], Surface.uvCoords[NextU3][1] - Cand3[1]) > EdgeUvLen * 0.45)
+                    {
+                        NextU3 = Surface.uvCoords.length;
+                        Surface.uvCoords.push(Cand3);
+                        StripVertMap.set(V3, NextU3);
+                    }
+                    NF.corners[I2].uv = NextU2;
+                    NF.corners[I3].uv = NextU3;
+
+                    Done.add(NextFi);
+                    Queue.push(NextFi);
                 }
-
-                let StepLen = SeedLenV;
-                if (Mode === 'length-avg')
-                {
-                    const D3Shared = VecLen(VecSub(Surface.positions[NF.corners[I1].v], Surface.positions[NF.corners[I0].v])) || 1;
-                    const D3Side = 0.5 * (
-                        VecLen(VecSub(Surface.positions[NF.corners[I2].v], Surface.positions[NF.corners[I1].v])) +
-                        VecLen(VecSub(Surface.positions[NF.corners[I3].v], Surface.positions[NF.corners[I0].v]))
-                    );
-                    StepLen = EdgeUvLen * (D3Side / D3Shared);
-                }
-
-                NF.corners[I0].uv = U0;
-                NF.corners[I1].uv = U1;
-                const NextU2 = Surface.uvCoords.length;
-                Surface.uvCoords.push([P1[0] + Px * StepLen, P1[1] + Py * StepLen]);
-                const NextU3 = Surface.uvCoords.length;
-                Surface.uvCoords.push([P0[0] + Px * StepLen, P0[1] + Py * StepLen]);
-                NF.corners[I2].uv = NextU2;
-                NF.corners[I3].uv = NextU3;
-
-                Done.add(NextFi);
-                Queue.push(NextFi);
             }
         }
     }
     Surface.PruneUnusedUVs();
+    Surface.MarkUvDirty?.();
     return Done.size;
 }
 
@@ -1033,4 +1087,243 @@ export function ApplyAlignOrRectify(Surface, Action, PivotPoint = [0.5, 0.5])
         }
     }
     return UVs.length;
+}
+
+function BuildIslandTopoSignature(Surface, Isl)
+{
+    const DegCounts = new Map();
+    const UvValence = new Map();
+    for (const Fi of Isl.faceIndices)
+    {
+        const Cr = Surface.faces[Fi].corners;
+        DegCounts.set(Cr.length, (DegCounts.get(Cr.length) || 0) + 1);
+        for (const C of Cr) UvValence.set(C.uv, (UvValence.get(C.uv) || 0) + 1);
+    }
+    const DegSig = [...DegCounts.entries()].sort((A, B) => A[0] - B[0]).map(([D, C]) => `${D}x${C}`).join(',');
+    const ValCounts = new Map();
+    for (const V of UvValence.values()) ValCounts.set(V, (ValCounts.get(V) || 0) + 1);
+    const ValSig = [...ValCounts.entries()].sort((A, B) => A[0] - B[0]).map(([V, C]) => `${V}:${C}`).join(',');
+    return `${Isl.faceIndices.length}|${Isl.uvIndices.length}|${DegSig}|${ValSig}`;
+}
+
+function ComputeIslandUvStats(Surface, Isl)
+{
+    let Cu = 0, Cv = 0;
+    const N = Isl.uvIndices.length || 1;
+    for (const U of Isl.uvIndices) { Cu += Surface.uvCoords[U][0]; Cv += Surface.uvCoords[U][1]; }
+    Cu /= N; Cv /= N;
+    let Rms2 = 0, Cxx = 0, Cyy = 0, Cxy = 0;
+    const LocalPts = new Array(N);
+    for (let i = 0; i < N; i++)
+    {
+        const P = Surface.uvCoords[Isl.uvIndices[i]];
+        const Du = P[0] - Cu, Dv = P[1] - Cv;
+        LocalPts[i] = [Du, Dv];
+        Rms2 += Du * Du + Dv * Dv;
+        Cxx += Du * Du; Cyy += Dv * Dv; Cxy += Du * Dv;
+    }
+    const Rms = Math.sqrt(Rms2 / N) || 1e-4;
+    const Angle = 0.5 * Math.atan2(2 * Cxy, Cxx - Cyy);
+    return { cu: Cu, cv: Cv, rms: Rms, angle: Angle, localPts: LocalPts };
+}
+
+export function StackSimilarIslands(Surface, { islands = null, tolerance = 0.08, allowMirror = true } = {})
+{
+    const List = (islands && islands.length ? islands : Surface.ExtractIslands()).filter(I => !I.hidden && !I.locked);
+    if (List.length < 2) return { stackedIslands: 0, masterGroups: 0 };
+
+    const SelSet = Surface.selectedIslands;
+    const SingleMaster = SelSet.size === 1 ? List.find(I => SelSet.has(I.id)) : null;
+    const Pool = SelSet.size >= 2 ? List.filter(I => SelSet.has(I.id)) : List;
+
+    const SigBuckets = new Map();
+    for (const Isl of Pool)
+    {
+        const Sig = BuildIslandTopoSignature(Surface, Isl);
+        if (!SigBuckets.has(Sig)) SigBuckets.set(Sig, []);
+        SigBuckets.get(Sig).push(Isl);
+    }
+
+    let StackedIslands = 0;
+    let MasterGroups = 0;
+
+    for (const Bucket of SigBuckets.values())
+    {
+        if (Bucket.length < 2) continue;
+        // Partition bucket by 3D surface area within relative tolerance
+        const Remaining = [...Bucket];
+        if (SingleMaster)
+        {
+            const Idx = Remaining.findIndex(I => I.id === SingleMaster.id);
+            if (Idx < 0) continue;
+            Remaining.splice(Idx, 1);
+            Remaining.unshift(SingleMaster);
+        }
+        else if (Surface.activeIsland !== null)
+        {
+            const ActIdx = Remaining.findIndex(I => I.id === Surface.activeIsland);
+            if (ActIdx > 0)
+            {
+                const [ActIsl] = Remaining.splice(ActIdx, 1);
+                Remaining.unshift(ActIsl);
+            }
+        }
+
+        const Used = new Uint8Array(Remaining.length);
+        for (let m = 0; m < Remaining.length; m++)
+        {
+            if (Used[m]) continue;
+            const Master = Remaining[m];
+            if (SingleMaster && Master.id !== SingleMaster.id) break;
+            Used[m] = 1;
+
+            const Followers = [];
+            for (let j = m + 1; j < Remaining.length; j++)
+            {
+                if (Used[j]) continue;
+                const Cand = Remaining[j];
+                const AreaDiff = Math.abs(Master.area3D - Cand.area3D) / Math.max(Master.area3D, Cand.area3D, 1e-6);
+                if (AreaDiff <= tolerance)
+                {
+                    Used[j] = 1;
+                    Followers.push(Cand);
+                }
+            }
+            if (!Followers.length) continue;
+
+            MasterGroups++;
+            const MStats = ComputeIslandUvStats(Surface, Master);
+            const MasterWorld = Master.uvIndices.map(U => Surface.uvCoords[U]);
+            const SpanM = Math.max(Master.bounds.width, Master.bounds.height, 1e-4);
+
+            for (const Cand of Followers)
+            {
+                const CStats = ComputeIslandUvStats(Surface, Cand);
+                const Scale = MStats.rms / Math.max(1e-6, CStats.rms);
+                const BaseDelta = MStats.angle - CStats.angle;
+                const CandidateAngles = [
+                    BaseDelta, BaseDelta + Math.PI * 0.5, BaseDelta + Math.PI, BaseDelta + Math.PI * 1.5,
+                    0, Math.PI * 0.5, Math.PI, Math.PI * 1.5
+                ];
+                const Flips = allowMirror ? [1, -1] : [1];
+
+                let BestErr = Infinity;
+                let BestTransformed = null;
+                let BestMatches = null;
+
+                for (const FlipX of Flips)
+                {
+                    for (const Ang of CandidateAngles)
+                    {
+                        const Cos = Math.cos(Ang), Sin = Math.sin(Ang);
+                        let Err = 0;
+                        const Trans = new Array(CStats.localPts.length);
+                        const Matches = new Int32Array(CStats.localPts.length);
+                        for (let i = 0; i < CStats.localPts.length; i++)
+                        {
+                            const Lx = CStats.localPts[i][0] * FlipX * Scale;
+                            const Ly = CStats.localPts[i][1] * Scale;
+                            const Tu = MStats.cu + (Lx * Cos - Ly * Sin);
+                            const Tv = MStats.cv + (Lx * Sin + Ly * Cos);
+                            Trans[i] = [Tu, Tv];
+
+                            let MinD2 = Infinity, BestMi = 0;
+                            for (let k = 0; k < MasterWorld.length; k++)
+                            {
+                                const Du = MasterWorld[k][0] - Tu;
+                                const Dv = MasterWorld[k][1] - Tv;
+                                const D2 = Du * Du + Dv * Dv;
+                                if (D2 < MinD2) { MinD2 = D2; BestMi = k; }
+                            }
+                            Matches[i] = BestMi;
+                            Err += MinD2;
+                        }
+                        if (Err < BestErr)
+                        {
+                            BestErr = Err;
+                            BestTransformed = Trans;
+                            BestMatches = Matches;
+                        }
+                    }
+                }
+
+                if (BestTransformed)
+                {
+                    const SnapTol2 = (SpanM * 0.14) * (SpanM * 0.14);
+                    const ClaimedMaster = new Set();
+                    let UniqueBijection = true;
+                    for (let i = 0; i < BestMatches.length; i++)
+                    {
+                        const Mi = BestMatches[i];
+                        const Du = MasterWorld[Mi][0] - BestTransformed[i][0];
+                        const Dv = MasterWorld[Mi][1] - BestTransformed[i][1];
+                        if (Du * Du + Dv * Dv > SnapTol2 || ClaimedMaster.has(Mi))
+                        {
+                            UniqueBijection = false;
+                            break;
+                        }
+                        ClaimedMaster.add(Mi);
+                    }
+
+                    for (let i = 0; i < Cand.uvIndices.length; i++)
+                    {
+                        const UvIdx = Cand.uvIndices[i];
+                        if (Surface.pinned.has(UvIdx)) continue;
+                        if (UniqueBijection)
+                        {
+                            const Mp = MasterWorld[BestMatches[i]];
+                            Surface.uvCoords[UvIdx][0] = Mp[0];
+                            Surface.uvCoords[UvIdx][1] = Mp[1];
+                        }
+                        else
+                        {
+                            Surface.uvCoords[UvIdx][0] = BestTransformed[i][0];
+                            Surface.uvCoords[UvIdx][1] = BestTransformed[i][1];
+                        }
+                    }
+                    StackedIslands++;
+                }
+            }
+        }
+    }
+
+    Surface.MarkUvDirty?.();
+    return { stackedIslands: StackedIslands, masterGroups: MasterGroups };
+}
+
+export function UnstackOverlappingIslands(Surface, { islands = null, stepU = 0.045 } = {})
+{
+    const List = (islands && islands.length ? islands : Surface.ExtractIslands()).filter(I => !I.hidden && !I.locked);
+    const Pool = Surface.selectedIslands.size >= 2 ? List.filter(I => Surface.selectedIslands.has(I.id)) : List;
+    const Visited = new Uint8Array(Pool.length);
+    let Moved = 0;
+
+    for (let i = 0; i < Pool.length; i++)
+    {
+        if (Visited[i]) continue;
+        Visited[i] = 1;
+        const Base = Pool[i];
+        let CopyIdx = 1;
+        for (let j = i + 1; j < Pool.length; j++)
+        {
+            if (Visited[j]) continue;
+            const Other = Pool[j];
+            const SameCenter = Math.hypot(Base.bounds.centerU - Other.bounds.centerU, Base.bounds.centerV - Other.bounds.centerV) < Math.max(0.008, Base.bounds.width * 0.08);
+            const SameSize = Math.abs(Base.bounds.width - Other.bounds.width) < Math.max(0.012, Base.bounds.width * 0.15) &&
+                             Math.abs(Base.bounds.height - Other.bounds.height) < Math.max(0.012, Base.bounds.height * 0.15);
+            if (SameCenter && SameSize)
+            {
+                Visited[j] = 1;
+                const ShiftU = Math.max(stepU, Base.bounds.width * 0.35) * CopyIdx;
+                for (const UvIdx of Other.uvIndices)
+                {
+                    if (!Surface.pinned.has(UvIdx)) Surface.uvCoords[UvIdx][0] += ShiftU;
+                }
+                CopyIdx++;
+                Moved++;
+            }
+        }
+    }
+    if (Moved > 0) Surface.MarkUvDirty?.();
+    return Moved;
 }

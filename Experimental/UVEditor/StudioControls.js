@@ -57,7 +57,26 @@ export const GlyphPaths = {
     Reset:      '<path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5v4.6h4.6"/>',
     Terminal:   '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M7.5 9.5 11 12l-3.5 2.5M13 14.5h3.5"/>',
     ChevronDown:'<path d="M6 9l6 6 6-6"/>',
-    Dot:        '<circle cx="12" cy="12" r="3"/>'
+    Dot:        '<circle cx="12" cy="12" r="3"/>',
+    AlignLeft:    '<path d="M4 4v16"/><rect x="7.5" y="6.5" width="12" height="4" rx="1"/><rect x="7.5" y="13.5" width="7.5" height="4" rx="1"/>',
+    AlignCenterH: '<path d="M12 3v18"/><rect x="5.5" y="6.5" width="13" height="4" rx="1"/><rect x="8" y="13.5" width="8" height="4" rx="1"/>',
+    AlignRight:   '<path d="M20 4v16"/><rect x="4.5" y="6.5" width="12" height="4" rx="1"/><rect x="9" y="13.5" width="7.5" height="4" rx="1"/>',
+    AlignTop:     '<path d="M4 4h16"/><rect x="6.5" y="7.5" width="4" height="12" rx="1"/><rect x="13.5" y="7.5" width="4" height="7.5" rx="1"/>',
+    AlignCenterV: '<path d="M3 12h18"/><rect x="6.5" y="5.5" width="4" height="13" rx="1"/><rect x="13.5" y="8" width="4" height="8" rx="1"/>',
+    AlignBottom:  '<path d="M4 20h16"/><rect x="6.5" y="4.5" width="4" height="12" rx="1"/><rect x="13.5" y="9" width="4" height="7.5" rx="1"/>',
+    Straighten:   '<path d="M4 12h16"/><circle cx="6.5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="17.5" cy="12" r="2"/>',
+    Rectify:      '<rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M4 9.5h16M4 14.5h16M9.5 4v16M14.5 4v16"/>',
+    MirrorV:      '<path d="M3 12h18M7 8l5-4 5 4zM7 16l5 4 5-4z"/>',
+    Cube:         '<path d="M12 3 4 7.5v9L12 21l8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/>',
+    Cylinder:     '<ellipse cx="12" cy="6" rx="7" ry="2.8"/><path d="M5 6v12c0 1.6 3.1 2.8 7 2.8s7-1.2 7-2.8V6"/>',
+    Sphere:       '<circle cx="12" cy="12" r="8.5"/><ellipse cx="12" cy="12" rx="3.8" ry="8.5"/><path d="M3.7 12h16.6"/>',
+    CameraView:   '<rect x="3" y="6.5" width="13" height="11" rx="2"/><path d="M16 10l5-2.5v9L16 14z"/>',
+    FollowQuads:  '<rect x="3.5" y="5" width="5.5" height="6.5" rx="1"/><rect x="9.2" y="5" width="5.5" height="6.5" rx="1"/><rect x="15" y="5" width="5.5" height="6.5" rx="1"/><path d="M5 16.5h13m0 0-3-2.8m3 2.8-3 2.8"/>',
+    StackUv:      '<rect x="6" y="3.5" width="12" height="9" rx="1.5"/><path d="M4.5 15.5h15M6.5 19h11"/>',
+    UnstackUv:    '<rect x="3.5" y="6" width="9" height="9" rx="1.5"/><rect x="11.5" y="9" width="9" height="9" rx="1.5"/><path d="M15 4.5h4.5V9M19.5 4.5l-4.2 4.2"/>',
+    PinBorder:    '<rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke-dasharray="3 2.5"/><circle cx="4.5" cy="4.5" r="2"/><circle cx="19.5" cy="4.5" r="2"/><circle cx="4.5" cy="19.5" r="2"/><circle cx="19.5" cy="19.5" r="2"/>',
+    SeamWeld:     '<path d="M5 5v14M19 5v14M8.5 9.5 12 12l-3.5 2.5M15.5 9.5 12 12l3.5 2.5"/>',
+    SharpEdge:    '<path d="M4 18 12 5l8 13"/><path d="M12 5v13"/>'
 };
 
 export function ConstructGlyph(Name, ClassName = 'glyph')
