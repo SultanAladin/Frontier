@@ -677,13 +677,23 @@ console.log('11. Testing Multi-Surface Engineering MatCaps, Stack Similar UVs, F
               !UdimSlice.includes('pz-udim-atlas-shell') && !UdimSlice.includes('Spatial UDIM Matrix'),
         'UDIM menu must use Check-style MetricTrio + clean UDIM Tile Table instead of Spatial UDIM Matrix');
 
-    assert.ok(!ShadingSlice.includes('Fast PBR') && ShadingSlice.includes('Surface Material') && ShadingSlice.includes('pz-finish-showcase'),
-        'Shading menu must use clean Surface Material naming and live finish showcase sphere');
+    assert.ok(!ShadingSlice.includes('Fast PBR') && ShadingSlice.includes('Surface Material') &&
+              ShadingSlice.includes('pz-cpp-color-picker') && ShadingSlice.includes('pz-cpp-color-circle') &&
+              !ShadingSlice.includes('pz-pbr-swatch-dots') && !ShadingSlice.includes('pz-finish-showcase'),
+        'Shading Colour row must use C++-style [(circle) Colour Name · #HEX] picker with no extra swatch clutter');
 
     const OutlinerSlice = EditorJs.slice(EditorJs.indexOf('function RenderOutliner'), EditorJs.indexOf('function RenderLegendStrip'));
-    assert.ok(OutlinerSlice.includes('Priority Categories') && OutlinerSlice.includes('Surface Parts') &&
+    const PackSlice = EditorJs.slice(EditorJs.indexOf('function RenderPackingTab'), EditorJs.indexOf('function RenderUnwrapTab'));
+    assert.ok(OutlinerSlice.includes('Importance Space Allocation') && OutlinerSlice.includes('pz-prio-table') &&
+              OutlinerSlice.includes('Surface Parts') && !PackSlice.includes('pz-prio-table') &&
               !OutlinerSlice.includes('pz-chart-row') && IndexHtml.includes('id="udim-chip-strip" hidden'),
-        'Outliner must aggregate into Priority Categories + Surface Parts with hidden UDIM strip and zero raw per-island rows');
+        'Importance Space Allocation must live directly in the UV Space left panel (not duplicated in Pack)');
+
+    assert.ok(IndexHtml.includes('<h1>UV Space</h1>') && !IndexHtml.includes('Clean Charts') &&
+              IndexHtml.includes('id="lp-kpi-util"') && IndexHtml.includes('id="lp-kpi-selected"') &&
+              IndexHtml.includes('id="lp-kpi-remaining"') && IndexHtml.includes('id="stat-issues-card"') &&
+              IndexHtml.includes('id="stat-overlap-card"') && IndexHtml.includes('>Stretch Caution<') && IndexHtml.includes('>Overlaps<'),
+        'UV Space left panel must be renamed from Outliner and show 5 infographic cards (3 Pack tiles + Stretch Caution + red Overlaps)');
 
     const EditorCss = ReadText('UVEditor.css');
     for (const BlueHex of ['#262930', '#191a1d', '#131418', '#0d0e11', 'rgba(56, 189, 248'])
@@ -691,12 +701,10 @@ console.log('11. Testing Multi-Surface Engineering MatCaps, Stack Similar UVs, F
         assert.ok(!EditorCss.includes(BlueHex), `UVEditor.css must not contain blue-tinted card background ${BlueHex}`);
     }
 
-    assert.ok(EditorJs.includes('pz-prio-table') && EditorJs.includes('pz-prio-row') && !EditorJs.includes('pz-budget-rail-wrap'),
-        'Pack menu must use clean minimal Project-Zero Priority Layer Table');
     assert.ok(Vp3dJs.includes('this.showSeams = false;') && EditorJs.includes('showSeams: false'),
         'Seam debug overlay must default to false');
 
-    console.log(`   OK: Clean UDIM Table, neutral Check card palette, Surface Material showcase, scalable Category Outliner & ${DistinctSlots.size} MatCaps verified.`);
+    console.log(`   OK: C++ Colour Picker, 5-card UV Space panel with Importance Space Allocation, neutral Check palette & ${DistinctSlots.size} MatCaps verified.`);
 }
 
 console.log('\nALL UV STUDIO VALIDATIONS PASSED SUCCESSFULLY.');

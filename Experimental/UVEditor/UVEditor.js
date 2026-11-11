@@ -545,36 +545,61 @@ function ComputeInspectorSelectionInfo(Doc)
 
 function UpdateHeaderAndHud(Doc)
 {
-    let CleanCharts = 0, ErrorCharts = 0, CautionCharts = 0;
+    let ErrorCharts = 0, CautionCharts = 0;
     for (const Isl of Doc.islands)
     {
         const St = ClassifyIslandHealth(Doc, Isl);
         if (St === 'error') ErrorCharts++;
         else if (St === 'caution') CautionCharts++;
-        else CleanCharts++;
     }
-    const TotalIssues = ErrorCharts + CautionCharts;
-    document.getElementById('stat-islands-count').textContent = String(CleanCharts);
-    document.getElementById('stat-udim-count').textContent = String(TotalIssues);
+    const Overlaps = Doc.diagnostics.overlapCount;
+    const OverlapMetric = Overlaps + (Doc.diagnostics.flippedCount || 0);
+
+    // 1. Update the 3 Pack Allocation Tiles in UV Space Left Panel
+    const ActiveReport = Doc.lastPackReport?.tileReports?.find(R => R.tileId === Doc.activeUdim) || Doc.lastPackReport?.tileReports?.[0];
+    const CurTileIslands = Doc.islands.filter(I => I.udimTile === Doc.activeUdim && !I.hidden);
+    const RawTileOcc = CurTileIslands.reduce((S, I) => S + I.areaUV, 0) * 100;
+    const DisplayOcc = ActiveReport ? ActiveReport.tileUtilizationPct : RawTileOcc;
+    const SelIslCount = Doc.surface.selectedIslands.size;
+    const RemIslands = Doc.islands.filter(I => !I.importanceGroupId).length;
+    const RemPct = Math.max(0, 100 - Doc.importanceGroups.reduce((S, G) => S + G.targetPercent, 0));
+
+    const UtilVal = document.getElementById('lp-kpi-util-val');
+    const UtilSub = document.getElementById('lp-kpi-util-sub');
+    if (UtilVal) UtilVal.textContent = `${DisplayOcc.toFixed(1)}%`;
+    if (UtilSub) UtilSub.textContent = `UDIM ${Doc.activeUdim}`;
+
+    const SelVal = document.getElementById('lp-kpi-sel-val');
+    const SelSub = document.getElementById('lp-kpi-sel-sub');
+    if (SelVal) SelVal.textContent = String(SelIslCount);
+    if (SelSub) SelSub.textContent = SelIslCount ? 'Ready to assign' : 'Click islands';
+
+    const RemVal = document.getElementById('lp-kpi-rem-val');
+    const RemSub = document.getElementById('lp-kpi-rem-sub');
+    if (RemVal) RemVal.textContent = `${RemPct.toFixed(0)}%`;
+    if (RemSub) RemSub.textContent = `${RemIslands} auto-fill`;
+
+    // 2. Update Stretch Caution (Amber) + Overlaps (Red) Bento Cards
+    document.getElementById('stat-udim-count').textContent = String(CautionCharts);
+    document.getElementById('stat-islands-count').textContent = String(OverlapMetric);
 
     const IssuesCard = document.getElementById('stat-issues-card');
-    if (IssuesCard)
-    {
-        IssuesCard.classList.toggle('has-error', ErrorCharts > 0);
-        IssuesCard.classList.toggle('has-caution', ErrorCharts === 0 && CautionCharts > 0);
-    }
+    if (IssuesCard) IssuesCard.classList.toggle('has-caution', CautionCharts > 0);
+
     const IssuesLbl = document.getElementById('stat-issues-label');
-    if (IssuesLbl) IssuesLbl.textContent = ErrorCharts > 0 ? 'Overlaps / Flips' : CautionCharts > 0 ? 'Stretch Caution' : 'Warnings';
+    if (IssuesLbl) IssuesLbl.textContent = 'Stretch Caution';
+
+    const OverlapCard = document.getElementById('stat-overlap-card');
+    if (OverlapCard) OverlapCard.classList.toggle('has-error', OverlapMetric > 0 || ErrorCharts > 0);
 
     const NodeSummary = document.getElementById('pz-outliner-node-summary');
-    if (NodeSummary) NodeSummary.textContent = `Showcase · ${Doc.islands.length} charts`;
+    if (NodeSummary) NodeSummary.textContent = `Allocation · ${Doc.islands.length} charts`;
 
     const ActiveTile = Doc.udimTiles.find(T => T.id === Doc.activeUdim) || Doc.udimTiles[0];
     const ResK = ActiveTile ? (ActiveTile.resolution >= 1024 ? `${ActiveTile.resolution / 1024}K` : `${ActiveTile.resolution}px`) : '2K';
     document.getElementById('viewport-udim-pill').textContent = `UDIM ${Doc.activeUdim} · ${ResK}`;
     document.getElementById('mesh-object-pill').textContent = Doc.name;
 
-    const Overlaps = Doc.diagnostics.overlapCount;
     const HealthTag = document.getElementById('atlas-health-tag');
     HealthTag.classList.toggle('warn', Overlaps > 0);
     HealthTag.querySelector('span').textContent = Overlaps > 0 ? `${Overlaps} OVERLAPS` : '0 OVERLAPS';
@@ -698,40 +723,213 @@ function RenderOutliner(Doc)
     const Container = document.getElementById('outliner-list');
     Container.textContent = '';
     const Query = StudioState.searchQuery.trim().toLowerCase();
-    const GroupMap = new Map(Doc.importanceGroups.map(G => [G.id, G]));
 
-    // Single linear O(N) aggregation pass — renders < 25 aggregate rows even on 1,000,000 seam-split 1-face islands!
-    const CategoryBuckets = new Map(Doc.importanceGroups.map(G => [G.id, {
-        group: G,
-        islands: [],
-        faceCount: 0,
-        selectedCount: 0,
-        issueCount: 0
-    }]));
-    const PartBuckets = new Map();
+    // 1. Importance Space Allocation (Placed directly in UV Space panel — same grouped island entities!)
+    const AllocCard = Construct('div', 'pz-left-alloc-card');
+    AllocCard.append(Construct('div', 'pz-left-alloc-head', [
+        Construct('strong', null, 'Importance Space Allocation'),
+        Construct('span', null, `${Doc.importanceGroups.length} LAYER${Doc.importanceGroups.length === 1 ? '' : 'S'}`)
+    ]));
 
-    for (const Isl of Doc.islands)
+    const SelIds = ResolveSelectedIslandIds(Doc);
+    const AddLayerBtn = Construct('button', 'pz-prio-add-btn', [
+        ConstructGlyph('Plus'),
+        Construct('span', null, SelIds.length ? `Add Layer (${SelIds.length} sel)` : 'Add Priority Layer')
+    ]);
+    AddLayerBtn.type = 'button';
+    AddLayerBtn.title = SelIds.length
+        ? `Create a new priority layer from ${SelIds.length} selected chart(s)`
+        : 'Add a new priority layer';
+    AddLayerBtn.addEventListener('click', () => AssignSelectedIslandsToNewGroup(StudioState.pendingGroupPct));
+
+    const MakeToolIconBtn = (GlyphName, Tip, OnClick) =>
     {
-        const IsSel = Doc.surface.selectedIslands.has(Isl.id);
-        if (StudioState.outlinerFilter === 'selected' && !IsSel) continue;
-        if (StudioState.outlinerFilter === 'grouped' && !Isl.importanceGroupId) continue;
+        const B = Construct('button', 'pz-icon-btn', [ConstructGlyph(GlyphName)]);
+        B.type = 'button';
+        B.title = Tip;
+        B.addEventListener('click', OnClick);
+        return B;
+    };
 
-        const Health = ClassifyIslandHealth(Doc, Isl);
-        const HasIssue = Health === 'error' || Health === 'caution';
-        if (StudioState.outlinerFilter === 'issues' && !HasIssue) continue;
+    AllocCard.append(Construct('div', 'pz-prio-toolbar', [
+        AddLayerBtn,
+        Construct('div', 'pz-prio-tools', [
+            MakeToolIconBtn('StackUv', 'Stack duplicate/similar UV charts onto one shared footprint', RunStackSimilarOp),
+            MakeToolIconBtn('UnstackUv', 'Unstack overlapping duplicate UV charts', RunUnstackOp),
+            MakeToolIconBtn('Reset', 'Return selected charts to Auto Remainder', () => AssignSelectedToGroup(null))
+        ])
+    ]));
 
-        const FacesLen = Isl.faceIndices ? Isl.faceIndices.length : 1;
-        if (Isl.importanceGroupId && CategoryBuckets.has(Isl.importanceGroupId))
+    const TierPalette = ['#eff4cf', '#9ecfff', '#fbbf24', '#34d399', '#f472b6', '#a78bfa', '#fb923c'];
+    const Table = Construct('div', 'pz-prio-table');
+    Table.append(Construct('div', 'pz-prio-colhead', [
+        Construct('span', null, ''),
+        Construct('span', null, 'Layer'),
+        Construct('span', null, 'Charts'),
+        Construct('span', null, 'Share'),
+        Construct('span', null, '')
+    ]));
+
+    let AutoPctEl = null;
+    let AutoBarEl = null;
+    const RefreshAutoRowLive = () =>
+    {
+        const Sum = Doc.importanceGroups.reduce((S, G) => S + G.targetPercent, 0);
+        const Rem = Math.max(0, 100 - Sum);
+        if (AutoPctEl)
         {
-            const B = CategoryBuckets.get(Isl.importanceGroupId);
-            if (Query && !`${B.group.name} ${Isl.materialName || ''}`.toLowerCase().includes(Query)) continue;
-            B.islands.push(Isl);
-            B.faceCount += FacesLen;
-            if (IsSel) B.selectedCount++;
-            if (HasIssue) B.issueCount++;
+            AutoPctEl.textContent = Sum > 100 ? `${Sum.toFixed(0)}% !` : `${Rem.toFixed(0)}%`;
+            AutoPctEl.classList.toggle('warn', Sum > 100);
         }
-        else
+        if (AutoBarEl) AutoBarEl.style.width = `${Math.min(100, Rem)}%`;
+        const RemValEl = document.getElementById('lp-kpi-rem-val');
+        if (RemValEl) RemValEl.textContent = `${Rem.toFixed(0)}%`;
+        RenderLegendStrip(Doc);
+        Broadcast();
+    };
+
+    const ExplicitSum = Doc.importanceGroups.reduce((S, G) => S + G.targetPercent, 0);
+    for (const Grp of Doc.importanceGroups)
+    {
+        if (Query && !Grp.name.toLowerCase().includes(Query)) continue;
+        const Members = Doc.islands.filter(I => I.importanceGroupId === Grp.id);
+        if (StudioState.outlinerFilter === 'selected' && !Members.some(M => Doc.surface.selectedIslands.has(M.id))) continue;
+
+        const Row = Construct('div', 'pz-prio-row');
+
+        const DotBtn = Construct('button', 'pz-prio-dot');
+        DotBtn.type = 'button';
+        DotBtn.style.background = Grp.color;
+        DotBtn.title = 'Click to cycle layer colour';
+
+        const NameIn = Construct('input', 'pz-prio-name');
+        NameIn.value = Grp.name;
+        NameIn.spellcheck = false;
+        NameIn.addEventListener('change', () => { Grp.name = NameIn.value.trim() || Grp.name; _lastOutlinerSig = null; SyncAllViews(); });
+
+        const CntBtn = Construct('button', 'pz-prio-count', String(Members.length));
+        CntBtn.type = 'button';
+        CntBtn.title = `Select ${Members.length} chart(s) in "${Grp.name}" (Shift+Click adds current selection)`;
+        CntBtn.addEventListener('click', E =>
         {
+            if (E.shiftKey) AssignSelectedToGroup(Grp.id);
+            else
+            {
+                Doc.surface.SelectIslands(Members.map(M => M.id), false);
+                SyncAllViews(true);
+            }
+        });
+
+        const PctIn = Construct('input');
+        PctIn.type = 'text';
+        PctIn.inputMode = 'numeric';
+        PctIn.value = String(Math.round(Grp.targetPercent));
+        const PctBox = Construct('div', 'pz-prio-pct-box', [PctIn, Construct('small', null, '%')]);
+        PctBox.title = 'Drag horizontally or type exact target space %';
+
+        const BarLine = Construct('span', 'pz-prio-bar');
+        BarLine.style.background = Grp.color;
+        BarLine.style.width = `${Math.min(100, Grp.targetPercent)}%`;
+
+        DotBtn.addEventListener('click', () =>
+        {
+            Grp.color = TierPalette[(TierPalette.indexOf(Grp.color) + 1) % TierPalette.length];
+            DotBtn.style.background = Grp.color;
+            BarLine.style.background = Grp.color;
+            _lastOutlinerSig = null;
+            SyncAllViews();
+        });
+
+        const CommitPct = Raw =>
+        {
+            const V = Math.max(1, Math.min(95, Math.round(Number(Raw) || Grp.targetPercent)));
+            Grp.targetPercent = V;
+            PctIn.value = String(V);
+            BarLine.style.width = `${Math.min(100, V)}%`;
+            RefreshAutoRowLive();
+        };
+        PctIn.addEventListener('change', () => CommitPct(PctIn.value));
+
+        let DragStartX = 0, DragStartVal = 0, Scrubbing = false;
+        PctBox.addEventListener('pointerdown', E =>
+        {
+            if (document.activeElement === PctIn) return;
+            DragStartX = E.clientX;
+            DragStartVal = Grp.targetPercent;
+            Scrubbing = false;
+            PctBox.setPointerCapture(E.pointerId);
+            const OnMove = Me =>
+            {
+                const Dx = Me.clientX - DragStartX;
+                if (Math.abs(Dx) > 3) Scrubbing = true;
+                if (Scrubbing) CommitPct(DragStartVal + Math.round(Dx * 0.35));
+            };
+            const OnUp = () =>
+            {
+                PctBox.removeEventListener('pointermove', OnMove);
+                PctBox.removeEventListener('pointerup', OnUp);
+                if (!Scrubbing) { PctIn.focus(); PctIn.select(); }
+            };
+            PctBox.addEventListener('pointermove', OnMove);
+            PctBox.addEventListener('pointerup', OnUp);
+        });
+
+        const AssignBtn = Construct('button', 'pz-prio-act', ConstructGlyph('Plus'));
+        AssignBtn.type = 'button';
+        AssignBtn.title = `Assign selected charts to "${Grp.name}"`;
+        AssignBtn.addEventListener('click', () => AssignSelectedToGroup(Grp.id));
+
+        const DelBtn = Construct('button', 'pz-prio-act danger', ConstructGlyph('Close'));
+        DelBtn.type = 'button';
+        DelBtn.title = `Delete "${Grp.name}" (charts return to Auto Remainder)`;
+        DelBtn.addEventListener('click', () => RemoveImportanceGroup(Grp.id));
+
+        Row.append(DotBtn, NameIn, CntBtn, PctBox, Construct('div', 'pz-prio-row-acts', [AssignBtn, DelBtn]), BarLine);
+        Table.append(Row);
+    }
+
+    const RemMembers = Doc.islands.filter(I => !I.importanceGroupId);
+    const RemTarget = Math.max(0, 100 - ExplicitSum);
+    const AutoDot = Construct('span', 'pz-prio-dot');
+    AutoDot.style.background = '#6e6e6e';
+    AutoPctEl = Construct('span', `pz-prio-auto-pct${ExplicitSum > 100 ? ' warn' : ''}`,
+        ExplicitSum > 100 ? `${ExplicitSum.toFixed(0)}% !` : `${RemTarget.toFixed(0)}%`);
+    AutoBarEl = Construct('span', 'pz-prio-bar');
+    AutoBarEl.style.background = '#6e6e6e';
+    AutoBarEl.style.width = `${Math.min(100, RemTarget)}%`;
+
+    const AutoRow = Construct('div', 'pz-prio-row auto-row', [
+        AutoDot,
+        Construct('span', 'pz-prio-name', 'Auto Remainder'),
+        Construct('button', 'pz-prio-count', String(RemMembers.length)),
+        AutoPctEl,
+        Construct('span', null, ''),
+        AutoBarEl
+    ]);
+    AutoRow.title = 'Remaining unassigned charts automatically fill leftover UV space (click to select)';
+    AutoRow.addEventListener('click', () =>
+    {
+        if (!RemMembers.length) return;
+        Doc.surface.SelectIslands(RemMembers.map(M => M.id), false);
+        SyncAllViews(true);
+    });
+    Table.append(AutoRow);
+    AllocCard.append(Table);
+    Container.append(AllocCard);
+
+    // 2. Aggregated Surface Parts (Bounded O(Parts) summary — 1 click promotes any mesh part to a Priority Layer above!)
+    if (StudioState.outlinerFilter !== 'grouped')
+    {
+        const PartBuckets = new Map();
+        for (const Isl of Doc.islands)
+        {
+            if (Isl.importanceGroupId) continue;
+            const IsSel = Doc.surface.selectedIslands.has(Isl.id);
+            if (StudioState.outlinerFilter === 'selected' && !IsSel) continue;
+            const Health = ClassifyIslandHealth(Doc, Isl);
+            const HasIssue = Health === 'error' || Health === 'caution';
+            if (StudioState.outlinerFilter === 'issues' && !HasIssue) continue;
+
             const Spec = SemanticPartBucketForIsland(Isl);
             if (Query && !`${Spec.title} ${Isl.materialName || ''}`.toLowerCase().includes(Query)) continue;
             let B = PartBuckets.get(Spec.key);
@@ -741,95 +939,11 @@ function RenderOutliner(Doc)
                 PartBuckets.set(Spec.key, B);
             }
             B.islands.push(Isl);
-            B.faceCount += FacesLen;
+            B.faceCount += (Isl.faceIndices ? Isl.faceIndices.length : 1);
             if (IsSel) B.selectedCount++;
             if (HasIssue) B.issueCount++;
         }
-    }
 
-    // 1. Priority Categories (Synced 1:1 with Pack -> Importance Space Allocation)
-    Container.append(Construct('div', 'pz-outliner-sec-head', [
-        Construct('span', null, 'Priority Categories'),
-        Construct('span', null, `${Doc.importanceGroups.length} active`)
-    ]));
-
-    if (Doc.importanceGroups.length === 0)
-    {
-        Container.append(Construct('div', 'pz-cat-empty',
-            'Select islands in 2D/3D and click + Category to group them for Importance Space Allocation.'));
-    }
-    else
-    {
-        const CatList = Construct('div', 'pz-cat-list');
-        for (const Grp of Doc.importanceGroups)
-        {
-            const B = CategoryBuckets.get(Grp.id);
-            if (!B) continue;
-            if ((StudioState.outlinerFilter !== 'all' || Query) && B.islands.length === 0) continue;
-
-            const AllSel = B.islands.length > 0 && B.selectedCount === B.islands.length;
-            const Dot = Construct('span', 'pz-cat-dot');
-            Dot.style.background = Grp.color;
-
-            const Sub = `${B.islands.length.toLocaleString()} chart${B.islands.length === 1 ? '' : 's'} · ${B.faceCount.toLocaleString()} faces${B.issueCount ? ` · ${B.issueCount} !` : ''}`;
-            const PctBadge = Construct('button', 'pz-cat-pct-badge', `${Grp.targetPercent}%`);
-            PctBadge.type = 'button';
-            PctBadge.title = 'Open Importance Space Allocation in Pack tab';
-            PctBadge.addEventListener('click', E =>
-            {
-                E.stopPropagation();
-                ActivateInspectorTab('packing');
-            });
-
-            const AssignBtn = Construct('button', 'pz-prio-act', [ConstructGlyph('Plus')]);
-            AssignBtn.type = 'button';
-            AssignBtn.title = 'Add currently selected islands into this Category';
-            AssignBtn.addEventListener('click', E =>
-            {
-                E.stopPropagation();
-                AssignSelectedToGroup(Grp.id);
-            });
-
-            const DelBtn = Construct('button', 'pz-prio-act danger', [ConstructGlyph('Close')]);
-            DelBtn.type = 'button';
-            DelBtn.title = 'Dissolve Category (returns islands to Surface Parts)';
-            DelBtn.addEventListener('click', E =>
-            {
-                E.stopPropagation();
-                RemoveImportanceGroup(Grp.id);
-            });
-
-            const Row = Construct('div', `pz-cat-row${AllSel ? ' selected' : ''}`, [
-                Dot,
-                Construct('div', 'pz-cat-copy', [
-                    Construct('strong', null, Grp.name),
-                    Construct('small', null, Sub)
-                ]),
-                PctBadge,
-                AssignBtn,
-                DelBtn
-            ]);
-            Row.addEventListener('click', E =>
-            {
-                if (!E.shiftKey && !E.ctrlKey) Doc.surface.ClearSelection();
-                for (const Isl of B.islands) Doc.surface.SelectIsland(Isl.id, true);
-                SyncAllViews(true);
-            });
-            Row.addEventListener('dblclick', () =>
-            {
-                Doc.surface.ClearSelection();
-                for (const Isl of B.islands) Doc.surface.SelectIsland(Isl.id, true);
-                FrameIslandGroupBounds(B.islands);
-                SyncAllViews(true);
-            });
-            CatList.append(Row);
-        }
-        if (CatList.childElementCount) Container.append(CatList);
-    }
-
-    // 2. Aggregated Surface Parts (Bounded O(Parts) summary — never lists raw individual seam islands or UDIMs!)
-    if (StudioState.outlinerFilter !== 'grouped')
-    {
         let Parts = [...PartBuckets.values()].sort((A, B) => B.faceCount - A.faceCount);
         if (Parts.length > 20)
         {
@@ -864,7 +978,7 @@ function RenderOutliner(Doc)
 
             const PromoteBtn = Construct('button', 'pz-prio-act', [ConstructGlyph('Plus')]);
             PromoteBtn.type = 'button';
-            PromoteBtn.title = `Promote "${Part.title}" into a Priority Category for Importance Space Allocation`;
+            PromoteBtn.title = `Promote "${Part.title}" into a Priority Layer in Importance Space Allocation`;
             PromoteBtn.addEventListener('click', E =>
             {
                 E.stopPropagation();
@@ -909,7 +1023,7 @@ function RenderOutliner(Doc)
         }
 
         if (PartList.childElementCount) Container.append(PartList);
-        else Container.append(Construct('p', 'property-hint', 'No surface groups match the active filter.'));
+        else Container.append(Construct('p', 'property-hint', 'No unassigned surface parts match the active filter.'));
     }
 }
 
@@ -2365,78 +2479,77 @@ function RenderShadingTab(Body, Doc)
         }
     }
 
-    // Sub-section B: Studio Surface Finish (Distinct Live-Shaded Sphere Preview + Colour, Metallic, Roughness, Specular)
+    // Sub-section B: Clean C++-Portable Surface Finish (Colour [(circle) Name · #HEX] + Metallic, Roughness, Specular)
     if (IsPbrMode)
     {
-        const CurHex = (Brush.pbrColor || '#4c7dc9').toLowerCase();
-        const FinishSphere = Construct('span', 'pz-finish-sphere');
-        const FinishTitle = Construct('strong', null, 'Custom Finish');
-        const FinishReadout = Construct('span', null, '');
-
-        const PbrSwatches = [
-            ['Steel Blue', '#4c7dc9'],
-            ['Machined Alu', '#c4ccd8'],
-            ['Titanium', '#c7bdb0'],
-            ['Gunmetal', '#363b44'],
-            ['Turned Brass', '#d9a448'],
-            ['CAD Sage', '#7b9478']
-        ];
-
-        const SyncFinishPreview = () =>
+        const DescribeHexColorName = HexStr =>
         {
-            const Hex = (Brush.pbrColor || '#4c7dc9').toLowerCase();
-            const Met = Brush.pbrMetallic ?? 0.60;
-            const Rgh = Brush.pbrRoughness ?? 0.24;
-            const Spc = Brush.pbrSpecular ?? 0.68;
-            const SpecStop = Math.round(8 + Rgh * 34);
-            const SpecAlpha = (0.18 + (1.0 - Rgh * 0.72) * (0.35 + Spc * 0.45)).toFixed(2);
-            const Matched = PbrSwatches.find(([, H]) => H === Hex);
-            FinishSphere.style.background = `radial-gradient(circle at 33% 28%, rgba(255,255,255,${SpecAlpha}) 0%, ${Hex} ${SpecStop}%, #0c0c0c 96%)`;
-            FinishTitle.textContent = Matched ? Matched[0] : `Surface ${Hex.toUpperCase()}`;
-            FinishReadout.textContent = `Metal ${Math.round(Met * 100)}% · Rough ${Math.round(Rgh * 100)}% · Spec ${Math.round(Spc * 100)}%`;
+            const Clean = String(HexStr || '#4c7dc9').replace('#', '').toLowerCase();
+            const Known = {
+                '4c7dc9': 'Steel Blue',
+                'c4ccd8': 'Machined Alu',
+                'c7bdb0': 'Titanium',
+                '363b44': 'Gunmetal',
+                'd9a448': 'Turned Brass',
+                '7b9478': 'CAD Sage'
+            };
+            if (Known[Clean]) return Known[Clean];
+            const R = parseInt(Clean.slice(0, 2), 16) / 255;
+            const G = parseInt(Clean.slice(2, 4), 16) / 255;
+            const B = parseInt(Clean.slice(4, 6), 16) / 255;
+            const Max = Math.max(R, G, B), Min = Math.min(R, G, B);
+            const L = (Max + Min) * 0.5;
+            const D = Max - Min;
+            if (D < 0.08)
+            {
+                if (L < 0.16) return 'Obsidian';
+                if (L < 0.36) return 'Charcoal';
+                if (L < 0.68) return 'Neutral Grey';
+                if (L < 0.88) return 'Silver';
+                return 'Ivory White';
+            }
+            let H = 0;
+            if (Max === R) H = ((G - B) / D + (G < B ? 6 : 0)) * 60;
+            else if (Max === G) H = ((B - R) / D + 2) * 60;
+            else H = ((R - G) / D + 4) * 60;
+            if (H < 18 || H >= 345) return 'Crimson';
+            if (H < 42) return 'Copper';
+            if (H < 66) return 'Warm Gold';
+            if (H < 155) return 'Sage Green';
+            if (H < 195) return 'Teal';
+            if (H < 250) return 'Cobalt Blue';
+            if (H < 295) return 'Violet';
+            return 'Magenta';
         };
-        SyncFinishPreview();
 
-        MatSec.Inner.append(Construct('div', 'pz-finish-showcase', [
-            FinishSphere,
-            Construct('div', 'pz-finish-meta', [FinishTitle, FinishReadout])
-        ]));
-
-        const SwatchDots = Construct('div', 'pz-pbr-swatch-dots');
-        const HexLabel = Construct('span', 'pz-pbr-color-hex', CurHex.toUpperCase());
-        const ColorInput = Construct('input');
+        const CurHex = (Brush.pbrColor || '#4c7dc9').toLowerCase();
+        const SwatchCircle = Construct('span', 'pz-cpp-color-circle');
+        SwatchCircle.style.background = CurHex;
+        const ColorNameEl = Construct('span', 'pz-cpp-color-name', DescribeHexColorName(CurHex));
+        const ColorHexEl = Construct('span', 'pz-cpp-color-hex', CurHex.toUpperCase());
+        const ColorInput = Construct('input', 'pz-cpp-color-input');
         ColorInput.type = 'color';
         ColorInput.value = CurHex;
 
-        const DotEls = [];
-        const SetBrushPbrColor = HexVal =>
+        ColorInput.addEventListener('input', () =>
         {
-            const Norm = String(HexVal || '#4c7dc9').toLowerCase();
-            ColorInput.value = Norm;
-            HexLabel.textContent = Norm.toUpperCase();
-            for (const [El, SwHex] of DotEls) El.classList.toggle('active', SwHex === Norm);
+            const Norm = String(ColorInput.value || '#4c7dc9').toLowerCase();
+            SwatchCircle.style.background = Norm;
+            ColorNameEl.textContent = DescribeHexColorName(Norm);
+            ColorHexEl.textContent = Norm.toUpperCase();
             LivePreviewSelectedOnly({ pbrColor: Norm });
-            SyncFinishPreview();
-        };
+        });
 
-        for (const [SwName, SwHex] of PbrSwatches)
-        {
-            const DotBtn = Construct('button', `pz-pbr-color-dot${CurHex === SwHex ? ' active' : ''}`);
-            DotBtn.type = 'button';
-            DotBtn.style.background = SwHex;
-            DotBtn.title = `${SwName} (${SwHex.toUpperCase()})`;
-            DotBtn.addEventListener('click', () => SetBrushPbrColor(SwHex));
-            DotEls.push([DotBtn, SwHex]);
-            SwatchDots.append(DotBtn);
-        }
+        const PickerPill = Construct('label', 'pz-cpp-color-picker', [
+            SwatchCircle,
+            Construct('span', 'pz-cpp-color-text', [ColorNameEl, ColorHexEl]),
+            ColorInput
+        ]);
+        PickerPill.title = 'Click to pick surface colour';
 
-        ColorInput.addEventListener('input', () => SetBrushPbrColor(ColorInput.value));
-        const ColorWell = Construct('label', 'pz-pbr-color-well', [ColorInput, HexLabel]);
-        ColorWell.title = 'Pick Surface Base Colour';
-
-        MatSec.Inner.append(Construct('div', 'pz-pbr-color-row', [
-            Construct('span', 'pz-pbr-color-label', 'Colour'),
-            Construct('div', 'pz-pbr-color-controls', [SwatchDots, ColorWell])
+        MatSec.Inner.append(Construct('div', 'pz-cpp-color-row', [
+            Construct('label', 'property-label', 'Colour'),
+            PickerPill
         ]));
 
         SliderRow(MatSec.Inner, {
@@ -2446,7 +2559,7 @@ function RenderShadingTab(Body, Doc)
             Step: 0.01,
             Digits: 2,
             Read: () => Brush.pbrMetallic ?? 0.60,
-            Write: Val => { LivePreviewSelectedOnly({ pbrMetallic: Val }); SyncFinishPreview(); }
+            Write: Val => LivePreviewSelectedOnly({ pbrMetallic: Val })
         });
 
         SliderRow(MatSec.Inner, {
@@ -2456,7 +2569,7 @@ function RenderShadingTab(Body, Doc)
             Step: 0.01,
             Digits: 2,
             Read: () => Brush.pbrRoughness ?? 0.24,
-            Write: Val => { LivePreviewSelectedOnly({ pbrRoughness: Val }); SyncFinishPreview(); }
+            Write: Val => LivePreviewSelectedOnly({ pbrRoughness: Val })
         });
 
         SliderRow(MatSec.Inner, {
@@ -2466,7 +2579,7 @@ function RenderShadingTab(Body, Doc)
             Step: 0.01,
             Digits: 2,
             Read: () => Brush.pbrSpecular ?? 0.68,
-            Write: Val => { LivePreviewSelectedOnly({ pbrSpecular: Val }); SyncFinishPreview(); }
+            Write: Val => LivePreviewSelectedOnly({ pbrSpecular: Val })
         });
     }
 }
@@ -2535,229 +2648,7 @@ function RenderPackingTab(Body, Doc)
     );
     Body.append(Hero);
 
-    // 2. KPI Trio
-    MetricTrio(Body, [
-        {
-            Label: 'Pack Utilization',
-            Highlight: true,
-            Read: () => ({
-                value: `${DisplayOcc.toFixed(1)}%`,
-                sub: `UDIM ${Doc.activeUdim} density`
-            })
-        },
-        {
-            Label: 'Selected Islands',
-            Read: () => ({
-                value: `${Doc.surface.selectedIslands.size}`,
-                sub: Doc.surface.selectedIslands.size ? 'Ready to assign %' : 'Click islands to group'
-            })
-        },
-        {
-            Label: 'Remaining Pool',
-            Read: () =>
-            {
-                const RemIslands = Doc.islands.filter(I => !I.importanceGroupId).length;
-                const RemPct = Math.max(0, 100 - Doc.importanceGroups.reduce((S, G) => S + G.targetPercent, 0));
-                return { value: `${RemPct.toFixed(0)}%`, sub: `${RemIslands} islands auto-fill` };
-            }
-        }
-    ]);
-
-    // 3. Clean Minimal Project-Zero Priority Layer Table (Importance Space Allocation)
-    const AllocSec = SectionCard(Body, {
-        Id: 'importance-allocator',
-        Title: 'Importance Space Allocation',
-        Glyph: 'Layers',
-        Badge: `${Doc.importanceGroups.length} LAYERS`
-    });
-
-    const SelIds = ResolveSelectedIslandIds(Doc);
-    const AddLayerBtn = Construct('button', 'pz-prio-add-btn', [
-        ConstructGlyph('Plus'),
-        Construct('span', null, SelIds.length ? `Add Layer (${SelIds.length} sel)` : 'Add Priority Layer')
-    ]);
-    AddLayerBtn.type = 'button';
-    AddLayerBtn.title = SelIds.length
-        ? `Create a new priority layer from ${SelIds.length} selected chart(s)`
-        : 'Add a new priority layer';
-    AddLayerBtn.addEventListener('click', () => AssignSelectedIslandsToNewGroup(StudioState.pendingGroupPct));
-
-    const MakeToolIconBtn = (GlyphName, Tip, OnClick) =>
-    {
-        const B = Construct('button', 'pz-icon-btn', [ConstructGlyph(GlyphName)]);
-        B.type = 'button';
-        B.title = Tip;
-        B.addEventListener('click', OnClick);
-        return B;
-    };
-
-    AllocSec.Inner.append(Construct('div', 'pz-prio-toolbar', [
-        AddLayerBtn,
-        Construct('div', 'pz-prio-tools', [
-            MakeToolIconBtn('StackUv', 'Stack duplicate/similar UV charts onto one shared footprint', RunStackSimilarOp),
-            MakeToolIconBtn('UnstackUv', 'Unstack overlapping duplicate UV charts', RunUnstackOp),
-            MakeToolIconBtn('Reset', 'Return selected charts to Auto Remainder', () => AssignSelectedToGroup(null))
-        ])
-    ]));
-
-    const TierPalette = ['#eff4cf', '#9ecfff', '#fbbf24', '#34d399', '#f472b6', '#a78bfa', '#fb923c'];
-    const Table = Construct('div', 'pz-prio-table');
-    Table.append(Construct('div', 'pz-prio-colhead', [
-        Construct('span', null, ''),
-        Construct('span', null, 'Layer'),
-        Construct('span', null, 'Charts'),
-        Construct('span', null, 'Share'),
-        Construct('span', null, '')
-    ]));
-
-    let AutoPctEl = null;
-    let AutoBarEl = null;
-    const RefreshAutoRowLive = () =>
-    {
-        const Sum = Doc.importanceGroups.reduce((S, G) => S + G.targetPercent, 0);
-        const Rem = Math.max(0, 100 - Sum);
-        if (AutoPctEl)
-        {
-            AutoPctEl.textContent = Sum > 100 ? `${Sum.toFixed(0)}% !` : `${Rem.toFixed(0)}%`;
-            AutoPctEl.classList.toggle('warn', Sum > 100);
-        }
-        if (AutoBarEl) AutoBarEl.style.width = `${Math.min(100, Rem)}%`;
-        RenderLegendStrip(Doc);
-        Broadcast();
-    };
-
-    for (const Grp of Doc.importanceGroups)
-    {
-        const Members = Doc.islands.filter(I => I.importanceGroupId === Grp.id);
-        const Row = Construct('div', 'pz-prio-row');
-
-        const DotBtn = Construct('button', 'pz-prio-dot');
-        DotBtn.type = 'button';
-        DotBtn.style.background = Grp.color;
-        DotBtn.title = 'Click to cycle layer colour';
-
-        const NameIn = Construct('input', 'pz-prio-name');
-        NameIn.value = Grp.name;
-        NameIn.spellcheck = false;
-        NameIn.addEventListener('change', () => { Grp.name = NameIn.value.trim() || Grp.name; SyncAllViews(); });
-
-        const CntBtn = Construct('button', 'pz-prio-count', String(Members.length));
-        CntBtn.type = 'button';
-        CntBtn.title = `Select ${Members.length} chart(s) in "${Grp.name}" (Shift+Click adds current selection)`;
-        CntBtn.addEventListener('click', E =>
-        {
-            if (E.shiftKey) AssignSelectedToGroup(Grp.id);
-            else
-            {
-                Doc.surface.SelectIslands(Members.map(M => M.id), false);
-                SyncAllViews(true);
-            }
-        });
-
-        const PctIn = Construct('input');
-        PctIn.type = 'text';
-        PctIn.inputMode = 'numeric';
-        PctIn.value = String(Math.round(Grp.targetPercent));
-        const PctBox = Construct('div', 'pz-prio-pct-box', [PctIn, Construct('small', null, '%')]);
-        PctBox.title = 'Drag horizontally or type exact target space %';
-
-        const BarLine = Construct('span', 'pz-prio-bar');
-        BarLine.style.background = Grp.color;
-        BarLine.style.width = `${Math.min(100, Grp.targetPercent)}%`;
-
-        DotBtn.addEventListener('click', () =>
-        {
-            Grp.color = TierPalette[(TierPalette.indexOf(Grp.color) + 1) % TierPalette.length];
-            DotBtn.style.background = Grp.color;
-            BarLine.style.background = Grp.color;
-            SyncAllViews();
-        });
-
-        const CommitPct = Raw =>
-        {
-            const V = Math.max(1, Math.min(95, Math.round(Number(Raw) || Grp.targetPercent)));
-            Grp.targetPercent = V;
-            PctIn.value = String(V);
-            BarLine.style.width = `${Math.min(100, V)}%`;
-            RefreshAutoRowLive();
-        };
-        PctIn.addEventListener('change', () => CommitPct(PctIn.value));
-
-        // Project-Zero style horizontal scrub drag on the % capsule
-        let DragStartX = 0, DragStartVal = 0, Scrubbing = false;
-        PctBox.addEventListener('pointerdown', E =>
-        {
-            if (document.activeElement === PctIn) return;
-            DragStartX = E.clientX;
-            DragStartVal = Grp.targetPercent;
-            Scrubbing = false;
-            PctBox.setPointerCapture(E.pointerId);
-            const OnMove = Me =>
-            {
-                const Dx = Me.clientX - DragStartX;
-                if (Math.abs(Dx) > 3) Scrubbing = true;
-                if (Scrubbing) CommitPct(DragStartVal + Math.round(Dx * 0.35));
-            };
-            const OnUp = Ue =>
-            {
-                PctBox.removeEventListener('pointermove', OnMove);
-                PctBox.removeEventListener('pointerup', OnUp);
-                if (!Scrubbing) { PctIn.focus(); PctIn.select(); }
-            };
-            PctBox.addEventListener('pointermove', OnMove);
-            PctBox.addEventListener('pointerup', OnUp);
-        });
-
-        const AssignBtn = Construct('button', 'pz-prio-act', ConstructGlyph('Plus'));
-        AssignBtn.type = 'button';
-        AssignBtn.title = `Assign selected charts to "${Grp.name}"`;
-        AssignBtn.addEventListener('click', () => AssignSelectedToGroup(Grp.id));
-
-        const DelBtn = Construct('button', 'pz-prio-act danger', ConstructGlyph('Close'));
-        DelBtn.type = 'button';
-        DelBtn.title = `Delete "${Grp.name}" (charts return to Auto Remainder)`;
-        DelBtn.addEventListener('click', () =>
-        {
-            Doc.surface.PushUndo('Delete Priority Layer');
-            for (const M of Members) Doc.surface.AssignImportanceGroup([M.id], null);
-            Doc.importanceGroups = Doc.importanceGroups.filter(G => G.id !== Grp.id);
-            SyncAllViews(true);
-        });
-
-        Row.append(DotBtn, NameIn, CntBtn, PctBox, Construct('div', 'pz-prio-row-acts', [AssignBtn, DelBtn]), BarLine);
-        Table.append(Row);
-    }
-
-    // Base Auto-Remainder Row inside the same unified table
-    const RemMembers = Doc.islands.filter(I => !I.importanceGroupId);
-    const RemTarget = Math.max(0, 100 - ExplicitSum);
-    const AutoDot = Construct('span', 'pz-prio-dot');
-    AutoDot.style.background = '#6e7680';
-    AutoPctEl = Construct('span', `pz-prio-auto-pct${ExplicitSum > 100 ? ' warn' : ''}`,
-        ExplicitSum > 100 ? `${ExplicitSum.toFixed(0)}% !` : `${RemTarget.toFixed(0)}%`);
-    AutoBarEl = Construct('span', 'pz-prio-bar');
-    AutoBarEl.style.background = '#6e7680';
-    AutoBarEl.style.width = `${Math.min(100, RemTarget)}%`;
-
-    const AutoRow = Construct('div', 'pz-prio-row auto-row', [
-        AutoDot,
-        Construct('span', 'pz-prio-name', 'Auto Remainder'),
-        Construct('button', 'pz-prio-count', String(RemMembers.length)),
-        AutoPctEl,
-        Construct('span', null, ''),
-        AutoBarEl
-    ]);
-    AutoRow.title = 'Remaining unassigned charts automatically fill leftover UV space (click to select)';
-    AutoRow.addEventListener('click', () =>
-    {
-        if (!RemMembers.length) return;
-        Doc.surface.SelectIslands(RemMembers.map(M => M.id), false);
-        SyncAllViews(true);
-    });
-    Table.append(AutoRow);
-    AllocSec.Inner.append(Table);
-
-    // 4. Packing Solver Options Card
+    // Packing Solver Options Card (KPI Trio & Importance Space Allocation now live permanently in UV Space left panel!)
     const PackSec = SectionCard(Body, {
         Id: 'pack-options',
         Title: 'Concave Packing Engine',
@@ -4498,8 +4389,6 @@ function InitStudioIconsAndBindings()
     document.getElementById('help-btn').append(ConstructGlyph('Help'));
     document.getElementById('compact-outliner').append(ConstructGlyph('Compact'));
     document.getElementById('add-udim-quick').append(ConstructGlyph('Plus'));
-    document.getElementById('stat-islands-icon').append(ConstructGlyph('Island'));
-    document.getElementById('stat-udim-icon').append(ConstructGlyph('Grid'));
     document.getElementById('search-icon').append(ConstructGlyph('Search'));
     document.getElementById('maximize-stage-btn').append(ConstructGlyph('Maximize'));
     document.getElementById('toggle-log-btn').append(ConstructGlyph('Terminal'));
@@ -4774,20 +4663,54 @@ function InitStudioIconsAndBindings()
     document.getElementById('pz-inspector-export-plus')?.addEventListener('click', OpenExportModal);
     document.getElementById('pz-export-pill-btn')?.addEventListener('click', OpenExportModal);
 
-    // Outliner Bento Stat Card Quick Filters + "+ Folder" Grouping
-    document.getElementById('stat-clean-card')?.addEventListener('click', () =>
+    // UV Space 5 Infographic Cards (3 Pack Tiles + Stretch Caution [Amber] + Overlaps [Red])
+    document.getElementById('lp-kpi-util')?.addEventListener('click', () => ActivateInspectorTab('packing'));
+    document.getElementById('lp-kpi-selected')?.addEventListener('click', () =>
     {
-        StudioState.outlinerFilter = 'all';
-        document.querySelectorAll('#outliner-filters button').forEach(B => B.classList.toggle('active', B.dataset.filter === 'all'));
-        _lastOutlinerSig = null;
-        RenderOutliner(ActiveDoc());
-    });
-    document.getElementById('stat-issues-card')?.addEventListener('click', () =>
-    {
-        StudioState.outlinerFilter = StudioState.outlinerFilter === 'issues' ? 'all' : 'issues';
+        StudioState.outlinerFilter = StudioState.outlinerFilter === 'selected' ? 'all' : 'selected';
         document.querySelectorAll('#outliner-filters button').forEach(B => B.classList.toggle('active', B.dataset.filter === StudioState.outlinerFilter));
         _lastOutlinerSig = null;
         RenderOutliner(ActiveDoc());
+    });
+    document.getElementById('lp-kpi-remaining')?.addEventListener('click', () =>
+    {
+        const Doc = ActiveDoc();
+        if (!Doc) return;
+        const RemIds = Doc.islands.filter(I => !I.importanceGroupId).map(I => I.id);
+        if (!RemIds.length) return;
+        Doc.surface.SelectIslands(RemIds, false);
+        SyncAllViews(true);
+    });
+    document.getElementById('stat-issues-card')?.addEventListener('click', () =>
+    {
+        const Doc = ActiveDoc();
+        StudioState.outlinerFilter = StudioState.outlinerFilter === 'issues' ? 'all' : 'issues';
+        document.querySelectorAll('#outliner-filters button').forEach(B => B.classList.toggle('active', B.dataset.filter === StudioState.outlinerFilter));
+        if (Doc)
+        {
+            const StretchIds = Doc.islands.filter(I => ClassifyIslandHealth(Doc, I) === 'caution').map(I => I.id);
+            if (StretchIds.length) Doc.surface.SelectIslands(StretchIds, false);
+            StudioState.overlayLens = 'stretch';
+            const LensSel = document.getElementById('uv-lens-select');
+            if (LensSel) LensSel.value = 'stretch';
+        }
+        _lastOutlinerSig = null;
+        SyncAllViews(true);
+    });
+    document.getElementById('stat-overlap-card')?.addEventListener('click', () =>
+    {
+        const Doc = ActiveDoc();
+        if (!Doc) return;
+        const D = Doc.diagnostics;
+        Doc.surface.ClearSelection();
+        for (const Fi of [...(D.OverlappingFaces || []), ...(D.FlippedFaces || [])]) Doc.surface.selectedFaces.add(Fi);
+        Doc.surface.SyncDerivedSelectionFromFaces();
+        StudioState.overlayLens = 'overlap';
+        const LensSel = document.getElementById('uv-lens-select');
+        if (LensSel) LensSel.value = 'overlap';
+        _lastOutlinerSig = null;
+        SyncAllViews(true);
+        Toast(Doc.surface.selectedFaces.size ? `Highlighted ${Doc.surface.selectedFaces.size} overlapping/flipped faces` : '0 UV overlaps detected');
     });
     document.getElementById('pz-new-folder-btn')?.addEventListener('click', () =>
     {

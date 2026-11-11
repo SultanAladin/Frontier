@@ -2797,121 +2797,190 @@ body.pz-uv-theme #inspector-object-sub {
 .pz-udim-res-pill.active small { color: rgba(23, 25, 14, 0.68); }
 
 /*==========================================================================================================================================
-                                    FAST SIMPLIFIED PBR COLOUR STRIP & REDESIGNED IMPORTANCE ALLOCATOR
+                                    C++ COLOUR PICKER ROW, 5-CARD UV SPACE HEADER & IMPORTANCE ALLOCATOR
 ==========================================================================================================================================*/
-.pz-pbr-color-row {
+/* Exact C++-Portable Colour Picker Row: Colour  [(● circle)  Colour Name · #HEX] */
+.pz-cpp-color-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
-    padding: 6px 0 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    margin-bottom: 4px;
+    gap: 10px;
+    margin-bottom: 13px;
 }
-.pz-pbr-color-label {
-    font-size: 11.5px;
-    color: #c8c9ce;
+.pz-cpp-color-row .property-label {
+    margin-bottom: 0;
     flex-shrink: 0;
 }
-.pz-pbr-color-controls {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-.pz-pbr-swatch-dots {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-.pz-pbr-color-dot {
-    width: 15px;
-    height: 15px;
-    border-radius: 50%;
-    border: 1.5px solid rgba(255, 255, 255, 0.18);
-    padding: 0;
-    cursor: pointer;
-    transition: transform 110ms ease, border-color 110ms ease;
-}
-.pz-pbr-color-dot:hover {
-    transform: scale(1.16);
-    border-color: #ffffff;
-}
-.pz-pbr-color-dot.active {
-    border-color: #eff4cf;
-    box-shadow: 0 0 0 2px rgba(239, 244, 207, 0.25);
-}
-.pz-pbr-color-well {
+.pz-cpp-color-picker {
+    position: relative;
     display: inline-flex;
     align-items: center;
-    gap: 5px;
-    height: 24px;
-    padding: 0 7px 0 4px;
-    border-radius: 7px;
-    background: #161616;
-    border: 1px solid #2f2f2f;
+    gap: 9px;
+    height: 30px;
+    padding: 0 11px 0 7px;
+    border-radius: 999px;
+    background: #141414;
+    border: 1px solid #303030;
     cursor: pointer;
+    transition: border-color 120ms ease, background 120ms ease;
+    max-width: 210px;
 }
-.pz-pbr-color-well input[type="color"] {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 15px;
-    height: 15px;
-    border: 0;
-    border-radius: 4px;
-    padding: 0;
-    background: transparent;
-    cursor: pointer;
+.pz-cpp-color-picker:hover {
+    background: #1b1b1b;
+    border-color: #484848;
 }
-.pz-pbr-color-well input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
-.pz-pbr-color-well input[type="color"]::-webkit-color-swatch {
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    border-radius: 4px;
-}
-.pz-pbr-color-hex {
-    font-size: 9.5px;
-    font-family: var(--mono);
-    color: #d4d6dc;
-    letter-spacing: 0.2px;
-}
-
-/* Distinct Studio Material Preview Header & Priority Layer Table (Neutral Check Palette) */
-.pz-finish-showcase {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 12px;
-    margin: 8px 0 10px;
-    border-radius: 14px;
-    background: #181818;
-    border: 1px solid #2d2d2d;
-}
-.pz-finish-sphere {
-    width: 38px;
-    height: 38px;
+.pz-cpp-color-circle {
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
     flex-shrink: 0;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.55), inset 0 -4px 8px rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
 }
-.pz-finish-meta {
-    flex: 1;
+.pz-cpp-color-text {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
     min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
 }
-.pz-finish-meta strong {
+.pz-cpp-color-name {
+    font-size: 11px;
+    color: #e6e6e6;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.pz-cpp-color-hex {
+    font-size: 10px;
+    font-family: var(--mono);
+    color: #888888;
+}
+.pz-cpp-color-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    border: 0;
+    padding: 0;
+}
+
+/* 5 Infographic Cards in UV Space Left Panel: 3 Pack Tiles + Stretch Caution (Amber) + Overlaps (Red) */
+.pz-left-kpi-trio {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+    padding: 0 14px 8px;
+    margin-bottom: 0;
+}
+.left-panel.compact .pz-left-kpi-trio { display: none; }
+.pz-kpi-btn {
+    text-align: left;
+    cursor: pointer;
+    padding: 10px 10px 9px;
+    border-radius: 16px;
+    transition: border-color 120ms ease, transform 100ms ease;
+}
+.pz-kpi-btn:hover {
+    border-color: #404040;
+}
+.pz-kpi-btn.highlight:hover {
+    border-color: #ffffff;
+}
+.pz-kpi-btn .kpi-label {
     display: block;
-    font-size: 12px;
-    font-weight: 400;
-    color: #efefef;
+    font-size: 8.5px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+.pz-kpi-btn .kpi-value {
+    display: block;
+    font-size: 17px;
+    font-weight: 300;
+    line-height: 1.05;
+    letter-spacing: -0.4px;
+    font-variant-numeric: tabular-nums;
+}
+.pz-kpi-btn .kpi-sub {
+    display: block;
+    font-size: 9px;
+    margin-top: 3px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.pz-finish-meta span {
-    display: block;
-    font-size: 9.5px;
+
+.pz-stretch-amber-symbol {
+    width: 22px;
+    height: 22px;
+    border-radius: 50% !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    background: rgba(245, 158, 11, 0.20) !important;
+    border: 1px solid rgba(245, 158, 11, 0.42) !important;
+    color: #fbbf24 !important;
+    font: 600 11px/1 "DM Sans", sans-serif;
+}
+.pz-stretch-card.has-caution {
+    border-color: rgba(245, 158, 11, 0.42) !important;
+}
+
+.pz-overlap-red-symbol {
+    width: 22px;
+    height: 22px;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    clip-path: polygon(50% 8%, 96% 92%, 4% 92%);
+    border-radius: 3px !important;
+    background: #ef4444 !important;
+    color: #ffffff !important;
+    font: 700 11px/1 "DM Sans", sans-serif;
+    padding-top: 3px;
+}
+.pz-overlap-card {
+    border-color: rgba(239, 68, 68, 0.26) !important;
+}
+.pz-overlap-card:hover {
+    border-color: rgba(239, 68, 68, 0.52) !important;
+}
+.pz-overlap-card.has-error {
+    background: rgba(239, 68, 68, 0.10) !important;
+    border-color: rgba(239, 68, 68, 0.58) !important;
+}
+.pz-overlap-card strong {
+    color: #f87171 !important;
+}
+
+/* Importance Space Allocation Card inside UV Space Left Panel */
+.pz-left-alloc-card {
+    padding: 12px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #252525, #202020);
+    border: 1px solid #343434;
+    margin-bottom: 10px;
+}
+.pz-left-alloc-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 9px;
+}
+.pz-left-alloc-head strong {
+    font-size: 12px;
+    font-weight: 400;
+    color: #d8d8d8;
+}
+.pz-left-alloc-head span {
     font-family: var(--mono);
-    color: #848484;
-    margin-top: 2px;
+    font-size: 9px;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: #7c7c7c;
 }
 
 .pz-mat-subhead {
