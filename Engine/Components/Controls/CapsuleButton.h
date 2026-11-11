@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                         CAPSULEBUTTON.H
+                                                               CAPSULEBUTTON.H
 ============================================================================================================================================*/
 // 🧩 Reusable capsule buttons, weight/scope chips, bordered circular icon buttons, segmented bars, and quick discs
 
@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Controls/ControlStyle.h"
+#include "Engine/Components/Controls/ControlAppearance.h"
 
 namespace Frontier
 {
@@ -33,12 +33,13 @@ enum class ButtonTone : uint8_t
 
 struct ButtonDescriptor
 {
-    const char* Label    = "";                    // [-]  - Button caption text
-    ButtonTone  Tone     = ButtonTone::Secondary; // [-]  - Visual tone style
-    float       FontSize = 13.5f;                 // [px] - Caption font size
-    float       PaddingX = 20.0f;                 // [px] - Horizontal text padding
-    bool        Disabled = false;                 // [-]  - Disabled interaction toggle
-    ColorQuad   Tint     = {};                    // [-]  - Custom fill color when Tone == ButtonTone::Tinted
+    const char*     Label    = "";                    // [-]  - Button caption text
+    ButtonTone      Tone     = ButtonTone::Secondary; // [-]  - Visual tone style
+    float           FontSize = 13.5f;                 // [px] - Caption font size
+    float           PaddingX = 20.0f;                 // [px] - Horizontal text padding
+    bool            Disabled = false;                 // [-]  - Disabled interaction toggle
+    ColorQuad       Tint     = {};                    // [-]  - Custom fill color when Tone == ButtonTone::Tinted
+    OptionalTooltip Tooltip  = {};                    // [-]  - Optional hover tooltip descriptor
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -49,7 +50,7 @@ namespace CapsuleButton
 {
 
 [[nodiscard]] float          MeasureWidth(PixelSpace& Surface, const ButtonDescriptor& Button) noexcept;
-[[nodiscard]] ControlContact Draw(
+[[nodiscard]] ControlContact Construct(
     PixelSpace&             Surface,
     Rectangle2D             Bounds,
     const ButtonDescriptor& Button,
@@ -57,7 +58,7 @@ namespace CapsuleButton
     float                   Opacity = 1.0f) noexcept;
 
 [[nodiscard]] float          MeasureChipWidth(PixelSpace& Surface, const char* Label) noexcept;
-[[nodiscard]] ControlContact DrawChip(
+[[nodiscard]] ControlContact ConstructChip(
     PixelSpace&           Surface,
     Rectangle2D           Bounds,
     const char*           Label,
@@ -65,15 +66,16 @@ namespace CapsuleButton
     const ControlPointer& Pointer,
     float                 Opacity = 1.0f) noexcept;
 
-[[nodiscard]] ControlContact DrawRoundIcon(
-    PixelSpace&           Surface,
-    float                 CenterX,
-    float                 CenterY,
-    ControlIcon           Icon,
-    const ControlPointer& Pointer,
-    float                 Opacity = 1.0f) noexcept;
+[[nodiscard]] ControlContact ConstructRoundIcon(
+    PixelSpace&            Surface,
+    float                  CenterX,
+    float                  CenterY,
+    ControlIcon            Icon,
+    const ControlPointer&  Pointer,
+    float                  Opacity = 1.0f,
+    const OptionalTooltip& Tooltip = {}) noexcept;
 
-[[nodiscard]] ControlContact DrawSegmented(
+[[nodiscard]] ControlContact ConstructSegmented(
     PixelSpace&           Surface,
     Rectangle2D           Bounds,
     const char* const*    Labels,
@@ -83,7 +85,7 @@ namespace CapsuleButton
     uint32_t&             SelectedIndex,
     float                 Opacity = 1.0f) noexcept;
 
-[[nodiscard]] ControlContact DrawQuickCircleTile(
+[[nodiscard]] ControlContact ConstructQuickCircleTile(
     PixelSpace&           Surface,
     Rectangle2D           DiscBounds,
     ControlIcon           Icon,

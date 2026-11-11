@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                      CONTROLCENTREPANEL.CPP
+                                                            CONTROLCENTREPANEL.CPP
 ============================================================================================================================================*/
 // 🧩 Top-notch pull-down Control Centre, Appearance/Input/Notifications/Workspace settings, toast overlay, and modal dialogues
 
@@ -22,7 +22,7 @@ namespace
 {
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                        CONSTANTS
+//                                                       CONSTANTS
 //------------------------------------------------------------------------------------------------------------------------
 
 constexpr FontWeightClass TypographyChipOrder[9] = {
@@ -38,7 +38,7 @@ constexpr FontWeightClass TypographyChipOrder[9] = {
 };
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                               FORMATTING & DIFF SUMMARIES
+//                                              FORMATTING & DIFF SUMMARIES
 //------------------------------------------------------------------------------------------------------------------------
 
 void FormatHexRgb(ColorQuad Color, char* Buffer, std::size_t Capacity) noexcept
@@ -98,7 +98,7 @@ void FormatHexRgb(ColorQuad Color, char* Buffer, std::size_t Capacity) noexcept
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                           LIFECYCLE & PROJECTSPACE PERSISTENCE
+//                                          LIFECYCLE & PROJECTSPACE PERSISTENCE
 //------------------------------------------------------------------------------------------------------------------------
 
 ControlCentrePanel::ControlCentrePanel() noexcept
@@ -113,18 +113,18 @@ void ControlCentrePanel::SyncAppliedControlColors() noexcept
     AppliedTheme.ConfigureTheme(AppliedAppearance.Theme);
     AppliedTheme.ConfigureAccent(AppliedAppearance.Accent);
     AppliedTheme.ConfigureCornerRadius(AppliedAppearance.CornerRadius);
-    ControlStyle::ConfigureTheme(
+    ControlAppearance::ConfigureTheme(
         AppliedTheme,
-        ThemeCatalog::QuerySemanticColor(0u, AppliedAppearance.WarningSwatch),
-        ThemeCatalog::QuerySemanticColor(1u, AppliedAppearance.SuccessSwatch),
-        ThemeCatalog::QuerySemanticColor(2u, AppliedAppearance.NoticeSwatch),
-        ThemeCatalog::QuerySemanticColor(3u, AppliedAppearance.CautionSwatch));
+        ThemeRepository::QuerySemanticColor(0u, AppliedAppearance.WarningSwatch),
+        ThemeRepository::QuerySemanticColor(1u, AppliedAppearance.SuccessSwatch),
+        ThemeRepository::QuerySemanticColor(2u, AppliedAppearance.NoticeSwatch),
+        ThemeRepository::QuerySemanticColor(3u, AppliedAppearance.CautionSwatch));
 }
 
-bool ControlCentrePanel::AttachProjectSpace(const std::filesystem::path& ArchivePath, std::string* OutDiagnostic) noexcept
+bool ControlCentrePanel::AttachProjectSpace(const std::filesystem::path& RepositoryPath, std::string* OutDiagnostic) noexcept
 {
     std::string Diagnostic{};
-    if (!ProjectSpaceArchive::ValidateContainerPath(ArchivePath, Diagnostic))
+    if (!ProjectSpaceRepository::ValidateContainerPath(RepositoryPath, Diagnostic))
     {
         if (OutDiagnostic != nullptr)
         {
@@ -133,8 +133,8 @@ bool ControlCentrePanel::AttachProjectSpace(const std::filesystem::path& Archive
         return false;
     }
 
-    AttachedArchivePath = ArchivePath;
-    if (!std::filesystem::exists(ArchivePath))
+    AttachedRepositoryPath = RepositoryPath;
+    if (!std::filesystem::exists(RepositoryPath))
     {
         if (OutDiagnostic != nullptr)
         {
@@ -144,7 +144,7 @@ bool ControlCentrePanel::AttachProjectSpace(const std::filesystem::path& Archive
     }
 
     ProjectSpaceDocument Loaded{};
-    if (!ProjectSpaceArchive::Load(ArchivePath, Loaded, Diagnostic))
+    if (!ProjectSpaceRepository::Load(RepositoryPath, Loaded, Diagnostic))
     {
         if (OutDiagnostic != nullptr)
         {
@@ -192,7 +192,7 @@ bool ControlCentrePanel::AttachProjectSpace(const std::filesystem::path& Archive
 
 bool ControlCentrePanel::SaveToProjectSpace(std::string* OutDiagnostic) noexcept
 {
-    if (AttachedArchivePath.empty())
+    if (AttachedRepositoryPath.empty())
     {
         if (OutDiagnostic != nullptr)
         {
@@ -202,7 +202,7 @@ bool ControlCentrePanel::SaveToProjectSpace(std::string* OutDiagnostic) noexcept
     }
 
     ProjectSpaceDocument Document{};
-    Document.ProjectTitle = AttachedArchivePath.stem().string();
+    Document.ProjectTitle = AttachedRepositoryPath.stem().string();
     Document.Appearance   = AppliedAppearance;
     Document.TypefaceName = "Inter";
     if (Typefaces != nullptr && Typefaces->QueryGroup(AppliedAppearance.TypefaceIndex) != nullptr)
@@ -214,7 +214,7 @@ bool ControlCentrePanel::SaveToProjectSpace(std::string* OutDiagnostic) noexcept
     Document.Notifications                          = AppliedNotifications;
 
     std::string Diagnostic{};
-    const bool  Saved = ProjectSpaceArchive::Save(AttachedArchivePath, Document, Diagnostic);
+    const bool  Saved = ProjectSpaceRepository::Save(AttachedRepositoryPath, Document, Diagnostic);
     if (OutDiagnostic != nullptr)
     {
         *OutDiagnostic = Diagnostic;
@@ -297,7 +297,7 @@ void ControlCentrePanel::ApplyDraftAppearanceImmediate() noexcept
 void ControlCentrePanel::ApplyDraftInputImmediate() noexcept
 {
     std::string Diagnostic{};
-    if (!InputSettingsCatalog::ValidatePreferences(DraftInput, Diagnostic))
+    if (!InputSettingsRepository::ValidatePreferences(DraftInput, Diagnostic))
     {
         StatusDiagnostic = Diagnostic;
         if (AppliedNotifications.ErrorAlertsEnabled)
@@ -441,7 +441,7 @@ void ControlCentrePanel::ResolveConfirmationResponse(DialogueResponse Response)
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                              PRIMARY RENDERING & MOTION
+//                                               PRIMARY RENDERING & MOTION
 //------------------------------------------------------------------------------------------------------------------------
 
 void ControlCentrePanel::Render(Rectangle2D HostBoundsPhysical, double Δt, float RefreshRateHertz)
@@ -457,16 +457,16 @@ void ControlCentrePanel::Render(Rectangle2D HostBoundsPhysical, double Δt, floa
 
     if (Notch.QueryOpen() && ActivePage == ControlCentrePage::Appearance)
     {
-        ThemeCatalog PreviewTheme{};
+        ThemeRepository PreviewTheme{};
         PreviewTheme.ConfigureTheme(DraftAppearance.Theme);
         PreviewTheme.ConfigureAccent(DraftAppearance.Accent);
         PreviewTheme.ConfigureCornerRadius(DraftAppearance.CornerRadius);
-        ControlStyle::ConfigureTheme(
+        ControlAppearance::ConfigureTheme(
             PreviewTheme,
-            ThemeCatalog::QuerySemanticColor(0u, DraftAppearance.WarningSwatch),
-            ThemeCatalog::QuerySemanticColor(1u, DraftAppearance.SuccessSwatch),
-            ThemeCatalog::QuerySemanticColor(2u, DraftAppearance.NoticeSwatch),
-            ThemeCatalog::QuerySemanticColor(3u, DraftAppearance.CautionSwatch));
+            ThemeRepository::QuerySemanticColor(0u, DraftAppearance.WarningSwatch),
+            ThemeRepository::QuerySemanticColor(1u, DraftAppearance.SuccessSwatch),
+            ThemeRepository::QuerySemanticColor(2u, DraftAppearance.NoticeSwatch),
+            ThemeRepository::QuerySemanticColor(3u, DraftAppearance.CautionSwatch));
     }
     else
     {
@@ -483,14 +483,14 @@ void ControlCentrePanel::Render(Rectangle2D HostBoundsPhysical, double Δt, floa
         {
             ShortcutChord Captured{};
             bool          EscapeCancelled = false;
-            if (InputSettingsCatalog::PollImGuiChordCapture(Captured, EscapeCancelled))
+            if (InputSettingsRepository::PollImGuiChordCapture(Captured, EscapeCancelled))
             {
                 InputPreferences Candidate                                          = DraftInput;
                 Candidate.CustomShortcutsEnabled                                    = true;
                 Candidate.Shortcuts[static_cast<std::size_t>(CaptureShortcutSlot)] = Captured;
 
                 std::string ValidationMessage{};
-                if (InputSettingsCatalog::ValidatePreferences(Candidate, ValidationMessage))
+                if (InputSettingsRepository::ValidatePreferences(Candidate, ValidationMessage))
                 {
                     DraftInput          = Candidate;
                     CaptureShortcutSlot = -1;
@@ -509,25 +509,25 @@ void ControlCentrePanel::Render(Rectangle2D HostBoundsPhysical, double Δt, floa
         }
         else
         {
-            if (InputSettingsCatalog::QueryChordTriggeredInImGui(
+            if (InputSettingsRepository::QueryChordTriggeredInImGui(
                     AppliedInput.QueryActiveShortcut(ShortcutCommand::ControlCentre)))
             {
                 ConfigureOpen(!Notch.QueryOpen(), false);
             }
-            else if (InputSettingsCatalog::QueryChordTriggeredInImGui(
+            else if (InputSettingsRepository::QueryChordTriggeredInImGui(
                          AppliedInput.QueryActiveShortcut(ShortcutCommand::Typography)))
             {
                 ActivatePage(ControlCentrePage::Appearance, false);
                 ActivateAppearanceTab(AppearanceSectionTab::Typography);
             }
-            else if (InputSettingsCatalog::QueryChordTriggeredInImGui(
+            else if (InputSettingsRepository::QueryChordTriggeredInImGui(
                          AppliedInput.QueryActiveShortcut(ShortcutCommand::Theme)))
             {
                 ActivatePage(ControlCentrePage::Appearance, false);
                 ActivateAppearanceTab(AppearanceSectionTab::Theme);
             }
             else if (Notch.QueryOpen() &&
-                     InputSettingsCatalog::QueryChordTriggeredInImGui(
+                     InputSettingsRepository::QueryChordTriggeredInImGui(
                          AppliedInput.QueryActiveShortcut(ShortcutCommand::DismissPanel)))
             {
                 if (ActivePage == ControlCentrePage::QuickControls)
@@ -604,7 +604,7 @@ void ControlCentrePanel::Render(Rectangle2D HostBoundsPhysical, double Δt, floa
         Scale,
         DefaultFont);
 
-    const ControlColorSet& Colors = ControlStyle::Colors();
+    const ControlColorSet& Colors = ControlAppearance::Colors();
 
     ControlPointer Pointer{};
     Pointer.X        = LocalMouseX / Scale;
@@ -640,11 +640,11 @@ void ControlCentrePanel::Render(Rectangle2D HostBoundsPhysical, double Δt, floa
             ClippedPointer.Enabled = false;
         }
 
-        DrawPageContents(Foreground, ActivePage, { SheetX, SheetY, SheetWidth, SheetHeight }, ClippedPointer, Progress);
+        ConstructPageContents(Foreground, ActivePage, { SheetX, SheetY, SheetWidth, SheetHeight }, ClippedPointer, Progress);
         Foreground.PopClip();
     }
 
-    Notch.Draw(Foreground, "Frontier", Colors.TabBackground.ToRgba8(), Colors.TextDim.ToRgba8(), { 0.0f, 0.0f });
+    Notch.Construct(Foreground, "Frontier", Colors.TabBackground.ToRgba8(), Colors.TextDim.ToRgba8(), { 0.0f, 0.0f });
 
     if (AppliedNotifications.RateOverlayEnabled)
     {
@@ -652,11 +652,23 @@ void ControlCentrePanel::Render(Rectangle2D HostBoundsPhysical, double Δt, floa
         std::snprintf(RateLabel, sizeof(RateLabel), "%.1f FPS", static_cast<double>(RefreshRateHertz));
         const Rectangle2D RateIndicatorRect{ LogicalWidth - 88.0f, 10.0f, 76.0f, 24.0f };
         Foreground.FillRectangle(RateIndicatorRect, Colors.Panel.ToRgba8(), 12.0f);
-        ControlStyle::DrawRoundedOutline(Foreground, RateIndicatorRect, Colors.StrokeStrong, 12.0f);
-        ControlStyle::TextCentered(Foreground, RateIndicatorRect, Colors.Text, RateLabel, 11.5f);
+        ControlAppearance::ConstructRoundedOutline(Foreground, RateIndicatorRect, Colors.StrokeStrong, 12.0f);
+        ControlAppearance::TextCentered(Foreground, RateIndicatorRect, Colors.Text, RateLabel, 11.5f);
     }
 
-    Notifications.DrawToastOverlay(Foreground, { 0.0f, 0.0f, LogicalWidth, LogicalHeight }, Pointer, Δt);
+    Notifications.ConstructToastOverlay(Foreground, { 0.0f, 0.0f, LogicalWidth, LogicalHeight }, Pointer, Δt);
+
+    if (!Dialogue.QueryOpen())
+    {
+        (void)ControlTooltip::PresentHoveredControlTooltip(
+            Foreground,
+            { 0.0f, 0.0f, LogicalWidth, LogicalHeight },
+            Pointer);
+    }
+    else
+    {
+        ControlAppearance::ClearHoveredTooltip();
+    }
 
     if (Dialogue.QueryOpen())
     {
@@ -668,7 +680,7 @@ void ControlCentrePanel::Render(Rectangle2D HostBoundsPhysical, double Δt, floa
         ModalPointer.Released = ImGui::IsMouseReleased(0);
         ModalPointer.Enabled  = true;
 
-        const DialogueResponse ModalResult = Dialogue.DrawModal(
+        const DialogueResponse ModalResult = Dialogue.ConstructModal(
             Foreground,
             { 0.0f, 0.0f, LogicalWidth, LogicalHeight },
             ModalPointer);
@@ -677,10 +689,10 @@ void ControlCentrePanel::Render(Rectangle2D HostBoundsPhysical, double Δt, floa
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                               PAGE ROUTING & TOP PAGES
+//                                                PAGE ROUTING & TOP PAGES
 //------------------------------------------------------------------------------------------------------------------------
 
-void ControlCentrePanel::DrawPageContents(
+void ControlCentrePanel::ConstructPageContents(
     PixelSpace&           Surface,
     ControlCentrePage     Page,
     Rectangle2D           ContainerBounds,
@@ -689,25 +701,25 @@ void ControlCentrePanel::DrawPageContents(
 {
     if (Page == ControlCentrePage::QuickControls)
     {
-        DrawQuickControlsPage(Surface, ContainerBounds, Pointer, Opacity);
+        ConstructQuickControlsPage(Surface, ContainerBounds, Pointer, Opacity);
     }
     else if (Page == ControlCentrePage::Settings)
     {
-        DrawSettingsDirectoryPage(Surface, ContainerBounds, Pointer, Opacity);
+        ConstructSettingsDirectoryPage(Surface, ContainerBounds, Pointer, Opacity);
     }
     else
     {
-        DrawSubPageContainer(Surface, Page, ContainerBounds, Pointer, Opacity);
+        ConstructSubPageContainer(Surface, Page, ContainerBounds, Pointer, Opacity);
     }
 }
 
-void ControlCentrePanel::DrawQuickControlsPage(
+void ControlCentrePanel::ConstructQuickControlsPage(
     PixelSpace&           Surface,
     Rectangle2D           ContainerBounds,
     const ControlPointer& Pointer,
     float                 Opacity)
 {
-    const ControlColorSet& Colors = ControlStyle::Colors();
+    const ControlColorSet& Colors = ControlAppearance::Colors();
 
     Surface.Text(
         { ContainerBounds.X, ContainerBounds.Y + 4.0f },
@@ -716,8 +728,8 @@ void ControlCentrePanel::DrawQuickControlsPage(
         "Quick Controls");
 
     const Rectangle2D GearHit{ ContainerBounds.Right() - 28.0f, ContainerBounds.Y - 2.0f, 28.0f, 28.0f };
-    const bool        GearHover = ControlStyle::QueryPointerOver(GearHit, Pointer);
-    ControlStyle::DrawIconCentered(
+    const bool        GearHover = ControlAppearance::QueryPointerOver(GearHit, Pointer);
+    ControlAppearance::ConstructIconCentered(
         Surface,
         GearHit,
         16.0f,
@@ -738,7 +750,7 @@ void ControlCentrePanel::DrawQuickControlsPage(
     const float GridLeft        = ContainerBounds.X + (NarrowStack ? (LeftColumnWidth - (DiscDiameter * 2.0f + ColumnGap)) * 0.5f : 18.0f);
 
     const Rectangle2D RateDisc{ GridLeft, TopY + 12.0f, DiscDiameter, DiscDiameter };
-    if (CapsuleButton::DrawQuickCircleTile(
+    if (CapsuleButton::ConstructQuickCircleTile(
             Surface,
             RateDisc,
             ControlIcon::GaugeRate,
@@ -755,7 +767,7 @@ void ControlCentrePanel::DrawQuickControlsPage(
 
     const bool        AlertsActive = AppliedNotifications.AppliedAlertsEnabled || AppliedNotifications.ErrorAlertsEnabled;
     const Rectangle2D BellDisc{ GridLeft + DiscDiameter + ColumnGap, TopY + 12.0f, DiscDiameter, DiscDiameter };
-    if (CapsuleButton::DrawQuickCircleTile(
+    if (CapsuleButton::ConstructQuickCircleTile(
             Surface,
             BellDisc,
             ControlIcon::NotificationsBell,
@@ -804,7 +816,7 @@ void ControlCentrePanel::DrawQuickControlsPage(
 
     const float       ClearWidth = CapsuleButton::MeasureChipWidth(Surface, "Clear history");
     const Rectangle2D ClearRect{ StreamRegion.Right() - ClearWidth, StreamRegion.Y, ClearWidth, ControlMetrics::ChipHeight };
-    if (CapsuleButton::DrawChip(Surface, ClearRect, "Clear history", false, Pointer, Opacity).Clicked)
+    if (CapsuleButton::ConstructChip(Surface, ClearRect, "Clear history", false, Pointer, Opacity).Clicked)
     {
         Notifications.ClearHistory();
     }
@@ -819,7 +831,7 @@ void ControlCentrePanel::DrawQuickControlsPage(
 
     if (History.empty())
     {
-        ControlStyle::TextCentered(Surface, StreamViewport, Colors.TextFaint.Faded(Opacity), "No recent notifications", 13.0f);
+        ControlAppearance::TextCentered(Surface, StreamViewport, Colors.TextFaint.Faded(Opacity), "No recent notifications", 13.0f);
     }
     else
     {
@@ -828,9 +840,9 @@ void ControlCentrePanel::DrawQuickControlsPage(
         {
             TotalHeight += NotificationSequence::QueryBannerHeight(Surface, StreamViewport.Width, *Iterator) + 12.0f;
         }
-        if (ControlStyle::QueryPointerOver(StreamViewport, Pointer))
+        if (ControlAppearance::QueryPointerOver(StreamViewport, Pointer))
         {
-            StreamScrollOffset = ControlStyle::AdvanceScrollOffset(
+            StreamScrollOffset = ControlAppearance::AdvanceScrollOffset(
                 StreamScrollOffset,
                 Surface.QueryMouseWheelY(),
                 TotalHeight,
@@ -841,7 +853,7 @@ void ControlCentrePanel::DrawQuickControlsPage(
         for (auto Iterator = History.rbegin(); Iterator != History.rend(); ++Iterator)
         {
             const float BannerHeight = NotificationSequence::QueryBannerHeight(Surface, StreamViewport.Width, *Iterator);
-            (void)NotificationSequence::DrawBanner(
+            (void)NotificationSequence::ConstructBanner(
                 Surface,
                 { StreamViewport.X, CursorY, StreamViewport.Width, BannerHeight },
                 *Iterator,
@@ -849,22 +861,22 @@ void ControlCentrePanel::DrawQuickControlsPage(
                 false);
             CursorY += BannerHeight + 12.0f;
         }
-        ControlStyle::DrawScrollIndicator(Surface, StreamViewport, StreamScrollOffset, TotalHeight, Opacity);
+        ControlAppearance::ConstructScrollIndicator(Surface, StreamViewport, StreamScrollOffset, TotalHeight, Opacity);
     }
     Surface.PopClip();
 }
 
-void ControlCentrePanel::DrawSettingsDirectoryPage(
+void ControlCentrePanel::ConstructSettingsDirectoryPage(
     PixelSpace&           Surface,
     Rectangle2D           ContainerBounds,
     const ControlPointer& Pointer,
     float                 Opacity)
 {
-    const ControlColorSet& Colors = ControlStyle::Colors();
+    const ControlColorSet& Colors = ControlAppearance::Colors();
 
     const Rectangle2D BackHit{ ContainerBounds.X, ContainerBounds.Y, 32.0f, 32.0f };
-    const bool        BackHover = ControlStyle::QueryPointerOver(BackHit, Pointer);
-    ControlStyle::DrawIconCentered(
+    const bool        BackHover = ControlAppearance::QueryPointerOver(BackHit, Pointer);
+    ControlAppearance::ConstructIconCentered(
         Surface,
         BackHit,
         22.0f,
@@ -896,7 +908,7 @@ void ControlCentrePanel::DrawSettingsDirectoryPage(
     const float       RowHeight = 76.0f;
     const Rectangle2D DirectoryContainer{ ContainerBounds.X, ContainerBounds.Y + 56.0f, ContainerBounds.Width, RowHeight * 4.0f };
     Surface.FillRectangle(DirectoryContainer, Colors.Raised.Faded(Opacity).ToRgba8(), 24.0f);
-    ControlStyle::DrawRoundedOutline(Surface, DirectoryContainer, Colors.Stroke.Faded(Opacity), 24.0f);
+    ControlAppearance::ConstructRoundedOutline(Surface, DirectoryContainer, Colors.Stroke.Faded(Opacity), 24.0f);
 
     Surface.PushClip(DirectoryContainer);
     for (std::size_t Index = 0u; Index < 4u; ++Index)
@@ -907,7 +919,7 @@ void ControlCentrePanel::DrawSettingsDirectoryPage(
             DirectoryContainer.Width,
             RowHeight,
         };
-        const bool Hover = ControlStyle::QueryPointerOver(RowRect, Pointer);
+        const bool Hover = ControlAppearance::QueryPointerOver(RowRect, Pointer);
         if (Hover)
         {
             const ColorQuad HoverFill = Colors.LightSurface
@@ -918,11 +930,11 @@ void ControlCentrePanel::DrawSettingsDirectoryPage(
 
         const Rectangle2D IconDisc{ RowRect.X + 20.0f, RowRect.Y + (RowHeight - 44.0f) * 0.5f, 44.0f, 44.0f };
         Surface.FillRectangle(IconDisc, Colors.Selected.Faded(Opacity).ToRgba8(), 22.0f);
-        ControlStyle::DrawIconCentered(Surface, IconDisc, 20.0f, Colors.Text.Faded(Opacity), Rows[Index].Icon, 2.0f);
+        ControlAppearance::ConstructIconCentered(Surface, IconDisc, 20.0f, Colors.Text.Faded(Opacity), Rows[Index].Icon, 2.0f);
 
         Surface.Text({ RowRect.X + 80.0f, RowRect.Y + 19.0f }, 14.0f, Colors.Text.Faded(Opacity).ToRgba8(), Rows[Index].Title);
         Surface.Text({ RowRect.X + 80.0f, RowRect.Y + 41.0f }, 12.0f, Colors.TextDim.Faded(Opacity).ToRgba8(), Rows[Index].Subtitle);
-        ControlStyle::DrawIcon(
+        ControlAppearance::ConstructIcon(
             Surface,
             RowRect.Right() - 36.0f,
             RowRect.Y + (RowHeight - 18.0f) * 0.5f,
@@ -933,7 +945,7 @@ void ControlCentrePanel::DrawSettingsDirectoryPage(
 
         if (Index < 3u)
         {
-            ControlStyle::DrawHairline(Surface, RowRect.X + 20.0f, RowRect.Bottom(), RowRect.Width - 40.0f, Colors.Divider.Faded(Opacity));
+            ControlAppearance::ConstructHairline(Surface, RowRect.X + 20.0f, RowRect.Bottom(), RowRect.Width - 40.0f, Colors.Divider.Faded(Opacity));
         }
         if (Hover && Pointer.Released)
         {
@@ -948,18 +960,18 @@ void ControlCentrePanel::DrawSettingsDirectoryPage(
 //                                              SUB-PAGE CONTAINER & FOOTER
 //------------------------------------------------------------------------------------------------------------------------
 
-void ControlCentrePanel::DrawSubPageContainer(
+void ControlCentrePanel::ConstructSubPageContainer(
     PixelSpace&           Surface,
     ControlCentrePage     Page,
     Rectangle2D           ContainerBounds,
     const ControlPointer& Pointer,
     float                 Opacity)
 {
-    const ControlColorSet& Colors      = ControlStyle::Colors();
+    const ControlColorSet& Colors      = ControlAppearance::Colors();
     constexpr float        SheetRadius = 32.0f;
 
     Surface.FillRectangle(ContainerBounds, Colors.Panel.Faded(Opacity).ToRgba8(), SheetRadius);
-    ControlStyle::DrawRoundedOutline(Surface, ContainerBounds, Colors.Stroke.Faded(Opacity), SheetRadius);
+    ControlAppearance::ConstructRoundedOutline(Surface, ContainerBounds, Colors.Stroke.Faded(Opacity), SheetRadius);
 
     const char* TitleText    = "Appearance";
     const char* SubtitleText = "Customize your workspace visual experience";
@@ -983,7 +995,7 @@ void ControlCentrePanel::DrawSubPageContainer(
     Surface.Text({ ContainerBounds.X + HorizontalPadding, ContainerBounds.Y + 34.0f }, 24.0f, Colors.Text.Faded(Opacity).ToRgba8(), TitleText);
     Surface.Text({ ContainerBounds.X + HorizontalPadding, ContainerBounds.Y + 66.0f }, 14.0f, Colors.TextDim.Faded(Opacity).ToRgba8(), SubtitleText);
 
-    if (CapsuleButton::DrawRoundIcon(
+    if (CapsuleButton::ConstructRoundIcon(
             Surface,
             ContainerBounds.Right() - 48.0f,
             ContainerBounds.Y + 48.0f,
@@ -1007,7 +1019,7 @@ void ControlCentrePanel::DrawSubPageContainer(
             const float       LabelWidth = Surface.MeasureTextWidth(14.0f, TabNames[TabIndex]);
             const Rectangle2D TabHit{ TabCursorX, TabRowY, LabelWidth + 8.0f, 36.0f };
             const bool        Selected = static_cast<uint32_t>(ActiveAppearanceTab) == TabIndex;
-            const bool        Hover    = ControlStyle::QueryPointerOver(TabHit, Pointer);
+            const bool        Hover    = ControlAppearance::QueryPointerOver(TabHit, Pointer);
             Surface.Text(
                 { TabCursorX, TabRowY + 6.0f },
                 14.0f,
@@ -1026,7 +1038,7 @@ void ControlCentrePanel::DrawSubPageContainer(
         HeaderBottomY = TabRowY + 36.0f;
     }
 
-    ControlStyle::DrawHairline(Surface, ContainerBounds.X, HeaderBottomY, ContainerBounds.Width, Colors.Divider.Faded(Opacity));
+    ControlAppearance::ConstructHairline(Surface, ContainerBounds.X, HeaderBottomY, ContainerBounds.Width, Colors.Divider.Faded(Opacity));
 
     const bool        FooterVisible = (Page != ControlCentrePage::Workspace);
     const float       FooterHeight  = FooterVisible ? 88.0f : 0.0f;
@@ -1037,9 +1049,9 @@ void ControlCentrePanel::DrawSubPageContainer(
         std::max(80.0f, ContainerBounds.Bottom() - FooterHeight - (HeaderBottomY + 28.0f)),
     };
 
-    if (ControlStyle::QueryPointerOver(BodyViewport, Pointer) && !InputProfileSelectorOpen)
+    if (ControlAppearance::QueryPointerOver(BodyViewport, Pointer) && !InputProfileSelectorOpen)
     {
-        ScrollOffset = ControlStyle::AdvanceScrollOffset(
+        ScrollOffset = ControlAppearance::AdvanceScrollOffset(
             ScrollOffset,
             Surface.QueryMouseWheelY(),
             LastContentHeight,
@@ -1063,31 +1075,31 @@ void ControlCentrePanel::DrawSubPageContainer(
     {
         if (ActiveAppearanceTab == AppearanceSectionTab::Display)
         {
-            LastContentHeight = DrawAppearanceDisplayBody(Surface, BodyViewport, ScrollOffset, BodyPointer, Opacity);
+            LastContentHeight = ConstructAppearanceDisplayBody(Surface, BodyViewport, ScrollOffset, BodyPointer, Opacity);
         }
         else if (ActiveAppearanceTab == AppearanceSectionTab::Typography)
         {
-            LastContentHeight = DrawAppearanceTypographyBody(Surface, BodyViewport, ScrollOffset, BodyPointer, Opacity);
+            LastContentHeight = ConstructAppearanceTypographyBody(Surface, BodyViewport, ScrollOffset, BodyPointer, Opacity);
         }
         else
         {
-            LastContentHeight = DrawAppearanceThemeBody(Surface, BodyViewport, ScrollOffset, BodyPointer, Opacity);
+            LastContentHeight = ConstructAppearanceThemeBody(Surface, BodyViewport, ScrollOffset, BodyPointer, Opacity);
         }
     }
     else if (Page == ControlCentrePage::Input)
     {
-        LastContentHeight = DrawInputSettingsBody(Surface, BodyViewport, ScrollOffset, BodyPointer, Opacity);
+        LastContentHeight = ConstructInputSettingsBody(Surface, BodyViewport, ScrollOffset, BodyPointer, Opacity);
     }
     else if (Page == ControlCentrePage::Notifications)
     {
-        LastContentHeight = DrawNotificationsBody(Surface, BodyViewport, ScrollOffset, BodyPointer, Opacity);
+        LastContentHeight = ConstructNotificationsBody(Surface, BodyViewport, ScrollOffset, BodyPointer, Opacity);
     }
     else if (Page == ControlCentrePage::Workspace)
     {
-        LastContentHeight = DrawWorkspaceBody(Surface, BodyViewport, ScrollOffset, BodyPointer, Opacity);
+        LastContentHeight = ConstructWorkspaceBody(Surface, BodyViewport, ScrollOffset, BodyPointer, Opacity);
     }
 
-    ControlStyle::DrawScrollIndicator(
+    ControlAppearance::ConstructScrollIndicator(
         Surface,
         { ContainerBounds.X + 4.0f, BodyViewport.Y, ContainerBounds.Width - 8.0f, BodyViewport.Height },
         ScrollOffset,
@@ -1097,14 +1109,14 @@ void ControlCentrePanel::DrawSubPageContainer(
 
     if (Page == ControlCentrePage::Input)
     {
-        DrawInputProfileOverlay(Surface, Pointer, Opacity);
+        ConstructInputProfileOverlay(Surface, Pointer, Opacity);
     }
 
     if (FooterVisible)
     {
         const Rectangle2D FooterRect{ ContainerBounds.X, ContainerBounds.Bottom() - FooterHeight, ContainerBounds.Width, FooterHeight };
         Surface.FillRectangleBottomRounded(FooterRect, Colors.SectionSurface.Faded(Opacity).ToRgba8(), SheetRadius);
-        ControlStyle::DrawHairline(Surface, FooterRect.X, FooterRect.Y, FooterRect.Width, Colors.Divider.Faded(Opacity));
+        ControlAppearance::ConstructHairline(Surface, FooterRect.X, FooterRect.Y, FooterRect.Width, Colors.Divider.Faded(Opacity));
 
         const bool      Dirty      = QueryCurrentPageDirty();
         const char*     StatusLine = !StatusDiagnostic.empty()
@@ -1112,7 +1124,7 @@ void ControlCentrePanel::DrawSubPageContainer(
                                          : (Dirty ? "Unsaved changes — Apply persists to .projectspace"
                                                   : "All settings synchronized with .projectspace");
         const ColorQuad StatusInk  = !StatusDiagnostic.empty() ? Colors.Danger : Colors.TextDim;
-        ControlStyle::TextLeading(
+        ControlAppearance::TextLeading(
             Surface,
             { FooterRect.X + HorizontalPadding, FooterRect.Y, FooterRect.Width * 0.55f, FooterHeight },
             0.0f,
@@ -1126,7 +1138,7 @@ void ControlCentrePanel::DrawSubPageContainer(
         const ButtonDescriptor ApplyButton{ PrimaryText, ButtonTone::Primary, 13.5f, 24.0f, !Dirty, {} };
         const float            ApplyWidth = CapsuleButton::MeasureWidth(Surface, ApplyButton);
         const Rectangle2D      ApplyRect{ FooterRect.Right() - HorizontalPadding - ApplyWidth, ButtonY, ApplyWidth, 40.0f };
-        if (CapsuleButton::Draw(Surface, ApplyRect, ApplyButton, Pointer, Opacity).Clicked)
+        if (CapsuleButton::Construct(Surface, ApplyRect, ApplyButton, Pointer, Opacity).Clicked)
         {
             ConfirmationSpecification Specification{};
             Specification.Severity     = DialogueSeverity::Notice;
@@ -1144,7 +1156,7 @@ void ControlCentrePanel::DrawSubPageContainer(
             else if (Page == ControlCentrePage::Input)
             {
                 std::string ValidationMessage{};
-                if (!InputSettingsCatalog::ValidatePreferences(DraftInput, ValidationMessage))
+                if (!InputSettingsRepository::ValidatePreferences(DraftInput, ValidationMessage))
                 {
                     StatusDiagnostic = ValidationMessage;
                 }
@@ -1170,7 +1182,7 @@ void ControlCentrePanel::DrawSubPageContainer(
         const ButtonDescriptor DiscardButton{ "Discard", ButtonTone::Secondary, 13.5f, 22.0f, !Dirty, {} };
         const float            DiscardWidth = CapsuleButton::MeasureWidth(Surface, DiscardButton);
         const Rectangle2D      DiscardRect{ ApplyRect.X - 12.0f - DiscardWidth, ButtonY, DiscardWidth, 40.0f };
-        if (CapsuleButton::Draw(Surface, DiscardRect, DiscardButton, Pointer, Opacity).Clicked)
+        if (CapsuleButton::Construct(Surface, DiscardRect, DiscardButton, Pointer, Opacity).Clicked)
         {
             if (Page == ControlCentrePage::Appearance)
             {
@@ -1194,7 +1206,7 @@ void ControlCentrePanel::DrawSubPageContainer(
             const ButtonDescriptor DefaultsButton{ "Defaults", ButtonTone::Ghost, 13.5f, 18.0f, false, {} };
             const float            DefaultsWidth = CapsuleButton::MeasureWidth(Surface, DefaultsButton);
             const Rectangle2D      DefaultsRect{ DiscardRect.X - 10.0f - DefaultsWidth, ButtonY, DefaultsWidth, 40.0f };
-            if (CapsuleButton::Draw(Surface, DefaultsRect, DefaultsButton, Pointer, Opacity).Clicked)
+            if (CapsuleButton::Construct(Surface, DefaultsRect, DefaultsButton, Pointer, Opacity).Clicked)
             {
                 DraftInput          = InputPreferences{};
                 CaptureShortcutSlot = -1;
@@ -1205,25 +1217,25 @@ void ControlCentrePanel::DrawSubPageContainer(
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                              APPEARANCE INSPECTOR TABS
+//                                               APPEARANCE INSPECTOR TABS
 //------------------------------------------------------------------------------------------------------------------------
 
-float ControlCentrePanel::DrawAppearanceDisplayBody(
+float ControlCentrePanel::ConstructAppearanceDisplayBody(
     PixelSpace&           Surface,
     Rectangle2D           BodyBounds,
     float                 ScrollY,
     const ControlPointer& Pointer,
     float                 Opacity)
 {
-    const ControlColorSet& Colors  = ControlStyle::Colors();
+    const ControlColorSet& Colors  = ControlAppearance::Colors();
     const float            Radius  = std::clamp(DraftAppearance.CornerRadius, 0.0f, 32.0f);
-    const Rectangle2D      Content = ControlStyle::DrawSectionContainer(
+    const Rectangle2D      Content = ControlAppearance::ConstructSectionContainer(
         Surface,
         { BodyBounds.X, BodyBounds.Y - ScrollY, BodyBounds.Width, 180.0f },
         Radius,
         Opacity);
 
-    ControlStyle::DrawSectionHeading(
+    ControlAppearance::ConstructSectionHeading(
         Surface,
         Content.X,
         Content.Y,
@@ -1235,13 +1247,13 @@ float ControlCentrePanel::DrawAppearanceDisplayBody(
         Opacity);
 
     const float       RowY    = Content.Y + 80.0f;
-    const Rectangle2D Control = ControlStyle::DrawLabeledRow(Surface, Content.X, RowY, Content.Width, "UI Scale", Colors.TextDim, Opacity);
+    const Rectangle2D Control = ControlAppearance::ConstructLabeledRow(Surface, Content.X, RowY, Content.Width, "UI Scale", Colors.TextDim, Opacity);
 
     char NumberBuffer[16]{};
     std::snprintf(NumberBuffer, sizeof(NumberBuffer), "%d", static_cast<int>(std::lround(DraftAppearance.InterfaceScale)));
 
     float                UpdatedScale = DraftAppearance.InterfaceScale;
-    const ControlContact Hit          = ScalarSlider::DrawWithReadout(
+    const ControlContact Hit          = ScalarSlider::ConstructWithReadout(
         Surface,
         Control,
         NumberBuffer,
@@ -1270,19 +1282,19 @@ float ControlCentrePanel::DrawAppearanceDisplayBody(
     return 180.0f + 24.0f;
 }
 
-float ControlCentrePanel::DrawAppearanceTypographyBody(
+float ControlCentrePanel::ConstructAppearanceTypographyBody(
     PixelSpace&           Surface,
     Rectangle2D           BodyBounds,
     float                 ScrollY,
     const ControlPointer& Pointer,
     float                 Opacity)
 {
-    const ControlColorSet& Colors     = ControlStyle::Colors();
+    const ControlColorSet& Colors     = ControlAppearance::Colors();
     const float            Radius     = std::clamp(DraftAppearance.CornerRadius, 0.0f, 32.0f);
     const float            LeftX      = BodyBounds.X;
     const float            BodyWidth  = BodyBounds.Width;
     float                  CursorY    = BodyBounds.Y - ScrollY;
-    const ColorQuad        Accent     = ThemeCatalog::QueryAccentColor(DraftAppearance.Accent);
+    const ColorQuad        Accent     = ThemeRepository::QueryAccentColor(DraftAppearance.Accent);
     const uint32_t         GroupCount = (Typefaces != nullptr) ? Typefaces->QueryGroupCount() : 0u;
 
     if (Typefaces != nullptr && DraftAppearance.TypefaceIndex >= GroupCount && GroupCount > 0u)
@@ -1313,11 +1325,11 @@ float ControlCentrePanel::DrawAppearanceTypographyBody(
         Surface.Text({ LeftX, CursorY + 24.0f }, 12.0f, Colors.TextDim.Faded(Opacity).ToRgba8(), "Typeface, type scale, and font weights");
 
         const float ButtonCenterY = CursorY + HeaderHeight - 16.0f;
-        if (CapsuleButton::DrawRoundIcon(Surface, LeftX + BodyWidth - 32.0f - 8.0f - 16.0f, ButtonCenterY, ControlIcon::ChevronBack, Pointer, Opacity).Clicked)
+        if (CapsuleButton::ConstructRoundIcon(Surface, LeftX + BodyWidth - 32.0f - 8.0f - 16.0f, ButtonCenterY, ControlIcon::ChevronBack, Pointer, Opacity).Clicked)
         {
             FontStripTarget -= 300.0f;
         }
-        if (CapsuleButton::DrawRoundIcon(Surface, LeftX + BodyWidth - 16.0f, ButtonCenterY, ControlIcon::ChevronForward, Pointer, Opacity).Clicked)
+        if (CapsuleButton::ConstructRoundIcon(Surface, LeftX + BodyWidth - 16.0f, ButtonCenterY, ControlIcon::ChevronForward, Pointer, Opacity).Clicked)
         {
             FontStripTarget += 300.0f;
         }
@@ -1345,13 +1357,13 @@ float ControlCentrePanel::DrawAppearanceTypographyBody(
             const bool     Active       = (DraftAppearance.TypefaceIndex == Index);
             ControlPointer StripPointer = Pointer;
             StripPointer.Enabled        = Pointer.Enabled && StripBounds.Contains({ Pointer.X, Pointer.Y });
-            const bool     Hover        = ControlStyle::QueryPointerOver(TileRect, StripPointer);
+            const bool     Hover        = ControlAppearance::QueryPointerOver(TileRect, StripPointer);
 
             if (Active || Hover)
             {
                 Surface.FillRectangle(TileRect, SubtleWash.Faded(Opacity).ToRgba8(), Radius);
             }
-            ControlStyle::DrawRoundedOutline(Surface, TileRect, (Active ? Accent : SubtleRing).Faded(Opacity), Radius);
+            ControlAppearance::ConstructRoundedOutline(Surface, TileRect, (Active ? Accent : SubtleRing).Faded(Opacity), Radius);
 
             Surface.PushTypeface(Typefaces->QueryFont(Index, FontWeightClass::Regular));
             Surface.Text({ TileRect.X + TilePad, TileRect.Y + TilePad }, 24.0f, Colors.Text.Faded(Opacity).ToRgba8(), "Aa");
@@ -1383,13 +1395,13 @@ float ControlCentrePanel::DrawAppearanceTypographyBody(
         const float InnerHeight   = std::max(ColumnHeight, PreviewHeight);
         const float BoxHeight     = ControlMetrics::SectionPadding * 2.0f + HeaderHeight + InnerHeight;
 
-        const Rectangle2D Content = ControlStyle::DrawSectionContainer(Surface, { LeftX, CursorY, BodyWidth, BoxHeight }, Radius, Opacity);
+        const Rectangle2D Content = ControlAppearance::ConstructSectionContainer(Surface, { LeftX, CursorY, BodyWidth, BoxHeight }, Radius, Opacity);
         Surface.Text({ Content.X, Content.Y + 2.0f }, 14.0f, Colors.Text.Faded(Opacity).ToRgba8(), "Typeface & Colors");
 
         const float       TopY = Content.Y + HeaderHeight;
         const Rectangle2D SpecimenBox{ Content.X, TopY, std::max(80.0f, Content.Width - 32.0f - ColumnWidth), InnerHeight };
         Surface.FillRectangle(SpecimenBox, SubtleWash.Faded(Opacity).ToRgba8(), Radius * 0.8f);
-        ControlStyle::DrawRoundedOutline(Surface, SpecimenBox, SubtleRing.Faded(Opacity), Radius * 0.8f);
+        ControlAppearance::ConstructRoundedOutline(Surface, SpecimenBox, SubtleRing.Faded(Opacity), Radius * 0.8f);
 
         Surface.PushClip(SpecimenBox);
         const float SpecimenTopY = SpecimenBox.Center().Y - (72.0f + 16.0f + 20.0f) * 0.5f;
@@ -1448,8 +1460,8 @@ float ControlCentrePanel::DrawAppearanceTypographyBody(
         float DiscX = ColumnX;
         for (const ColorCircleSpecimen& Circle : Circles)
         {
-            ControlStyle::DrawCircleFill(Surface, DiscX + 24.0f, ColumnY + 24.0f, 24.0f, Circle.Tone.Faded(Opacity));
-            ControlStyle::DrawCircleOutline(Surface, DiscX + 24.0f, ColumnY + 24.0f, 23.5f, SubtleRing.Faded(Opacity), 1.0f);
+            ControlAppearance::ConstructCircleFill(Surface, DiscX + 24.0f, ColumnY + 24.0f, 24.0f, Circle.Tone.Faded(Opacity));
+            ControlAppearance::ConstructCircleOutline(Surface, DiscX + 24.0f, ColumnY + 24.0f, 23.5f, SubtleRing.Faded(Opacity), 1.0f);
             FormatHexRgb(Circle.Tone, HexText, sizeof(HexText));
             Surface.PushTypeface(ResolveDraftFace(FontWeightClass::SemiBold));
             Surface.Text({ DiscX, ColumnY + 60.0f }, 10.0f, Colors.Text.Faded(Opacity).ToRgba8(), HexText);
@@ -1475,7 +1487,7 @@ float ControlCentrePanel::DrawAppearanceTypographyBody(
                 if (Typefaces == nullptr || Typefaces->ContainsWeight(DraftAppearance.TypefaceIndex, CandidateWeight))
                 {
                     AvailableChips[ChipCount] = CandidateWeight;
-                    ChipWidths[ChipCount]     = CapsuleButton::MeasureChipWidth(Surface, TypefaceCatalog::WeightLabel(CandidateWeight));
+                    ChipWidths[ChipCount]     = CapsuleButton::MeasureChipWidth(Surface, TypographyRepository::WeightLabel(CandidateWeight));
                     ++ChipCount;
                 }
             }
@@ -1506,18 +1518,18 @@ float ControlCentrePanel::DrawAppearanceTypographyBody(
                                       static_cast<float>(RowsNeeded) * ControlMetrics::ChipHeight +
                                       static_cast<float>(RowsNeeded - 1u) * 12.0f;
             const float SheetHeight = ControlMetrics::SectionPadding * 2.0f + std::max(LeftHeight, 100.0f);
-            const Rectangle2D Content = ControlStyle::DrawSectionContainer(Surface, { LeftX, CursorY, BodyWidth, SheetHeight }, Radius, Opacity);
+            const Rectangle2D Content = ControlAppearance::ConstructSectionContainer(Surface, { LeftX, CursorY, BodyWidth, SheetHeight }, Radius, Opacity);
             const float TopAlignedY   = Content.Y + (Content.Height - LeftHeight) * 0.5f;
 
             char SizeDigits[16]{};
             std::snprintf(SizeDigits, sizeof(SizeDigits), "%d", static_cast<int>(std::lround(DraftAppearance.SlotSize[Slot])));
 
             Surface.PushTypeface(ResolveDraftFace(FontWeightClass::Medium));
-            Surface.Text({ Content.X, TopAlignedY + 2.0f }, 14.0f, Colors.Text.Faded(Opacity).ToRgba8(), ThemeCatalog::QueryTypeSlotLabel(Slot));
+            Surface.Text({ Content.X, TopAlignedY + 2.0f }, 14.0f, Colors.Text.Faded(Opacity).ToRgba8(), ThemeRepository::QueryTypeSlotLabel(Slot));
             Surface.PopTypeface();
 
             const float SliderRowY = TopAlignedY + 44.0f - (ControlMetrics::ControlHeight - ControlMetrics::SliderHeight) * 0.5f;
-            ScalarSlider::DrawReadoutCapsule(Surface, Content.X, SliderRowY, SizeDigits, "px", Opacity);
+            ScalarSlider::ConstructReadoutCapsule(Surface, Content.X, SliderRowY, SizeDigits, "px", Opacity);
 
             const Rectangle2D SlotSliderRect{
                 Content.X + ControlMetrics::ReadoutCapsuleWidth + ControlMetrics::RowGap,
@@ -1527,7 +1539,7 @@ float ControlCentrePanel::DrawAppearanceTypographyBody(
             };
             float                SlotPixels  = DraftAppearance.SlotSize[Slot];
             const int            SliderToken = 10 + static_cast<int>(Slot);
-            const ControlContact Hit         = ScalarSlider::Draw(
+            const ControlContact Hit         = ScalarSlider::Construct(
                 Surface,
                 SlotSliderRect,
                 8.0f,
@@ -1557,10 +1569,10 @@ float ControlCentrePanel::DrawAppearanceTypographyBody(
                     ChipY += ControlMetrics::ChipHeight + 12.0f;
                 }
                 const Rectangle2D ChipBounds{ ChipX, ChipY, ChipWidths[ChipIndex], ControlMetrics::ChipHeight };
-                if (CapsuleButton::DrawChip(
+                if (CapsuleButton::ConstructChip(
                         Surface,
                         ChipBounds,
-                        TypefaceCatalog::WeightLabel(AvailableChips[ChipIndex]),
+                        TypographyRepository::WeightLabel(AvailableChips[ChipIndex]),
                         DraftAppearance.SlotWeight[Slot] == AvailableChips[ChipIndex],
                         Pointer,
                         Opacity)
@@ -1578,7 +1590,7 @@ float ControlCentrePanel::DrawAppearanceTypographyBody(
                 Content.Height,
             };
             Surface.FillRectangle(PreviewWell, SubtleWash.Faded(Opacity).ToRgba8(), Radius * 0.7f);
-            ControlStyle::DrawRoundedOutline(Surface, PreviewWell, SubtleRing.Faded(Opacity), Radius * 0.7f);
+            ControlAppearance::ConstructRoundedOutline(Surface, PreviewWell, SubtleRing.Faded(Opacity), Radius * 0.7f);
 
             Surface.PushClip({ PreviewWell.X + 24.0f, PreviewWell.Y, std::max(1.0f, PreviewWell.Width - 48.0f), PreviewWell.Height });
             Surface.PushTypeface(ResolveDraftFace(DraftAppearance.SlotWeight[Slot]));
@@ -1587,7 +1599,7 @@ float ControlCentrePanel::DrawAppearanceTypographyBody(
                 { PreviewWell.X + 24.0f, PreviewWell.Center().Y - LineHeight * 0.5f },
                 DraftAppearance.SlotSize[Slot],
                 Colors.Text.Faded(Opacity).ToRgba8(),
-                ThemeCatalog::QueryTypeSlotSample(Slot));
+                ThemeRepository::QueryTypeSlotSample(Slot));
             Surface.PopTypeface();
             Surface.PopClip();
 
@@ -1602,14 +1614,14 @@ float ControlCentrePanel::DrawAppearanceTypographyBody(
     return (CursorY + ScrollY) - BodyBounds.Y;
 }
 
-float ControlCentrePanel::DrawAppearanceThemeBody(
+float ControlCentrePanel::ConstructAppearanceThemeBody(
     PixelSpace&           Surface,
     Rectangle2D           BodyBounds,
     float                 ScrollY,
     const ControlPointer& Pointer,
     float                 Opacity)
 {
-    const ControlColorSet& Colors    = ControlStyle::Colors();
+    const ControlColorSet& Colors    = ControlAppearance::Colors();
     const float            Radius    = std::clamp(DraftAppearance.CornerRadius, 0.0f, 32.0f);
     const float            LeftX     = BodyBounds.X;
     const float            BodyWidth = BodyBounds.Width;
@@ -1625,8 +1637,8 @@ float ControlCentrePanel::DrawAppearanceThemeBody(
         const float HeaderHeight = 64.0f;
         const float BoxHeight    = ControlMetrics::SectionPadding * 2.0f + HeaderHeight + GridHeight;
 
-        const Rectangle2D Content = ControlStyle::DrawSectionContainer(Surface, { LeftX, CursorY, BodyWidth, BoxHeight }, Radius, Opacity);
-        ControlStyle::DrawSectionHeading(
+        const Rectangle2D Content = ControlAppearance::ConstructSectionContainer(Surface, { LeftX, CursorY, BodyWidth, BoxHeight }, Radius, Opacity);
+        ControlAppearance::ConstructSectionHeading(
             Surface,
             Content.X,
             Content.Y,
@@ -1648,7 +1660,7 @@ float ControlCentrePanel::DrawAppearanceThemeBody(
                 TileWidth,
                 TileHeight,
             };
-            if (ThemePreviewTile::Draw(Surface, TileBounds, Preset, DraftAppearance.Theme == Preset, Radius, Pointer, Opacity).Clicked)
+            if (ThemePreviewTile::Construct(Surface, TileBounds, Preset, DraftAppearance.Theme == Preset, Radius, Pointer, Opacity).Clicked)
             {
                 DraftAppearance.Theme = Preset;
             }
@@ -1660,8 +1672,8 @@ float ControlCentrePanel::DrawAppearanceThemeBody(
     {
         const float       HeaderHeight = 64.0f;
         const float       BoxHeight    = ControlMetrics::SectionPadding * 2.0f + HeaderHeight + ControlMetrics::ControlHeight;
-        const Rectangle2D Content      = ControlStyle::DrawSectionContainer(Surface, { LeftX, CursorY, BodyWidth, BoxHeight }, Radius, Opacity);
-        ControlStyle::DrawSectionHeading(
+        const Rectangle2D Content      = ControlAppearance::ConstructSectionContainer(Surface, { LeftX, CursorY, BodyWidth, BoxHeight }, Radius, Opacity);
+        ControlAppearance::ConstructSectionHeading(
             Surface,
             Content.X,
             Content.Y,
@@ -1676,7 +1688,7 @@ float ControlCentrePanel::DrawAppearanceThemeBody(
         std::snprintf(RadiusDigits, sizeof(RadiusDigits), "%d", static_cast<int>(std::lround(DraftAppearance.CornerRadius)));
 
         float                UpdatedRadius = DraftAppearance.CornerRadius;
-        const ControlContact Hit           = ScalarSlider::DrawWithReadout(
+        const ControlContact Hit           = ScalarSlider::ConstructWithReadout(
             Surface,
             { Content.X, Content.Y + HeaderHeight, Content.Width, ControlMetrics::ControlHeight },
             RadiusDigits,
@@ -1704,8 +1716,8 @@ float ControlCentrePanel::DrawAppearanceThemeBody(
     {
         const float       HeaderHeight = 64.0f;
         const float       BoxHeight    = ControlMetrics::SectionPadding * 2.0f + HeaderHeight + ControlMetrics::SwatchDiameter + 8.0f;
-        const Rectangle2D Content      = ControlStyle::DrawSectionContainer(Surface, { LeftX, CursorY, BodyWidth, BoxHeight }, Radius, Opacity);
-        ControlStyle::DrawSectionHeading(
+        const Rectangle2D Content      = ControlAppearance::ConstructSectionContainer(Surface, { LeftX, CursorY, BodyWidth, BoxHeight }, Radius, Opacity);
+        ControlAppearance::ConstructSectionHeading(
             Surface,
             Content.X,
             Content.Y,
@@ -1721,11 +1733,11 @@ float ControlCentrePanel::DrawAppearanceThemeBody(
         {
             const float CenterX = Content.X + 16.0f + static_cast<float>(Index) * (ControlMetrics::SwatchDiameter + 12.0f);
             const auto  Preset  = static_cast<AccentPreset>(Index);
-            if (ThemePreviewTile::DrawColorSwatch(
+            if (ThemePreviewTile::ConstructColorSwatch(
                     Surface,
                     CenterX,
                     CenterY,
-                    ThemeCatalog::QueryAccentColor(Preset),
+                    ThemeRepository::QueryAccentColor(Preset),
                     DraftAppearance.Accent == Preset,
                     true,
                     Pointer,
@@ -1744,8 +1756,8 @@ float ControlCentrePanel::DrawAppearanceThemeBody(
         const float       RowHeight    = 100.0f;
         const float       RowStride    = 65.0f;
         const float       BoxHeight    = ControlMetrics::SectionPadding * 2.0f + HeaderHeight + RowHeight * 4.0f + RowStride * 3.0f;
-        const Rectangle2D Content      = ControlStyle::DrawSectionContainer(Surface, { LeftX, CursorY, BodyWidth, BoxHeight }, Radius, Opacity);
-        ControlStyle::DrawSectionHeading(
+        const Rectangle2D Content      = ControlAppearance::ConstructSectionContainer(Surface, { LeftX, CursorY, BodyWidth, BoxHeight }, Radius, Opacity);
+        ControlAppearance::ConstructSectionHeading(
             Surface,
             Content.X,
             Content.Y,
@@ -1785,11 +1797,11 @@ float ControlCentrePanel::DrawAppearanceThemeBody(
             {
                 const float CenterX = Content.X + 16.0f + static_cast<float>(Swatch) * (ControlMetrics::SwatchDiameter + 12.0f);
                 const float CenterY = LeftY + 60.0f;
-                if (ThemePreviewTile::DrawColorSwatch(
+                if (ThemePreviewTile::ConstructColorSwatch(
                         Surface,
                         CenterX,
                         CenterY,
-                        ThemeCatalog::QuerySemanticColor(RowIndex, Swatch),
+                        ThemeRepository::QuerySemanticColor(RowIndex, Swatch),
                         *(Entries[RowIndex].SelectedSwatch) == Swatch,
                         false,
                         Pointer,
@@ -1807,10 +1819,10 @@ float ControlCentrePanel::DrawAppearanceThemeBody(
                 RowHeight,
             };
             Surface.FillRectangle(PreviewBox, WellFill.Faded(Opacity).ToRgba8(), Radius * 0.7f);
-            ControlStyle::DrawRoundedOutline(Surface, PreviewBox, Colors.Stroke.Faded(Opacity), Radius * 0.7f);
+            ControlAppearance::ConstructRoundedOutline(Surface, PreviewBox, Colors.Stroke.Faded(Opacity), Radius * 0.7f);
 
-            const ColorQuad Tone = ThemeCatalog::QuerySemanticColor(RowIndex, *(Entries[RowIndex].SelectedSwatch));
-            ControlStyle::DrawIcon(
+            const ColorQuad Tone = ThemeRepository::QuerySemanticColor(RowIndex, *(Entries[RowIndex].SelectedSwatch));
+            ControlAppearance::ConstructIcon(
                 Surface,
                 PreviewBox.X + 24.0f,
                 PreviewBox.Y + (RowHeight - 20.0f) * 0.5f,
@@ -1827,7 +1839,7 @@ float ControlCentrePanel::DrawAppearanceThemeBody(
 
             if (RowIndex < 3u)
             {
-                ControlStyle::DrawHairline(Surface, Content.X, RowY + RowHeight + 32.0f, Content.Width, Colors.Divider.Faded(Opacity));
+                ControlAppearance::ConstructHairline(Surface, Content.X, RowY + RowHeight + 32.0f, Content.Width, Colors.Divider.Faded(Opacity));
             }
             RowY += RowHeight + RowStride;
         }
@@ -1845,14 +1857,14 @@ float ControlCentrePanel::DrawAppearanceThemeBody(
 //                                        INPUT, NOTIFICATIONS & WORKSPACE BODIES
 //------------------------------------------------------------------------------------------------------------------------
 
-float ControlCentrePanel::DrawInputSettingsBody(
+float ControlCentrePanel::ConstructInputSettingsBody(
     PixelSpace&           Surface,
     Rectangle2D           BodyBounds,
     float                 ScrollY,
     const ControlPointer& Pointer,
     float                 Opacity)
 {
-    const ControlColorSet& Colors  = ControlStyle::Colors();
+    const ControlColorSet& Colors  = ControlAppearance::Colors();
     const float            LeftX   = BodyBounds.X + 16.0f;
     const float            Width   = std::max(1.0f, std::min(BodyBounds.Width - 32.0f, 768.0f));
     float                  CursorY = BodyBounds.Y - ScrollY;
@@ -1863,10 +1875,10 @@ float ControlCentrePanel::DrawInputSettingsBody(
         LocalPointer.Enabled = false;
     }
 
-    auto DrawFieldBox = [&](Rectangle2D Box)
+    auto ConstructFieldBox = [&](Rectangle2D Box)
     {
         Surface.FillRectangle(Box, Colors.Field.Faded(Opacity).ToRgba8(), 8.0f);
-        ControlStyle::DrawRoundedOutline(Surface, Box, Colors.StrokeStrong.Faded(Opacity), 8.0f);
+        ControlAppearance::ConstructRoundedOutline(Surface, Box, Colors.StrokeStrong.Faded(Opacity), 8.0f);
     };
 
     auto LayoutFormRow = [&](const char* Label) -> Rectangle2D
@@ -1880,31 +1892,31 @@ float ControlCentrePanel::DrawInputSettingsBody(
         return { LeftX + 156.0f, CursorY, Width - 156.0f, 40.0f };
     };
 
-    auto DrawFormSection = [&](const char* Heading)
+    auto ConstructFormSection = [&](const char* Heading)
     {
         CursorY += 24.0f;
-        ControlStyle::DrawHairline(Surface, LeftX, CursorY, Width, Colors.Divider.Faded(Opacity));
+        ControlAppearance::ConstructHairline(Surface, LeftX, CursorY, Width, Colors.Divider.Faded(Opacity));
         CursorY += 24.0f;
         Surface.Text({ LeftX, CursorY + 4.0f }, 14.5f, Colors.Text.Faded(Opacity).ToRgba8(), Heading);
         CursorY += 40.0f;
     };
 
     InputProfileBounds = LayoutFormRow("Shortcut profile");
-    DrawFieldBox(InputProfileBounds);
-    ControlStyle::TextLeading(
+    ConstructFieldBox(InputProfileBounds);
+    ControlAppearance::TextLeading(
         Surface,
         InputProfileBounds,
         16.0f,
         Colors.Text.Faded(Opacity),
         DraftInput.CustomShortcutsEnabled ? "Custom" : "Editor Default",
         13.0f);
-    ControlStyle::DrawIconCentered(
+    ControlAppearance::ConstructIconCentered(
         Surface,
         { InputProfileBounds.Right() - 32.0f, InputProfileBounds.Y, 24.0f, 40.0f },
         16.0f,
         Colors.TextDim.Faded(Opacity),
         ControlIcon::ChevronDown);
-    if (ControlStyle::QueryPointerOver(InputProfileBounds, LocalPointer) && LocalPointer.Released)
+    if (ControlAppearance::QueryPointerOver(InputProfileBounds, LocalPointer) && LocalPointer.Released)
     {
         InputProfileSelectorOpen = true;
         CaptureShortcutSlot      = -1;
@@ -1916,7 +1928,7 @@ float ControlCentrePanel::DrawInputSettingsBody(
     std::snprintf(SensitivityText, sizeof(SensitivityText), "%.0f", static_cast<double>(DraftInput.MouseSensitivity));
 
     float                UpdatedSensitivity = DraftInput.MouseSensitivity;
-    const ControlContact SensitivityHit     = ScalarSlider::DrawWithReadout(
+    const ControlContact SensitivityHit     = ScalarSlider::ConstructWithReadout(
         Surface,
         SensitivityRow,
         SensitivityText,
@@ -1943,8 +1955,8 @@ float ControlCentrePanel::DrawInputSettingsBody(
     }
     CursorY += 52.0f;
 
-    DrawFormSection("Custom Shortcuts");
-    if (BooleanSwitch::Draw(
+    ConstructFormSection("Custom Shortcuts");
+    if (ExclusiveSelector::Construct(
             Surface,
             LeftX + Width - ControlMetrics::SwitchWidth,
             CursorY - 40.0f,
@@ -1961,16 +1973,16 @@ float ControlCentrePanel::DrawInputSettingsBody(
     for (uint32_t Slot = 0u; Slot < InputPreferences::ShortcutCount; ++Slot)
     {
         const auto        Command = static_cast<ShortcutCommand>(Slot);
-        const Rectangle2D Field   = LayoutFormRow(InputSettingsCatalog::QueryCommandLabel(Command));
-        DrawFieldBox(Field);
+        const Rectangle2D Field   = LayoutFormRow(InputSettingsRepository::QueryCommandLabel(Command));
+        ConstructFieldBox(Field);
 
         const bool        Capturing = (CaptureShortcutSlot == static_cast<int>(Slot));
         const std::string ChordText = Capturing
                                           ? "Press a key (Esc cancels)"
-                                          : InputSettingsCatalog::FormatChordLabel(DraftInput.QueryActiveShortcut(Command));
+                                          : InputSettingsRepository::FormatChordLabel(DraftInput.QueryActiveShortcut(Command));
 
         Surface.PushClip(Field);
-        ControlStyle::TextLeading(
+        ControlAppearance::TextLeading(
             Surface,
             Field,
             16.0f,
@@ -1981,15 +1993,15 @@ float ControlCentrePanel::DrawInputSettingsBody(
 
         if (Capturing)
         {
-            ControlStyle::DrawRoundedOutline(Surface, Field, Colors.Accent.Faded(Opacity), 8.0f, 1.5f);
+            ControlAppearance::ConstructRoundedOutline(Surface, Field, Colors.Accent.Faded(Opacity), 8.0f, 1.5f);
         }
-        if (LocalPointer.Pressed && ControlStyle::QueryPointerOver(Field, LocalPointer))
+        if (LocalPointer.Pressed && ControlAppearance::QueryPointerOver(Field, LocalPointer))
         {
             PressedShortcutSlot = static_cast<int>(Slot);
         }
         if (DraftInput.CustomShortcutsEnabled &&
             PressedShortcutSlot == static_cast<int>(Slot) &&
-            ControlStyle::QueryPointerOver(Field, LocalPointer) &&
+            ControlAppearance::QueryPointerOver(Field, LocalPointer) &&
             LocalPointer.Released)
         {
             CaptureShortcutSlot = static_cast<int>(Slot);
@@ -2002,8 +2014,8 @@ float ControlCentrePanel::DrawInputSettingsBody(
         PressedShortcutSlot = -1;
     }
 
-    DrawFormSection("Advanced Controls");
-    if (BooleanSwitch::Draw(
+    ConstructFormSection("Advanced Controls");
+    if (ExclusiveSelector::Construct(
             Surface,
             LeftX + Width - ControlMetrics::SwitchWidth,
             CursorY - 40.0f,
@@ -2018,7 +2030,7 @@ float ControlCentrePanel::DrawInputSettingsBody(
     const Rectangle2D InvertRow      = LayoutFormRow("Invert Y-Axis");
     ControlPointer    InvertPointer  = LocalPointer;
     InvertPointer.Enabled            = InvertPointer.Enabled && DraftInput.AdvancedControlsEnabled;
-    if (BooleanSwitch::Draw(
+    if (ExclusiveSelector::Construct(
             Surface,
             InvertRow.Right() - ControlMetrics::SwitchWidth,
             InvertRow.Y + 7.0f,
@@ -2040,23 +2052,23 @@ float ControlCentrePanel::DrawInputSettingsBody(
         static_cast<double>(PreviewPointerDelta.Y));
     Surface.Text({ LeftX, CursorY }, 12.0f, Colors.TextDim.Faded(Opacity).ToRgba8(), PreviewLine);
     CursorY += 24.0f;
-    Surface.Text({ LeftX, CursorY }, 11.0f, Colors.TextFaint.Faded(Opacity).ToRgba8(), "Scene camera/tools are not hosted; drawer gestures stay 1:1.");
+    Surface.Text({ LeftX, CursorY }, 11.0f, Colors.TextFaint.Faded(Opacity).ToRgba8(), "Scene camera/tools are not hosted; tray gestures stay 1:1.");
     CursorY += 24.0f;
 
     return (CursorY + ScrollY) - BodyBounds.Y;
 }
 
-void ControlCentrePanel::DrawInputProfileOverlay(PixelSpace& Surface, const ControlPointer& Pointer, float Opacity)
+void ControlCentrePanel::ConstructInputProfileOverlay(PixelSpace& Surface, const ControlPointer& Pointer, float Opacity)
 {
     if (!InputProfileSelectorOpen)
     {
         return;
     }
 
-    const ControlColorSet& Colors      = ControlStyle::Colors();
+    const ControlColorSet& Colors      = ControlAppearance::Colors();
     const Rectangle2D      OverlayRect{ InputProfileBounds.X, InputProfileBounds.Bottom() + 6.0f, InputProfileBounds.Width, 88.0f };
     Surface.FillRectangle(OverlayRect, Colors.Field.Faded(Opacity).ToRgba8(), 8.0f);
-    ControlStyle::DrawRoundedOutline(Surface, OverlayRect, Colors.StrokeStrong.Faded(Opacity), 8.0f);
+    ControlAppearance::ConstructRoundedOutline(Surface, OverlayRect, Colors.StrokeStrong.Faded(Opacity), 8.0f);
 
     constexpr const char* ProfileLabels[2] = { "Editor Default", "Custom" };
     for (uint32_t Index = 0u; Index < 2u; ++Index)
@@ -2067,12 +2079,12 @@ void ControlCentrePanel::DrawInputProfileOverlay(PixelSpace& Surface, const Cont
             InputProfileBounds.Width - 8.0f,
             40.0f,
         };
-        const bool Hover = ControlStyle::QueryPointerOver(Row, Pointer);
+        const bool Hover = ControlAppearance::QueryPointerOver(Row, Pointer);
         if (Hover)
         {
             Surface.FillRectangle(Row, Colors.Selected.Faded(Opacity).ToRgba8(), 4.0f);
         }
-        ControlStyle::TextLeading(Surface, Row, 12.0f, Colors.Text.Faded(Opacity), ProfileLabels[Index], 13.0f);
+        ControlAppearance::TextLeading(Surface, Row, 12.0f, Colors.Text.Faded(Opacity), ProfileLabels[Index], 13.0f);
         if (Hover && Pointer.Released)
         {
             DraftInput.CustomShortcutsEnabled = (Index == 1u);
@@ -2089,41 +2101,41 @@ void ControlCentrePanel::DrawInputProfileOverlay(PixelSpace& Surface, const Cont
     }
 }
 
-float ControlCentrePanel::DrawNotificationsBody(
+float ControlCentrePanel::ConstructNotificationsBody(
     PixelSpace&           Surface,
     Rectangle2D           BodyBounds,
     float                 ScrollY,
     const ControlPointer& Pointer,
     float                 Opacity)
 {
-    const ControlColorSet& Colors  = ControlStyle::Colors();
+    const ControlColorSet& Colors  = ControlAppearance::Colors();
     const float            LeftX   = BodyBounds.X + 16.0f;
     const float            Width   = std::min(BodyBounds.Width - 32.0f, 768.0f);
     float                  CursorY = BodyBounds.Y - ScrollY;
 
-    auto DrawAlertToggleRow = [&](const char* Label, bool& ToggleField, bool LastInGroup)
+    auto ConstructAlertToggleRow = [&](const char* Label, bool& ToggleField, bool LastInGroup)
     {
         const Point2D TextExtent = Surface.MeasureText(14.0f, Label);
         Surface.Text({ LeftX, CursorY + (56.0f - TextExtent.Y) * 0.5f }, 14.0f, Colors.Text.Faded(Opacity).ToRgba8(), Label);
         const Rectangle2D SwitchRect{ LeftX + Width - 48.0f, CursorY + 16.0f, 48.0f, 24.0f };
-        if (BooleanSwitch::DrawCompact(Surface, SwitchRect, ToggleField, Pointer, Opacity).Clicked)
+        if (ExclusiveSelector::ConstructCompact(Surface, SwitchRect, ToggleField, Pointer, Opacity).Clicked)
         {
             ToggleField = !ToggleField;
         }
         CursorY += 56.0f;
         if (!LastInGroup)
         {
-            ControlStyle::DrawHairline(Surface, LeftX, CursorY, Width, Colors.Divider.Faded(Opacity));
+            ControlAppearance::ConstructHairline(Surface, LeftX, CursorY, Width, Colors.Divider.Faded(Opacity));
         }
     };
 
-    DrawAlertToggleRow("Show FPS Overlay", DraftNotifications.RateOverlayEnabled, true);
+    ConstructAlertToggleRow("Show FPS Overlay", DraftNotifications.RateOverlayEnabled, true);
 
     CursorY += 32.0f;
     Surface.Text({ LeftX, CursorY }, 14.0f, Colors.Text.Faded(Opacity).ToRgba8(), "Interface alerts");
     CursorY += Surface.MeasureText(14.0f, "Interface alerts").Y + 16.0f;
-    DrawAlertToggleRow("Preferences Applied", DraftNotifications.AppliedAlertsEnabled, false);
-    DrawAlertToggleRow("Preference Errors", DraftNotifications.ErrorAlertsEnabled, true);
+    ConstructAlertToggleRow("Preferences Applied", DraftNotifications.AppliedAlertsEnabled, false);
+    ConstructAlertToggleRow("Preference Errors", DraftNotifications.ErrorAlertsEnabled, true);
 
     CursorY += 32.0f;
     Surface.Text({ LeftX, CursorY }, 14.0f, Colors.Text.Faded(Opacity).ToRgba8(), "Toasts");
@@ -2137,7 +2149,7 @@ float ControlCentrePanel::DrawNotificationsBody(
 
     const float          RowTop      = CursorY + (56.0f - ControlMetrics::ControlHeight) * 0.5f;
     float                HoldSeconds = DraftNotifications.AlertHoldSeconds;
-    const ControlContact Hit         = ScalarSlider::DrawWithReadout(
+    const ControlContact Hit         = ScalarSlider::ConstructWithReadout(
         Surface,
         { LeftX + 160.0f, RowTop, std::max(120.0f, Width - 160.0f), ControlMetrics::ControlHeight },
         HoldText,
@@ -2167,20 +2179,20 @@ float ControlCentrePanel::DrawNotificationsBody(
     return (CursorY + ScrollY) - BodyBounds.Y + 24.0f;
 }
 
-float ControlCentrePanel::DrawWorkspaceBody(
+float ControlCentrePanel::ConstructWorkspaceBody(
     PixelSpace&           Surface,
     Rectangle2D           BodyBounds,
     float                 ScrollY,
     const ControlPointer& Pointer,
     float                 Opacity)
 {
-    const ControlColorSet& Colors  = ControlStyle::Colors();
+    const ControlColorSet& Colors  = ControlAppearance::Colors();
     const float            LeftX   = BodyBounds.X + 16.0f;
     const float            Width   = std::min(BodyBounds.Width - 32.0f, 768.0f);
     float                  CursorY = BodyBounds.Y - ScrollY;
 
     Surface.Text({ LeftX, CursorY + 6.0f }, 14.0f, Colors.Text.Faded(Opacity).ToRgba8(), "Allow detached OS windows");
-    if (BooleanSwitch::Draw(
+    if (ExclusiveSelector::Construct(
             Surface,
             LeftX + Width - ControlMetrics::SwitchWidth,
             CursorY,
@@ -2202,7 +2214,7 @@ float ControlCentrePanel::DrawWorkspaceBody(
 
     const ButtonDescriptor ResetButton{ "Reset saved layout", ButtonTone::Secondary, 13.5f, 22.0f, false, {} };
     const float            ResetWidth = CapsuleButton::MeasureWidth(Surface, ResetButton);
-    if (CapsuleButton::Draw(Surface, { LeftX, CursorY, ResetWidth, 40.0f }, ResetButton, Pointer, Opacity).Clicked)
+    if (CapsuleButton::Construct(Surface, { LeftX, CursorY, ResetWidth, 40.0f }, ResetButton, Pointer, Opacity).Clicked)
     {
         if (ResetLayoutCallback)
         {

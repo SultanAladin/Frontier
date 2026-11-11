@@ -1,7 +1,7 @@
 #==========================================================================================================================================
 #                                                          PREPAREFONTS.PY
 #==========================================================================================================================================
-# 🧩 Download pinned OFL typefaces into EngineContent/FontsArchives/ and generate FontCatalogue.FontSpace.
+# 🧩 Download pinned OFL typefaces into EngineContent/FontsArchives/ and generate FontRepository.FontSpace.
 
 from pathlib import Path
 import argparse
@@ -28,7 +28,7 @@ def WriteAtomic(Destination, Payload):
         Path(TemporaryPath).unlink(missing_ok=True)
 
 
-def GenerateCatalogue(FontRoot):
+def GenerateRepository(FontRoot):
     from fontTools.ttLib import TTFont
     TypefaceEntries = []
     RejectedFiles = []
@@ -67,7 +67,7 @@ def GenerateCatalogue(FontRoot):
         for Key, FieldContent in Entry.items():
             Lines.append(Key + ' = ' + json.dumps(FieldContent, ensure_ascii=True))
         Lines.append('')
-    WriteAtomic(FontRoot / 'FontCatalogue.FontSpace', ('\n'.join(Lines) + '\n').encode('utf-8'))
+    WriteAtomic(FontRoot / 'FontRepository.FontSpace', ('\n'.join(Lines) + '\n').encode('utf-8'))
     print('[Fonts]    {0} faces across {1} typeface groups ({2} rejected)'.format(
         len(TypefaceEntries), len({Entry['TypefaceGroup'] for Entry in TypefaceEntries}), len(RejectedFiles)))
     if RejectedFiles:
@@ -75,14 +75,14 @@ def GenerateCatalogue(FontRoot):
 
 
 def Main():
-    Parser = argparse.ArgumentParser(description='Prepare pinned Frontier font archives.')
+    Parser = argparse.ArgumentParser(description='Prepare pinned Frontier font repository.')
     Parser.add_argument('--scan-only', dest='ScanOnly', action='store_true', help='Enumerate local fonts without network access')
     Parser.add_argument('--verify', dest='VerifyOnly', action='store_true', help='Verify pinned fonts exist without downloading')
     Parser.add_argument('--root', dest='RootDirectory', type=Path, default=RepositoryRoot / 'EngineContent/FontsArchives')
     Arguments = Parser.parse_args()
 
     Manifest = json.loads((RepositoryRoot / 'Automation/FontSources.json').read_text(encoding='utf-8'))
-    DownloadedArchives = {}
+    DownloadedPackages = {}
 
     if not Arguments.ScanOnly:
         for Entry in Manifest['FontFiles']:
@@ -95,8 +95,8 @@ def Main():
                 raise RuntimeError('Missing pinned font file: ' + str(Destination))
 
             SourceUrl = Entry['SourceUrl']
-            if SourceUrl in DownloadedArchives:
-                RawBytes = DownloadedArchives[SourceUrl]
+            if SourceUrl in DownloadedPackages:
+                RawBytes = DownloadedPackages[SourceUrl]
             else:
                 Headers = {'Accept': 'application/vnd.github.raw+json', 'User-Agent': 'Frontier-font-setup'}
                 if SourceUrl.startswith('https://api.github.com/') and os.environ.get('GH_TOKEN'):
@@ -106,16 +106,16 @@ def Main():
                     RawBytes = Response.read()
                     if 'json' in Response.headers.get('Content-Type', ''):
                         RawBytes = base64.b64decode(json.loads(RawBytes)['content'])
-                DownloadedArchives[SourceUrl] = RawBytes
+                DownloadedPackages[SourceUrl] = RawBytes
 
-            if 'ArchiveEntryPath' in Entry:
-                if hashlib.sha256(RawBytes).hexdigest() != Entry['ArchiveSha256Digest']:
-                    raise RuntimeError('Font archive SHA-256 mismatch for ' + Entry['FileName'])
-                with tarfile.open(fileobj=io.BytesIO(RawBytes), mode='r:gz') as Archive:
-                    ArchiveEntry = Archive.getmember(Entry['ArchiveEntryPath'])
-                    if not ArchiveEntry.isfile() or ArchiveEntry.size > 4194304:
-                        raise RuntimeError('Invalid font archive entry: ' + Entry['ArchiveEntryPath'])
-                    RawBytes = Archive.extractfile(ArchiveEntry).read()
+            if 'PackageEntryPath' in Entry:
+                if hashlib.sha256(RawBytes).hexdigest() != Entry['PackageSha256Digest']:
+                    raise RuntimeError('Font package SHA-256 mismatch for ' + Entry['FileName'])
+                with tarfile.open(fileobj=io.BytesIO(RawBytes), mode='r:gz') as TarBundle:
+                    BundleEntry = TarBundle.getmember(Entry['PackageEntryPath'])
+                    if not BundleEntry.isfile() or BundleEntry.size > 4194304:
+                        raise RuntimeError('Invalid font package entry: ' + Entry['PackageEntryPath'])
+                    RawBytes = TarBundle.extractfile(BundleEntry).read()
                 if Entry.get('DecodeFormat') == 'woff':
                     from fontTools.ttLib import TTFont
                     with TTFont(io.BytesIO(RawBytes), recalcTimestamp=False) as Typeface:
@@ -129,7 +129,7 @@ def Main():
             WriteAtomic(Destination, RawBytes)
             print('[Font]     {0}/{1}'.format(Entry['TypefaceGroup'], Entry['FileName']), flush=True)
 
-    GenerateCatalogue(Arguments.RootDirectory)
+    GenerateRepository(Arguments.RootDirectory)
     return 0
 
 

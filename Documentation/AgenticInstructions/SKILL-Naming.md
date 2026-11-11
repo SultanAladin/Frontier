@@ -22,7 +22,7 @@ then run the 6-gate rejection check.
 1. **State the mechanism in one plain sentence** — what it physically does in memory, math, or GPU silicon.
    *"Recycles preallocated indexed instance slots." "Encodes batched indirect draw arguments."*
 2. **Extract the technical verb/operation + concrete domain noun and fuse them** — e.g.
-   `RegionAllocator`, `IndexedSlotRecycler`, `TokenIssuer`, `HalfEdgeTopology`, `IndirectDrawEncoder`,
+   `RegionAllocator`, `IndexedSlotRecycler`, `TokenIssuer`, `HalfEdgeComplex`, `IndirectDrawEncoder`,
    `PacketSerializer`.
 3. **Avoid discouraged words** even though they are not hard-banned: avoid `Substrate`, `Atlas`, and
    `Slice` whenever a direct mechanical name (`DeviceInterface`, `HardwareOutput`, `ChartPacker`,
@@ -51,8 +51,8 @@ then run the 6-gate rejection check.
   `Entity`, `evaluator`, `fence`, `flag`, `floating`, `flow`, `Frame`, `glyph`, `Graph`,
   `harness`/`Trial` (→ `…Validation`), `Hierarchy`, `hook`, `Hub`, `Info`, `Inscription`
   (→ `…Rasterization`), `interpolant`, `Item`, `Kernel`, `Kind` (→ `…Category`), `Listener`, `map`,
-  `Matrix`, `member`, `menu`, `mesh` (→ `PolygonSurface`/`TopologySurface`), `Model`, `Module`,
-  `mutation`, `Nexus`, `Node`, `Object`, `occupant`, `palette`, `Pass`, `pill`, `pipeline`, `PolygonComplex`, `pool`,
+  `Matrix`, `member`, `menu`, `mesh` (→ `PolygonComplex`/`PolygonSurface`), `Model`, `Module`,
+  `mutation`, `Nexus`, `Node`, `Object`, `occupant`, `palette`, `Pass`, `pill`, `pipeline`, `pool`,
   `popup`/`popover`, `predicate`, `probe`, `reclamation`, `Record` *(bare & `RecordStore` barred; only `RecordEntry`/`RecordToken` approved)*,
   `reservoir`, `Role`, `shell`, `stage`, `state`, `store`, `submission`, `Subsystem`/`system`, `table`,
   `Traversal` *(exempt only at `Topology/Selection/SelectionTraversal.{h,cpp}`)*, `Tween`, `Utility`,

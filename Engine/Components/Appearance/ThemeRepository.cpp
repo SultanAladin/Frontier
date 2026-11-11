@@ -1,9 +1,9 @@
 /*============================================================================================================================================
-                                                         THEMECATALOG.CPP
+                                                             THEMEREPOSITORY.CPP
 ============================================================================================================================================*/
 // 🧩 Exact 1:1 surface themes, accent swatches, semantic alert swatches, and typography scale slots.
 
-#include "Engine/Components/Appearance/ThemeCatalog.h"
+#include "Engine/Components/Appearance/ThemeRepository.h"
 
 #include <algorithm>
 
@@ -40,7 +40,7 @@ constexpr TypeSlotSpecimen SlotSpecimens[AppearanceSettings::TypeSlotCount] = {
 
 } // namespace
 
-ThemeCatalog::ThemeCatalog() noexcept
+ThemeRepository::ThemeRepository() noexcept
 {
     SurfaceSets[static_cast<std::size_t>(ThemePreset::Oled)] = ThemeSurfaceSet{
         "OLED",
@@ -155,35 +155,35 @@ ThemeCatalog::ThemeCatalog() noexcept
     };
 }
 
-void ThemeCatalog::ConfigureTheme(ThemePreset DesiredTheme) noexcept
+void ThemeRepository::ConfigureTheme(ThemePreset DesiredTheme) noexcept
 {
     if (DesiredTheme < ThemePreset::Count)
         ActiveTheme = DesiredTheme;
 }
 
-void ThemeCatalog::ConfigureAccent(AccentPreset DesiredAccent) noexcept
+void ThemeRepository::ConfigureAccent(AccentPreset DesiredAccent) noexcept
 {
     if (DesiredAccent < AccentPreset::Count)
         ActiveAccent = DesiredAccent;
 }
 
-void ThemeCatalog::ConfigureCornerRadius(float RadiusPixels) noexcept
+void ThemeRepository::ConfigureCornerRadius(float RadiusPixels) noexcept
 {
     CornerRadiusPixels = std::clamp(RadiusPixels, 0.0f, 32.0f);
 }
 
-const ThemeSurfaceSet &ThemeCatalog::QuerySurfaceSet() const noexcept
+const ThemeSurfaceSet &ThemeRepository::QuerySurfaceSet() const noexcept
 {
     return QuerySurfaceSet(ActiveTheme);
 }
 
-const ThemeSurfaceSet &ThemeCatalog::QuerySurfaceSet(ThemePreset Preset) const noexcept
+const ThemeSurfaceSet &ThemeRepository::QuerySurfaceSet(ThemePreset Preset) const noexcept
 {
     const std::size_t Index = static_cast<std::size_t>(Preset);
     return Index < SurfaceSets.size() ? SurfaceSets[Index] : SurfaceSets[0];
 }
 
-ColorQuad ThemeCatalog::QueryDarkestSurface() const noexcept
+ColorQuad ThemeRepository::QueryDarkestSurface() const noexcept
 {
     const ThemeSurfaceSet &Set     = QuerySurfaceSet();
     ColorQuad              Darkest = Set.MainBackground;
@@ -197,23 +197,23 @@ ColorQuad ThemeCatalog::QueryDarkestSurface() const noexcept
     return Darkest;
 }
 
-ColorQuad ThemeCatalog::QueryAccentColor() const noexcept
+ColorQuad ThemeRepository::QueryAccentColor() const noexcept
 {
     return QueryAccentColor(ActiveAccent);
 }
 
-ColorQuad ThemeCatalog::QueryAccentColor(AccentPreset Accent) noexcept
+ColorQuad ThemeRepository::QueryAccentColor(AccentPreset Accent) noexcept
 {
     const uint32_t Index = std::min<uint32_t>(static_cast<uint32_t>(Accent), 9u);
     return ColorQuad::FromHex(AccentHexSwatches[Index]);
 }
 
-ColorQuad ThemeCatalog::QuerySemanticColor(uint32_t RowIndex, uint32_t SwatchIndex) noexcept
+ColorQuad ThemeRepository::QuerySemanticColor(uint32_t RowIndex, uint32_t SwatchIndex) noexcept
 {
     return ColorQuad::FromHex(SemanticHexGrid[std::min(RowIndex, 3u)][std::min(SwatchIndex, 3u)]);
 }
 
-const char *ThemeCatalog::QueryThemeLabel(ThemePreset Preset) noexcept
+const char *ThemeRepository::QueryThemeLabel(ThemePreset Preset) noexcept
 {
     switch (Preset)
     {
@@ -230,12 +230,12 @@ const char *ThemeCatalog::QueryThemeLabel(ThemePreset Preset) noexcept
     return "OLED";
 }
 
-const char *ThemeCatalog::QueryTypeSlotLabel(uint32_t SlotOrdinal) noexcept
+const char *ThemeRepository::QueryTypeSlotLabel(uint32_t SlotOrdinal) noexcept
 {
     return SlotSpecimens[std::min(SlotOrdinal, AppearanceSettings::TypeSlotCount - 1u)].Label;
 }
 
-const char *ThemeCatalog::QueryTypeSlotSample(uint32_t SlotOrdinal) noexcept
+const char *ThemeRepository::QueryTypeSlotSample(uint32_t SlotOrdinal) noexcept
 {
     return SlotSpecimens[std::min(SlotOrdinal, AppearanceSettings::TypeSlotCount - 1u)].Sample;
 }

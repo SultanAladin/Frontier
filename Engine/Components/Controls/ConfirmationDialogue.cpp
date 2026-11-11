@@ -1,7 +1,7 @@
 /*============================================================================================================================================
-                                                     CONFIRMATIONDIALOGUE.CPP
+                                                           CONFIRMATIONDIALOGUE.CPP
 ============================================================================================================================================*/
-// 🧩 Foreground modal confirmation dialogue rendering Rounded (28px) and SemanticHeader (8px) layouts above all drawers
+// 🧩 Foreground modal confirmation dialogue rendering Rounded (28px) and SemanticHeader (8px) layouts above all trays
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
@@ -22,7 +22,7 @@ namespace
 {
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                 SEVERITY TONE & WRAPPING
+//                                                SEVERITY TONE & WRAPPING
 //------------------------------------------------------------------------------------------------------------------------
 
 [[nodiscard]] ColorQuad ResolveSeverityTone(DialogueSeverity Severity, const ControlColorSet& Colors) noexcept
@@ -104,7 +104,7 @@ namespace
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                              CONFIRMATION DIALOGUE METHODS
+//                                             CONFIRMATION DIALOGUE METHODS
 //------------------------------------------------------------------------------------------------------------------------
 
 bool ConfirmationDialogue::Activate(const ConfirmationSpecification& Specification)
@@ -129,7 +129,7 @@ void ConfirmationDialogue::Reset() noexcept
     CancelBounds  = {};
 }
 
-DialogueResponse ConfirmationDialogue::DrawModal(
+DialogueResponse ConfirmationDialogue::ConstructModal(
     PixelSpace&           Surface,
     Rectangle2D           ViewportLogicalBounds,
     const ControlPointer& Pointer)
@@ -139,12 +139,12 @@ DialogueResponse ConfirmationDialogue::DrawModal(
         return DialogueResponse::None;
     }
 
-    const ControlColorSet& Colors   = ControlStyle::Colors();
+    const ControlColorSet& Colors   = ControlAppearance::Colors();
     const ColorQuad        Tone     = ResolveSeverityTone(ActiveSpec.Severity, Colors);
     const ControlIcon      Icon     = ResolveSeverityIcon(ActiveSpec.Severity);
     DialogueResponse       Response = DialogueResponse::None;
 
-    // Full-viewport dim scrim above the Control Centre drawer
+    // Full-viewport dim scrim above the Control Centre tray
     Surface.FillRectangle(ViewportLogicalBounds, ColorRgba{ 0u, 0u, 0u, 140u }, 0.0f);
 
     const float ModalWidth  = std::clamp(ViewportLogicalBounds.Width - 32.0f, 300.0f, 440.0f);
@@ -156,22 +156,16 @@ DialogueResponse ConfirmationDialogue::DrawModal(
         ModalHeight,
     };
 
-    // Subtle elevation shadow beneath modal surface
-    Surface.FillRectangle(
-        { ModalBounds.X, ModalBounds.Y + 8.0f, ModalBounds.Width, ModalBounds.Height },
-        ColorRgba{ 0u, 0u, 0u, 120u },
-        ActiveSpec.Layout == DialogueLayoutStyle::Rounded ? 28.0f : 8.0f);
-
     if (ActiveSpec.Layout == DialogueLayoutStyle::Rounded)
     {
         Surface.FillRectangle(ModalBounds, Colors.Panel.ToRgba8(), 28.0f);
-        ControlStyle::DrawRoundedOutline(Surface, ModalBounds, Colors.StrokeStrong, 28.0f);
+        ControlAppearance::ConstructRoundedOutline(Surface, ModalBounds, Colors.StrokeStrong, 28.0f);
 
         ColorQuad DiscWash = Tone;
         DiscWash.Alpha     = 0.14f;
-        const Rectangle2D EmblemRect{ ModalBounds.X + 32.0f, ModalBounds.Y + 28.0f, 48.0f, 48.0f };
-        Surface.FillRectangle(EmblemRect, DiscWash.ToRgba8(), 24.0f);
-        ControlStyle::DrawIconCentered(Surface, EmblemRect, 24.0f, Tone, Icon, 2.0f);
+        const Rectangle2D IconRect{ ModalBounds.X + 32.0f, ModalBounds.Y + 28.0f, 48.0f, 48.0f };
+        Surface.FillRectangle(IconRect, DiscWash.ToRgba8(), 24.0f);
+        ControlAppearance::ConstructIconCentered(Surface, IconRect, 24.0f, Tone, Icon, 2.0f);
 
         Surface.Text({ ModalBounds.X + 32.0f, ModalBounds.Y + 94.0f }, 22.0f, Colors.Text.ToRgba8(), ActiveSpec.Title.c_str());
 
@@ -195,7 +189,7 @@ DialogueResponse ConfirmationDialogue::DrawModal(
         Surface.FillRectangle({ HeaderBand.X, HeaderBand.Bottom(), HeaderBand.Width, 12.0f }, Colors.Panel.ToRgba8(), 0.0f);
 
         Surface.PushClip(HeaderBand);
-        ControlStyle::DrawIcon(
+        ControlAppearance::ConstructIcon(
             Surface,
             HeaderBand.Right() - 96.0f,
             HeaderBand.Y - 12.0f,
@@ -208,7 +202,7 @@ DialogueResponse ConfirmationDialogue::DrawModal(
         Surface.Text({ HeaderBand.X + 28.0f, HeaderBand.Y + 34.0f }, 22.0f, ColorRgba{ 255u, 255u, 255u, 255u }, ActiveSpec.Title.c_str());
 
         const Rectangle2D CloseHit{ HeaderBand.Right() - 48.0f, HeaderBand.Y + 18.0f, 32.0f, 32.0f };
-        if (ControlStyle::QueryPointerOver(CloseHit, Pointer))
+        if (ControlAppearance::QueryPointerOver(CloseHit, Pointer))
         {
             Surface.FillRectangle(CloseHit, ColorRgba{ 255u, 255u, 255u, 38u }, 16.0f);
             if (Pointer.Released)
@@ -216,7 +210,7 @@ DialogueResponse ConfirmationDialogue::DrawModal(
                 Response = DialogueResponse::Cancelled;
             }
         }
-        ControlStyle::DrawIconCentered(
+        ControlAppearance::ConstructIconCentered(
             Surface,
             CloseHit,
             16.0f,
@@ -225,7 +219,7 @@ DialogueResponse ConfirmationDialogue::DrawModal(
             2.0f);
         Surface.PopClip();
 
-        ControlStyle::DrawRoundedOutline(Surface, ModalBounds, Colors.StrokeStrong, 8.0f);
+        ControlAppearance::ConstructRoundedOutline(Surface, ModalBounds, Colors.StrokeStrong, 8.0f);
 
         const auto Lines = WrapDialogueText(Surface, ModalBounds.Width - 56.0f, ActiveSpec.Description);
         for (std::size_t Index = 0u; Index < Lines.size(); ++Index)
@@ -248,11 +242,11 @@ DialogueResponse ConfirmationDialogue::DrawModal(
     const ButtonDescriptor CancelButton{ "Cancel", ButtonTone::Secondary, 14.0f, 20.0f, false, {} };
     const ButtonDescriptor PrimaryButton{ ActiveSpec.PrimaryLabel.c_str(), ButtonTone::Tinted, 14.0f, 20.0f, false, Tone };
 
-    if (CapsuleButton::Draw(Surface, CancelBounds, CancelButton, Pointer).Clicked)
+    if (CapsuleButton::Construct(Surface, CancelBounds, CancelButton, Pointer).Clicked)
     {
         Response = DialogueResponse::Cancelled;
     }
-    if (CapsuleButton::Draw(Surface, PrimaryBounds, PrimaryButton, Pointer).Clicked)
+    if (CapsuleButton::Construct(Surface, PrimaryBounds, PrimaryButton, Pointer).Clicked)
     {
         Response = DialogueResponse::Confirmed;
     }

@@ -1,14 +1,15 @@
 /*============================================================================================================================================
-                                                  CONTROLCENTREVALIDATION.CPP
+                                                         CONTROLCENTREVALIDATION.CPP
 ============================================================================================================================================*/
-// 🧩 End-to-end validation and 14-image CPU visual snapshot suite for ControlCentrePanel, reusable Controls, and .projectspace persistence
+// 🧩 End-to-end validation and 16-image CPU visual snapshot suite for ControlCentrePanel, reusable Controls, Tooltips, and .projectspace persistence
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Appearance/TypefaceCatalog.h"
+#include "Engine/Components/Appearance/TypographyRepository.h"
 #include "Engine/Components/ControlCentre/ControlCentrePanel.h"
+#include "Engine/Components/Controls/ControlTooltip.h"
 #include "Engine/Components/Controls/DropdownSelector.h"
 #include "Engine/Components/Controls/TextInputField.h"
 #include "Engine/Components/Docking/WorkspaceDockContainer.h"
@@ -30,26 +31,43 @@ using Frontier::AppearanceSectionTab;
 using Frontier::AppearanceSettings;
 using Frontier::ButtonDescriptor;
 using Frontier::ButtonTone;
+using Frontier::ColorRgba;
 using Frontier::ConfirmationSpecification;
 using Frontier::ControlCentrePage;
 using Frontier::ControlCentrePanel;
 using Frontier::ControlColorSet;
+using Frontier::ControlContact;
+using Frontier::ControlIcon;
 using Frontier::ControlPointer;
 using Frontier::DialogueLayoutStyle;
 using Frontier::DialogueSeverity;
 using Frontier::InputPreferences;
 using Frontier::NotificationPreferences;
 using Frontier::NotificationSeverity;
+using Frontier::OptionalTooltip;
 using Frontier::PixelSpace;
-using Frontier::ProjectSpaceArchive;
+using Frontier::Point2D;
+using Frontier::ProjectSpaceRepository;
 using Frontier::ProjectSpaceDocument;
 using Frontier::Rectangle2D;
 using Frontier::ShortcutChord;
 using Frontier::ShortcutKey;
 using Frontier::TextEditBuffer;
-using Frontier::ThemeCatalog;
+using Frontier::ThemeRepository;
 using Frontier::ThemePreset;
-using Frontier::TypefaceCatalog;
+using Frontier::TooltipDescriptor;
+using Frontier::TooltipDirection;
+using Frontier::TooltipInteractionResult;
+using Frontier::TooltipLayoutVariant;
+using Frontier::TooltipMetricToken;
+using Frontier::TooltipSeverity;
+using Frontier::TooltipSuggestion;
+using Frontier::TooltipSuggestionTone;
+using Frontier::TooltipSurfaceMode;
+using Frontier::TooltipTailAlignment;
+using Frontier::TooltipTailProfile;
+using Frontier::TypographyRepository;
+using Frontier::VectorIconRepository;
 using Frontier::Components::ConfigureImGuiWorkspaceTheme;
 using Frontier::Components::DockPlacementDirection;
 using Frontier::Components::HeadlessWorkspaceDockContainer;
@@ -61,14 +79,17 @@ using Frontier::Exhibits::ResolveRepositoryRootPath;
 using Frontier::Exhibits::SoftwareRasterCanvas;
 using Frontier::Windowing::WindowConfigurationDescriptor;
 
-namespace CapsuleButton        = Frontier::CapsuleButton;
-namespace ControlStyle         = Frontier::ControlStyle;
-namespace DropdownSelector     = Frontier::DropdownSelector;
-namespace InputSettingsCatalog = Frontier::InputSettingsCatalog;
-namespace TextInputField       = Frontier::TextInputField;
+namespace CapsuleButton           = Frontier::CapsuleButton;
+namespace ControlAppearance       = Frontier::ControlAppearance;
+namespace ControlTooltip          = Frontier::ControlTooltip;
+namespace DropdownSelector        = Frontier::DropdownSelector;
+namespace ExclusiveSelector       = Frontier::ExclusiveSelector;
+namespace InputSettingsRepository = Frontier::InputSettingsRepository;
+namespace ScalarSlider            = Frontier::ScalarSlider;
+namespace TextInputField          = Frontier::TextInputField;
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                  VALIDATION ASSERTIONS
+//                                                 VALIDATION ASSERTIONS
 //------------------------------------------------------------------------------------------------------------------------
 
 bool VerifyAssertion(bool Condition, const char* Description) noexcept
@@ -86,15 +107,15 @@ bool ValidateProjectSpaceContainerAndPascalCaseSchema()
     std::string Diagnostic{};
 
     if (!VerifyAssertion(
-            !ProjectSpaceArchive::ValidateContainerPath("/tmp/BadConfig.toml", Diagnostic),
-            "ProjectSpaceArchive rejects .toml container paths"))
+            !ProjectSpaceRepository::ValidateContainerPath("/tmp/BadConfig.toml", Diagnostic),
+            "ProjectSpaceRepository rejects .toml container paths"))
     {
         return false;
     }
 
-    const std::filesystem::path TemporaryArchive = std::filesystem::temp_directory_path() / "FrontierValidation.projectspace";
+    const std::filesystem::path TemporaryRepository = std::filesystem::temp_directory_path() / "FrontierValidation.projectspace";
     std::error_code             IoFailure{};
-    std::filesystem::remove(TemporaryArchive, IoFailure);
+    std::filesystem::remove(TemporaryRepository, IoFailure);
 
     ProjectSpaceDocument OutboundDocument{};
     OutboundDocument.ProjectTitle                           = "FrontierStudio";
@@ -117,13 +138,13 @@ bool ValidateProjectSpaceContainerAndPascalCaseSchema()
     OutboundDocument.Notifications.ErrorAlertsEnabled       = true;
     OutboundDocument.Notifications.AlertHoldSeconds         = 5.5f;
 
-    if (!VerifyAssertion(ProjectSpaceArchive::Save(TemporaryArchive, OutboundDocument, Diagnostic), "Save .projectspace container"))
+    if (!VerifyAssertion(ProjectSpaceRepository::Save(TemporaryRepository, OutboundDocument, Diagnostic), "Save .projectspace container"))
     {
         return false;
     }
 
     {
-        std::ifstream     Stream(TemporaryArchive);
+        std::ifstream     Stream(TemporaryRepository);
         const std::string Content((std::istreambuf_iterator<char>(Stream)), std::istreambuf_iterator<char>());
         if (!VerifyAssertion(
                 Content.find("['.visualappearance']") != std::string::npos &&
@@ -140,7 +161,7 @@ bool ValidateProjectSpaceContainerAndPascalCaseSchema()
     }
 
     ProjectSpaceDocument InboundDocument{};
-    if (!VerifyAssertion(ProjectSpaceArchive::Load(TemporaryArchive, InboundDocument, Diagnostic), "Load .projectspace container"))
+    if (!VerifyAssertion(ProjectSpaceRepository::Load(TemporaryRepository, InboundDocument, Diagnostic), "Load .projectspace container"))
     {
         return false;
     }
@@ -161,7 +182,7 @@ bool ValidateProjectSpaceContainerAndPascalCaseSchema()
         return false;
     }
 
-    std::filesystem::remove(TemporaryArchive, IoFailure);
+    std::filesystem::remove(TemporaryRepository, IoFailure);
     return true;
 }
 
@@ -173,7 +194,7 @@ bool ValidateInputShortcutConflictDetection()
 
     std::string Diagnostic{};
     if (!VerifyAssertion(
-            !InputSettingsCatalog::ValidatePreferences(DuplicatePreferences, Diagnostic) && !Diagnostic.empty(),
+            !InputSettingsRepository::ValidatePreferences(DuplicatePreferences, Diagnostic) && !Diagnostic.empty(),
             "Duplicate shortcut chords rejected with diagnostic"))
     {
         return false;
@@ -183,7 +204,7 @@ bool ValidateInputShortcutConflictDetection()
     BareLetterPreferences.CustomShortcutsEnabled = true;
     BareLetterPreferences.Shortcuts[1]           = ShortcutChord{ ShortcutKey::K, false, false, false, false };
     if (!VerifyAssertion(
-            !InputSettingsCatalog::ValidatePreferences(BareLetterPreferences, Diagnostic),
+            !InputSettingsRepository::ValidatePreferences(BareLetterPreferences, Diagnostic),
             "Modifierless printable letter shortcut rejected"))
     {
         return false;
@@ -193,8 +214,8 @@ bool ValidateInputShortcutConflictDetection()
     ValidPreferences.CustomShortcutsEnabled = true;
     ValidPreferences.Shortcuts[1]           = ShortcutChord{ ShortcutKey::K, true, false, true, false };
     if (!VerifyAssertion(
-            InputSettingsCatalog::ValidatePreferences(ValidPreferences, Diagnostic) &&
-            InputSettingsCatalog::FormatChordLabel(ValidPreferences.Shortcuts[1]) == "Ctrl + Shift + K",
+            InputSettingsRepository::ValidatePreferences(ValidPreferences, Diagnostic) &&
+            InputSettingsRepository::FormatChordLabel(ValidPreferences.Shortcuts[1]) == "Ctrl + Shift + K",
             "Ctrl + Shift + K chord validates and formats cleanly"))
     {
         return false;
@@ -204,7 +225,7 @@ bool ValidateInputShortcutConflictDetection()
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                              VISUAL SNAPSHOT SUITE GENERATION
+//                                            VISUAL SNAPSHOT SUITE GENERATION
 //------------------------------------------------------------------------------------------------------------------------
 
 bool RenderSnapshotSuite(const std::filesystem::path& OutputDirectory)
@@ -219,15 +240,15 @@ bool RenderSnapshotSuite(const std::filesystem::path& OutputDirectory)
     Io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
     const auto      RepositoryRoot = ResolveRepositoryRootPath();
-    TypefaceCatalog Typefaces{};
+    TypographyRepository Typefaces{};
     if (!VerifyAssertion(
-            Typefaces.LoadArchive(RepositoryRoot / "EngineContent/FontsArchives") == 5u,
-            "Load FontCatalogue.FontSpace (zero .toml)"))
+            Typefaces.LoadRepository(RepositoryRoot / "EngineContent/FontsArchives") == 5u,
+            "Load FontRepository.FontSpace (zero .toml)"))
     {
         ImGui::DestroyContext(GuiSession);
         return false;
     }
-    TypefaceCatalog::AssignCurrent(&Typefaces);
+    TypographyRepository::AssignCurrent(&Typefaces);
     if (ImFont* DefaultFace = Typefaces.QueryFont(0u, Frontier::FontWeightClass::Regular))
     {
         Io.FontDefault = DefaultFace;
@@ -275,7 +296,7 @@ bool RenderSnapshotSuite(const std::filesystem::path& OutputDirectory)
 
     auto CaptureSnapshot = [&](const char* FileName, RgbaColor8 ClearColor = RgbaColor8{ 0, 0, 0, 255 }) -> bool
     {
-        ConfigureImGuiWorkspaceTheme(Dock.ActiveTabMetrics(), Panel.QueryThemeCatalog());
+        ConfigureImGuiWorkspaceTheme(Dock.ActiveTabMetrics(), Panel.QueryThemeRepository());
         for (int Iteration = 0; Iteration < 3; ++Iteration)
         {
             Io.DisplaySize = ImVec2(static_cast<float>(CanvasWidth), static_cast<float>(CanvasHeight));
@@ -457,15 +478,15 @@ bool RenderSnapshotSuite(const std::filesystem::path& OutputDirectory)
 
     // 14: Dedicated Reusable Controls Showcase (DropdownSelector + TextInputField + CapsuleButton)
     {
-        ThemeCatalog ShowcaseTheme{};
+        ThemeRepository ShowcaseTheme{};
         ShowcaseTheme.ConfigureTheme(ThemePreset::Oled);
         ShowcaseTheme.ConfigureAccent(AccentPreset::Blue);
-        ControlStyle::ConfigureTheme(
+        ControlAppearance::ConfigureTheme(
             ShowcaseTheme,
-            ThemeCatalog::QuerySemanticColor(0u, 0u),
-            ThemeCatalog::QuerySemanticColor(1u, 0u),
-            ThemeCatalog::QuerySemanticColor(2u, 0u),
-            ThemeCatalog::QuerySemanticColor(3u, 0u));
+            ThemeRepository::QuerySemanticColor(0u, 0u),
+            ThemeRepository::QuerySemanticColor(1u, 0u),
+            ThemeRepository::QuerySemanticColor(2u, 0u),
+            ThemeRepository::QuerySemanticColor(3u, 0u));
 
         TextEditBuffer ProjectNameInput{};
         ProjectNameInput.Begin("FrontierStudio.projectspace");
@@ -485,12 +506,12 @@ bool RenderSnapshotSuite(const std::filesystem::path& OutputDirectory)
 
         ImFont*    RegularFont = Typefaces.QueryFont(0u, Frontier::FontWeightClass::Regular);
         PixelSpace Surface(ImGui::GetForegroundDrawList(), { 0.0f, 0.0f }, 1.0f, RegularFont);
-        const ControlColorSet& Colors = ControlStyle::Colors();
+        const ControlColorSet& Colors = ControlAppearance::Colors();
 
         Surface.FillRectangle({ 0.0f, 0.0f, 1280.0f, 800.0f }, Colors.Field.ToRgba8(), 0.0f);
         const Rectangle2D Sheet{ 64.0f, 48.0f, 1152.0f, 704.0f };
         Surface.FillRectangle(Sheet, Colors.Panel.ToRgba8(), 28.0f);
-        ControlStyle::DrawRoundedOutline(Surface, Sheet, Colors.Stroke, 28.0f);
+        ControlAppearance::ConstructRoundedOutline(Surface, Sheet, Colors.Stroke, 28.0f);
 
         Surface.Text({ 104.0f, 84.0f }, 24.0f, Colors.Text.ToRgba8(), "Reusable Studio Controls");
         Surface.Text(
@@ -501,29 +522,29 @@ bool RenderSnapshotSuite(const std::filesystem::path& OutputDirectory)
 
         ControlPointer IdlePointer{};
         Surface.Text({ 104.0f, 174.0f }, 13.0f, Colors.TextDim.ToRgba8(), "Focused TextInputField (active selection)");
-        (void)TextInputField::Draw(Surface, { 104.0f, 200.0f, 460.0f, 40.0f }, ProjectNameInput, IdlePointer, 13.0f, 1.0f);
+        (void)TextInputField::Construct(Surface, { 104.0f, 200.0f, 460.0f, 40.0f }, ProjectNameInput, IdlePointer, 13.0f, 1.0f);
 
         Surface.Text({ 104.0f, 266.0f }, 13.0f, Colors.TextDim.ToRgba8(), "Inactive TextInputField");
-        (void)TextInputField::Draw(Surface, { 104.0f, 292.0f, 460.0f, 40.0f }, SearchInput, IdlePointer, 13.0f, 1.0f);
+        (void)TextInputField::Construct(Surface, { 104.0f, 292.0f, 460.0f, 40.0f }, SearchInput, IdlePointer, 13.0f, 1.0f);
 
         Surface.Text({ 640.0f, 174.0f }, 13.0f, Colors.TextDim.ToRgba8(), "DropdownSelector (expanded options)");
         constexpr const char* Options[3] = { "Editor Default", "Custom Studio Profile", "Laptop Compact" };
         const Rectangle2D     DropAnchor{ 640.0f, 200.0f, 440.0f, 40.0f };
-        (void)DropdownSelector::DrawButton(Surface, DropAnchor, Options[SelectedProfile], true, IdlePointer);
-        (void)DropdownSelector::DrawOptionSheet(Surface, DropAnchor, Options, 3u, SelectedProfile, IdlePointer, ChosenProfile);
+        (void)DropdownSelector::ConstructButton(Surface, DropAnchor, Options[SelectedProfile], true, IdlePointer);
+        (void)DropdownSelector::ConstructOptionSheet(Surface, DropAnchor, Options, 3u, SelectedProfile, IdlePointer, ChosenProfile);
 
         Surface.Text({ 104.0f, 384.0f }, 13.0f, Colors.TextDim.ToRgba8(), "CapsuleButton Tones");
-        (void)CapsuleButton::Draw(
+        (void)CapsuleButton::Construct(
             Surface,
             { 104.0f, 412.0f, 128.0f, 40.0f },
             ButtonDescriptor{ "Apply", ButtonTone::Primary, 14.0f, 24.0f, false, {} },
             IdlePointer);
-        (void)CapsuleButton::Draw(
+        (void)CapsuleButton::Construct(
             Surface,
             { 248.0f, 412.0f, 136.0f, 40.0f },
             ButtonDescriptor{ "Discard", ButtonTone::Secondary, 14.0f, 24.0f, false, {} },
             IdlePointer);
-        (void)CapsuleButton::Draw(
+        (void)CapsuleButton::Construct(
             Surface,
             { 400.0f, 412.0f, 136.0f, 40.0f },
             ButtonDescriptor{ "Delete", ButtonTone::Danger, 14.0f, 24.0f, false, {} },
@@ -533,6 +554,396 @@ bool RenderSnapshotSuite(const std::filesystem::path& OutputDirectory)
         SoftwareRasterCanvas Canvas(CanvasWidth, CanvasHeight, RgbaColor8{ 0, 0, 0, 255 });
         Canvas.RasterizeImGuiBatches(ImGui::GetDrawData());
         if (!VerifyAssertion(Canvas.WritePngFile(OutputDirectory / "14-ReusableControlsKit.png"), "14-ReusableControlsKit.png"))
+        {
+            return false;
+        }
+    }
+
+    // 15: Light/Dark Base Tooltips + 4-Direction Speech Tooltips + Hovered Control OptionalTooltip
+    {
+        ThemeRepository ShowcaseTheme{};
+        ShowcaseTheme.ConfigureTheme(ThemePreset::Dark);
+        ShowcaseTheme.ConfigureAccent(AccentPreset::Blue);
+        ControlAppearance::ConfigureTheme(ShowcaseTheme);
+
+        Io.DisplaySize = ImVec2(static_cast<float>(CanvasWidth), static_cast<float>(CanvasHeight));
+        Io.DeltaTime   = 1.0f / 60.0f;
+        ImGui::NewFrame();
+
+        ImFont*    RegularFont = Typefaces.QueryFont(0u, Frontier::FontWeightClass::Regular);
+        PixelSpace Surface(ImGui::GetForegroundDrawList(), { 0.0f, 0.0f }, 1.0f, RegularFont);
+
+        // Left half: Neutral light-gray stage showcasing Light & Dark base tooltips (e6ee3086...)
+        Surface.FillRectangle({ 0.0f, 0.0f, 620.0f, 800.0f }, ColorRgba{ 212u, 214u, 220u, 255u }, 0.0f);
+        Surface.Text({ 36.0f, 28.0f }, 17.0f, ColorRgba{ 24u, 26u, 32u, 255u }, "Light & Dark Base Tooltips + Control Attachment");
+
+        ControlPointer IdlePointer{};
+
+        auto ConstructHintTrigger = [&](Rectangle2D TriggerBounds, bool DarkTrigger)
+        {
+            const ColorRgba Fill = DarkTrigger ? ColorRgba{ 18u, 19u, 23u, 255u } : ColorRgba{ 255u, 255u, 255u, 255u };
+            const ColorRgba Ink  = DarkTrigger ? ColorRgba{ 245u, 246u, 249u, 255u } : ColorRgba{ 20u, 22u, 26u, 255u };
+            Surface.FillRectangle(TriggerBounds, Fill, 14.0f);
+            VectorIconRepository::ConstructControl(
+                Surface,
+                ControlIcon::LightbulbHint,
+                { TriggerBounds.X + 13.0f, TriggerBounds.Y + 13.0f, 22.0f, Ink, 2.0f });
+        };
+
+        const Rectangle2D LightTrigger{ 54.0f, 254.0f, 48.0f, 48.0f };
+        ConstructHintTrigger(LightTrigger, false);
+
+        TooltipDescriptor LightBase{};
+        LightBase.Title          = "Tooltip";
+        LightBase.BodyText       = "Try connecting to another server. In case of a repeated error, please wait or inspect session network diagnostics.";
+        LightBase.Direction      = TooltipDirection::Above;
+        LightBase.TailProfile    = TooltipTailProfile::RoundedPointer;
+        LightBase.TailAlignment  = TooltipTailAlignment::Leading;
+        LightBase.SurfaceMode    = TooltipSurfaceMode::LightSurface;
+        LightBase.PreferredWidth = 258.0f;
+        LightBase.CornerRadius   = 22.0f;
+        (void)ControlTooltip::ConstructAtBodyBounds(
+            Surface,
+            { 36.0f, 92.0f, 258.0f, 138.0f },
+            LightTrigger.Center(),
+            TooltipDirection::Above,
+            LightBase,
+            IdlePointer);
+
+        const Rectangle2D DarkTrigger{ 342.0f, 254.0f, 48.0f, 48.0f };
+        ConstructHintTrigger(DarkTrigger, true);
+
+        TooltipDescriptor DarkBase = LightBase;
+        DarkBase.SurfaceMode       = TooltipSurfaceMode::DarkSurface;
+        (void)ControlTooltip::ConstructAtBodyBounds(
+            Surface,
+            { 324.0f, 92.0f, 258.0f, 138.0f },
+            DarkTrigger.Center(),
+            TooltipDirection::Above,
+            DarkBase,
+            IdlePointer);
+
+        // Lower-left dark panel demonstrating OptionalTooltip attached directly to a Studio Control
+        const Rectangle2D ControlPanelRect{ 32.0f, 348.0f, 556.0f, 420.0f };
+        Surface.FillRectangle(ControlPanelRect, ColorRgba{ 24u, 26u, 31u, 255u }, 22.0f);
+        Surface.StrokeRectangle(ControlPanelRect, ColorRgba{ 255u, 255u, 255u, 24u }, 22.0f, 1.0f);
+        Surface.Text({ 58.0f, 374.0f }, 15.0f, ColorRgba{ 240u, 242u, 246u, 255u }, "Studio Controls with OptionalTooltip");
+        Surface.Text({ 58.0f, 398.0f }, 12.5f, ColorRgba{ 148u, 152u, 164u, 255u }, "Hovering any control automatically queues its directional tooltip");
+
+        const Rectangle2D HoveredBtnBounds{ 58.0f, 568.0f, 178.0f, 40.0f };
+        ControlPointer    HoverButtonPointer{};
+        HoverButtonPointer.X       = HoveredBtnBounds.Center().X;
+        HoverButtonPointer.Y       = HoveredBtnBounds.Center().Y;
+        HoverButtonPointer.Enabled = true;
+
+        ButtonDescriptor BakeButton{};
+        BakeButton.Label   = "Pack UV Charts";
+        BakeButton.Tone    = ButtonTone::Primary;
+        BakeButton.Tooltip = OptionalTooltip::FromTitled(
+            "Importance UV Packer",
+            "Packs selected chart islands into UDIM 1001 weighted by world-space surface area.",
+            TooltipDirection::Above,
+            TooltipSeverity::Informational,
+            ControlIcon::LayersSlabs);
+        const ControlContact BtnHit = CapsuleButton::Construct(Surface, HoveredBtnBounds, BakeButton, HoverButtonPointer);
+        if (!VerifyAssertion(BtnHit.Hovered, "Hovered CapsuleButton registers hover contact"))
+        {
+            return false;
+        }
+
+        Surface.Text({ 278.0f, 578.0f }, 13.0f, ColorRgba{ 196u, 199u, 208u, 255u }, "Snap Seam Borders");
+        (void)ExclusiveSelector::Construct(
+            Surface,
+            422.0f,
+            575.0f,
+            true,
+            IdlePointer,
+            1.0f,
+            OptionalTooltip::FromText("Aligns UV boundary vertices to pixel centers."));
+
+        float PreviewTexelDensity = 512.0f;
+        Surface.Text({ 58.0f, 654.0f }, 13.0f, ColorRgba{ 196u, 199u, 208u, 255u }, "Texel Density");
+        (void)ScalarSlider::ConstructWithReadout(
+            Surface,
+            { 176.0f, 642.0f, 380.0f, 40.0f },
+            "512",
+            "px/m",
+            128.0f,
+            2048.0f,
+            PreviewTexelDensity,
+            false,
+            IdlePointer,
+            PreviewTexelDensity,
+            1.0f,
+            OptionalTooltip::FromText("Target texel resolution per world meter."));
+
+        const bool ConsumedHoverTooltip = ControlTooltip::PresentHoveredControlTooltip(Surface, ControlPanelRect, HoverButtonPointer);
+        if (!VerifyAssertion(ConsumedHoverTooltip, "PresentHoveredControlTooltip renders queued control tooltip"))
+        {
+            return false;
+        }
+
+        // Right half: Crisp light backdrop showcasing 4-direction speech tooltips & launch buttons (b705d179...)
+        Surface.FillRectangle({ 620.0f, 0.0f, 660.0f, 800.0f }, ColorRgba{ 244u, 247u, 251u, 255u }, 0.0f);
+        Surface.Text({ 654.0f, 28.0f }, 17.0f, ColorRgba{ 18u, 22u, 30u, 255u }, "Directional Speech Tooltips (Above · Left · Right · Below)");
+
+        auto ConstructHelpIndicator = [&](Point2D Center) -> Rectangle2D
+        {
+            Surface.FillCircle(Center, 14.0f, ColorRgba{ 52u, 130u, 246u, 255u });
+            const Point2D QSize = Surface.MeasureText(14.5f, "?");
+            Surface.Text({ Center.X - QSize.X * 0.5f, Center.Y - QSize.Y * 0.5f }, 14.5f, ColorRgba{ 255u, 255u, 255u, 255u }, "?");
+            return { Center.X - 14.0f, Center.Y - 14.0f, 28.0f, 28.0f };
+        };
+
+        // (a) Above anchor (tail down) + "Learn More [ExternalOpen]"
+        const TooltipSuggestion LearnMoreSuggestion[1] = {
+            { "Learn More", ControlIcon::Count, ControlIcon::ExternalOpen, TooltipSuggestionTone::Neutral },
+        };
+        const Rectangle2D TopAnchor = ConstructHelpIndicator({ 828.0f, 270.0f });
+        TooltipDescriptor AboveSpec{};
+        AboveSpec.BodyText       = "Variables preserve authored transform parameters across simulation steps.";
+        AboveSpec.Direction      = TooltipDirection::Above;
+        AboveSpec.SurfaceMode    = TooltipSurfaceMode::DarkSurface;
+        AboveSpec.PreferredWidth = 286.0f;
+        AboveSpec.CornerRadius   = 18.0f;
+        AboveSpec.Suggestions    = LearnMoreSuggestion;
+        (void)ControlTooltip::ConstructAnchored(Surface, TopAnchor, { 632.0f, 60.0f, 636.0f, 720.0f }, AboveSpec, IdlePointer);
+
+        // (b) Left of anchor (tail right)
+        const Rectangle2D RightEdgeAnchor = ConstructHelpIndicator({ 1228.0f, 362.0f });
+        TooltipDescriptor LeftSpec{};
+        LeftSpec.BodyText       = "This solver requires two additional boundary constraints to lock rotation.";
+        LeftSpec.Direction      = TooltipDirection::Left;
+        LeftSpec.SurfaceMode    = TooltipSurfaceMode::DarkSurface;
+        LeftSpec.PreferredWidth = 278.0f;
+        LeftSpec.CornerRadius   = 18.0f;
+        (void)ControlTooltip::ConstructAnchored(Surface, RightEdgeAnchor, { 632.0f, 60.0f, 636.0f, 720.0f }, LeftSpec, IdlePointer);
+
+        // (c) Right of anchor (tail left) + "Open Docs [ExternalOpen]"
+        const TooltipSuggestion OpenDocsSuggestion[1] = {
+            { "Open Docs", ControlIcon::Count, ControlIcon::ExternalOpen, TooltipSuggestionTone::Neutral },
+        };
+        const Rectangle2D LeftEdgeAnchor = ConstructHelpIndicator({ 666.0f, 542.0f });
+        TooltipDescriptor RightSpec{};
+        RightSpec.BodyText       = "Chart seam pinning preserves authored border scale during LSCM relaxation.";
+        RightSpec.Direction      = TooltipDirection::Right;
+        RightSpec.SurfaceMode    = TooltipSurfaceMode::DarkSurface;
+        RightSpec.PreferredWidth = 286.0f;
+        RightSpec.CornerRadius   = 18.0f;
+        RightSpec.Suggestions    = OpenDocsSuggestion;
+        (void)ControlTooltip::ConstructAnchored(Surface, LeftEdgeAnchor, { 632.0f, 60.0f, 636.0f, 720.0f }, RightSpec, IdlePointer);
+
+        // (d) Below anchor (tail up) — also verifies Automatic flip near top viewport edge
+        const Rectangle2D UpperClipAnchor{ 1090.0f, 68.0f, 28.0f, 28.0f };
+        const TooltipDirection FlippedDir = ControlTooltip::ResolvePlacementDirection(
+            UpperClipAnchor,
+            { 632.0f, 60.0f, 636.0f, 720.0f },
+            { 240.0f, 90.0f },
+            TooltipDirection::Automatic);
+        if (!VerifyAssertion(FlippedDir == TooltipDirection::Below, "Automatic tooltip flips Below when anchor nears top viewport edge"))
+        {
+            return false;
+        }
+
+        const Rectangle2D BottomSectionAnchor = ConstructHelpIndicator({ 1098.0f, 646.0f });
+        TooltipDescriptor BelowSpec{};
+        BelowSpec.BodyText       = "Shift-drag adjusts scalar precision in 0.001 increments.";
+        BelowSpec.Direction      = TooltipDirection::Below;
+        BelowSpec.SurfaceMode    = TooltipSurfaceMode::DarkSurface;
+        BelowSpec.PreferredWidth = 264.0f;
+        BelowSpec.CornerRadius   = 18.0f;
+        (void)ControlTooltip::ConstructAnchored(Surface, BottomSectionAnchor, { 632.0f, 60.0f, 636.0f, 720.0f }, BelowSpec, IdlePointer);
+
+        ImGui::Render();
+        SoftwareRasterCanvas Canvas(CanvasWidth, CanvasHeight, RgbaColor8{ 18, 18, 22, 255 });
+        Canvas.RasterizeImGuiBatches(ImGui::GetDrawData());
+        if (!VerifyAssertion(
+                Canvas.WritePngFile(OutputDirectory / "15-TooltipsLightDarkAndDirectional.png"),
+                "15-TooltipsLightDarkAndDirectional.png"))
+        {
+            return false;
+        }
+    }
+
+    // 16: Split-Header Diagnostic Tooltips (Informational · Caution · Warning UV Overlap · Error Degenerate Import)
+    {
+        ThemeRepository ShowcaseTheme{};
+        ShowcaseTheme.ConfigureTheme(ThemePreset::Dark);
+        ShowcaseTheme.ConfigureAccent(AccentPreset::Blue);
+        ControlAppearance::ConfigureTheme(ShowcaseTheme);
+
+        Io.DisplaySize = ImVec2(static_cast<float>(CanvasWidth), static_cast<float>(CanvasHeight));
+        Io.DeltaTime   = 1.0f / 60.0f;
+        ImGui::NewFrame();
+
+        ImFont*    RegularFont = Typefaces.QueryFont(0u, Frontier::FontWeightClass::Regular);
+        PixelSpace Surface(ImGui::GetForegroundDrawList(), { 0.0f, 0.0f }, 1.0f, RegularFont);
+
+        Surface.FillRectangle({ 0.0f, 0.0f, 1280.0f, 800.0f }, ColorRgba{ 14u, 15u, 18u, 255u }, 0.0f);
+        Surface.Text({ 48.0f, 28.0f }, 20.0f, ColorRgba{ 242u, 244u, 248u, 255u }, "Diagnostic & Informational Split-Header Tooltips");
+        Surface.Text(
+            { 48.0f, 56.0f },
+            13.0f,
+            ColorRgba{ 142u, 146u, 158u, 255u },
+            "Informational, Caution, Warning (UV Overlap: Fix / Ignore), and Error (Degenerate Facets: Fix / Reimport / Ignore)");
+
+        ControlPointer IdlePointer{};
+
+        // Quadrant 1 (Top-Left): Informational SplitHeader with top speech pointer (8226e835... style)
+        const Rectangle2D InfoRegion{ 44.0f, 92.0f, 576.0f, 326.0f };
+        Surface.FillRectangle(InfoRegion, ColorRgba{ 250u, 250u, 252u, 255u }, 20.0f);
+        Surface.Text({ 76.0f, 118.0f }, 16.0f, ColorRgba{ 204u, 58u, 58u, 255u }, "\"Precision geometry begins with clean parameterization.\"");
+        Surface.StrokeLine({ 152.0f, 142.0f }, { 236.0f, 142.0f }, ColorRgba{ 204u, 58u, 58u, 255u }, 1.5f);
+
+        const TooltipMetricToken InfoMetrics[3] = {
+            { "26px", ControlIcon::SparklesAntiAliasing, {}, false },
+            { "0px", ControlIcon::SlidersQuality, {}, false },
+            { "FF595A", ControlIcon::Count, ColorRgba{ 255u, 89u, 90u, 255u }, true },
+        };
+        const TooltipSuggestion InfoSuggestions[2] = {
+            { "Inspect Style", ControlIcon::EyeVisible, ControlIcon::Count, TooltipSuggestionTone::Neutral },
+            { "Ignore", ControlIcon::Count, ControlIcon::Count, TooltipSuggestionTone::SubtleDismiss },
+        };
+        TooltipDescriptor InfoTooltip{};
+        InfoTooltip.Title          = "Nocturno Display";
+        InfoTooltip.HeaderTag      = "Bold";
+        InfoTooltip.BodyText       = "Active display specimen carries custom tracking and optical kerning.";
+        InfoTooltip.Direction      = TooltipDirection::Below;
+        InfoTooltip.Layout         = TooltipLayoutVariant::SplitHeader;
+        InfoTooltip.Severity       = TooltipSeverity::Informational;
+        InfoTooltip.SurfaceMode    = TooltipSurfaceMode::DarkSurface;
+        InfoTooltip.PreferredWidth = 344.0f;
+        InfoTooltip.CornerRadius   = 18.0f;
+        InfoTooltip.MetricTokens   = InfoMetrics;
+        InfoTooltip.Suggestions    = InfoSuggestions;
+        (void)ControlTooltip::ConstructAtBodyBounds(
+            Surface,
+            { 118.0f, 162.0f, 356.0f, 214.0f },
+            { 194.0f, 144.0f },
+            TooltipDirection::Below,
+            InfoTooltip,
+            IdlePointer);
+
+        // Quadrant 2 (Top-Right): Warning SplitHeader — UV Chart Overlap (Fix / Ignore)
+        const Rectangle2D UvRegion{ 648.0f, 92.0f, 588.0f, 326.0f };
+        Surface.FillRectangle(UvRegion, ColorRgba{ 22u, 24u, 29u, 255u }, 20.0f);
+        Surface.StrokeRectangle(UvRegion, ColorRgba{ 255u, 255u, 255u, 20u }, 20.0f, 1.0f);
+        const Rectangle2D UvAnchor{ 906.0f, 368.0f, 72.0f, 28.0f };
+        Surface.FillRectangle(UvAnchor, ColorRgba{ 245u, 158u, 11u, 44u }, 8.0f);
+        Surface.StrokeRectangle(UvAnchor, ColorRgba{ 245u, 158u, 11u, 190u }, 8.0f, 1.0f);
+        Surface.TextCentered(UvAnchor, 11.5f, ColorRgba{ 252u, 211u, 77u, 255u }, "UDIM 1001");
+
+        const TooltipMetricToken UvMetrics[2] = {
+            { "3 islands", ControlIcon::LayersSlabs, {}, false },
+            { "4.8% overlap", ControlIcon::Count, ColorRgba{ 245u, 158u, 11u, 255u }, true },
+        };
+        const TooltipSuggestion UvSuggestions[2] = {
+            { "Fix Overlap", ControlIcon::WrenchRepair, ControlIcon::Count, TooltipSuggestionTone::SemanticPrimary },
+            { "Ignore", ControlIcon::CloseCross, ControlIcon::Count, TooltipSuggestionTone::SubtleDismiss },
+        };
+        TooltipDescriptor UvWarning{};
+        UvWarning.Title          = "UV Chart Overlap";
+        UvWarning.HeaderTag      = "Warning";
+        UvWarning.BodyText       = "Overlapping parameter islands detected in UDIM 1001. Baking lightmaps or curvature will overwrite shared texels.";
+        UvWarning.Direction      = TooltipDirection::Above;
+        UvWarning.Layout         = TooltipLayoutVariant::SplitHeader;
+        UvWarning.Severity       = TooltipSeverity::Warning;
+        UvWarning.SurfaceMode    = TooltipSurfaceMode::DarkSurface;
+        UvWarning.PreferredWidth = 376.0f;
+        UvWarning.CornerRadius   = 18.0f;
+        UvWarning.MetricTokens   = UvMetrics;
+        UvWarning.Suggestions    = UvSuggestions;
+        const TooltipInteractionResult UvLayoutResult =
+            ControlTooltip::ConstructAnchored(Surface, UvAnchor, UvRegion, UvWarning, IdlePointer);
+
+        // Quadrant 3 (Bottom-Left): Error SplitHeader — Degenerate Imported Geometry (Fix / Reimport / Ignore)
+        const Rectangle2D ImportRegion{ 44.0f, 442.0f, 576.0f, 326.0f };
+        Surface.FillRectangle(ImportRegion, ColorRgba{ 22u, 24u, 29u, 255u }, 20.0f);
+        Surface.StrokeRectangle(ImportRegion, ColorRgba{ 255u, 255u, 255u, 20u }, 20.0f, 1.0f);
+        const Rectangle2D ImportAnchor{ 262.0f, 718.0f, 140.0f, 28.0f };
+        Surface.FillRectangle(ImportAnchor, ColorRgba{ 239u, 68u, 68u, 44u }, 8.0f);
+        Surface.StrokeRectangle(ImportAnchor, ColorRgba{ 239u, 68u, 68u, 190u }, 8.0f, 1.0f);
+        Surface.TextCentered(ImportAnchor, 11.5f, ColorRgba{ 252u, 165u, 165u, 255u }, "WheelArch.facet");
+
+        const TooltipMetricToken DegenerateMetrics[2] = {
+            { "14 zero-area facets", ControlIcon::CubeShape, {}, false },
+            { "3 open seams", ControlIcon::Count, ColorRgba{ 239u, 68u, 68u, 255u }, true },
+        };
+        const TooltipSuggestion DegenerateSuggestions[3] = {
+            { "Fix", ControlIcon::WrenchRepair, ControlIcon::Count, TooltipSuggestionTone::SemanticPrimary },
+            { "Reimport", ControlIcon::RefreshCycle, ControlIcon::Count, TooltipSuggestionTone::Neutral },
+            { "Ignore", ControlIcon::CloseCross, ControlIcon::Count, TooltipSuggestionTone::SubtleDismiss },
+        };
+        TooltipDescriptor ErrorTooltip{};
+        ErrorTooltip.Title          = "Degenerate Facets";
+        ErrorTooltip.HeaderTag      = "Error";
+        ErrorTooltip.BodyText       = "Imported surface contains collapsed zero-area facets along the fender seam that block watertight boolean evaluation.";
+        ErrorTooltip.Direction      = TooltipDirection::Above;
+        ErrorTooltip.Layout         = TooltipLayoutVariant::SplitHeader;
+        ErrorTooltip.Severity       = TooltipSeverity::Error;
+        ErrorTooltip.SurfaceMode    = TooltipSurfaceMode::DarkSurface;
+        ErrorTooltip.PreferredWidth = 408.0f;
+        ErrorTooltip.CornerRadius   = 18.0f;
+        ErrorTooltip.MetricTokens   = DegenerateMetrics;
+        ErrorTooltip.Suggestions    = DegenerateSuggestions;
+        const TooltipInteractionResult ErrorLayoutResult =
+            ControlTooltip::ConstructAnchored(Surface, ImportAnchor, ImportRegion, ErrorTooltip, IdlePointer);
+
+        // Verify deterministic click routing across Fix (0), Reimport (1), and Ignore (2)
+        {
+            ControlPointer ClickReimport{};
+            ClickReimport.X        = ErrorLayoutResult.BodyBounds.Center().X;
+            ClickReimport.Y        = ErrorLayoutResult.BodyBounds.Bottom() - 28.0f;
+            ClickReimport.Released = true;
+            ClickReimport.Enabled  = true;
+
+            const TooltipInteractionResult ClickTest = ControlTooltip::ConstructAtBodyBounds(
+                Surface,
+                ErrorLayoutResult.BodyBounds,
+                ImportAnchor.Center(),
+                ErrorLayoutResult.ResolvedDirection,
+                ErrorTooltip,
+                ClickReimport);
+            if (!VerifyAssertion(
+                    ClickTest.ClickedSuggestionIndex == 1 && UvLayoutResult.BodyBounds.Width >= 360.0f,
+                    "Diagnostic tooltip routes suggestion button clicks (Reimport == index 1)"))
+            {
+                return false;
+            }
+        }
+
+        // Quadrant 4 (Bottom-Right): Caution SplitHeader — Non-Uniform Scale Skew
+        const Rectangle2D CautionRegion{ 648.0f, 442.0f, 588.0f, 326.0f };
+        Surface.FillRectangle(CautionRegion, ColorRgba{ 22u, 24u, 29u, 255u }, 20.0f);
+        Surface.StrokeRectangle(CautionRegion, ColorRgba{ 255u, 255u, 255u, 20u }, 20.0f, 1.0f);
+        const Rectangle2D CautionAnchor{ 882.0f, 466.0f, 120.0f, 28.0f };
+        Surface.FillRectangle(CautionAnchor, ColorRgba{ 234u, 179u, 8u, 44u }, 8.0f);
+        Surface.StrokeRectangle(CautionAnchor, ColorRgba{ 234u, 179u, 8u, 190u }, 8.0f, 1.0f);
+        Surface.TextCentered(CautionAnchor, 11.5f, ColorRgba{ 253u, 224u, 71u, 255u }, "Scale 1.0 · 2.4 · 0.6");
+
+        const TooltipSuggestion CautionSuggestions[2] = {
+            { "Normalize Scale", ControlIcon::WrenchRepair, ControlIcon::Count, TooltipSuggestionTone::SemanticPrimary },
+            { "Ignore", ControlIcon::Count, ControlIcon::Count, TooltipSuggestionTone::SubtleDismiss },
+        };
+        TooltipDescriptor CautionTooltip{};
+        CautionTooltip.Title          = "Non-Uniform Scale";
+        CautionTooltip.HeaderTag      = "Caution";
+        CautionTooltip.BodyText       = "Enclosing transform stretches Z by 0.6x. Rolling-ball fillet radii will appear elliptical until scale is normalized.";
+        CautionTooltip.Direction      = TooltipDirection::Below;
+        CautionTooltip.Layout         = TooltipLayoutVariant::SplitHeader;
+        CautionTooltip.Severity       = TooltipSeverity::Caution;
+        CautionTooltip.SurfaceMode    = TooltipSurfaceMode::DarkSurface;
+        CautionTooltip.PreferredWidth = 384.0f;
+        CautionTooltip.CornerRadius   = 18.0f;
+        CautionTooltip.Suggestions    = CautionSuggestions;
+        (void)ControlTooltip::ConstructAnchored(Surface, CautionAnchor, CautionRegion, CautionTooltip, IdlePointer);
+
+        ImGui::Render();
+        SoftwareRasterCanvas Canvas(CanvasWidth, CanvasHeight, RgbaColor8{ 14, 15, 18, 255 });
+        Canvas.RasterizeImGuiBatches(ImGui::GetDrawData());
+        if (!VerifyAssertion(
+                Canvas.WritePngFile(OutputDirectory / "16-DiagnosticSeverityTooltips.png"),
+                "16-DiagnosticSeverityTooltips.png"))
         {
             return false;
         }

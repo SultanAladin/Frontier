@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                    BUILDCONFIGURATION.H
+                                                             BUILDCONFIGURATION.H
 ============================================================================================================================================*/
 // 🧩 Compile-time build-profile policy: enforces mutually exclusive Editor, Development, and Shipping profiles across all targets
 
@@ -50,18 +50,18 @@ namespace Frontier
 {
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                    ENUMERATIONS
+//                                                      ENUMERATIONS
 //------------------------------------------------------------------------------------------------------------------------
 
 enum class BuildProfileCategory : uint8_t
 {
     Editor      = 0, // [-] - Full authoring editor, workspaces, inspectors, and GPU overlays
     Development = 1, // [-] - Standalone runtime with diagnostics; runs locally without packaging
-    Shipping    = 2, // [-] - Stripped production binary; packaged standalone archive
+    Shipping    = 2, // [-] - Stripped production binary; packaged standalone distribution
 };
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                     STRUCTURES
+//                                                       STRUCTURES
 //------------------------------------------------------------------------------------------------------------------------
 
 struct BuildConfiguration

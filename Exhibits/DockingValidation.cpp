@@ -1,9 +1,9 @@
 /*============================================================================================================================================
-                                                     DOCKINGVALIDATION.CPP
+                                                            DOCKINGVALIDATION.CPP
 ============================================================================================================================================*/
 // 🧩 Validation and CPU ImDrawData visual snapshot generator for unrounded WorkspaceTab and blank WorkspaceDockContainer panes.
 
-#include "Engine/Components/Appearance/TypefaceCatalog.h"
+#include "Engine/Components/Appearance/TypographyRepository.h"
 #include "Engine/Components/ControlCentre/ControlCentrePanel.h"
 #include "Engine/Components/Docking/WorkspaceDockContainer.h"
 #include "Exhibits/SoftwareCanvasRasterizer.h"
@@ -19,9 +19,9 @@ namespace
 {
 
 using Frontier::ControlCentrePanel;
-using Frontier::ThemeCatalog;
+using Frontier::ThemeRepository;
 using Frontier::ThemePreset;
-using Frontier::TypefaceCatalog;
+using Frontier::TypographyRepository;
 using Frontier::Components::ApplicationDockDomainToken;
 using Frontier::Components::ConfigureImGuiWorkspaceTheme;
 using Frontier::Components::ConstructWorkspaceTabContour;
@@ -155,15 +155,17 @@ bool RenderDockingSnapshotExhibits(const std::filesystem::path &OutputDir)
     Io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
     const auto      RepoRoot = ResolveRepositoryRootPath();
-    TypefaceCatalog Typefaces{};
-    if (!VerifyAssertion(Typefaces.LoadArchive(RepoRoot / "EngineContent/FontsArchives") == 5u,
-                         "Load FontCatalogue.FontSpace"))
+    TypographyRepository Typefaces{};
+    if (!VerifyAssertion(Typefaces.LoadRepository(RepoRoot / "EngineContent/FontsArchives") == 5u,
+                         "Load FontRepository.FontSpace"))
     {
         ImGui::DestroyContext(GuiSession);
         return false;
     }
-    TypefaceCatalog::AssignCurrent(&Typefaces);
-    if (ImFont *DefaultFace = Typefaces.QueryFont(0u, Frontier::FontWeightClass::Regular))
+    TypographyRepository::AssignCurrent(&Typefaces);
+    if (ImFont *TabFont = Typefaces.QueryTabStripFont())
+        Io.FontDefault = TabFont;
+    else if (ImFont *DefaultFace = Typefaces.QueryFont(0u, Frontier::FontWeightClass::Regular))
         Io.FontDefault = DefaultFace;
     unsigned char *TexPixels = nullptr;
     int            TexW      = 0;
@@ -186,10 +188,12 @@ bool RenderDockingSnapshotExhibits(const std::filesystem::path &OutputDir)
         (void)Container.RegisterPane(WorkspaceDockPaneDescriptor{
             "Inspector", DockPlacementDirection::SplitRight, 0.28f, PaneDirectiveMask::StandardPaneDirectives, {}});
 
-        ThemeCatalog Theme{};
+        ThemeRepository Theme{};
         Theme.ConfigureTheme(ThemePreset::Dark);
         ConfigureImGuiWorkspaceTheme(Container.ActiveTabMetrics(), Theme);
-        if (!VerifyAssertion(ImGui::GetStyle().TabRounding == 0.0f, "ImGuiStyle::TabRounding == 0.0f"))
+        if (!VerifyAssertion(
+                ImGui::GetStyle().TabRounding == 0.0f && ImGui::GetStyle().TabBorderSize == 0.0f,
+                "ImGuiStyle::TabRounding == 0.0f and TabBorderSize == 0.0f (unrounded, unoutlined trapezoidal tabs)"))
         {
             ImGui::DestroyContext(GuiSession);
             return false;
@@ -235,7 +239,7 @@ bool RenderDockingSnapshotExhibits(const std::filesystem::path &OutputDir)
             "Inspector", DockPlacementDirection::SplitRight, 0.28f, PaneDirectiveMask::StandardPaneDirectives, {}});
         const HostWindowToken DetachedSlot = Container.DetachPaneToOperatingWindow(InspectorToken, 990, 80, 420, 640);
 
-        ThemeCatalog Theme{};
+        ThemeRepository Theme{};
         Theme.ConfigureTheme(ThemePreset::Dark);
         ConfigureImGuiWorkspaceTheme(Container.ActiveTabMetrics(), Theme);
 
@@ -280,7 +284,7 @@ bool RenderDockingSnapshotExhibits(const std::filesystem::path &OutputDir)
         // Blit sub-canvases
         auto BlitSubCanvas = [&](const SoftwareRasterCanvas &Src, uint32_t DestX, uint32_t DestY) {
             ImGui::NewFrame();
-            ImDrawList *DrawTarget = ImGui::GetBackgroundDrawList();
+            ImDrawList *CanvasTarget = ImGui::GetBackgroundDrawList();
             for (uint32_t Y = 0; Y < Src.Height(); ++Y)
             {
                 uint32_t RunStart = 0;
@@ -295,7 +299,7 @@ bool RenderDockingSnapshotExhibits(const std::filesystem::path &OutputDir)
                             break;
                         ++RunEnd;
                     }
-                    DrawTarget->AddRectFilled(
+                    CanvasTarget->AddRectFilled(
                         ImVec2(static_cast<float>(DestX + RunStart), static_cast<float>(DestY + Y)),
                         ImVec2(static_cast<float>(DestX + RunEnd), static_cast<float>(DestY + Y + 1)),
                         IM_COL32(Color.Red, Color.Green, Color.Blue, 255));

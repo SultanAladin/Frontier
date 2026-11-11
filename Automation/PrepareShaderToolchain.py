@@ -57,19 +57,19 @@ def Main():
             raise RuntimeError('SHA-256 mismatch for ' + Category)
 
         if Category == 'Slang':
-            with zipfile.ZipFile(io.BytesIO(Payload)) as Archive:
-                for EntryName in Archive.namelist():
+            with zipfile.ZipFile(io.BytesIO(Payload)) as ZipBundle:
+                for EntryName in ZipBundle.namelist():
                     if EntryName.startswith('slangtorch/bin/') or 'LICENSE' in EntryName.upper():
                         Destination = (ToolchainRoot / 'Slang' / EntryName).resolve()
                         if not Destination.is_relative_to((ToolchainRoot / 'Slang').resolve()):
-                            raise RuntimeError('Unsafe Slang archive entry: ' + EntryName)
+                            raise RuntimeError('Unsafe Slang bundle entry: ' + EntryName)
                         if not EntryName.endswith('/'):
                             Destination.parent.mkdir(parents=True, exist_ok=True)
-                            Destination.write_bytes(Archive.read(EntryName))
+                            Destination.write_bytes(ZipBundle.read(EntryName))
             (ToolchainRoot / 'Slang/slangtorch/bin/slangc').chmod(0o755)
         elif Category == 'SwiftShader':
-            with tarfile.open(fileobj=io.BytesIO(Payload), mode='r:gz') as Archive:
-                BrotliBytes = Archive.extractfile('package/bin/swiftshader.tar.br').read()
+            with tarfile.open(fileobj=io.BytesIO(Payload), mode='r:gz') as OuterBundle:
+                BrotliBytes = OuterBundle.extractfile('package/bin/swiftshader.tar.br').read()
             BrotliFile = ToolchainRoot / 'swiftshader.tar.br'
             TarFile = ToolchainRoot / 'swiftshader.tar'
             BrotliFile.write_bytes(BrotliBytes)
@@ -83,11 +83,11 @@ def Main():
                     ],
                     check=True,
                 )
-                with tarfile.open(TarFile) as InnerArchive:
+                with tarfile.open(TarFile) as InnerBundle:
                     for BinaryName in ('libvulkan.so.1', 'libvk_swiftshader.so', 'vk_swiftshader_icd.json'):
                         Destination = ToolchainRoot / 'SwiftShader' / BinaryName
                         Destination.parent.mkdir(parents=True, exist_ok=True)
-                        Destination.write_bytes(InnerArchive.extractfile(BinaryName).read())
+                        Destination.write_bytes(InnerBundle.extractfile(BinaryName).read())
             finally:
                 BrotliFile.unlink(missing_ok=True)
                 TarFile.unlink(missing_ok=True)

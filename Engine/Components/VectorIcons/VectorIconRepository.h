@@ -1,7 +1,7 @@
 /*============================================================================================================================================
-                                                        VECTORICONCATALOG.H
+                                                            VECTORICONREPOSITORY.H
 ============================================================================================================================================*/
-// 🧩 SVG 1.1 path decoder, round-cap stroker, and reusable vector icon catalog for engine UI controls and panels
+// 🧩 SVG 1.1 path decoder, round-cap stroker, and reusable vector icon repository for engine UI controls and panels
 
 #pragma once
 
@@ -47,48 +47,53 @@ enum class NavigationIcon : uint8_t
 
 enum class ControlIcon : uint8_t
 {
-    SettingsGear         = 0,  // [-] - Settings gear emblem
-    AppearanceSwatches   = 1,  // [-] - Appearance color-board emblem
-    DisplayMonitor       = 2,  // [-] - Display monitor emblem
-    InputDevices         = 3,  // [-] - Input devices emblem
-    NotificationsBell    = 4,  // [-] - Notification bell emblem
-    WirelessSignal       = 5,  // [-] - Wireless wave emblem
-    BluetoothSymbol      = 6,  // [-] - Bluetooth rune emblem
-    MoonDisturbance      = 7,  // [-] - Crescent moon emblem
-    VolumeSpeaker        = 8,  // [-] - Speaker emblem
-    SunIllumination      = 9,  // [-] - Sun rays emblem
-    SparklesAntiAliasing = 10, // [-] - Sparkle emblem
-    GaugeRate            = 11, // [-] - Speedometer gauge emblem
-    SlidersQuality       = 12, // [-] - Tuning sliders emblem
-    VideoRenderScale     = 13, // [-] - Video camera emblem
-    CloseCross           = 14, // [-] - Dismiss cross emblem
+    SettingsGear         = 0,  // [-] - Settings gear icon
+    AppearanceSwatches   = 1,  // [-] - Appearance color-board icon
+    DisplayMonitor       = 2,  // [-] - Display monitor icon
+    InputDevices         = 3,  // [-] - Input devices icon
+    NotificationsBell    = 4,  // [-] - Notification bell icon
+    WirelessSignal       = 5,  // [-] - Wireless wave icon
+    BluetoothSymbol      = 6,  // [-] - Bluetooth rune icon
+    MoonDisturbance      = 7,  // [-] - Crescent moon icon
+    VolumeSpeaker        = 8,  // [-] - Speaker icon
+    SunIllumination      = 9,  // [-] - Sun rays icon
+    SparklesAntiAliasing = 10, // [-] - Sparkle icon
+    GaugeRate            = 11, // [-] - Speedometer gauge icon
+    SlidersQuality       = 12, // [-] - Tuning sliders icon
+    VideoRenderScale     = 13, // [-] - Video camera icon
+    CloseCross           = 14, // [-] - Dismiss cross icon
     ChevronBack          = 15, // [-] - Back navigation chevron
     ChevronForward       = 16, // [-] - Forward navigation chevron
-    ShieldInput          = 17, // [-] - Input shield emblem
+    ShieldInput          = 17, // [-] - Input shield icon
     ChevronDown          = 18, // [-] - Collapse chevron
     ChevronUp            = 19, // [-] - Expand chevron
-    TriangleAlert        = 20, // [-] - Warning triangle emblem
-    CircleCheck          = 21, // [-] - Success check circle emblem
-    CircleNotice         = 22, // [-] - Notice circle emblem
-    OctagonAlert         = 23, // [-] - Caution octagon emblem
-    EyeVisible           = 24, // [-] - Visible eye emblem
-    EyeHidden            = 25, // [-] - Hidden eye emblem
-    LockClosed           = 26, // [-] - Locked padlock emblem
-    LockOpen             = 27, // [-] - Unlocked padlock emblem
-    MotionActivity       = 28, // [-] - Pulse waveform emblem
-    FolderClosed         = 29, // [-] - Closed directory emblem
-    FolderOpen           = 30, // [-] - Open directory emblem
-    CubeShape            = 31, // [-] - 3D cube emblem
-    SearchGlass          = 32, // [-] - Magnifying glass emblem
-    PlusAdd              = 33, // [-] - Plus cross emblem
-    TrashDelete          = 34, // [-] - Trash bin emblem
-    LayoutSplit          = 35, // [-] - Split workspace emblem
-    LayoutPanelLeft      = 36, // [-] - Left sidebar emblem
-    LayoutPanelRight     = 37, // [-] - Right sidebar emblem
-    CameraBody           = 38, // [-] - Camera body emblem
-    LayersSlabs          = 39, // [-] - Stacked slabs emblem
-    SaveDisk             = 40, // [-] - Save disk emblem
-    Count                = 41, // [count] - Total control icons
+    TriangleAlert        = 20, // [-] - Warning triangle icon
+    CircleCheck          = 21, // [-] - Success check circle icon
+    CircleNotice         = 22, // [-] - Notice circle icon
+    OctagonAlert         = 23, // [-] - Caution octagon icon
+    EyeVisible           = 24, // [-] - Visible eye icon
+    EyeHidden            = 25, // [-] - Hidden eye icon
+    LockClosed           = 26, // [-] - Locked padlock icon
+    LockOpen             = 27, // [-] - Unlocked padlock icon
+    MotionActivity       = 28, // [-] - Pulse waveform icon
+    FolderClosed         = 29, // [-] - Closed directory icon
+    FolderOpen           = 30, // [-] - Open directory icon
+    CubeShape            = 31, // [-] - 3D cube icon
+    SearchGlass          = 32, // [-] - Magnifying glass icon
+    PlusAdd              = 33, // [-] - Plus cross icon
+    TrashDelete          = 34, // [-] - Trash bin icon
+    LayoutSplit          = 35, // [-] - Split workspace icon
+    LayoutPanelLeft      = 36, // [-] - Left sidebar icon
+    LayoutPanelRight     = 37, // [-] - Right sidebar icon
+    CameraBody           = 38, // [-] - Camera body icon
+    LayersSlabs          = 39, // [-] - Stacked slabs icon
+    SaveDisk             = 40, // [-] - Save disk icon
+    ExternalOpen         = 41, // [-] - External launch box-and-arrow icon
+    LightbulbHint        = 42, // [-] - Hint lightbulb icon
+    QuestionCircle       = 43, // [-] - Contextual help question circle icon
+    WrenchRepair         = 44, // [-] - Diagnostic repair wrench icon
+    RefreshCycle         = 45, // [-] - Reimport / reload cycle arrows icon
+    Count                = 46, // [count] - Total control icons
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -116,7 +121,7 @@ struct VectorIconEntry
 //                                                  FUNCTION PROTOTYPES
 //------------------------------------------------------------------------------------------------------------------------
 
-class VectorIconCatalog
+class VectorIconRepository
 {
 public:
     struct Contour
@@ -143,8 +148,8 @@ public:
     [[nodiscard]] static const VectorIconEntry& QueryNavigation(NavigationIcon Icon) noexcept;
     [[nodiscard]] static const VectorIconEntry& QueryControl(ControlIcon Icon) noexcept;
 
-    static void DrawNavigation(PixelSpace& Surface, NavigationIcon Icon, const VectorIconPlacement& Placement) noexcept;
-    static void DrawControl(PixelSpace& Surface, ControlIcon Icon, const VectorIconPlacement& Placement) noexcept;
+    static void ConstructNavigation(PixelSpace& Surface, NavigationIcon Icon, const VectorIconPlacement& Placement) noexcept;
+    static void ConstructControl(PixelSpace& Surface, ControlIcon Icon, const VectorIconPlacement& Placement) noexcept;
 };
 
 } // namespace Frontier

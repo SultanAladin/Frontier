@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                        PANELEXPANSIONTAB.H
+                                                             PANELEXPANSIONTAB.H
 ============================================================================================================================================*/
 // 🧩 Top-edge trapezoidal pull-down notch ("Frontier") with elastic carry, axis lock, and flick physics
 
@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Appearance/ThemeCatalog.h"
+#include "Engine/Components/Appearance/ThemeRepository.h"
 #include "Engine/Components/Motion/SpringIntegrator.h"
 #include "Engine/Components/PixelSpace.h"
 
@@ -52,7 +52,7 @@ public:
     [[nodiscard]] Rectangle2D            QueryGripBounds() const noexcept;
     [[nodiscard]] std::array<Point2D, 4> QueryTrapezoidContour() const noexcept;
 
-    void Draw(
+    void Construct(
         PixelSpace& Surface,
         const char* Caption,
         ColorRgba   TabFill,

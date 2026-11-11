@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                          INPUTSETTINGS.H
+                                                               INPUTSETTINGS.H
 ============================================================================================================================================*/
 // 🧩 Editor shortcut chords, conflict validation, and pointer sensitivity scaling
 
@@ -25,7 +25,7 @@ namespace Frontier
 
 enum class ShortcutCommand : uint8_t
 {
-    ControlCentre = 0, // [-] - Toggle top Control Centre drawer
+    ControlCentre = 0, // [-] - Toggle top Control Centre tray
     Typography    = 1, // [-] - Open Appearance -> Typography tab
     Theme         = 2, // [-] - Open Appearance -> Theme tab
     DismissPanel  = 3, // [-] - Navigate back or close Control Centre
@@ -88,7 +88,7 @@ struct InputPreferences
 //                                                  FUNCTION PROTOTYPES
 //------------------------------------------------------------------------------------------------------------------------
 
-namespace InputSettingsCatalog
+namespace InputSettingsRepository
 {
 
 [[nodiscard]] const char* QueryCommandKey(ShortcutCommand Command) noexcept;
@@ -101,6 +101,6 @@ namespace InputSettingsCatalog
 [[nodiscard]] bool        PollImGuiChordCapture(ShortcutChord& CapturedChord, bool& CancelledWithEscape) noexcept;
 [[nodiscard]] bool        QueryChordTriggeredInImGui(const ShortcutChord& Chord) noexcept;
 
-} // namespace InputSettingsCatalog
+} // namespace InputSettingsRepository
 
 } // namespace Frontier

@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                       PROJECTSPACEARCHIVE.H
+                                                           PROJECTSPACEREPOSITORY.H
 ============================================================================================================================================*/
 // 🧩 Single-container .projectspace persistence for .visualappearance, .FontSpace, .workspacelayout, .inputsettings, and .notificationsettings
 
@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Appearance/ThemeCatalog.h"
+#include "Engine/Components/Appearance/ThemeRepository.h"
 #include "Engine/Components/Controls/NotificationSequence.h"
 #include "Engine/Configuration/InputSettings.h"
 
@@ -45,7 +45,7 @@ struct ProjectSpaceDocument
 //                                                  FUNCTION PROTOTYPES
 //------------------------------------------------------------------------------------------------------------------------
 
-class ProjectSpaceArchive
+class ProjectSpaceRepository
 {
 public:
     static constexpr const char* ContainerExtension      = ".projectspace";        // [-] - Sole permitted project container extension
@@ -55,16 +55,16 @@ public:
     static constexpr const char* InputSettingsSection    = ".inputsettings";       // [-] - Input settings section key
     static constexpr const char* NotificationSection     = ".notificationsettings";// [-] - Notification settings section key
 
-    [[nodiscard]] static bool ValidateContainerPath(const std::filesystem::path& ArchivePath, std::string& Diagnostic) noexcept;
+    [[nodiscard]] static bool ValidateContainerPath(const std::filesystem::path& RepositoryPath, std::string& Diagnostic) noexcept;
     [[nodiscard]] static bool ValidateAppearance(const AppearanceSettings& Appearance, std::string& Diagnostic) noexcept;
 
     [[nodiscard]] static bool Save(
-        const std::filesystem::path& ArchivePath,
+        const std::filesystem::path& RepositoryPath,
         const ProjectSpaceDocument&  Document,
         std::string&                 Diagnostic) noexcept;
 
     [[nodiscard]] static bool Load(
-        const std::filesystem::path& ArchivePath,
+        const std::filesystem::path& RepositoryPath,
         ProjectSpaceDocument&        Document,
         std::string&                 Diagnostic) noexcept;
 };

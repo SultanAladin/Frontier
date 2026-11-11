@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                        TYPEFACECATALOG.CPP
+                                                           TYPOGRAPHYREPOSITORY.CPP
 ============================================================================================================================================*/
 // 🧩 Discover and load .FontSpace typeface weights into Dear ImGui with CSS weight fallback resolution
 
@@ -7,7 +7,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Appearance/TypefaceCatalog.h"
+#include "Engine/Components/Appearance/TypographyRepository.h"
 
 #include <imgui.h>
 #include <toml++/toml.hpp>
@@ -19,16 +19,16 @@
 namespace Frontier
 {
 
-TypefaceCatalog* TypefaceCatalog::ActiveCatalog = nullptr;
+TypographyRepository* TypographyRepository::ActiveRepository = nullptr;
 
 namespace
 {
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                        CONSTANTS
+//                                                       CONSTANTS
 //------------------------------------------------------------------------------------------------------------------------
 
-constexpr FontWeightClass OrderedWeights[TypefaceCatalog::WeightCount] = {
+constexpr FontWeightClass OrderedWeights[TypographyRepository::WeightCount] = {
     FontWeightClass::Thin,
     FontWeightClass::ExtraLight,
     FontWeightClass::Light,
@@ -50,7 +50,7 @@ constexpr ImWchar ExtendedUnicodeRanges[] = {
 };
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                               STRING & WEIGHT QUANTIZATION
+//                                              STRING & WEIGHT QUANTIZATION
 //------------------------------------------------------------------------------------------------------------------------
 
 [[nodiscard]] std::string LowercaseAscii(std::string_view Input)
@@ -131,10 +131,10 @@ constexpr ImWchar ExtendedUnicodeRanges[] = {
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                           ARCHIVE LOADING & WEIGHT RESOLUTION
+//                                         REPOSITORY LOADING & WEIGHT RESOLUTION
 //------------------------------------------------------------------------------------------------------------------------
 
-ImFont* TypefaceCatalog::LoadFontFile(const std::filesystem::path& FontPath) noexcept
+ImFont* TypographyRepository::LoadFontFile(const std::filesystem::path& FontPath, float PixelHeight) noexcept
 {
     if (ImGui::GetCurrentContext() == nullptr)
     {
@@ -148,13 +148,13 @@ ImFont* TypefaceCatalog::LoadFontFile(const std::filesystem::path& FontPath) noe
     }
 
     ImFontConfig Configuration{};
-    Configuration.OversampleH = 2;
+    Configuration.OversampleH = 3;
     Configuration.OversampleV = 2;
     Configuration.GlyphRanges = ExtendedUnicodeRanges;
-    return ImGui::GetIO().Fonts->AddFontFromFileTTF(FontPath.string().c_str(), 24.0f, &Configuration);
+    return ImGui::GetIO().Fonts->AddFontFromFileTTF(FontPath.string().c_str(), PixelHeight, &Configuration);
 }
 
-uint32_t TypefaceCatalog::LoadArchive(const std::filesystem::path& ArchiveRoot) noexcept
+uint32_t TypographyRepository::LoadRepository(const std::filesystem::path& RepositoryRoot) noexcept
 {
     if (Loaded)
     {
@@ -166,7 +166,7 @@ uint32_t TypefaceCatalog::LoadArchive(const std::filesystem::path& ArchiveRoot) 
     }
 
     std::error_code IoFailure{};
-    if (!std::filesystem::exists(ArchiveRoot, IoFailure))
+    if (!std::filesystem::exists(RepositoryRoot, IoFailure))
     {
         Loaded = true;
         return 0u;
@@ -205,7 +205,7 @@ uint32_t TypefaceCatalog::LoadArchive(const std::filesystem::path& ArchiveRoot) 
         DiscoveredGroups.push_back(std::move(Created));
     };
 
-    const std::filesystem::path ManifestPath = ArchiveRoot / "FontCatalogue.FontSpace";
+    const std::filesystem::path ManifestPath = RepositoryRoot / "FontRepository.FontSpace";
     bool                        Parsed       = false;
     if (std::filesystem::exists(ManifestPath, IoFailure))
     {
@@ -232,7 +232,7 @@ uint32_t TypefaceCatalog::LoadArchive(const std::filesystem::path& ArchiveRoot) 
                     {
                         continue;
                     }
-                    AppendFace(GroupLabel, QuantizeWeight(WeightNumber), ArchiveRoot / RelativePath);
+                    AppendFace(GroupLabel, QuantizeWeight(WeightNumber), RepositoryRoot / RelativePath);
                 }
                 Parsed = !DiscoveredGroups.empty();
             }
@@ -246,7 +246,7 @@ uint32_t TypefaceCatalog::LoadArchive(const std::filesystem::path& ArchiveRoot) 
 
     if (!Parsed)
     {
-        for (const auto& DirectoryEntry : std::filesystem::recursive_directory_iterator(ArchiveRoot, IoFailure))
+        for (const auto& DirectoryEntry : std::filesystem::recursive_directory_iterator(RepositoryRoot, IoFailure))
         {
             if (IoFailure || !DirectoryEntry.is_regular_file())
             {
@@ -311,16 +311,42 @@ uint32_t TypefaceCatalog::LoadArchive(const std::filesystem::path& ArchiveRoot) 
         }
     }
 
+    std::filesystem::path PreferredTabFontPath{};
+    std::filesystem::path FallbackTabFontPath{};
+    for (const DiscoveredGroup& Discovered : DiscoveredGroups)
+    {
+        for (const DiscoveredFace& Candidate : Discovered.Faces)
+        {
+            if (Candidate.Weight == FontWeightClass::Regular)
+            {
+                if (FallbackTabFontPath.empty())
+                {
+                    FallbackTabFontPath = Candidate.Path;
+                }
+                if (Discovered.Key == "dmsans")
+                {
+                    PreferredTabFontPath = Candidate.Path;
+                }
+            }
+        }
+    }
+    const std::filesystem::path ChosenTabFontPath =
+        !PreferredTabFontPath.empty() ? PreferredTabFontPath : FallbackTabFontPath;
+    if (!ChosenTabFontPath.empty())
+    {
+        TabStripFont = LoadFontFile(ChosenTabFontPath, 13.0f);
+    }
+
     Loaded = !Groups.empty();
     return QueryGroupCount();
 }
 
-const TypefaceGroup* TypefaceCatalog::QueryGroup(uint32_t GroupIndex) const noexcept
+const TypefaceGroup* TypographyRepository::QueryGroup(uint32_t GroupIndex) const noexcept
 {
     return GroupIndex < Groups.size() ? &Groups[GroupIndex] : nullptr;
 }
 
-int32_t TypefaceCatalog::ResolveGroupIndex(std::string_view Name) const noexcept
+int32_t TypographyRepository::ResolveGroupIndex(std::string_view Name) const noexcept
 {
     const std::string Key = NormalizeGroupKey(Name);
     for (std::size_t Index = 0u; Index < Groups.size(); ++Index)
@@ -333,7 +359,7 @@ int32_t TypefaceCatalog::ResolveGroupIndex(std::string_view Name) const noexcept
     return -1;
 }
 
-bool TypefaceCatalog::ContainsWeight(uint32_t GroupIndex, FontWeightClass Weight) const noexcept
+bool TypographyRepository::ContainsWeight(uint32_t GroupIndex, FontWeightClass Weight) const noexcept
 {
     const TypefaceGroup* Group = QueryGroup(GroupIndex);
     if (Group == nullptr)
@@ -350,7 +376,7 @@ bool TypefaceCatalog::ContainsWeight(uint32_t GroupIndex, FontWeightClass Weight
     return false;
 }
 
-const TypefaceWeightEntry* TypefaceCatalog::ResolveWeight(uint32_t GroupIndex, FontWeightClass Wanted) const noexcept
+const TypefaceWeightEntry* TypographyRepository::ResolveWeight(uint32_t GroupIndex, FontWeightClass Wanted) const noexcept
 {
     const TypefaceGroup* Group = QueryGroup(GroupIndex);
     if (Group == nullptr || Group->Faces.empty())
@@ -386,7 +412,7 @@ const TypefaceWeightEntry* TypefaceCatalog::ResolveWeight(uint32_t GroupIndex, F
     return Best;
 }
 
-ImFont* TypefaceCatalog::QueryFont(uint32_t GroupIndex, FontWeightClass Wanted) const noexcept
+ImFont* TypographyRepository::QueryFont(uint32_t GroupIndex, FontWeightClass Wanted) const noexcept
 {
     if (const TypefaceWeightEntry* Entry = ResolveWeight(GroupIndex, Wanted))
     {
@@ -395,7 +421,7 @@ ImFont* TypefaceCatalog::QueryFont(uint32_t GroupIndex, FontWeightClass Wanted) 
     return nullptr;
 }
 
-const char* TypefaceCatalog::WeightLabel(FontWeightClass Weight) noexcept
+const char* TypographyRepository::WeightLabel(FontWeightClass Weight) noexcept
 {
     switch (Weight)
     {
@@ -412,12 +438,12 @@ const char* TypefaceCatalog::WeightLabel(FontWeightClass Weight) noexcept
     return "Regular";
 }
 
-FontWeightClass TypefaceCatalog::WeightAtOrdinal(uint32_t Ordinal) noexcept
+FontWeightClass TypographyRepository::WeightAtOrdinal(uint32_t Ordinal) noexcept
 {
     return Ordinal < WeightCount ? OrderedWeights[Ordinal] : FontWeightClass::Regular;
 }
 
-uint32_t TypefaceCatalog::WeightOrdinal(FontWeightClass Weight) noexcept
+uint32_t TypographyRepository::WeightOrdinal(FontWeightClass Weight) noexcept
 {
     for (uint32_t Ordinal = 0u; Ordinal < WeightCount; ++Ordinal)
     {

@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                         TEXTINPUTFIELD.H
+                                                               TEXTINPUTFIELD.H
 ============================================================================================================================================*/
 // 🧩 Reusable UTF-8 text editing buffer and single-line input field control
 
@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Controls/ControlStyle.h"
+#include "Engine/Components/Controls/ControlAppearance.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -60,13 +60,14 @@ struct TextEditBuffer
 namespace TextInputField
 {
 
-[[nodiscard]] ControlContact Draw(
-    PixelSpace&           Surface,
-    Rectangle2D           Bounds,
-    TextEditBuffer&       Editor,
-    const ControlPointer& Pointer,
-    float                 FontSize = 13.0f,
-    float                 Opacity  = 1.0f) noexcept;
+[[nodiscard]] ControlContact Construct(
+    PixelSpace&            Surface,
+    Rectangle2D            Bounds,
+    TextEditBuffer&        Editor,
+    const ControlPointer&  Pointer,
+    float                  FontSize = 13.0f,
+    float                  Opacity  = 1.0f,
+    const OptionalTooltip& Tooltip  = {}) noexcept;
 
 } // namespace TextInputField
 

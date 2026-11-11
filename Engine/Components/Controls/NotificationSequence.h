@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                      NOTIFICATIONSEQUENCE.H
+                                                            NOTIFICATIONSEQUENCE.H
 ============================================================================================================================================*/
 // 🧩 Bounded semantic notification history, top-right live toast stack, and Quick Controls notification stream
 
@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Controls/ControlStyle.h"
+#include "Engine/Components/Controls/ControlAppearance.h"
 
 #include <cstdint>
 #include <deque>
@@ -90,14 +90,14 @@ public:
         float                    Width,
         const NotificationEntry& Entry);
 
-    [[nodiscard]] static bool DrawBanner(
+    [[nodiscard]] static bool ConstructBanner(
         PixelSpace&              Surface,
         Rectangle2D              Bounds,
         const NotificationEntry& Entry,
         const ControlPointer&    Pointer,
         bool                     DismissButtonEnabled);
 
-    void DrawToastOverlay(
+    void ConstructToastOverlay(
         PixelSpace&           Surface,
         Rectangle2D           ViewportLogicalBounds,
         const ControlPointer& Pointer,

@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                          SCALARSLIDER.H
+                                                                SCALARSLIDER.H
 ============================================================================================================================================*/
 // 🧩 Reusable scalar slider and split readout capsule ("[ 100 | % ]" / "[ 16 | px ]")
 
@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Controls/ControlStyle.h"
+#include "Engine/Components/Controls/ControlAppearance.h"
 
 namespace Frontier
 {
@@ -21,20 +21,21 @@ namespace ScalarSlider
 //                                                  FUNCTION PROTOTYPES
 //------------------------------------------------------------------------------------------------------------------------
 
-[[nodiscard]] ControlContact Draw(
-    PixelSpace&           Surface,
-    Rectangle2D           Bounds,
-    float                 Minimum,
-    float                 Maximum,
-    float                 CurrentPosition,
-    bool                  DraggingActive,
-    const ControlPointer& Pointer,
-    float&                UpdatedPosition,
-    float                 Opacity      = 1.0f,
-    float                 RailHeight   = ControlMetrics::SliderHeight,
-    float                 KnobDiameter = ControlMetrics::SliderThumbDiameter) noexcept;
+[[nodiscard]] ControlContact Construct(
+    PixelSpace&            Surface,
+    Rectangle2D            Bounds,
+    float                  Minimum,
+    float                  Maximum,
+    float                  CurrentPosition,
+    bool                   DraggingActive,
+    const ControlPointer&  Pointer,
+    float&                 UpdatedPosition,
+    float                  Opacity      = 1.0f,
+    float                  RailHeight   = ControlMetrics::SliderHeight,
+    float                  KnobDiameter = ControlMetrics::SliderThumbDiameter,
+    const OptionalTooltip& Tooltip      = {}) noexcept;
 
-void DrawReadoutCapsule(
+void ConstructReadoutCapsule(
     PixelSpace& Surface,
     float       X,
     float       Y,
@@ -44,18 +45,19 @@ void DrawReadoutCapsule(
     float       TotalWidth    = ControlMetrics::ReadoutCapsuleWidth,
     float       UnitCellWidth = ControlMetrics::ReadoutUnitWidth) noexcept;
 
-[[nodiscard]] ControlContact DrawWithReadout(
-    PixelSpace&           Surface,
-    Rectangle2D           RowBounds,
-    const char*           NumberText,
-    const char*           UnitText,
-    float                 Minimum,
-    float                 Maximum,
-    float                 CurrentPosition,
-    bool                  DraggingActive,
-    const ControlPointer& Pointer,
-    float&                UpdatedPosition,
-    float                 Opacity = 1.0f) noexcept;
+[[nodiscard]] ControlContact ConstructWithReadout(
+    PixelSpace&            Surface,
+    Rectangle2D            RowBounds,
+    const char*            NumberText,
+    const char*            UnitText,
+    float                  Minimum,
+    float                  Maximum,
+    float                  CurrentPosition,
+    bool                   DraggingActive,
+    const ControlPointer&  Pointer,
+    float&                 UpdatedPosition,
+    float                  Opacity = 1.0f,
+    const OptionalTooltip& Tooltip = {}) noexcept;
 
 } // namespace ScalarSlider
 

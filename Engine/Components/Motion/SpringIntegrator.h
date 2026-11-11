@@ -1,7 +1,7 @@
 /*============================================================================================================================================
-                                                         SPRINGINTEGRATOR.H
+                                                              SPRINGINTEGRATOR.H
 ============================================================================================================================================*/
-// 🧩 Substep-clamped spring-damper integrator for UI drawers, sheets, and smooth transitions
+// 🧩 Substep-clamped spring-damper integrator for UI trays, sheets, and smooth transitions
 
 #pragma once
 

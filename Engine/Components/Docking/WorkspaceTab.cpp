@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                         WORKSPACETAB.CPP
+                                                               WORKSPACETAB.CPP
 ============================================================================================================================================*/
 // 🧩 Unrounded (0.0f) trapezoidal docking tab geometry and patched Dear ImGui theme synchronization.
 
@@ -109,7 +109,7 @@ void ConfigureImGuiWorkspaceStyle(const WorkspaceTabMetrics &Metrics, const Work
 
     Style.WindowPadding        = ImVec2(10.0f, 10.0f);
     Style.WindowRounding       = 0.0f;
-    Style.WindowBorderSize     = 1.0f;
+    Style.WindowBorderSize     = 0.0f;
     Style.ChildRounding        = 4.0f;
     Style.ChildBorderSize      = 1.0f;
     Style.FramePadding         = ImVec2(10.0f, 5.0f);
@@ -120,11 +120,11 @@ void ConfigureImGuiWorkspaceStyle(const WorkspaceTabMetrics &Metrics, const Work
     Style.IndentSpacing        = 14.0f;
     Style.ScrollbarSize        = 9.0f;
     Style.ScrollbarRounding    = 4.0f;
-    Style.DockingSeparatorSize = 1.0f;
+    Style.DockingSeparatorSize = 2.0f;
 
-    // Strictly zero corner rounding on trapezoidal workspace tabs!
+    // Strictly zero corner rounding and zero outline on trapezoidal workspace tabs!
     Style.TabRounding                      = 0.0f;
-    Style.TabBorderSize                    = 1.0f;
+    Style.TabBorderSize                    = 0.0f;
     Style.TabSlant                         = Metrics.UpperCornerSlantPx;
     Style.TabOverlap                       = Metrics.AdjacentOverlapPx;
     Style.TabHeight                        = Metrics.TabBodyHeightPx;
@@ -136,39 +136,40 @@ void ConfigureImGuiWorkspaceStyle(const WorkspaceTabMetrics &Metrics, const Work
     Style.TabCloseButtonMinWidthSelected   = -1.0f;
     Style.TabCloseButtonMinWidthUnselected = -1.0f;
 
-    ImVec4 *Colors                       = Style.Colors;
-    Colors[ImGuiCol_Text]                = ToImVec4(ThemeSet.PrimaryLabel);
-    Colors[ImGuiCol_TextDisabled]        = ToImVec4(ThemeSet.MutedLabel);
-    Colors[ImGuiCol_WindowBg]            = ToImVec4(ThemeSet.PanelSurface);
-    Colors[ImGuiCol_ChildBg]             = ToImVec4(ThemeSet.ElevatedSection);
-    Colors[ImGuiCol_Border]              = ToImVec4(ThemeSet.HairlineBorder);
-    Colors[ImGuiCol_BorderShadow]        = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-    Colors[ImGuiCol_FrameBg]             = ToImVec4(ThemeSet.ElevatedSection);
-    Colors[ImGuiCol_FrameBgHovered]      = ToImVec4(ThemeSet.HoveredTabFill);
-    Colors[ImGuiCol_FrameBgActive]       = ToImVec4(ThemeSet.HoveredTabFill);
-    Colors[ImGuiCol_TitleBg]             = ToImVec4(ThemeSet.WorkspaceBackdrop);
-    Colors[ImGuiCol_TitleBgActive]       = ToImVec4(ThemeSet.WorkspaceBackdrop);
-    Colors[ImGuiCol_TitleBgCollapsed]    = ToImVec4(ThemeSet.WorkspaceBackdrop);
-    Colors[ImGuiCol_Header]              = ToImVec4(ThemeSet.ElevatedSection);
-    Colors[ImGuiCol_HeaderHovered]       = ToImVec4(ThemeSet.HoveredTabFill);
-    Colors[ImGuiCol_HeaderActive]        = ToImVec4(ThemeSet.HoveredTabFill);
-    Colors[ImGuiCol_Separator]           = ToImVec4(ThemeSet.HairlineBorder);
-    Colors[ImGuiCol_SeparatorHovered]    = ToImVec4(ThemeSet.AmberAccent);
-    Colors[ImGuiCol_SeparatorActive]     = ToImVec4(ThemeSet.AmberAccent);
-    Colors[ImGuiCol_Button]              = ToImVec4(ThemeSet.ElevatedSection);
-    Colors[ImGuiCol_ButtonHovered]       = ToImVec4(ThemeSet.HoveredTabFill);
-    Colors[ImGuiCol_ButtonActive]        = ToImVec4(ThemeSet.PanelSurface);
-    Colors[ImGuiCol_Tab]                 = ToImVec4(ThemeSet.InactiveTabFill);
-    Colors[ImGuiCol_TabHovered]          = ToImVec4(ThemeSet.HoveredTabFill);
-    Colors[ImGuiCol_TabSelected]         = ToImVec4(ThemeSet.PanelSurface);
-    Colors[ImGuiCol_TabSelectedOverline] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-    Colors[ImGuiCol_TabDimmed]           = ToImVec4(ThemeSet.InactiveTabFill);
-    Colors[ImGuiCol_TabDimmedSelected]   = ToImVec4(ThemeSet.PanelSurface);
-    Colors[ImGuiCol_DockingEmptyBg]      = ToImVec4(ThemeSet.WorkspaceBackdrop);
-    Colors[ImGuiCol_DockingPreview]      = ImVec4(0.231f, 0.510f, 0.965f, 0.35f);
+    ImVec4 *Colors                             = Style.Colors;
+    Colors[ImGuiCol_Text]                      = ToImVec4(ThemeSet.PrimaryLabel);
+    Colors[ImGuiCol_TextDisabled]              = ToImVec4(ThemeSet.MutedLabel);
+    Colors[ImGuiCol_WindowBg]                  = ToImVec4(ThemeSet.PanelSurface);
+    Colors[ImGuiCol_ChildBg]                   = ToImVec4(ThemeSet.ElevatedSection);
+    Colors[ImGuiCol_Border]                    = ToImVec4(ThemeSet.HairlineBorder);
+    Colors[ImGuiCol_BorderShadow]              = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    Colors[ImGuiCol_FrameBg]                   = ToImVec4(ThemeSet.ElevatedSection);
+    Colors[ImGuiCol_FrameBgHovered]            = ToImVec4(ThemeSet.HoveredTabFill);
+    Colors[ImGuiCol_FrameBgActive]             = ToImVec4(ThemeSet.HoveredTabFill);
+    Colors[ImGuiCol_TitleBg]                   = ToImVec4(ThemeSet.WorkspaceBackdrop);
+    Colors[ImGuiCol_TitleBgActive]             = ToImVec4(ThemeSet.WorkspaceBackdrop);
+    Colors[ImGuiCol_TitleBgCollapsed]          = ToImVec4(ThemeSet.WorkspaceBackdrop);
+    Colors[ImGuiCol_Header]                    = ToImVec4(ThemeSet.ElevatedSection);
+    Colors[ImGuiCol_HeaderHovered]             = ToImVec4(ThemeSet.HoveredTabFill);
+    Colors[ImGuiCol_HeaderActive]              = ToImVec4(ThemeSet.HoveredTabFill);
+    Colors[ImGuiCol_Separator]                 = ToImVec4(ThemeSet.HairlineBorder);
+    Colors[ImGuiCol_SeparatorHovered]          = ToImVec4(ThemeSet.AmberAccent);
+    Colors[ImGuiCol_SeparatorActive]           = ToImVec4(ThemeSet.AmberAccent);
+    Colors[ImGuiCol_Button]                    = ToImVec4(ThemeSet.ElevatedSection);
+    Colors[ImGuiCol_ButtonHovered]             = ToImVec4(ThemeSet.HoveredTabFill);
+    Colors[ImGuiCol_ButtonActive]              = ToImVec4(ThemeSet.PanelSurface);
+    Colors[ImGuiCol_Tab]                       = ToImVec4(ThemeSet.PanelSurface);
+    Colors[ImGuiCol_TabHovered]                = ToImVec4(ThemeSet.HoveredTabFill);
+    Colors[ImGuiCol_TabSelected]               = ToImVec4(ThemeSet.PanelSurface);
+    Colors[ImGuiCol_TabSelectedOverline]       = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    Colors[ImGuiCol_TabDimmed]                 = ToImVec4(ThemeSet.PanelSurface);
+    Colors[ImGuiCol_TabDimmedSelected]         = ToImVec4(ThemeSet.PanelSurface);
+    Colors[ImGuiCol_TabDimmedSelectedOverline] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    Colors[ImGuiCol_DockingEmptyBg]            = ToImVec4(ThemeSet.WorkspaceBackdrop);
+    Colors[ImGuiCol_DockingPreview]            = ImVec4(0.231f, 0.510f, 0.965f, 0.35f);
 }
 
-void ConfigureImGuiWorkspaceTheme(const WorkspaceTabMetrics &Metrics, const ThemeCatalog &Theme) noexcept
+void ConfigureImGuiWorkspaceTheme(const WorkspaceTabMetrics &Metrics, const ThemeRepository &Theme) noexcept
 {
     ConfigureImGuiWorkspaceStyle(Metrics);
 
@@ -176,27 +177,41 @@ void ConfigureImGuiWorkspaceTheme(const WorkspaceTabMetrics &Metrics, const Them
     const ColorQuad        Accent  = Theme.QueryAccentColor();
     const ColorQuad        Darkest = Theme.QueryDarkestSurface();
 
-    ImGuiStyle &Style                    = ImGui::GetStyle();
-    ImVec4     *Colors                   = Style.Colors;
-    Colors[ImGuiCol_Text]                = QuadToImVec4(Set.TextMain);
-    Colors[ImGuiCol_TextDisabled]        = QuadToImVec4(Set.TextMuted);
-    Colors[ImGuiCol_WindowBg]            = QuadToImVec4(Set.PanelBackground);
-    Colors[ImGuiCol_ChildBg]             = QuadToImVec4(Set.SectionBackground);
-    Colors[ImGuiCol_Border]              = QuadToImVec4(Set.SubtleBackground);
-    Colors[ImGuiCol_TitleBg]             = QuadToImVec4(Darkest);
-    Colors[ImGuiCol_TitleBgActive]       = QuadToImVec4(Darkest);
-    Colors[ImGuiCol_TitleBgCollapsed]    = QuadToImVec4(Darkest);
-    Colors[ImGuiCol_Separator]           = QuadToImVec4(Set.SubtleBackground);
-    Colors[ImGuiCol_SeparatorHovered]    = QuadToImVec4(Accent);
-    Colors[ImGuiCol_SeparatorActive]     = QuadToImVec4(Accent);
-    Colors[ImGuiCol_Tab]                 = QuadToImVec4(Set.MainBackground);
-    Colors[ImGuiCol_TabHovered]          = QuadToImVec4(Set.SubtleBackground);
-    Colors[ImGuiCol_TabSelected]         = QuadToImVec4(Set.PanelBackground);
-    Colors[ImGuiCol_TabSelectedOverline] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-    Colors[ImGuiCol_TabDimmed]           = QuadToImVec4(Set.MainBackground);
-    Colors[ImGuiCol_TabDimmedSelected]   = QuadToImVec4(Set.PanelBackground);
-    Colors[ImGuiCol_DockingEmptyBg]      = QuadToImVec4(Set.MainBackground);
-    Colors[ImGuiCol_DockingPreview]      = ImVec4(Accent.Red, Accent.Green, Accent.Blue, 0.35f);
+    const bool      DarkPreset     = (Theme.QueryActiveTheme() == ThemePreset::Dark);
+    const ColorQuad DockedPaneFill = DarkPreset
+                                         ? ColorQuad{18.0f / 255.0f, 18.0f / 255.0f, 18.0f / 255.0f, 1.0f}
+                                         : Set.PanelBackground;
+    ColorQuad       StripBackdrop  = DarkPreset
+                                         ? ColorQuad{10.0f / 255.0f, 10.0f / 255.0f, 10.0f / 255.0f, 1.0f}
+                                         : Darkest;
+    if (!DarkPreset && std::fabs(StripBackdrop.Luminance() - DockedPaneFill.Luminance()) < 0.015f)
+    {
+        StripBackdrop = ColorQuad::Blend(StripBackdrop, ColorQuad{0.0f, 0.0f, 0.0f, 1.0f}, 0.25f);
+    }
+
+    ImGuiStyle &Style                          = ImGui::GetStyle();
+    ImVec4     *Colors                         = Style.Colors;
+    Colors[ImGuiCol_Text]                      = QuadToImVec4(Set.TextMain);
+    Colors[ImGuiCol_TextDisabled]              = QuadToImVec4(Set.TextMuted);
+    Colors[ImGuiCol_WindowBg]                  = QuadToImVec4(DockedPaneFill);
+    Colors[ImGuiCol_ChildBg]                   = QuadToImVec4(Set.SectionBackground);
+    Colors[ImGuiCol_Border]                    = QuadToImVec4(Set.SubtleBackground);
+    Colors[ImGuiCol_TitleBg]                   = QuadToImVec4(StripBackdrop);
+    Colors[ImGuiCol_TitleBgActive]             = QuadToImVec4(StripBackdrop);
+    Colors[ImGuiCol_TitleBgCollapsed]          = QuadToImVec4(StripBackdrop);
+    Colors[ImGuiCol_Separator]                 = DarkPreset ? ImVec4(38.0f / 255.0f, 38.0f / 255.0f, 38.0f / 255.0f, 1.0f)
+                                                            : QuadToImVec4(Set.SubtleBackground);
+    Colors[ImGuiCol_SeparatorHovered]          = QuadToImVec4(Accent);
+    Colors[ImGuiCol_SeparatorActive]           = QuadToImVec4(Accent);
+    Colors[ImGuiCol_Tab]                       = QuadToImVec4(DockedPaneFill);
+    Colors[ImGuiCol_TabHovered]                = QuadToImVec4(Set.SubtleBackground);
+    Colors[ImGuiCol_TabSelected]               = QuadToImVec4(DockedPaneFill);
+    Colors[ImGuiCol_TabSelectedOverline]       = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    Colors[ImGuiCol_TabDimmed]                 = QuadToImVec4(DockedPaneFill);
+    Colors[ImGuiCol_TabDimmedSelected]         = QuadToImVec4(DockedPaneFill);
+    Colors[ImGuiCol_TabDimmedSelectedOverline] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    Colors[ImGuiCol_DockingEmptyBg]            = QuadToImVec4(StripBackdrop);
+    Colors[ImGuiCol_DockingPreview]            = ImVec4(Accent.Red, Accent.Green, Accent.Blue, 0.35f);
 }
 
 } // namespace Frontier::Components

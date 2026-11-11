@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                  SOFTWARECANVASRASTERIZER.H
+                                                          SOFTWARECANVASRASTERIZER.H
 ============================================================================================================================================*/
 // 🧩 Header-only software ImDrawData triangle rasterizer and lossless PNG 1.2 encoder for headless CTest validation
 
@@ -98,35 +98,35 @@ public:
 
             for (int CmdIndex = 0; CmdIndex < CommandBuffer->CmdBuffer.Size; ++CmdIndex)
             {
-                const ImDrawCmd& DrawCommand = CommandBuffer->CmdBuffer[CmdIndex];
-                if (DrawCommand.UserCallback != nullptr)
+                const ImDrawCmd& RasterCommand = CommandBuffer->CmdBuffer[CmdIndex];
+                if (RasterCommand.UserCallback != nullptr)
                 {
-                    DrawCommand.UserCallback(CommandBuffer, &DrawCommand);
+                    RasterCommand.UserCallback(CommandBuffer, &RasterCommand);
                     continue;
                 }
 
-                const ImTextureData* TextureSource = DrawCommand.TexRef._TexData
-                                                         ? DrawCommand.TexRef._TexData
+                const ImTextureData* TextureSource = RasterCommand.TexRef._TexData
+                                                         ? RasterCommand.TexRef._TexData
                                                          : (FontSheet ? FontSheet->TexData : nullptr);
                 const unsigned char* TexturePixels = TextureSource ? static_cast<const unsigned char*>(TextureSource->Pixels) : nullptr;
                 const int            TextureWidth  = TextureSource ? TextureSource->Width : 0;
                 const int            TextureHeight = TextureSource ? TextureSource->Height : 0;
                 const bool           Rgba32Texture = TextureSource && TextureSource->Format == ImTextureFormat_RGBA32;
 
-                const int ClipMinX = std::max(0, static_cast<int>(std::floor(DrawCommand.ClipRect.x + ShiftX)));
-                const int ClipMinY = std::max(0, static_cast<int>(std::floor(DrawCommand.ClipRect.y + ShiftY)));
-                const int ClipMaxX = std::min(static_cast<int>(WidthPx), static_cast<int>(std::ceil(DrawCommand.ClipRect.z + ShiftX)));
-                const int ClipMaxY = std::min(static_cast<int>(HeightPx), static_cast<int>(std::ceil(DrawCommand.ClipRect.w + ShiftY)));
+                const int ClipMinX = std::max(0, static_cast<int>(std::floor(RasterCommand.ClipRect.x + ShiftX)));
+                const int ClipMinY = std::max(0, static_cast<int>(std::floor(RasterCommand.ClipRect.y + ShiftY)));
+                const int ClipMaxX = std::min(static_cast<int>(WidthPx), static_cast<int>(std::ceil(RasterCommand.ClipRect.z + ShiftX)));
+                const int ClipMaxY = std::min(static_cast<int>(HeightPx), static_cast<int>(std::ceil(RasterCommand.ClipRect.w + ShiftY)));
 
                 if (ClipMinX >= ClipMaxX || ClipMinY >= ClipMaxY)
                 {
                     continue;
                 }
 
-                const unsigned int IndexOffset  = DrawCommand.IdxOffset;
-                const unsigned int VertexOffset = DrawCommand.VtxOffset;
+                const unsigned int IndexOffset  = RasterCommand.IdxOffset;
+                const unsigned int VertexOffset = RasterCommand.VtxOffset;
 
-                for (unsigned int TriOffset = 0u; TriOffset + 2u < DrawCommand.ElemCount; TriOffset += 3u)
+                for (unsigned int TriOffset = 0u; TriOffset + 2u < RasterCommand.ElemCount; TriOffset += 3u)
                 {
                     ImDrawVert V0 = VertexArray[VertexOffset + IndexArray[IndexOffset + TriOffset + 0u]];
                     ImDrawVert V1 = VertexArray[VertexOffset + IndexArray[IndexOffset + TriOffset + 1u]];
@@ -451,10 +451,10 @@ private:
 #endif
 }
 
-[[nodiscard]] inline ImFont* LoadProjectZeroDmSansFont(ImGuiIO& Io, float BrowserCssPixels = 12.5f)
+[[nodiscard]] inline ImFont* LoadWorkspaceDmSansFont(ImGuiIO& Io, float BrowserCssPixels = 10.0f)
 {
     ImFont*         Result   = nullptr;
-    const auto      FontFile = ResolveRepositoryRootPath() / "EngineContent/FontsArchives/DM Sans/DMSans-Medium.ttf";
+    const auto      FontFile = ResolveRepositoryRootPath() / "EngineContent/FontsArchives/DMSans/DMSans-Medium.ttf";
     std::error_code IoFailure{};
     if (std::filesystem::exists(FontFile, IoFailure))
     {

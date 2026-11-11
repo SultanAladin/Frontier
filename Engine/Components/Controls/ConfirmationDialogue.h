@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                      CONFIRMATIONDIALOGUE.H
+                                                            CONFIRMATIONDIALOGUE.H
 ============================================================================================================================================*/
 // 🧩 Reusable foreground modal confirmation dialogue supporting Rounded (28px) and SemanticHeader (8px) layouts
 
@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Components/Controls/ControlStyle.h"
+#include "Engine/Components/Controls/ControlAppearance.h"
 
 #include <cstdint>
 #include <string>
@@ -31,7 +31,7 @@ enum class DialogueSeverity : uint8_t
 
 enum class DialogueLayoutStyle : uint8_t
 {
-    Rounded        = 0, // [-] - 28 px rounded modal surface with tinted circular icon emblem
+    Rounded        = 0, // [-] - 28 px rounded modal surface with tinted circular icon icon
     SemanticHeader = 1, // [-] - 8 px modal surface with colored top banner and 120 px watermark icon
 };
 
@@ -72,7 +72,7 @@ public:
     [[nodiscard]] Rectangle2D QueryPrimaryBounds() const noexcept;
     [[nodiscard]] Rectangle2D QueryCancelBounds() const noexcept;
 
-    [[nodiscard]] DialogueResponse DrawModal(
+    [[nodiscard]] DialogueResponse ConstructModal(
         PixelSpace&           Surface,
         Rectangle2D           ViewportLogicalBounds,
         const ControlPointer& Pointer);
@@ -80,9 +80,9 @@ public:
 private:
     ConfirmationSpecification ActiveSpec    {};    // [-] - Currently displayed modal specification
     bool                      Active        = false; // [-] - True while modal is open
-    Rectangle2D               ModalBounds   {};    // [px] - Last drawn modal surface bounds
-    Rectangle2D               PrimaryBounds {};    // [px] - Last drawn primary button bounds
-    Rectangle2D               CancelBounds  {};    // [px] - Last drawn cancel button bounds
+    Rectangle2D               ModalBounds   {};    // [px] - Last constructed modal surface bounds
+    Rectangle2D               PrimaryBounds {};    // [px] - Last constructed primary button bounds
+    Rectangle2D               CancelBounds  {};    // [px] - Last constructed cancel button bounds
 };
 
 //------------------------------------------------------------------------------------------------------------------------

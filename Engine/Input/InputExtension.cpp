@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                     INPUTEXTENSION.CPP
+                                                              INPUTEXTENSION.CPP
 ============================================================================================================================================*/
 // 🧩 Implementation of InputExtension hardware signal aggregation and outbound cursor/haptic directive coordination
 

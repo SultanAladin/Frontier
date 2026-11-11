@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                     NOTIFICATIONSEQUENCE.CPP
+                                                           NOTIFICATIONSEQUENCE.CPP
 ============================================================================================================================================*/
 // 🧩 Semantic toast banners, word-wrapped descriptions, and Quick Controls notification stream
 
@@ -21,7 +21,7 @@ namespace
 {
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                 WORD-BOUNDARY LINE WRAPPER
+//                                               WORD-BOUNDARY LINE WRAPPER
 //------------------------------------------------------------------------------------------------------------------------
 
 [[nodiscard]] std::vector<std::string> WrapDescriptionLines(
@@ -77,13 +77,13 @@ namespace
     return Lines;
 }
 
-void DrawToastSeverityEmblem(
+void ConstructToastSeveritySign(
     PixelSpace&          Surface,
     Point2D              Center,
     NotificationSeverity Severity,
     const ControlColorSet& Colors) noexcept
 {
-    const ColorRgba EmblemInk{ 255u, 255u, 255u, 255u };
+    const ColorRgba SignInk{ 255u, 255u, 255u, 255u };
     switch (Severity)
     {
         case NotificationSeverity::Warning:
@@ -101,20 +101,20 @@ void DrawToastSeverityEmblem(
         }
         case NotificationSeverity::Success:
         {
-            ControlStyle::DrawCircleFill(Surface, Center.X, Center.Y, 12.0f, Colors.Success);
+            ControlAppearance::ConstructCircleFill(Surface, Center.X, Center.Y, 12.0f, Colors.Success);
             const Point2D CheckPoints[3] = {
                 { Center.X - 4.8f, Center.Y + 0.3f },
                 { Center.X - 1.2f, Center.Y + 3.9f },
                 { Center.X + 5.2f, Center.Y - 3.3f },
             };
-            Surface.StrokePolyline(std::span<const Point2D>{ CheckPoints, 3u }, EmblemInk, 2.0f, false);
+            Surface.StrokePolyline(std::span<const Point2D>{ CheckPoints, 3u }, SignInk, 2.0f, false);
             break;
         }
         case NotificationSeverity::Error:
         {
-            ControlStyle::DrawCircleFill(Surface, Center.X, Center.Y, 12.0f, Colors.Danger);
-            Surface.StrokeLine({ Center.X - 4.0f, Center.Y - 4.0f }, { Center.X + 4.0f, Center.Y + 4.0f }, EmblemInk, 2.0f);
-            Surface.StrokeLine({ Center.X + 4.0f, Center.Y - 4.0f }, { Center.X - 4.0f, Center.Y + 4.0f }, EmblemInk, 2.0f);
+            ControlAppearance::ConstructCircleFill(Surface, Center.X, Center.Y, 12.0f, Colors.Danger);
+            Surface.StrokeLine({ Center.X - 4.0f, Center.Y - 4.0f }, { Center.X + 4.0f, Center.Y + 4.0f }, SignInk, 2.0f);
+            Surface.StrokeLine({ Center.X + 4.0f, Center.Y - 4.0f }, { Center.X - 4.0f, Center.Y + 4.0f }, SignInk, 2.0f);
             break;
         }
         case NotificationSeverity::Notice:
@@ -123,9 +123,9 @@ void DrawToastSeverityEmblem(
             const ColorQuad NeutralDisc = Colors.LightSurface
                                               ? ColorQuad{ 0.35f, 0.38f, 0.44f, 1.0f }
                                               : ColorQuad{ 0.48f, 0.50f, 0.54f, 1.0f };
-            ControlStyle::DrawCircleFill(Surface, Center.X, Center.Y, 12.0f, NeutralDisc);
-            Surface.FillCircle({ Center.X, Center.Y - 4.5f }, 1.3f, EmblemInk);
-            Surface.StrokeLine({ Center.X, Center.Y - 1.2f }, { Center.X, Center.Y + 5.2f }, EmblemInk, 2.0f);
+            ControlAppearance::ConstructCircleFill(Surface, Center.X, Center.Y, 12.0f, NeutralDisc);
+            Surface.FillCircle({ Center.X, Center.Y - 4.5f }, 1.3f, SignInk);
+            Surface.StrokeLine({ Center.X, Center.Y - 1.2f }, { Center.X, Center.Y + 5.2f }, SignInk, 2.0f);
             break;
         }
     }
@@ -134,7 +134,7 @@ void DrawToastSeverityEmblem(
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                              NOTIFICATION SEQUENCE METHODS
+//                                             NOTIFICATION SEQUENCE METHODS
 //------------------------------------------------------------------------------------------------------------------------
 
 uint64_t NotificationSequence::Broadcast(
@@ -231,23 +231,23 @@ float NotificationSequence::QueryBannerHeight(PixelSpace& Surface, float Width, 
     return std::max(72.0f, 46.0f + static_cast<float>(Lines.size()) * 20.0f + 16.0f);
 }
 
-bool NotificationSequence::DrawBanner(
+bool NotificationSequence::ConstructBanner(
     PixelSpace&              Surface,
     Rectangle2D              Bounds,
     const NotificationEntry& Entry,
     const ControlPointer&    Pointer,
     bool                     DismissButtonEnabled)
 {
-    const ControlColorSet& Colors = ControlStyle::Colors();
+    const ControlColorSet& Colors = ControlAppearance::Colors();
 
     Surface.FillRectangle(
         { Bounds.X, Bounds.Y + 2.0f, Bounds.Width, Bounds.Height },
         ColorRgba{ 0u, 0u, 0u, Colors.LightSurface ? uint8_t{ 24u } : uint8_t{ 90u } },
         14.0f);
     Surface.FillRectangle(Bounds, Colors.Panel.ToRgba8(), 14.0f);
-    ControlStyle::DrawRoundedOutline(Surface, Bounds, Colors.StrokeStrong, 14.0f);
+    ControlAppearance::ConstructRoundedOutline(Surface, Bounds, Colors.StrokeStrong, 14.0f);
 
-    DrawToastSeverityEmblem(Surface, { Bounds.X + 30.0f, Bounds.Y + 30.0f }, Entry.Severity, Colors);
+    ConstructToastSeveritySign(Surface, { Bounds.X + 30.0f, Bounds.Y + 30.0f }, Entry.Severity, Colors);
 
     const float RightGutter   = DismissButtonEnabled ? 48.0f : 20.0f;
     const float TextAreaWidth = std::max(80.0f, Bounds.Width - 54.0f - RightGutter);
@@ -266,7 +266,7 @@ bool NotificationSequence::DrawBanner(
 
     if (DismissButtonEnabled)
     {
-        const ControlContact CloseHit = CapsuleButton::DrawRoundIcon(
+        const ControlContact CloseHit = CapsuleButton::ConstructRoundIcon(
             Surface,
             Bounds.Right() - 24.0f,
             Bounds.Y + 29.0f,
@@ -277,7 +277,7 @@ bool NotificationSequence::DrawBanner(
     return false;
 }
 
-void NotificationSequence::DrawToastOverlay(
+void NotificationSequence::ConstructToastOverlay(
     PixelSpace&           Surface,
     Rectangle2D           ViewportLogicalBounds,
     const ControlPointer& Pointer,
@@ -300,11 +300,11 @@ void NotificationSequence::DrawToastOverlay(
         const NotificationEntry& Entry  = PendingEntries[Index];
         const float              Height = QueryBannerHeight(Surface, ToastWidth, Entry);
         const Rectangle2D        Bounds{ LeftX, CursorY, ToastWidth, Height };
-        if (ControlStyle::QueryPointerOver(Bounds, Pointer))
+        if (ControlAppearance::QueryPointerOver(Bounds, Pointer))
         {
             PausedToken = Entry.Token;
         }
-        if (DrawBanner(Surface, Bounds, Entry, Pointer, true))
+        if (ConstructBanner(Surface, Bounds, Entry, Pointer, true))
         {
             ClosedToken = Entry.Token;
         }

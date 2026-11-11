@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                      PLATFORMWINDOW.H
+                                                               PLATFORMWINDOW.H
 ============================================================================================================================================*/
 // 🧩 Cross-platform window and surface interface with directive masks, application presets, and dynamic fullscreen mode transitions
 
@@ -16,7 +16,7 @@ namespace Frontier::Windowing
 {
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                    ENUMERATIONS
+//                                                      ENUMERATIONS
 //------------------------------------------------------------------------------------------------------------------------
 
 enum class WindowPlatformCategory : uint8_t
@@ -116,7 +116,7 @@ constexpr WindowAttributeMask& operator&=(WindowAttributeMask& Left, WindowAttri
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                     STRUCTURES
+//                                                       STRUCTURES
 //------------------------------------------------------------------------------------------------------------------------
 
 struct WindowPlacementBounds
@@ -227,18 +227,18 @@ struct WindowExtentReading
     int32_t  OriginY             = 0;     // [px] - Current desktop Y position
     uint32_t PixelWidth          = 0;     // [px] - Current client logical width
     uint32_t PixelHeight         = 0;     // [px] - Current client logical height
-    uint32_t DrawablePixelWidth  = 0;     // [px] - Current physical swapchain-drawable width
-    uint32_t DrawablePixelHeight = 0;     // [px] - Current physical swapchain-drawable height
+    uint32_t SurfacePixelWidth  = 0;     // [px] - Current physical swapchain-surface width
+    uint32_t SurfacePixelHeight = 0;     // [px] - Current physical swapchain-surface height
     uint32_t RefreshRateHz       = 60;    // [Hz] - Active display refresh rate
     float    DpiScaleFactor      = 1.0f;  // [-]  - Active display DPI scale factor
-    bool     Minimized           = false; // [-]  - True when iconified or zero drawable area
+    bool     Minimized           = false; // [-]  - True when iconified or zero surface area
     bool     Maximized           = false; // [-]  - True when occupying maximized work-area
     bool     Focused             = true;  // [-]  - True when holding OS keyboard focus
     bool     Visible             = true;  // [-]  - True when mapped on screen
 };
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                      CONCEPTS
+//                                                        CONCEPTS
 //------------------------------------------------------------------------------------------------------------------------
 
 template <typename SurfaceType>
@@ -261,7 +261,7 @@ concept PlatformWindowSurface = requires(
 };
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                            HEADLESS VALIDATION SURFACE
+//                                              HEADLESS VALIDATION SURFACE
 //------------------------------------------------------------------------------------------------------------------------
 
 class HeadlessPlatformWindow
@@ -308,7 +308,7 @@ public:
     [[nodiscard]] uint32_t                     AppliedHapticPulseCount() const noexcept;
 
 private:
-    void RecomputeDrawableExtent() noexcept;
+    void RecomputeSurfaceExtent() noexcept;
 
     Input::InputExchange         PendingSyntheticExchange{};                                               // [-]     - Synthetic OS events queued for next poll
     std::string                  CaptionText          = "Frontier";                                        // [-]     - Current window caption
@@ -335,7 +335,7 @@ static_assert(Input::InputFeedbackTarget<HeadlessPlatformWindow>,
 #if !defined(__ANDROID__)
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                        DESKTOP CROSS-PLATFORM SURFACE (GLFW 3.4)
+//                                       DESKTOP CROSS-PLATFORM SURFACE (GLFW 3.4)
 //------------------------------------------------------------------------------------------------------------------------
 
 class DesktopPlatformWindow
@@ -391,7 +391,7 @@ private:
     void*                        GlfwWindowHandle     = nullptr;                                           // [-]     - Opaque GLFWwindow* instance
     Input::InputExchange         CallbackExchange{};                                                       // [-]     - OS callback events buffered until next poll
     std::string                  CaptionText          = "Frontier";                                        // [-]     - Current window caption
-    WindowExtentReading          ActiveExtent{};                                                           // [px]    - Latest queried window & drawable dimensions
+    WindowExtentReading          ActiveExtent{};                                                           // [px]    - Latest queried window & surface dimensions
     WindowPlacementBounds        RestorableBounds{};                                                       // [px]    - Saved windowed placement prior to fullscreen
     WindowAttributeMask          WindowedAttributes   = WindowAttributeMask::ApplicationPresetMask;        // [mask]  - Windowed default attributes restored on exit
     WindowAttributeMask          EffectiveAttributes  = WindowAttributeMask::ApplicationPresetMask;        // [mask]  - Active attributes reconciled with mode

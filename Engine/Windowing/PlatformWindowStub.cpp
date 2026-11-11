@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                  PLATFORMWINDOWSTUB.CPP
+                                                            PLATFORMWINDOWSTUB.CPP
 ============================================================================================================================================*/
 // 🧩 Headless deterministic window implementation supporting splash, windowed, maximized, and fullscreen mode transitions
 
@@ -130,7 +130,7 @@ void HeadlessPlatformWindow::Finalize() noexcept
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                      PRESENTATION MODE & ATTRIBUTE MUTATIONS
+//                                        PRESENTATION MODE & ATTRIBUTE MUTATIONS
 //------------------------------------------------------------------------------------------------------------------------
 
 bool HeadlessPlatformWindow::ApplyPresentationMode(
@@ -242,7 +242,7 @@ bool HeadlessPlatformWindow::ApplyPresentationMode(
         }
     }
 
-    RecomputeDrawableExtent();
+    RecomputeSurfaceExtent();
     return true;
 }
 
@@ -260,7 +260,7 @@ bool HeadlessPlatformWindow::ApplyAttributeMask(WindowAttributeMask NewAttribute
     {
         ActiveExtent.Focused = true;
     }
-    RecomputeDrawableExtent();
+    RecomputeSurfaceExtent();
     return true;
 }
 
@@ -294,7 +294,7 @@ void HeadlessPlatformWindow::ApplySizeLimits(
         }
         RestorableBounds.PixelWidth  = ActiveExtent.PixelWidth;
         RestorableBounds.PixelHeight = ActiveExtent.PixelHeight;
-        RecomputeDrawableExtent();
+        RecomputeSurfaceExtent();
     }
 }
 
@@ -325,7 +325,7 @@ void HeadlessPlatformWindow::ApplyHapticFeedback(const Input::HapticFeedbackDire
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                              SYNTHETIC SURFACE CONTROLS
+//                                               SYNTHETIC SURFACE CONTROLS
 //------------------------------------------------------------------------------------------------------------------------
 
 void HeadlessPlatformWindow::ResizeSurface(uint32_t NewWidth, uint32_t NewHeight, float NewDpiScale) noexcept
@@ -339,7 +339,7 @@ void HeadlessPlatformWindow::ResizeSurface(uint32_t NewWidth, uint32_t NewHeight
         RestorableBounds.PixelWidth  = NewWidth;
         RestorableBounds.PixelHeight = NewHeight;
     }
-    RecomputeDrawableExtent();
+    RecomputeSurfaceExtent();
 }
 
 void HeadlessPlatformWindow::RequestClose() noexcept
@@ -356,13 +356,13 @@ bool HeadlessPlatformWindow::QueueSyntheticSignal(const Input::InputSignalPacket
     return PendingSyntheticExchange.IntakeSignal(Packet);
 }
 
-void HeadlessPlatformWindow::RecomputeDrawableExtent() noexcept
+void HeadlessPlatformWindow::RecomputeSurfaceExtent() noexcept
 {
     const float ScaleFactor = QueryAttributeEnabled(EffectiveAttributes, WindowAttributeMask::EnableDpiScaling)
                                   ? ActiveExtent.DpiScaleFactor
                                   : 1.0f;
-    ActiveExtent.DrawablePixelWidth  = static_cast<uint32_t>(std::lround(static_cast<double>(ActiveExtent.PixelWidth) * ScaleFactor));
-    ActiveExtent.DrawablePixelHeight = static_cast<uint32_t>(std::lround(static_cast<double>(ActiveExtent.PixelHeight) * ScaleFactor));
+    ActiveExtent.SurfacePixelWidth  = static_cast<uint32_t>(std::lround(static_cast<double>(ActiveExtent.PixelWidth) * ScaleFactor));
+    ActiveExtent.SurfacePixelHeight = static_cast<uint32_t>(std::lround(static_cast<double>(ActiveExtent.PixelHeight) * ScaleFactor));
 }
 
 //------------------------------------------------------------------------------------------------------------------------
