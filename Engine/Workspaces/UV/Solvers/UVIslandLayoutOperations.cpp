@@ -125,30 +125,30 @@ uint32_t UVIslandLayoutOperations::UnstackOverlappingIslands(
         {
             const float ShiftU = (Attempt % 8u) * (Width + SeparationStepUV);
             const float ShiftV = (Attempt / 8u) * (Height + SeparationStepUV);
-            UVIslandPartition Trial = Islands[Idx];
-            Trial.BoundsMinUV.U += ShiftU;
-            Trial.BoundsMaxUV.U += ShiftU;
-            Trial.BoundsMinUV.V += ShiftV;
-            Trial.BoundsMaxUV.V += ShiftV;
+            UVIslandPartition Candidate = Islands[Idx];
+            Candidate.BoundsMinUV.U += ShiftU;
+            Candidate.BoundsMaxUV.U += ShiftU;
+            Candidate.BoundsMinUV.V += ShiftV;
+            Candidate.BoundsMaxUV.V += ShiftV;
 
-            bool TrialCollides = false;
+            bool CandidateCollides = false;
             for (std::size_t Prev = 0u; Prev < Idx; ++Prev)
             {
-                if (BoxesOverlap(Trial, Islands[Prev]))
+                if (BoxesOverlap(Candidate, Islands[Prev]))
                 {
-                    TrialCollides = true;
+                    CandidateCollides = true;
                     break;
                 }
             }
-            if (!TrialCollides)
+            if (!CandidateCollides)
             {
                 for (const uint32_t EIdx : Islands[Idx].CornerEdgeIndices)
                 {
                     Network.Edges[EIdx].ParameterUV.U += ShiftU;
                     Network.Edges[EIdx].ParameterUV.V += ShiftV;
                 }
-                Islands[Idx].BoundsMinUV = Trial.BoundsMinUV;
-                Islands[Idx].BoundsMaxUV = Trial.BoundsMaxUV;
+                Islands[Idx].BoundsMinUV = Candidate.BoundsMinUV;
+                Islands[Idx].BoundsMaxUV = Candidate.BoundsMaxUV;
                 ++UnstackedCount;
                 break;
             }

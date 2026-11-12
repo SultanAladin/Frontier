@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                           UVINSPECTORPANEL.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of 5-tab UVInspectorPanel with Concave Packing, Full Projections, Seams/Pins, Per-UDIM Res/Backdrop, Shading & GPU Check
+// 🧩 Implementation of UVInspectorPanel matching Experimental/UVEditor across Pack, Unwrap, UDIM, Shading & Check tabs
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
@@ -9,9 +9,7 @@
 
 #include "Engine/Workspaces/UV/UVInspectorPanel.h"
 
-#include "Engine/Components/Controls/CapsuleButton.h"
-#include "Engine/Components/Controls/ExclusiveSelector.h"
-#include "Engine/Components/Controls/ScalarSlider.h"
+#include "Engine/Workspaces/UV/UVPaneAppearance.h"
 
 #include <imgui.h>
 
@@ -19,6 +17,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 
 namespace Frontier::Workspaces
 {
@@ -26,86 +25,850 @@ namespace Frontier::Workspaces
 namespace
 {
 
-constexpr ColorRgba InspectorBg   { 20, 21, 25, 255 };
-constexpr ColorRgba SectionCard   { 27, 29, 35, 255 };
-constexpr ColorRgba ActivePill    { 40, 46, 58, 255 };
-constexpr ColorRgba PrimaryBtnBg  { 52, 92, 162, 255 };
-constexpr ColorRgba BorderStroke  { 48, 52, 62, 255 };
-constexpr ColorRgba IvoryAccent   { 239, 244, 207, 255 };
-constexpr ColorRgba SkyAccent     { 118, 182, 255, 255 };
-constexpr ColorRgba EmeraldGood   { 92, 212, 148, 255 };
-constexpr ColorRgba WarnCoral     { 238, 104, 98, 255 };
-constexpr ColorRgba CrispWhite    { 230, 234, 242, 255 };
-constexpr ColorRgba MutedSubtext  { 146, 152, 166, 255 };
-
-bool RenderActionCapsule(
-    PixelSpace&             Surface,
-    Rectangle2D             Rect,
-    const char*             Caption,
-    bool                    PrimaryStyle,
-    const PaneInputReading& Input) noexcept
+void ConstructMetricTrio(
+    PixelSpace&                        Surface,
+    Rectangle2D                        Box,
+    const char*                        Val0, const char* Cap0,
+    const char*                        Val1, const char* Cap1,
+    const char*                        Val2, const char* Cap2,
+    const UVAppearance::UVThemeColors& Theme)
 {
-    const bool Hovered = Rect.Contains({ Input.PrimaryPointer.X, Input.PrimaryPointer.Y });
-    ColorRgba  Fill    = PrimaryStyle ? PrimaryBtnBg : ActivePill;
-    if (Hovered)
+    Surface.FillRectangle(Box, Theme.SectionBg, 16.0f);
+    Surface.StrokeRectangle(Box, Theme.BorderSubtle, 16.0f, 1.0f);
+
+    const float ColW = Box.Width / 3.0f;
+    Surface.StrokeLine({ Box.X + ColW, Box.Y + 10.0f }, { Box.X + ColW, Box.Bottom() - 10.0f }, Theme.BorderSubtle, 1.0f);
+    Surface.StrokeLine({ Box.X + ColW * 2.0f, Box.Y + 10.0f }, { Box.X + ColW * 2.0f, Box.Bottom() - 10.0f }, Theme.BorderSubtle, 1.0f);
+
+    const std::array<std::pair<const char*, const char*>, 3u> Cols {{
+        { Val0, Cap0 },
+        { Val1, Cap1 },
+        { Val2, Cap2 },
+    }};
+    for (uint32_t Idx = 0u; Idx < 3u; ++Idx)
     {
-        Fill = ColorRgba::Blend(Fill, { 255, 255, 255, 255 }, 0.12f);
+        const float CellX = Box.X + ColW * static_cast<float>(Idx);
+        const float VW    = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 13.5f, Cols[Idx].first);
+        const float CW    = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.8f, Cols[Idx].second);
+        WorkspaceAppearance::ConstructWeightedText(
+            Surface,
+            FontWeightClass::Medium,
+            { CellX + (ColW - VW) * 0.5f, Box.Y + 10.0f },
+            13.5f,
+            (Idx == 0u) ? Theme.AccentFill : Theme.TextPrimary,
+            Cols[Idx].first);
+        WorkspaceAppearance::ConstructTruncatedText(
+            Surface,
+            FontWeightClass::Regular,
+            { CellX + std::max(4.0f, (ColW - CW) * 0.5f), Box.Y + 33.0f },
+            ColW - 8.0f,
+            8.8f,
+            Theme.TextMuted,
+            Cols[Idx].second);
     }
-    Surface.FillRectangle(Rect, Fill, Rect.Height * 0.5f);
-    Surface.StrokeRectangle(Rect, PrimaryStyle ? SkyAccent : BorderStroke, Rect.Height * 0.5f, 1.1f);
-    Surface.TextCentered(Rect, 11.5f, PrimaryStyle ? IvoryAccent : CrispWhite, Caption);
-    return Input.PrimaryPointer.Pressed && Hovered;
 }
 
-float RenderSliderControlRow(
-    PixelSpace&             Surface,
-    float                   LeftX,
-    float                   TopY,
-    float                   Width,
-    const char*             Title,
-    const char*             NumberText,
-    const char*             UnitText,
-    float                   MinVal,
-    float                   MaxVal,
-    float                   CurrentVal,
-    uint32_t                FieldId,
-    uint32_t&               InOutDraggingField,
-    const PaneInputReading& Input,
-    float&                  OutNewValue) noexcept
+[[nodiscard]] float EvaluateUDIMFillPercent(const GeometrySpace::PolygonNetwork& Net, uint32_t TargetUDIM) noexcept
 {
-    Surface.Text({ LeftX, TopY }, 11.5f, CrispWhite, Title);
-    const Rectangle2D SliderRow { LeftX, TopY + 18.0f, Width, 28.0f };
-    const bool        ActiveDrag = (InOutDraggingField == FieldId);
-
-    OutNewValue = CurrentVal;
-    const ControlContact Contact = ScalarSlider::ConstructWithReadout(
-        Surface,
-        SliderRow,
-        NumberText,
-        UnitText,
-        MinVal,
-        MaxVal,
-        CurrentVal,
-        ActiveDrag,
-        Input.PrimaryPointer,
-        OutNewValue);
-
-    if (Contact.Pressed)
+    double AreaSum = 0.0;
+    for (uint32_t FaceIdx = 0u; FaceIdx < static_cast<uint32_t>(Net.Faces.size()); ++FaceIdx)
     {
-        InOutDraggingField = FieldId;
+        const auto& Face = Net.Faces[FaceIdx];
+        if (Face.BoundaryLoopEdgeIndex == GeometrySpace::InvalidNetworkIndex)
+        {
+            continue;
+        }
+        const auto UV = Net.Edges[Face.BoundaryLoopEdgeIndex].ParameterUV;
+        const int  TU = std::clamp(static_cast<int>(std::floor(UV.U)), 0, 9);
+        const int  TV = std::max(0, static_cast<int>(std::floor(UV.V)));
+        const uint32_t Code = static_cast<uint32_t>(1001 + TU + 10 * TV);
+        if (Code == TargetUDIM)
+        {
+            AreaSum += std::max(0.0f, Net.EvaluateFaceSignedAreaUV(FaceIdx));
+        }
     }
-    else if (!Input.PrimaryPointer.Down && InOutDraggingField == FieldId)
-    {
-        InOutDraggingField = 0u;
-    }
-    return TopY + 52.0f;
+    return static_cast<float>(std::clamp(AreaSum * 100.0, 0.0, 100.0));
 }
 
 } // namespace
 
 void UVInspectorPanel::AttachSession(UVWorkspaceSession* TargetSession) noexcept
 {
-    Session = TargetSession;
+    Session       = TargetSession;
+    ScrollOffsetY = 0.0f;
+}
+
+float UVInspectorPanel::RenderPackingTab(
+    PixelSpace&             Surface,
+    float                   LeftX,
+    float                   StartY,
+    float                   InnerW,
+    const PaneInputReading& Input)
+{
+    using namespace UVAppearance;
+    const UVThemeColors Theme   = QueryThemeColors();
+    const Point2D       Cursor  { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+    const bool          Pressed = Input.PrimaryPointer.Pressed;
+    const bool          Down    = Input.PrimaryPointer.Down;
+
+    float CurY = StartY;
+
+    const auto* ActiveLayer = Session->Asset.Layers.InspectLayer(Session->SelectedLayerOrdinal);
+    const float ActiveShare = (ActiveLayer != nullptr) ? ActiveLayer->TargetSharePercent : Session->Asset.Layers.DeriveRemainderSharePercent();
+    const float FillPct     = EvaluateUDIMFillPercent(Session->Asset.Network, Session->ActiveUDIMNumber);
+    const float RemPct      = Session->Asset.Layers.DeriveRemainderSharePercent();
+
+    char ShareStr[24]{}, FillStr[24]{}, RemStr[24]{}, UdimFillCap[32]{};
+    std::snprintf(ShareStr, sizeof(ShareStr), "%.0f%%", ActiveShare);
+    std::snprintf(FillStr, sizeof(FillStr), "%.1f%%", FillPct);
+    std::snprintf(RemStr, sizeof(RemStr), "%.0f%%", RemPct);
+    std::snprintf(UdimFillCap, sizeof(UdimFillCap), "UDIM %u Fill", Session->ActiveUDIMNumber);
+
+    ConstructMetricTrio(
+        Surface,
+        { LeftX, CurY, InnerW, 56.0f },
+        ShareStr, "Layer Budget",
+        FillStr,  UdimFillCap,
+        RemStr,   "Auto Remainder",
+        Theme);
+    CurY += 66.0f;
+
+    // Section 1: Importance Space Allocation (.pz-section)
+    {
+        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 204.0f };
+        Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
+        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
+
+        const float SX = SecRect.X + 16.0f;
+        const float SW = SecRect.Width - 32.0f;
+        float       SY = SecRect.Y + 14.0f;
+
+        ConstructSectionHeading(Surface, SX, SY, SW, "Importance Space Allocation", Theme);
+        SY += 24.0f;
+
+        // Active Layer selector capsules row
+        const std::string LayerLabel = (ActiveLayer != nullptr) ? ActiveLayer->LayerTitle : std::string("Unassigned Remainder");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { SX, SY + 6.0f }, 9.8f, Theme.TextMuted, "Active Layer");
+        const Rectangle2D LayerCycleBtn{ SX + 88.0f, SY, SW - 88.0f, 26.0f };
+        if (ConstructCapsuleButton(Surface, LayerCycleBtn, LayerLabel, Theme, Cursor, Pressed, false, false, 9.8f, 10.0f))
+        {
+            const auto Layers = Session->Asset.Layers.InspectLayers();
+            if (!Layers.empty())
+            {
+                std::size_t NextIdx = 0u;
+                for (std::size_t Idx = 0u; Idx < Layers.size(); ++Idx)
+                {
+                    if (Layers[Idx].LayerOrdinal == Session->SelectedLayerOrdinal)
+                    {
+                        NextIdx = (Idx + 1u) % (Layers.size() + 1u);
+                        break;
+                    }
+                }
+                const uint16_t NextOrd = (NextIdx < Layers.size()) ? Layers[NextIdx].LayerOrdinal : 0u;
+                Session->SelectPriorityLayer(NextOrd);
+            }
+        }
+        SY += 34.0f;
+
+        // Space Share Slider (0..100%)
+        if (ActiveLayer != nullptr)
+        {
+            float NormShare = ActiveLayer->TargetSharePercent * 0.01f;
+            char  ShareVal[24]{};
+            std::snprintf(ShareVal, sizeof(ShareVal), "%.0f%%", ActiveLayer->TargetSharePercent);
+            if (ConstructSliderControl(
+                    Surface,
+                    { SX, SY, SW, 28.0f },
+                    "Space Share",
+                    ShareVal,
+                    NormShare,
+                    Theme,
+                    Cursor,
+                    Down,
+                    Pressed,
+                    LinearTintToRgba(ActiveLayer->LinearTintRGB)))
+            {
+                Session->AdjustSelectedLayerShare(NormShare * 100.0f);
+            }
+        }
+        else
+        {
+            float FixedNorm = RemPct * 0.01f;
+            ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Remainder Share (Auto)", RemStr, FixedNorm, Theme, Cursor, false, false);
+        }
+        SY += 36.0f;
+
+        // Layer Colour Swatch Strip
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { SX, SY + 4.0f }, 9.8f, Theme.TextMuted, "Layer Colour");
+        constexpr std::array<Mathematics::Scalar3D, 6u> Swatches {{
+            { 0.937f, 0.957f, 0.812f }, // #eff4cf Ivory
+            { 0.620f, 0.812f, 1.000f }, // #9ecfff Sky
+            { 0.608f, 0.890f, 0.769f }, // #9be3c4 Mint
+            { 0.949f, 0.757f, 0.490f }, // #f2c17d Amber
+            { 0.898f, 0.596f, 0.608f }, // #e5989b Coral
+            { 0.769f, 0.655f, 0.906f }, // #c4a7e7 Lavender
+        }};
+        float SwX = SX + SW - static_cast<float>(Swatches.size()) * 24.0f;
+        for (const auto& Tint : Swatches)
+        {
+            const ColorRgba   Col    = LinearTintToRgba(Tint);
+            const Point2D     Center { SwX + 10.0f, SY + 11.0f };
+            const Rectangle2D Hit    { SwX, SY + 1.0f, 20.0f, 20.0f };
+            Surface.FillCircle(Center, 8.0f, Col);
+            Surface.StrokeCircle(Center, 8.5f, ColorRgba{ 255, 255, 255, 48 }, 1.0f);
+            if (Hit.Contains(Cursor) && Pressed && ActiveLayer != nullptr)
+            {
+                Session->AssignSelectedLayerTint(Tint);
+            }
+            SwX += 24.0f;
+        }
+        SY += 30.0f;
+
+        // Bind Selected Faces | Unassign Selected
+        const float HalfW = (SW - 8.0f) * 0.5f;
+        if (ConstructCapsuleButton(Surface, { SX, SY, HalfW, 28.0f }, "Bind Selected Faces", Theme, Cursor, Pressed, false, false, 9.6f))
+        {
+            if (Session->SelectedLayerOrdinal != 0u)
+            {
+                Session->BindSelectionToPriorityLayer(Session->SelectedLayerOrdinal);
+            }
+        }
+        if (ConstructCapsuleButton(Surface, { SX + HalfW + 8.0f, SY, HalfW, 28.0f }, "Unassign Selected", Theme, Cursor, Pressed, false, false, 9.6f))
+        {
+            Session->BindSelectionToPriorityLayer(0u);
+        }
+
+        CurY += SecRect.Height + 10.0f;
+    }
+
+    // Section 2: Concave Packing Engine (.pz-section)
+    {
+        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 238.0f };
+        Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
+        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
+
+        const float SX = SecRect.X + 16.0f;
+        const float SW = SecRect.Width - 32.0f;
+        float       SY = SecRect.Y + 14.0f;
+
+        ConstructSectionHeading(Surface, SX, SY, SW, "Concave Packing Engine", Theme, "EXACT SHAPE");
+        SY += 24.0f;
+
+        auto& Prefs = Session->WorkspaceConfig.AccessUVPreferences();
+
+        // Strict Ratio | Fill Pockets 2-way toggle
+        const float HalfW = (SW - 6.0f) * 0.5f;
+        const bool  StrictOn = (Prefs.BudgetMode == Configuration::UVBudgetEnforcementMode::StrictRatio);
+        if (ConstructCapsuleButton(Surface, { SX, SY, HalfW, 26.0f }, "Strict Ratio", Theme, Cursor, Pressed, StrictOn, false, 9.6f, 9.0f))
+        {
+            Prefs.BudgetMode            = Configuration::UVBudgetEnforcementMode::StrictRatio;
+            Session->FillPocketsEnabled = false;
+        }
+        if (ConstructCapsuleButton(Surface, { SX + HalfW + 6.0f, SY, HalfW, 26.0f }, "Fill Pockets", Theme, Cursor, Pressed, !StrictOn, false, 9.6f, 9.0f))
+        {
+            Prefs.BudgetMode            = Configuration::UVBudgetEnforcementMode::FillRemainderPockets;
+            Session->FillPocketsEnabled = true;
+        }
+        SY += 34.0f;
+
+        // Island Margin Padding (0..64 px)
+        float MarginNorm = static_cast<float>(Prefs.IslandMarginPixels) / 64.0f;
+        char  MarginTxt[24]{};
+        std::snprintf(MarginTxt, sizeof(MarginTxt), "%u px", Prefs.IslandMarginPixels);
+        if (ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Island Margin Padding", MarginTxt, MarginNorm, Theme, Cursor, Down, Pressed))
+        {
+            Prefs.IslandMarginPixels = static_cast<uint32_t>(std::round(MarginNorm * 64.0f));
+        }
+        SY += 36.0f;
+
+        // Rotation Steps: 0° | 90° | 45° | 15°
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { SX, SY + 5.0f }, 9.8f, Theme.TextMuted, "Rotation Steps");
+        constexpr std::array<std::pair<const char*, uint32_t>, 4u> RotSteps {{
+            { "0°",  0u  },
+            { "90°", 90u },
+            { "45°", 45u },
+            { "15°", 15u },
+        }};
+        const float StepW = (SW - 96.0f - 9.0f) / 4.0f;
+        for (uint32_t Idx = 0u; Idx < 4u; ++Idx)
+        {
+            const Rectangle2D StepBtn{ SX + 96.0f + static_cast<float>(Idx) * (StepW + 3.0f), SY, StepW, 24.0f };
+            if (ConstructCapsuleButton(
+                    Surface,
+                    StepBtn,
+                    RotSteps[Idx].first,
+                    Theme,
+                    Cursor,
+                    Pressed,
+                    Prefs.RotationStepDegrees == RotSteps[Idx].second,
+                    false,
+                    9.2f,
+                    7.0f))
+            {
+                Prefs.RotationStepDegrees = RotSteps[Idx].second;
+            }
+        }
+        SY += 32.0f;
+
+        // Equalize Intra-Group Scale switch
+        (void)ConstructToggleRow(Surface, { SX, SY, SW, 24.0f }, "Equalize Intra-Group Scale", Prefs.EqualizeIntraLayerScale, Theme, Cursor, Pressed);
+        SY += 32.0f;
+
+        // Primary CTA: Pack with Importance Budgets (Shift+P)
+        if (ConstructCapsuleButton(
+                Surface,
+                { SX, SY, SW, 34.0f },
+                "Pack with Importance Budgets (Shift+P)",
+                Theme,
+                Cursor,
+                Pressed,
+                false,
+                true,
+                10.5f,
+                17.0f))
+        {
+            (void)Session->ExecuteDirective(UVCommandDirective::PackUVsConcaveSkyline, nullptr);
+        }
+
+        CurY += SecRect.Height + 12.0f;
+    }
+
+    return CurY - StartY;
+}
+
+float UVInspectorPanel::RenderUnwrapTab(
+    PixelSpace&             Surface,
+    float                   LeftX,
+    float                   StartY,
+    float                   InnerW,
+    const PaneInputReading& Input)
+{
+    using namespace UVAppearance;
+    const UVThemeColors Theme   = QueryThemeColors();
+    const Point2D       Cursor  { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+    const bool          Pressed = Input.PrimaryPointer.Pressed;
+    const bool          Down    = Input.PrimaryPointer.Down;
+
+    float CurY = StartY;
+
+    // Section 1: Unwrap, Quads & Projections
+    {
+        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 198.0f };
+        Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
+        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
+
+        const float SX = SecRect.X + 16.0f;
+        const float SW = SecRect.Width - 32.0f;
+        float       SY = SecRect.Y + 14.0f;
+
+        ConstructSectionHeading(Surface, SX, SY, SW, "Unwrap, Quads & Stacking", Theme);
+        SY += 24.0f;
+
+        const float HalfW = (SW - 6.0f) * 0.5f;
+        if (ConstructCapsuleButton(Surface, { SX, SY, HalfW, 30.0f }, "LSCM Unwrap (U)", Theme, Cursor, Pressed, false, true, 10.0f))
+        {
+            (void)Session->ExecuteDirective(UVCommandDirective::UnwrapConformal, nullptr);
+        }
+        if (ConstructCapsuleButton(Surface, { SX + HalfW + 6.0f, SY, HalfW, 30.0f }, "Smart UV Project", Theme, Cursor, Pressed, false, false, 10.0f))
+        {
+            (void)Session->ExecuteDirective(UVCommandDirective::ProjectSmartUV, nullptr);
+        }
+        SY += 36.0f;
+
+        const float ThirdW = (SW - 8.0f) / 3.0f;
+        if (ConstructCapsuleButton(Surface, { SX, SY, ThirdW, 26.0f }, "Follow Quads", Theme, Cursor, Pressed, false, false, 9.2f, 9.0f))
+        {
+            (void)Session->ExecuteDirective(UVCommandDirective::FollowActiveQuads, nullptr);
+        }
+        if (ConstructCapsuleButton(Surface, { SX + ThirdW + 4.0f, SY, ThirdW, 26.0f }, "Stack Similar", Theme, Cursor, Pressed, false, false, 9.2f, 9.0f))
+        {
+            (void)Session->ExecuteDirective(UVCommandDirective::StackSimilarIslands, nullptr);
+        }
+        if (ConstructCapsuleButton(Surface, { SX + (ThirdW + 4.0f) * 2.0f, SY, ThirdW, 26.0f }, "Unstack", Theme, Cursor, Pressed, false, false, 9.2f, 9.0f))
+        {
+            (void)Session->ExecuteDirective(UVCommandDirective::UnstackOverlapping, nullptr);
+        }
+        SY += 32.0f;
+
+        const float FourthW = (SW - 9.0f) / 4.0f;
+        const std::array<std::pair<const char*, UVCommandDirective>, 4u> Projs {{
+            { "Cube",     UVCommandDirective::ProjectCubicBox    },
+            { "Cylinder", UVCommandDirective::ProjectCylindrical },
+            { "Sphere",   UVCommandDirective::ProjectSpherical   },
+            { "Camera",   UVCommandDirective::ProjectCameraView  },
+        }};
+        for (uint32_t Idx = 0u; Idx < 4u; ++Idx)
+        {
+            if (ConstructCapsuleButton(
+                    Surface,
+                    { SX + static_cast<float>(Idx) * (FourthW + 3.0f), SY, FourthW, 25.0f },
+                    Projs[Idx].first,
+                    Theme,
+                    Cursor,
+                    Pressed,
+                    false,
+                    false,
+                    9.0f,
+                    8.0f))
+            {
+                (void)Session->ExecuteDirective(Projs[Idx].second, nullptr);
+            }
+        }
+        SY += 33.0f;
+
+        float AngleNorm = (Session->SharpAngleThreshold - 15.0f) / 74.0f;
+        char  AngleTxt[24]{};
+        std::snprintf(AngleTxt, sizeof(AngleTxt), "%.0f°", Session->SharpAngleThreshold);
+        if (ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Smart Seam Angle Limit", AngleTxt, AngleNorm, Theme, Cursor, Down, Pressed))
+        {
+            Session->SharpAngleThreshold = 15.0f + AngleNorm * 74.0f;
+        }
+
+        CurY += SecRect.Height + 10.0f;
+    }
+
+    // Section 2: Polygon Network, Pins & Seams
+    {
+        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 134.0f };
+        Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
+        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
+
+        const float SX = SecRect.X + 16.0f;
+        const float SW = SecRect.Width - 32.0f;
+        float       SY = SecRect.Y + 14.0f;
+
+        ConstructSectionHeading(Surface, SX, SY, SW, "Pin, Stitch & Seam Operations", Theme);
+        SY += 24.0f;
+
+        const float ThirdW = (SW - 8.0f) / 3.0f;
+        if (ConstructCapsuleButton(Surface, { SX, SY, ThirdW, 26.0f }, "Pin UVs", Theme, Cursor, Pressed, false, false, 9.2f, 9.0f))
+        {
+            (void)Session->ExecuteDirective(UVCommandDirective::PinSelectedUVs, nullptr);
+        }
+        if (ConstructCapsuleButton(Surface, { SX + ThirdW + 4.0f, SY, ThirdW, 26.0f }, "Unpin UVs", Theme, Cursor, Pressed, false, false, 9.2f, 9.0f))
+        {
+            (void)Session->ExecuteDirective(UVCommandDirective::UnpinSelectedUVs, nullptr);
+        }
+        if (ConstructCapsuleButton(Surface, { SX + (ThirdW + 4.0f) * 2.0f, SY, ThirdW, 26.0f }, "Rectify", Theme, Cursor, Pressed, false, false, 9.2f, 9.0f))
+        {
+            (void)Session->ExecuteDirective(UVCommandDirective::RectifySelectedQuads, nullptr);
+        }
+        SY += 32.0f;
+
+        if (ConstructCapsuleButton(Surface, { SX, SY, ThirdW, 26.0f }, "Mark Seams", Theme, Cursor, Pressed, false, false, 9.2f, 9.0f))
+        {
+            (void)Session->ExecuteDirective(UVCommandDirective::MarkSharpSeams, nullptr);
+        }
+        if (ConstructCapsuleButton(Surface, { SX + ThirdW + 4.0f, SY, ThirdW, 26.0f }, "Clear Seams", Theme, Cursor, Pressed, false, false, 9.2f, 9.0f))
+        {
+            (void)Session->ExecuteDirective(UVCommandDirective::ClearSelectedSeams, nullptr);
+        }
+        if (ConstructCapsuleButton(Surface, { SX + (ThirdW + 4.0f) * 2.0f, SY, ThirdW, 26.0f }, "Stitch", Theme, Cursor, Pressed, false, false, 9.2f, 9.0f))
+        {
+            (void)Session->ExecuteDirective(UVCommandDirective::StitchSelectedSeams, nullptr);
+        }
+
+        CurY += SecRect.Height + 10.0f;
+    }
+
+    // Section 3: Relax & Texel Density
+    {
+        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 146.0f };
+        Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
+        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
+
+        const float SX = SecRect.X + 16.0f;
+        const float SW = SecRect.Width - 32.0f;
+        float       SY = SecRect.Y + 14.0f;
+
+        ConstructSectionHeading(Surface, SX, SY, SW, "GPU Stretch Relax & Texel Density", Theme);
+        SY += 24.0f;
+
+        float IterNorm = static_cast<float>(Session->RelaxIterations) / 64.0f;
+        char  IterTxt[24]{};
+        std::snprintf(IterTxt, sizeof(IterTxt), "%u passes", Session->RelaxIterations);
+        if (ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Relax Passes", IterTxt, IterNorm, Theme, Cursor, Down, Pressed))
+        {
+            Session->RelaxIterations = std::max(1u, static_cast<uint32_t>(std::round(IterNorm * 64.0f)));
+        }
+        SY += 36.0f;
+
+        const float HalfW = (SW - 6.0f) * 0.5f;
+        if (ConstructCapsuleButton(Surface, { SX, SY, HalfW, 28.0f }, "Relax Stretch GPU", Theme, Cursor, Pressed, false, true, 9.8f))
+        {
+            (void)Session->ExecuteDirective(UVCommandDirective::RelaxStretchGPU, nullptr);
+        }
+        if (ConstructCapsuleButton(Surface, { SX + HalfW + 6.0f, SY, HalfW, 28.0f }, "Equalize Density", Theme, Cursor, Pressed, false, false, 9.8f))
+        {
+            (void)Session->ExecuteDirective(UVCommandDirective::EqualizeTexelDensity, nullptr);
+        }
+
+        CurY += SecRect.Height + 12.0f;
+    }
+
+    return CurY - StartY;
+}
+
+float UVInspectorPanel::RenderUDIMTab(
+    PixelSpace&             Surface,
+    float                   LeftX,
+    float                   StartY,
+    float                   InnerW,
+    const PaneInputReading& Input)
+{
+    using namespace UVAppearance;
+    const UVThemeColors Theme   = QueryThemeColors();
+    const Point2D       Cursor  { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+    const bool          Pressed = Input.PrimaryPointer.Pressed;
+
+    float CurY = StartY;
+
+    char ActBuf[24]{}, CountBuf[24]{}, DensBuf[24]{};
+    std::snprintf(ActBuf, sizeof(ActBuf), "%u", Session->ActiveUDIMNumber);
+    std::snprintf(CountBuf, sizeof(CountBuf), "%zu", Session->Asset.UDIMTiles.size());
+    std::snprintf(DensBuf, sizeof(DensBuf), "%.1f px/cm", Session->WorkspaceConfig.InspectUVPreferences().TargetTexelDensity * 0.01f);
+
+    ConstructMetricTrio(
+        Surface,
+        { LeftX, CurY, InnerW, 56.0f },
+        ActBuf,   "Active UDIM",
+        CountBuf, "Atlas Tiles",
+        DensBuf,  "Texel Density",
+        Theme);
+    CurY += 66.0f;
+
+    // Section 1: UDIM Tiles grid (.pz-udim-grid)
+    {
+        const float TileListHeight = static_cast<float>(Session->Asset.UDIMTiles.size()) * 36.0f;
+        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 88.0f + TileListHeight };
+        Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
+        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
+
+        const float SX = SecRect.X + 16.0f;
+        const float SW = SecRect.Width - 32.0f;
+        float       SY = SecRect.Y + 14.0f;
+
+        ConstructSectionHeading(Surface, SX, SY, SW, "UDIM Tiles", Theme);
+        SY += 24.0f;
+
+        const float HalfW = (SW - 6.0f) * 0.5f;
+        if (ConstructCapsuleButton(Surface, { SX, SY, HalfW, 26.0f }, "+ Add UDIM Tile", Theme, Cursor, Pressed, false, true, 9.6f))
+        {
+            (void)Session->ConstructNextUDIMTile();
+        }
+        if (ConstructCapsuleButton(Surface, { SX + HalfW + 6.0f, SY, HalfW, 26.0f }, "Distribute UDIMs", Theme, Cursor, Pressed, false, false, 9.6f))
+        {
+            (void)Session->ExecuteDirective(UVCommandDirective::AutoDistributeUDIMs, nullptr);
+        }
+        SY += 34.0f;
+
+        for (const uint32_t TileCode : Session->Asset.UDIMTiles)
+        {
+            const bool        IsAct = (Session->ActiveUDIMNumber == TileCode);
+            const auto        Cfg   = Session->QueryUDIMTileSetting(TileCode);
+            const float       Occ   = EvaluateUDIMFillPercent(Session->Asset.Network, TileCode);
+            const Rectangle2D Row   { SX, SY, SW, 32.0f };
+            const bool        Hov   = Row.Contains(Cursor);
+
+            Surface.FillRectangle(Row, IsAct ? Theme.AccentSoft : (Hov ? Theme.HoverBg : Theme.WellBg), 8.0f);
+            Surface.StrokeRectangle(Row, IsAct ? Theme.AccentBorder : Theme.BorderSubtle, 8.0f, 1.0f);
+
+            Surface.FillCircle({ Row.X + 12.0f, Row.Y + 14.0f }, 3.5f, IsAct ? Theme.AccentFill : Theme.TextMuted);
+
+            char RowTxt[64]{};
+            const uint32_t TU = (TileCode - 1001u) % 10u;
+            const uint32_t TV = (TileCode - 1001u) / 10u;
+            std::snprintf(RowTxt, sizeof(RowTxt), "UDIM %u   (%u,%u) · %.1f%%", TileCode, TU, TV, Occ);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Row.X + 24.0f, Row.Y + 7.5f }, 9.8f, Theme.TextPrimary, RowTxt);
+
+            char ResolutionTag[16]{};
+            if (Cfg.ResolutionPx >= 1024u)
+            {
+                std::snprintf(ResolutionTag, sizeof(ResolutionTag), "%uK", Cfg.ResolutionPx / 1024u);
+            }
+            else
+            {
+                std::snprintf(ResolutionTag, sizeof(ResolutionTag), "%u", Cfg.ResolutionPx);
+            }
+            const float RW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 9.0f, ResolutionTag);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Row.Right() - RW - 10.0f, Row.Y + 8.0f }, 9.0f, Theme.AccentFill, ResolutionTag);
+
+            // Bottom 2px fill bar
+            if (Occ > 0.2f)
+            {
+                Surface.FillRectangle({ Row.X + 4.0f, Row.Bottom() - 3.0f, (Row.Width - 8.0f) * (Occ * 0.01f), 2.0f }, Theme.AccentFill, 1.0f);
+            }
+
+            if (Hov && Pressed)
+            {
+                Session->ActiveUDIMNumber  = TileCode;
+                Session->FramebuffersDirty = true;
+            }
+            SY += 36.0f;
+        }
+
+        CurY += SecRect.Height + 10.0f;
+    }
+
+    // Section 2: Active UDIM Resolution & Backing
+    {
+        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 132.0f };
+        Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
+        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
+
+        const float SX = SecRect.X + 16.0f;
+        const float SW = SecRect.Width - 32.0f;
+        float       SY = SecRect.Y + 14.0f;
+
+        char SecTitle[48]{};
+        std::snprintf(SecTitle, sizeof(SecTitle), "UDIM %u Settings", Session->ActiveUDIMNumber);
+        ConstructSectionHeading(Surface, SX, SY, SW, SecTitle, Theme);
+        SY += 24.0f;
+
+        auto& TileCfg = Session->AccessUDIMTileSetting(Session->ActiveUDIMNumber);
+
+        // 5-column resolution deck: 512 | 1K | 2K | 4K | 8K
+        constexpr std::array<std::pair<const char*, uint32_t>, 5u> ResDeck {{
+            { "512", 512u  },
+            { "1K",  1024u },
+            { "2K",  2048u },
+            { "4K",  4096u },
+            { "8K",  8192u },
+        }};
+        const float ResW = (SW - 12.0f) / 5.0f;
+        for (uint32_t Idx = 0u; Idx < 5u; ++Idx)
+        {
+            if (ConstructCapsuleButton(
+                    Surface,
+                    { SX + static_cast<float>(Idx) * (ResW + 3.0f), SY, ResW, 26.0f },
+                    ResDeck[Idx].first,
+                    Theme,
+                    Cursor,
+                    Pressed,
+                    TileCfg.ResolutionPx == ResDeck[Idx].second,
+                    false,
+                    9.2f,
+                    8.0f))
+            {
+                TileCfg.ResolutionPx      = ResDeck[Idx].second;
+                Session->FramebuffersDirty = true;
+            }
+        }
+        SY += 34.0f;
+
+        // 4-column Backing selector
+        constexpr std::array<std::pair<const char*, GeometricRaster::UVBackdropPreset>, 4u> Backings {{
+            { "Slate",      GeometricRaster::UVBackdropPreset::None             },
+            { "ColorCheck", GeometricRaster::UVBackdropPreset::ColorChecker     },
+            { "Trim Atlas", GeometricRaster::UVBackdropPreset::TrimSheetAtlas   },
+            { "Aniso Pack", GeometricRaster::UVBackdropPreset::BrushedAnisoPack },
+        }};
+        const float BackW = (SW - 9.0f) / 4.0f;
+        for (uint32_t Idx = 0u; Idx < 4u; ++Idx)
+        {
+            if (ConstructCapsuleButton(
+                    Surface,
+                    { SX + static_cast<float>(Idx) * (BackW + 3.0f), SY, BackW, 26.0f },
+                    Backings[Idx].first,
+                    Theme,
+                    Cursor,
+                    Pressed,
+                    TileCfg.BackdropPreset == Backings[Idx].second,
+                    false,
+                    8.8f,
+                    8.0f))
+            {
+                TileCfg.BackdropPreset     = Backings[Idx].second;
+                Session->FramebuffersDirty = true;
+            }
+        }
+
+        CurY += SecRect.Height + 12.0f;
+    }
+
+    return CurY - StartY;
+}
+
+float UVInspectorPanel::RenderShadingTab(
+    PixelSpace&             Surface,
+    float                   LeftX,
+    float                   StartY,
+    float                   InnerW,
+    const PaneInputReading& Input)
+{
+    using namespace UVAppearance;
+    const UVThemeColors Theme   = QueryThemeColors();
+    const Point2D       Cursor  { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+    const bool          Pressed = Input.PrimaryPointer.Pressed;
+    const bool          Down    = Input.PrimaryPointer.Down;
+
+    float CurY = StartY;
+
+    // 1. .pz-shading-hero Banner
+    {
+        const Rectangle2D Hero{ LeftX, CurY, InnerW, 76.0f };
+        Surface.FillRectangle(Hero, Theme.SectionBg, 20.0f);
+        Surface.StrokeRectangle(Hero, Theme.BorderStrong, 20.0f, 1.0f);
+
+        ConstructMatCapOrbPreview(Surface, { Hero.X + 34.0f, Hero.Y + 38.0f }, 20.0f, SelectedMatCap, true, Theme);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Hero.X + 66.0f, Hero.Y + 16.0f }, 12.5f, Theme.TextPrimary, "Studio + Multi-MatCap");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Hero.X + 66.0f, Hero.Y + 36.0f }, 9.2f, Theme.TextMuted, "GGX Direct Lit + 16 Procedural MatCaps");
+
+        char SubLine[64]{};
+        std::snprintf(SubLine, sizeof(SubLine), "%s tris · UDIM %u", FormatCountWithCommas(Session->Asset.Network.Faces.size()).c_str(), Session->ActiveUDIMNumber);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Hero.X + 66.0f, Hero.Y + 52.0f }, 8.8f, Theme.AccentFill, SubLine);
+
+        CurY += Hero.Height + 10.0f;
+    }
+
+    // 2. 2x2 Bento Telemetry Grid (.pz-bento-grid)
+    {
+        const float Gap   = 8.0f;
+        const float TileW = (InnerW - Gap) * 0.5f;
+        const float TileH = 54.0f;
+
+        char OvStr[32]{}, StrStr[32]{}, ResStr[32]{}, SurfStr[32]{};
+        std::snprintf(OvStr, sizeof(OvStr), "%u Overlaps", Session->LatestMetrics.OverlapFaceCount);
+        std::snprintf(StrStr, sizeof(StrStr), "%.2fx", Session->LatestMetrics.MeanL2Stretch);
+        std::snprintf(ResStr, sizeof(ResStr), "%u px", Session->QueryUDIMTileSetting(Session->ActiveUDIMNumber).ResolutionPx);
+        std::snprintf(SurfStr, sizeof(SurfStr), "%s f", FormatCountWithCommas(Session->Asset.Network.Faces.size()).c_str());
+
+        const std::array<std::pair<const char*, const char*>, 4u> Bento {{
+            { "UV Health",    OvStr   },
+            { "Mean Stretch", StrStr  },
+            { "Atlas Res",    ResStr  },
+            { "Surface",      SurfStr },
+        }};
+
+        for (uint32_t Idx = 0u; Idx < 4u; ++Idx)
+        {
+            const float BX = LeftX + static_cast<float>(Idx % 2u) * (TileW + Gap);
+            const float BY = CurY  + static_cast<float>(Idx / 2u) * (TileH + Gap);
+            const Rectangle2D Cell{ BX, BY, TileW, TileH };
+            Surface.FillRectangle(Cell, Theme.SectionBg, 14.0f);
+            Surface.StrokeRectangle(Cell, Theme.BorderSubtle, 14.0f, 1.0f);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Cell.X + 12.0f, Cell.Y + 9.0f }, 8.8f, Theme.TextMuted, Bento[Idx].first);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium,  { Cell.X + 12.0f, Cell.Y + 26.0f }, 12.5f, (Idx == 0u && Session->LatestMetrics.OverlapFaceCount == 0u) ? Theme.ReadyGreen : Theme.TextPrimary, Bento[Idx].second);
+        }
+        CurY += (TileH * 2.0f + Gap) + 10.0f;
+    }
+
+    // 3. Surface Finish & 16-Orb MatCap color set
+    {
+        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 236.0f };
+        Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
+        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
+
+        const float SX = SecRect.X + 16.0f;
+        const float SW = SecRect.Width - 32.0f;
+        float       SY = SecRect.Y + 14.0f;
+
+        ConstructSectionHeading(Surface, SX, SY, SW, "Surface Finish & MatCaps", Theme);
+        SY += 26.0f;
+
+        // 8x2 MatCap Sphere Grid
+        const float ColStep = SW / 8.0f;
+        for (uint32_t Slot = 0u; Slot < 16u; ++Slot)
+        {
+            const uint32_t Col = Slot % 8u;
+            const uint32_t Row = Slot / 8u;
+            const Point2D  Ctr { SX + ColStep * (static_cast<float>(Col) + 0.5f), SY + 13.0f + static_cast<float>(Row) * 32.0f };
+            ConstructMatCapOrbPreview(Surface, Ctr, 11.5f, Slot, SelectedMatCap == Slot, Theme);
+
+            const Rectangle2D Hit{ Ctr.X - 13.0f, Ctr.Y - 13.0f, 26.0f, 26.0f };
+            if (Hit.Contains(Cursor) && Pressed)
+            {
+                SelectedMatCap = static_cast<uint8_t>(Slot);
+                Session->ApplyMatCapToActiveSelection(SelectedMatCap);
+            }
+        }
+        SY += 70.0f;
+
+        char MetTxt[24]{}, RghTxt[24]{}, BldTxt[24]{};
+        std::snprintf(MetTxt, sizeof(MetTxt), "%.2f", SurfaceMetallic);
+        std::snprintf(RghTxt, sizeof(RghTxt), "%.2f", SurfaceRoughness);
+        std::snprintf(BldTxt, sizeof(BldTxt), "%.0f%%", SurfaceMatBlend * 100.0f);
+
+        bool MaterialDirty = false;
+        MaterialDirty |= ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Metallic", MetTxt, SurfaceMetallic, Theme, Cursor, Down, Pressed);
+        SY += 34.0f;
+        MaterialDirty |= ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Roughness", RghTxt, SurfaceRoughness, Theme, Cursor, Down, Pressed);
+        SY += 34.0f;
+        MaterialDirty |= ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "MatCap Blend", BldTxt, SurfaceMatBlend, Theme, Cursor, Down, Pressed);
+
+        if (MaterialDirty)
+        {
+            Session->ApplySurfaceRoughnessMetallic(SurfaceRoughness, SurfaceMetallic, SurfaceMatBlend);
+        }
+
+        CurY += SecRect.Height + 12.0f;
+    }
+
+    return CurY - StartY;
+}
+
+float UVInspectorPanel::RenderCheckTab(
+    PixelSpace&             Surface,
+    float                   LeftX,
+    float                   StartY,
+    float                   InnerW,
+    const PaneInputReading& Input)
+{
+    using namespace UVAppearance;
+    const UVThemeColors Theme   = QueryThemeColors();
+    const Point2D       Cursor  { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+    const bool          Pressed = Input.PrimaryPointer.Pressed;
+
+    float CurY = StartY;
+
+    char OvStr[24]{}, FlpStr[24]{}, StrStr[24]{};
+    std::snprintf(OvStr, sizeof(OvStr), "%u", Session->LatestMetrics.OverlapFaceCount);
+    std::snprintf(FlpStr, sizeof(FlpStr), "%u", Session->LatestMetrics.FlippedFaceCount);
+    std::snprintf(StrStr, sizeof(StrStr), "%.2f", Session->LatestMetrics.MeanL2Stretch);
+
+    ConstructMetricTrio(
+        Surface,
+        { LeftX, CurY, InnerW, 56.0f },
+        OvStr,  "Overlapping Faces",
+        FlpStr, "Flipped Winding",
+        StrStr, "Mean L2 Stretch",
+        Theme);
+    CurY += 66.0f;
+
+    const Rectangle2D SecRect{ LeftX, CurY, InnerW, 148.0f };
+    Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
+    Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
+
+    const float SX = SecRect.X + 16.0f;
+    const float SW = SecRect.Width - 32.0f;
+    float       SY = SecRect.Y + 14.0f;
+
+    ConstructSectionHeading(Surface, SX, SY, SW, "UV Integrity & Repair", Theme, "VULKAN SAT");
+    SY += 26.0f;
+
+    const float HalfW = (SW - 6.0f) * 0.5f;
+    if (ConstructCapsuleButton(Surface, { SX, SY, HalfW, 28.0f }, "Select Overlaps", Theme, Cursor, Pressed, false, false, 9.6f))
+    {
+        (void)Session->ExecuteDirective(UVCommandDirective::SelectOverlappingFaces, nullptr);
+    }
+    if (ConstructCapsuleButton(Surface, { SX + HalfW + 6.0f, SY, HalfW, 28.0f }, "Select Flipped", Theme, Cursor, Pressed, false, false, 9.6f))
+    {
+        (void)Session->ExecuteDirective(UVCommandDirective::SelectFlippedFaces, nullptr);
+    }
+    SY += 34.0f;
+
+    if (ConstructCapsuleButton(Surface, { SX, SY, HalfW, 30.0f }, "Run GPU Inspection", Theme, Cursor, Pressed, false, false, 9.6f))
+    {
+        (void)Session->ExecuteDirective(UVCommandDirective::ValidateDistortionGPU, nullptr);
+    }
+    if (ConstructCapsuleButton(Surface, { SX + HalfW + 6.0f, SY, HalfW, 30.0f }, "Auto-Relax & Repack", Theme, Cursor, Pressed, false, true, 9.6f))
+    {
+        (void)Session->ExecuteDirective(UVCommandDirective::RelaxStretchGPU, nullptr);
+        (void)Session->ExecuteDirective(UVCommandDirective::PackUVsConcaveSkyline, nullptr);
+    }
+
+    CurY += SecRect.Height + 12.0f;
+    return CurY - StartY;
 }
 
 void UVInspectorPanel::Render(
@@ -115,8 +878,11 @@ void UVInspectorPanel::Render(
     double                  Δt)
 {
     (void)Δt;
+    using namespace UVAppearance;
+    const UVThemeColors Theme = QueryThemeColors();
+
     Surface.PushClip(Bounds);
-    Surface.FillRectangle(Bounds, InspectorBg);
+    Surface.FillRectangle(Bounds, Theme.PanelBg);
 
     if (Session == nullptr)
     {
@@ -124,507 +890,174 @@ void UVInspectorPanel::Render(
         return;
     }
 
-    const float LeftX  = Bounds.X + 12.0f;
-    const float InnerW = std::max(140.0f, Bounds.Width - 24.0f);
-    float       CurY   = Bounds.Y + 12.0f;
+    const Point2D Cursor  { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+    const bool    Pressed = Input.PrimaryPointer.Pressed;
 
-    Surface.Text({ LeftX, CurY }, 13.5f, IvoryAccent, "UV INSPECTOR");
-    CurY += 24.0f;
+    const float PadX   = 18.0f;
+    const float LeftX  = Bounds.X + PadX;
+    const float InnerW = std::max(150.0f, Bounds.Width - PadX * 2.0f);
+    float       CurY   = Bounds.Y + 14.0f;
 
-    // 5-Tab Segmented Selector: Pack | Unwrap | UDIM | Shade | Check
-    const std::array<const char*, 5u> TabLabels {{ "Pack", "Unwrap", "UDIM", "Shade", "Check" }};
-    const float TabGap = 4.0f;
-    const float TabW   = (InnerW - TabGap * 4.0f) / 5.0f;
-    for (uint32_t TabIdx = 0u; TabIdx < 5u; ++TabIdx)
+    // 1. Breadcrumb + "+ Export OBJ" + "Reset"
+    WorkspaceAppearance::ConstructTruncatedText(
+        Surface,
+        FontWeightClass::Regular,
+        { LeftX, CurY + 4.0f },
+        InnerW - 140.0f,
+        9.0f,
+        Theme.TextMuted,
+        "Inspector / Surface & MatCap");
+
+    const Rectangle2D ResetBtn  { LeftX + InnerW - 48.0f, CurY, 48.0f, 22.0f };
+    const Rectangle2D ExportBtn { ResetBtn.X - 84.0f, CurY, 78.0f, 22.0f };
+    if (ConstructCapsuleButton(Surface, ExportBtn, "+ Export OBJ", Theme, Cursor, Pressed, false, false, 8.8f))
     {
-        const Rectangle2D TRect { LeftX + static_cast<float>(TabIdx) * (TabW + TabGap), CurY, TabW, 28.0f };
-        const bool        Selected = (static_cast<uint32_t>(Session->ActiveInspectorTab) == TabIdx);
-        Surface.FillRectangle(TRect, Selected ? ActivePill : SectionCard, 6.0f);
-        Surface.StrokeRectangle(TRect, Selected ? IvoryAccent : BorderStroke, 6.0f, Selected ? 1.3f : 1.0f);
-        Surface.TextCentered(TRect, 11.5f, Selected ? IvoryAccent : CrispWhite, TabLabels[TabIdx]);
-        if (Input.PrimaryPointer.Pressed && TRect.Contains({ Input.PrimaryPointer.X, Input.PrimaryPointer.Y }))
-        {
-            Session->ActiveInspectorTab = static_cast<UVInspectorTab>(TabIdx);
-        }
+        std::string Diag {};
+        (void)Session->ExportExternalGeometry(std::filesystem::temp_directory_path() / "FrontierExport.obj", Diag);
     }
-    CurY += 38.0f;
+    if (ConstructCapsuleButton(Surface, ResetBtn, "Reset", Theme, Cursor, Pressed, false, false, 8.8f))
+    {
+        Session->LoadSamplePreset(Session->ActivePreset);
+    }
+    CurY += 28.0f;
 
-    const Rectangle2D BodyArea { LeftX, CurY, InnerW, std::max(40.0f, Bounds.Bottom() - CurY - 10.0f) };
+    // 2. Large 23px Light Selection / Asset Heading + Subtitle (matching InspectorPanel.cpp & Experimental/UVEditor)
+    WorkspaceAppearance::ConstructTruncatedText(
+        Surface,
+        FontWeightClass::Light,
+        { LeftX, CurY },
+        InnerW,
+        23.0f,
+        Theme.TextPrimary,
+        Session->Asset.Network.NetworkTitle);
+    CurY += 29.0f;
+
+    char SubMeta[112]{};
+    const auto TileCfg = Session->QueryUDIMTileSetting(Session->ActiveUDIMNumber);
+    std::snprintf(
+        SubMeta,
+        sizeof(SubMeta),
+        "UDIM %u · %s faces · %u px",
+        Session->ActiveUDIMNumber,
+        FormatCountWithCommas(Session->Asset.Network.Faces.size()).c_str(),
+        TileCfg.ResolutionPx);
+    WorkspaceAppearance::ConstructTruncatedText(
+        Surface,
+        FontWeightClass::Regular,
+        { LeftX, CurY },
+        InnerW,
+        9.8f,
+        Theme.TextMuted,
+        SubMeta);
+    CurY += 22.0f;
+
+    // 3. 5-Tab Segmented Bar (.inspector-tabs: Pack | Unwrap | UDIM | Shading | Check)
+    {
+        const Rectangle2D TabBar{ LeftX, CurY, InnerW, 34.0f };
+        Surface.FillRectangle(TabBar, Theme.WellBg, 11.0f);
+        Surface.StrokeRectangle(TabBar, Theme.BorderSubtle, 11.0f, 1.0f);
+
+        constexpr std::array<const char*, 5u> TabNames {{ "Pack", "Unwrap", "UDIM", "Shading", "Check" }};
+        const float SegW = (InnerW - 6.0f) / 5.0f;
+        for (uint32_t Idx = 0u; Idx < 5u; ++Idx)
+        {
+            const Rectangle2D Seg{ TabBar.X + 3.0f + static_cast<float>(Idx) * SegW, TabBar.Y + 3.0f, SegW, 28.0f };
+            const auto        TargetTab = static_cast<UVInspectorTab>(Idx);
+            const bool        Active    = (Session->ActiveInspectorTab == TargetTab);
+            const bool        Hovered   = Seg.Contains(Cursor);
+
+            if (Active)
+            {
+                Surface.FillRectangle(Seg, Theme.RaisedBg, 8.0f);
+                Surface.StrokeRectangle(Seg, Theme.AccentBorder, 8.0f, 1.0f);
+            }
+            else if (Hovered)
+            {
+                Surface.FillRectangle(Seg, Theme.HoverBg, 8.0f);
+            }
+
+            const float TW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.8f, TabNames[Idx]);
+            WorkspaceAppearance::ConstructWeightedText(
+                Surface,
+                FontWeightClass::Regular,
+                { Seg.X + (Seg.Width - TW) * 0.5f, Seg.Y + 7.0f },
+                9.8f,
+                Active ? Theme.TextPrimary : Theme.TextMuted,
+                TabNames[Idx]);
+
+            if (Hovered && Pressed)
+            {
+                Session->ActiveInspectorTab = TargetTab;
+                ScrollOffsetY               = 0.0f;
+            }
+        }
+        CurY += 44.0f;
+    }
+
+    // 4. Scrollable Active Tab Body above Sticky 40px Inspector Footer
+    constexpr float   FooterH = 40.0f;
+    const Rectangle2D ScrollRect{
+        Bounds.X,
+        CurY,
+        Bounds.Width,
+        std::max(40.0f, Bounds.Bottom() - FooterH - CurY)
+    };
+
+    if (ScrollRect.Contains(Cursor) && std::abs(Input.WheelDeltaY) > 1.0e-4f)
+    {
+        ScrollOffsetY = std::max(0.0f, ScrollOffsetY - Input.WheelDeltaY * 28.0f);
+    }
+
+    Surface.PushClip(ScrollRect);
+    const float BodyStartY = ScrollRect.Y - ScrollOffsetY;
+    float       ContentH   = 0.0f;
+
     switch (Session->ActiveInspectorTab)
     {
-        case UVInspectorTab::Packing: RenderPackingSection(Surface, BodyArea, Input); break;
-        case UVInspectorTab::Unwrap:  RenderUnwrapSection(Surface, BodyArea, Input);  break;
-        case UVInspectorTab::UDIM:    RenderUDIMSection(Surface, BodyArea, Input);    break;
-        case UVInspectorTab::Shading: RenderShadingSection(Surface, BodyArea, Input); break;
-        case UVInspectorTab::Check:   RenderCheckSection(Surface, BodyArea, Input);   break;
+        case UVInspectorTab::Packing: ContentH = RenderPackingTab(Surface, LeftX, BodyStartY, InnerW, Input); break;
+        case UVInspectorTab::Unwrap:  ContentH = RenderUnwrapTab(Surface, LeftX, BodyStartY, InnerW, Input);  break;
+        case UVInspectorTab::UDIM:    ContentH = RenderUDIMTab(Surface, LeftX, BodyStartY, InnerW, Input);    break;
+        case UVInspectorTab::Shading: ContentH = RenderShadingTab(Surface, LeftX, BodyStartY, InnerW, Input); break;
+        case UVInspectorTab::Check:   ContentH = RenderCheckTab(Surface, LeftX, BodyStartY, InnerW, Input);   break;
     }
+
+    const float MaxScroll = std::max(0.0f, ContentH - ScrollRect.Height);
+    if (ScrollOffsetY > MaxScroll)
+    {
+        ScrollOffsetY = MaxScroll;
+    }
+    Surface.PopClip();
+
+    // 5. Sticky 40px Inspector Footer (.pz-inspector-foot)
+    const Rectangle2D FootRect{ Bounds.X, Bounds.Bottom() - FooterH, Bounds.Width, FooterH };
+    Surface.FillRectangle(FootRect, Theme.PanelBg);
+    Surface.StrokeLine({ FootRect.X, FootRect.Y }, { FootRect.Right(), FootRect.Y }, Theme.BorderSubtle, 1.0f);
+
+    Surface.FillCircle({ LeftX + 5.0f, FootRect.Y + 20.0f }, 3.0f, Theme.ReadyGreen);
+    WorkspaceAppearance::ConstructWeightedText(
+        Surface,
+        FontWeightClass::Regular,
+        { LeftX + 14.0f, FootRect.Y + 13.0f },
+        9.5f,
+        Theme.TextMuted,
+        "Studio + Multi-MatCap");
+
+    char FootRight[48]{};
+    std::snprintf(FootRight, sizeof(FootRight), "UDIM %u · %u px", Session->ActiveUDIMNumber, TileCfg.ResolutionPx);
+    const float FRW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.5f, FootRight);
+    WorkspaceAppearance::ConstructWeightedText(
+        Surface,
+        FontWeightClass::Regular,
+        { LeftX + InnerW - FRW, FootRect.Y + 13.0f },
+        9.5f,
+        Theme.TextMuted,
+        FootRight);
 
     Surface.PopClip();
 }
 
-void UVInspectorPanel::RenderPackingSection(
-    PixelSpace&             Surface,
-    Rectangle2D             Area,
-    const PaneInputReading& Input)
-{
-    float CurY  = Area.Y;
-    auto& Prefs = Session->WorkspaceConfig.AccessUVPreferences();
-
-    // Selected Priority Layer Share Slider
-    Surface.FillRectangle({ Area.X, CurY, Area.Width, 94.0f }, SectionCard, 6.0f);
-    Surface.StrokeRectangle({ Area.X, CurY, Area.Width, 94.0f }, BorderStroke, 6.0f, 1.0f);
-
-    const auto* ActiveLayer = Session->Asset.Layers.InspectLayer(Session->SelectedLayerOrdinal);
-    if (ActiveLayer != nullptr)
-    {
-        Surface.Text({ Area.X + 12.0f, CurY + 10.0f }, 12.0f, IvoryAccent, ActiveLayer->LayerTitle.c_str());
-        char NumStr[24]{};
-        std::snprintf(NumStr, sizeof(NumStr), "%.0f", ActiveLayer->TargetSharePercent);
-        float RequestedShare = ActiveLayer->TargetSharePercent;
-        (void)RenderSliderControlRow(
-            Surface, Area.X + 12.0f, CurY + 30.0f, Area.Width - 24.0f,
-            "Target Tile Share", NumStr, "%", 0.0f, 100.0f, ActiveLayer->TargetSharePercent,
-            101u, DraggingField, Input, RequestedShare);
-        if (std::abs(RequestedShare - ActiveLayer->TargetSharePercent) > 0.05f)
-        {
-            Session->AdjustSelectedLayerShare(RequestedShare);
-        }
-    }
-    else
-    {
-        Surface.Text({ Area.X + 12.0f, CurY + 14.0f }, 12.0f, SkyAccent, "Unassigned Remainder Selected");
-        char RemLine[96]{};
-        std::snprintf(RemLine, sizeof(RemLine), "Auto-Receives %.0f%% Remaining UDIM Space", Session->Asset.Layers.DeriveRemainderSharePercent());
-        Surface.Text({ Area.X + 12.0f, CurY + 42.0f }, 11.5f, MutedSubtext, RemLine);
-    }
-    CurY += 104.0f;
-
-    // Concave Packing Engine + Island Stack/Pocket Controls
-    Surface.FillRectangle({ Area.X, CurY, Area.Width, 304.0f }, SectionCard, 6.0f);
-    Surface.StrokeRectangle({ Area.X, CurY, Area.Width, 304.0f }, BorderStroke, 6.0f, 1.0f);
-    Surface.Text({ Area.X + 12.0f, CurY + 10.0f }, 12.0f, SkyAccent, "CONCAVE PACKING ENGINE (GPU SKYLINE)");
-
-    char MarginStr[24]{};
-    std::snprintf(MarginStr, sizeof(MarginStr), "%u", Prefs.IslandMarginPixels);
-    float MarginFloat = static_cast<float>(Prefs.IslandMarginPixels);
-    float NewMargin   = MarginFloat;
-    float RowY = RenderSliderControlRow(
-        Surface, Area.X + 12.0f, CurY + 32.0f, Area.Width - 24.0f,
-        "Bleed Gutter Margin", MarginStr, "px", 2.0f, 32.0f, MarginFloat,
-        102u, DraggingField, Input, NewMargin);
-    Prefs.IslandMarginPixels = static_cast<uint32_t>(std::round(NewMargin));
-
-    Surface.Text({ Area.X + 12.0f, RowY }, 11.5f, CrispWhite, "Rotation Candidates");
-    const std::array<uint32_t, 3u> RotSteps {{ 0u, 90u, 45u }};
-    const std::array<const char*, 3u> RotNames {{ "Lock 0", "90 deg", "45 deg" }};
-    const float RChipW = (Area.Width - 36.0f) / 3.0f;
-    for (uint32_t Idx = 0u; Idx < 3u; ++Idx)
-    {
-        const Rectangle2D CRect { Area.X + 12.0f + static_cast<float>(Idx) * (RChipW + 6.0f), RowY + 18.0f, RChipW, 24.0f };
-        const bool Active = (Prefs.RotationStepDegrees == RotSteps[Idx]);
-        Surface.FillRectangle(CRect, Active ? ActivePill : InspectorBg, 5.0f);
-        Surface.StrokeRectangle(CRect, Active ? SkyAccent : BorderStroke, 5.0f, 1.0f);
-        Surface.TextCentered(CRect, 11.0f, Active ? IvoryAccent : CrispWhite, RotNames[Idx]);
-        if (Input.PrimaryPointer.Pressed && CRect.Contains({ Input.PrimaryPointer.X, Input.PrimaryPointer.Y }))
-        {
-            Prefs.RotationStepDegrees = RotSteps[Idx];
-        }
-    }
-    RowY += 50.0f;
-
-    Surface.Text({ Area.X + 12.0f, RowY + 4.0f }, 11.5f, CrispWhite, "Equalize Intra-Layer Scale");
-    if (ExclusiveSelector::ConstructCompact(
-            Surface,
-            { Area.X + Area.Width - 60.0f, RowY, 48.0f, 22.0f },
-            Prefs.EqualizeIntraLayerScale,
-            Input.PrimaryPointer).Clicked)
-    {
-        Prefs.EqualizeIntraLayerScale = !Prefs.EqualizeIntraLayerScale;
-    }
-    RowY += 28.0f;
-
-    Surface.Text({ Area.X + 12.0f, RowY + 4.0f }, 11.5f, CrispWhite, "Fill Empty Pockets");
-    if (ExclusiveSelector::ConstructCompact(
-            Surface,
-            { Area.X + Area.Width - 60.0f, RowY, 48.0f, 22.0f },
-            Session->FillPocketsEnabled,
-            Input.PrimaryPointer).Clicked)
-    {
-        Session->FillPocketsEnabled = !Session->FillPocketsEnabled;
-    }
-    RowY += 32.0f;
-
-    const float HalfBtnW = (Area.Width - 30.0f) * 0.5f;
-    if (RenderActionCapsule(Surface, { Area.X + 12.0f, RowY, HalfBtnW, 28.0f }, "Stack Similar", false, Input))
-    {
-        Session->QueueDirective(UVCommandDirective::StackSimilarIslands);
-    }
-    if (RenderActionCapsule(Surface, { Area.X + 18.0f + HalfBtnW, RowY, HalfBtnW, 28.0f }, "Unstack", false, Input))
-    {
-        Session->QueueDirective(UVCommandDirective::UnstackOverlapping);
-    }
-    RowY += 36.0f;
-
-    if (RenderActionCapsule(
-            Surface,
-            { Area.X + 12.0f, RowY, Area.Width - 24.0f, 34.0f },
-            "Pack UVs (Concave Skyline + GPU)",
-            true,
-            Input))
-    {
-        Session->QueueDirective(UVCommandDirective::PackUVsConcaveSkyline);
-    }
-}
-
-void UVInspectorPanel::RenderUnwrapSection(
-    PixelSpace&             Surface,
-    Rectangle2D             Area,
-    const PaneInputReading& Input)
-{
-    float CurY = Area.Y;
-    Surface.FillRectangle({ Area.X, CurY, Area.Width, 434.0f }, SectionCard, 6.0f);
-    Surface.StrokeRectangle({ Area.X, CurY, Area.Width, 434.0f }, BorderStroke, 6.0f, 1.0f);
-    Surface.Text({ Area.X + 12.0f, CurY + 10.0f }, 12.0f, SkyAccent, "UNWRAP, PROJECTIONS, SEAMS, PINS & RELAX");
-
-    // 7 Projection / Unwrap Method Chips (2 rows)
-    const std::array<const char*, 7u> MethodNames {{ "LSCM", "ABF++", "Smart", "Box", "Cyl", "Sphere", "Quads" }};
-    const std::array<UVCommandDirective, 7u> MethodDirs {{
-        UVCommandDirective::UnwrapConformal,
-        UVCommandDirective::FlattenAngleBasedABF,
-        UVCommandDirective::ProjectSmartUV,
-        UVCommandDirective::ProjectCubicBox,
-        UVCommandDirective::ProjectCylindrical,
-        UVCommandDirective::ProjectSpherical,
-        UVCommandDirective::FollowActiveQuads,
-    }};
-
-    float RowY = CurY + 32.0f;
-    const float ChipW4 = (Area.Width - 36.0f) / 4.0f;
-    for (uint32_t MIdx = 0u; MIdx < 4u; ++MIdx)
-    {
-        const Rectangle2D MRect { Area.X + 12.0f + static_cast<float>(MIdx) * (ChipW4 + 4.0f), RowY, ChipW4, 24.0f };
-        const bool Active = (static_cast<uint32_t>(Session->ActiveUnwrapMethod) == MIdx);
-        Surface.FillRectangle(MRect, Active ? ActivePill : InspectorBg, 5.0f);
-        Surface.StrokeRectangle(MRect, Active ? IvoryAccent : BorderStroke, 5.0f, 1.0f);
-        Surface.TextCentered(MRect, 10.5f, Active ? IvoryAccent : CrispWhite, MethodNames[MIdx]);
-        if (Input.PrimaryPointer.Pressed && MRect.Contains({ Input.PrimaryPointer.X, Input.PrimaryPointer.Y }))
-        {
-            Session->ActiveUnwrapMethod = static_cast<UVProjectionMethod>(MIdx);
-            Session->QueueDirective(MethodDirs[MIdx]);
-        }
-    }
-    RowY += 28.0f;
-
-    const float ChipW3 = (Area.Width - 32.0f) / 3.0f;
-    for (uint32_t MIdx = 4u; MIdx < 7u; ++MIdx)
-    {
-        const Rectangle2D MRect { Area.X + 12.0f + static_cast<float>(MIdx - 4u) * (ChipW3 + 4.0f), RowY, ChipW3, 24.0f };
-        const bool Active = (static_cast<uint32_t>(Session->ActiveUnwrapMethod) == MIdx);
-        Surface.FillRectangle(MRect, Active ? ActivePill : InspectorBg, 5.0f);
-        Surface.StrokeRectangle(MRect, Active ? IvoryAccent : BorderStroke, 5.0f, 1.0f);
-        Surface.TextCentered(MRect, 10.5f, Active ? IvoryAccent : CrispWhite, MethodNames[MIdx]);
-        if (Input.PrimaryPointer.Pressed && MRect.Contains({ Input.PrimaryPointer.X, Input.PrimaryPointer.Y }))
-        {
-            Session->ActiveUnwrapMethod = static_cast<UVProjectionMethod>(MIdx);
-            Session->QueueDirective(MethodDirs[MIdx]);
-        }
-    }
-    RowY += 32.0f;
-
-    if (RenderActionCapsule(Surface, { Area.X + 12.0f, RowY, Area.Width - 24.0f, 30.0f }, "Execute Selected Unwrap / Projection", true, Input))
-    {
-        const uint32_t Idx = std::min<uint32_t>(6u, static_cast<uint32_t>(Session->ActiveUnwrapMethod));
-        Session->QueueDirective(MethodDirs[Idx]);
-    }
-    RowY += 38.0f;
-
-    // Seam, Pin, Stitch & Island Authoring Grid
-    const float HalfW = (Area.Width - 30.0f) * 0.5f;
-    if (RenderActionCapsule(Surface, { Area.X + 12.0f, RowY, HalfW, 26.0f }, "Mark Seam", false, Input))
-    {
-        Session->QueueDirective(UVCommandDirective::MarkSelectedSeams);
-    }
-    if (RenderActionCapsule(Surface, { Area.X + 18.0f + HalfW, RowY, HalfW, 26.0f }, "Clear + Weld", false, Input))
-    {
-        Session->QueueDirective(UVCommandDirective::ClearSelectedSeams);
-    }
-    RowY += 30.0f;
-
-    if (RenderActionCapsule(Surface, { Area.X + 12.0f, RowY, HalfW, 26.0f }, "Stitch [V]", false, Input))
-    {
-        Session->QueueDirective(UVCommandDirective::StitchSelectedSeams);
-    }
-    if (RenderActionCapsule(Surface, { Area.X + 18.0f + HalfW, RowY, HalfW, 26.0f }, "Split Island [Y]", false, Input))
-    {
-        Session->QueueDirective(UVCommandDirective::SplitSelectedIsland);
-    }
-    RowY += 30.0f;
-
-    if (RenderActionCapsule(Surface, { Area.X + 12.0f, RowY, HalfW, 26.0f }, "Pin UVs [P]", false, Input))
-    {
-        Session->QueueDirective(UVCommandDirective::PinSelectedUVs);
-    }
-    if (RenderActionCapsule(Surface, { Area.X + 18.0f + HalfW, RowY, HalfW, 26.0f }, "Rectify Quads", false, Input))
-    {
-        Session->QueueDirective(UVCommandDirective::RectifySelectedQuads);
-    }
-    RowY += 34.0f;
-
-    char AngleStr[24]{};
-    std::snprintf(AngleStr, sizeof(AngleStr), "%.0f", Session->SharpAngleThreshold);
-    float NewAngle = Session->SharpAngleThreshold;
-    RowY = RenderSliderControlRow(
-        Surface, Area.X + 12.0f, RowY, Area.Width - 24.0f,
-        "Sharp Dihedral Seam Angle", AngleStr, "deg", 15.0f, 89.0f, Session->SharpAngleThreshold,
-        201u, DraggingField, Input, NewAngle);
-    Session->SharpAngleThreshold = NewAngle;
-
-    if (RenderActionCapsule(Surface, { Area.X + 12.0f, RowY, HalfW, 28.0f }, "Mark Sharp", false, Input))
-    {
-        Session->QueueDirective(UVCommandDirective::MarkSharpSeams);
-    }
-    if (RenderActionCapsule(Surface, { Area.X + 18.0f + HalfW, RowY, HalfW, 28.0f }, "Relax GPU (.slang)", true, Input))
-    {
-        Session->QueueDirective(UVCommandDirective::RelaxStretchGPU);
-    }
-}
-
-void UVInspectorPanel::RenderUDIMSection(
-    PixelSpace&             Surface,
-    Rectangle2D             Area,
-    const PaneInputReading& Input)
-{
-    auto& Prefs   = Session->WorkspaceConfig.AccessUVPreferences();
-    auto& TileCfg = Session->AccessUDIMTileSetting(Session->ActiveUDIMNumber);
-
-    Surface.FillRectangle({ Area.X, Area.Y, Area.Width, 344.0f }, SectionCard, 6.0f);
-    Surface.StrokeRectangle({ Area.X, Area.Y, Area.Width, 344.0f }, BorderStroke, 6.0f, 1.0f);
-
-    char HeaderTxt[64]{};
-    std::snprintf(HeaderTxt, sizeof(HeaderTxt), "UDIM %u  |  RESOLUTION & BACKDROP", Session->ActiveUDIMNumber);
-    Surface.Text({ Area.X + 12.0f, Area.Y + 10.0f }, 12.0f, SkyAccent, HeaderTxt);
-
-    float RowY = Area.Y + 34.0f;
-    Surface.Text({ Area.X + 12.0f, RowY }, 11.5f, CrispWhite, "Per-UDIM Target Resolution");
-    const std::array<uint32_t, 5u> ResChoices {{ 512u, 1024u, 2048u, 4096u, 8192u }};
-    const std::array<const char*, 5u> ResLabels {{ "512", "1K", "2K", "4K", "8K" }};
-    const float RChipW = (Area.Width - 40.0f) / 5.0f;
-    for (uint32_t Idx = 0u; Idx < 5u; ++Idx)
-    {
-        const Rectangle2D RRect { Area.X + 12.0f + static_cast<float>(Idx) * (RChipW + 4.0f), RowY + 18.0f, RChipW, 24.0f };
-        const bool Active = (TileCfg.ResolutionPx == ResChoices[Idx]);
-        Surface.FillRectangle(RRect, Active ? ActivePill : InspectorBg, 5.0f);
-        Surface.StrokeRectangle(RRect, Active ? IvoryAccent : BorderStroke, 5.0f, 1.0f);
-        Surface.TextCentered(RRect, 10.5f, Active ? IvoryAccent : CrispWhite, ResLabels[Idx]);
-        if (Input.PrimaryPointer.Pressed && RRect.Contains({ Input.PrimaryPointer.X, Input.PrimaryPointer.Y }))
-        {
-            TileCfg.ResolutionPx          = ResChoices[Idx];
-            Prefs.DefaultTileResolutionPx = ResChoices[Idx];
-            Session->FramebuffersDirty    = true;
-        }
-    }
-    RowY += 52.0f;
-
-    Surface.Text({ Area.X + 12.0f, RowY }, 11.5f, CrispWhite, "Texture Backdrop Preview");
-    const std::array<const char*, 4u> BgLabels {{ "None", "Checker", "Trim", "Aniso" }};
-    const float BChipW = (Area.Width - 36.0f) / 4.0f;
-    for (uint32_t Idx = 0u; Idx < 4u; ++Idx)
-    {
-        const Rectangle2D BRect { Area.X + 12.0f + static_cast<float>(Idx) * (BChipW + 4.0f), RowY + 18.0f, BChipW, 24.0f };
-        const bool Active = (static_cast<uint32_t>(TileCfg.BackdropPreset) == Idx);
-        Surface.FillRectangle(BRect, Active ? ActivePill : InspectorBg, 5.0f);
-        Surface.StrokeRectangle(BRect, Active ? SkyAccent : BorderStroke, 5.0f, 1.0f);
-        Surface.TextCentered(BRect, 10.5f, Active ? IvoryAccent : CrispWhite, BgLabels[Idx]);
-        if (Input.PrimaryPointer.Pressed && BRect.Contains({ Input.PrimaryPointer.X, Input.PrimaryPointer.Y }))
-        {
-            TileCfg.BackdropPreset     = static_cast<GeometricRaster::UVBackdropPreset>(Idx);
-            Session->FramebuffersDirty = true;
-        }
-    }
-    RowY += 52.0f;
-
-    char DensityStr[24]{};
-    std::snprintf(DensityStr, sizeof(DensityStr), "%.0f", Prefs.TargetTexelDensity);
-    float NewDensity = Prefs.TargetTexelDensity;
-    RowY = RenderSliderControlRow(
-        Surface, Area.X + 12.0f, RowY, Area.Width - 24.0f,
-        "Target Physical Texel Density", DensityStr, "px/m", 128.0f, 2048.0f, Prefs.TargetTexelDensity,
-        301u, DraggingField, Input, NewDensity);
-    Prefs.TargetTexelDensity = NewDensity;
-
-    if (RenderActionCapsule(Surface, { Area.X + 12.0f, RowY + 4.0f, Area.Width - 24.0f, 30.0f }, "Equalize Texel Density", false, Input))
-    {
-        Session->QueueDirective(UVCommandDirective::EqualizeTexelDensity);
-    }
-    if (RenderActionCapsule(Surface, { Area.X + 12.0f, RowY + 40.0f, Area.Width - 24.0f, 34.0f }, "Auto-Distribute Across UDIMs", true, Input))
-    {
-        Session->QueueDirective(UVCommandDirective::AutoDistributeUDIMs);
-    }
-}
-
-void UVInspectorPanel::RenderShadingSection(
-    PixelSpace&             Surface,
-    Rectangle2D             Area,
-    const PaneInputReading& Input)
-{
-    Surface.FillRectangle({ Area.X, Area.Y, Area.Width, 356.0f }, SectionCard, 6.0f);
-    Surface.StrokeRectangle({ Area.X, Area.Y, Area.Width, 356.0f }, BorderStroke, 6.0f, 1.0f);
-    Surface.Text({ Area.X + 12.0f, Area.Y + 10.0f }, 12.0f, SkyAccent, "16-SLOT STUDIO MATCAP & PBR (.SLANG)");
-
-    const std::array<ColorRgba, 16u> SwatchPalette {{
-        { 196, 204, 218, 255 }, { 188, 180, 168, 255 }, { 186, 158, 140, 255 }, { 222, 172,  82, 255 },
-        { 232, 236, 244, 255 }, {  72, 138, 228, 255 }, { 118, 138, 108, 255 }, {  48,  52,  62, 255 },
-        {  86, 122, 152, 255 }, { 202, 198, 186, 255 }, { 220, 224, 230, 255 }, { 224, 128,  86, 255 },
-        { 232, 236, 208, 255 }, {  88,  92, 102, 255 }, { 138, 204, 242, 255 }, { 142, 196, 168, 255 },
-    }};
-
-    const float CellGap = 6.0f;
-    const float CellW   = (Area.Width - 24.0f - CellGap * 3.0f) / 4.0f;
-    for (uint8_t Slot = 0u; Slot < 16u; ++Slot)
-    {
-        const uint32_t Col = Slot % 4u;
-        const uint32_t Row = Slot / 4u;
-        const Rectangle2D Cell {
-            Area.X + 12.0f + static_cast<float>(Col) * (CellW + CellGap),
-            Area.Y + 34.0f + static_cast<float>(Row) * 44.0f,
-            CellW,
-            38.0f,
-        };
-        Surface.FillRectangle(Cell, SwatchPalette[Slot], 6.0f);
-        Surface.StrokeRectangle(Cell, BorderStroke, 6.0f, 1.0f);
-
-        char SlotTxt[16]{};
-        std::snprintf(SlotTxt, sizeof(SlotTxt), "M%u", Slot);
-        Surface.Text({ Cell.X + 6.0f, Cell.Y + 6.0f }, 10.5f, { 16, 18, 22, 255 }, SlotTxt);
-
-        if (Input.PrimaryPointer.Pressed && Cell.Contains({ Input.PrimaryPointer.X, Input.PrimaryPointer.Y }))
-        {
-            Session->ApplyMatCapToActiveSelection(Slot);
-        }
-    }
-
-    float RowY = Area.Y + 216.0f;
-    char RoughStr[24]{}, MetalStr[24]{};
-    std::snprintf(RoughStr, sizeof(RoughStr), "%.2f", SurfaceRoughness);
-    std::snprintf(MetalStr, sizeof(MetalStr), "%.2f", SurfaceMetallic);
-
-    float NewRough = SurfaceRoughness;
-    RowY = RenderSliderControlRow(
-        Surface, Area.X + 12.0f, RowY, Area.Width - 24.0f,
-        "Surface Roughness", RoughStr, "", 0.04f, 1.0f, SurfaceRoughness,
-        401u, DraggingField, Input, NewRough);
-
-    float NewMetal = SurfaceMetallic;
-    (void)RenderSliderControlRow(
-        Surface, Area.X + 12.0f, RowY, Area.Width - 24.0f,
-        "Surface Metallic", MetalStr, "", 0.0f, 1.0f, SurfaceMetallic,
-        402u, DraggingField, Input, NewMetal);
-
-    if (std::abs(NewRough - SurfaceRoughness) > 0.005f || std::abs(NewMetal - SurfaceMetallic) > 0.005f)
-    {
-        SurfaceRoughness = NewRough;
-        SurfaceMetallic  = NewMetal;
-        Session->ApplySurfaceRoughnessMetallic(SurfaceRoughness, SurfaceMetallic, SurfaceMatBlend);
-    }
-}
-
-void UVInspectorPanel::RenderCheckSection(
-    PixelSpace&             Surface,
-    Rectangle2D             Area,
-    const PaneInputReading& Input)
-{
-    auto& Prefs = Session->WorkspaceConfig.AccessUVPreferences();
-    Surface.FillRectangle({ Area.X, Area.Y, Area.Width, 356.0f }, SectionCard, 6.0f);
-    Surface.StrokeRectangle({ Area.X, Area.Y, Area.Width, 356.0f }, BorderStroke, 6.0f, 1.0f);
-    Surface.Text({ Area.X + 12.0f, Area.Y + 10.0f }, 12.0f, SkyAccent, "GPU DISTORTION & OVERLAY DIAGNOSTICS");
-
-    // Live GPU KPI Status Badge
-    const bool CleanMetrics = (Session->LatestMetrics.FlippedFaceCount == 0u && Session->LatestMetrics.OverlapFaceCount == 0u);
-    const Rectangle2D KpiBadge { Area.X + 12.0f, Area.Y + 34.0f, Area.Width - 24.0f, 48.0f };
-    Surface.FillRectangle(KpiBadge, InspectorBg, 6.0f);
-    Surface.StrokeRectangle(KpiBadge, CleanMetrics ? EmeraldGood : WarnCoral, 6.0f, 1.2f);
-
-    float MaxStretch = Session->LatestMetrics.MeanL2Stretch;
-    for (const float Val : Session->LatestMetrics.PerFaceStretch)
-    {
-        MaxStretch = std::max(MaxStretch, Val);
-    }
-    char Line1[96]{};
-    std::snprintf(Line1, sizeof(Line1), "Mean L2 Stretch: %.3f  (Max %.3f)", Session->LatestMetrics.MeanL2Stretch, MaxStretch);
-    Surface.Text({ KpiBadge.X + 10.0f, KpiBadge.Y + 7.0f }, 11.5f, CleanMetrics ? EmeraldGood : WarnCoral, Line1);
-
-    char Line2[96]{};
-    std::snprintf(
-        Line2,
-        sizeof(Line2),
-        "Flipped Faces: %u   |   Overlap Faces: %u",
-        Session->LatestMetrics.FlippedFaceCount,
-        Session->LatestMetrics.OverlapFaceCount);
-    Surface.Text({ KpiBadge.X + 10.0f, KpiBadge.Y + 26.0f }, 11.0f, CrispWhite, Line2);
-
-    const float HalfW = (Area.Width - 30.0f) * 0.5f;
-    if (RenderActionCapsule(Surface, { Area.X + 12.0f, Area.Y + 90.0f, HalfW, 26.0f }, "Select Flipped", false, Input))
-    {
-        Session->QueueDirective(UVCommandDirective::SelectFlippedFaces);
-    }
-    if (RenderActionCapsule(Surface, { Area.X + 18.0f + HalfW, Area.Y + 90.0f, HalfW, 26.0f }, "Select Overlaps", false, Input))
-    {
-        Session->QueueDirective(UVCommandDirective::SelectOverlappingFaces);
-    }
-
-    float ToggleY = Area.Y + 126.0f;
-    Surface.Text({ Area.X + 12.0f, ToggleY + 4.0f }, 11.5f, CrispWhite, "Wireframe Overlay");
-    if (ExclusiveSelector::ConstructCompact(
-            Surface, { Area.X + Area.Width - 60.0f, ToggleY, 48.0f, 22.0f }, Prefs.WireframeOverlayEnabled, Input.PrimaryPointer).Clicked)
-    {
-        Prefs.WireframeOverlayEnabled = !Prefs.WireframeOverlayEnabled;
-        Session->FramebuffersDirty    = true;
-    }
-
-    ToggleY += 30.0f;
-    Surface.Text({ Area.X + 12.0f, ToggleY + 4.0f }, 11.5f, CrispWhite, "Seam Overlay (Default Off)");
-    if (ExclusiveSelector::ConstructCompact(
-            Surface, { Area.X + Area.Width - 60.0f, ToggleY, 48.0f, 22.0f }, Prefs.SeamOverlayEnabled, Input.PrimaryPointer).Clicked)
-    {
-        Prefs.SeamOverlayEnabled   = !Prefs.SeamOverlayEnabled;
-        Session->FramebuffersDirty = true;
-    }
-
-    ToggleY += 30.0f;
-    Surface.Text({ Area.X + 12.0f, ToggleY + 4.0f }, 11.5f, CrispWhite, "GPU Pin Beacons");
-    if (ExclusiveSelector::ConstructCompact(
-            Surface, { Area.X + Area.Width - 60.0f, ToggleY, 48.0f, 22.0f }, Session->RenderOptions2D.PinOverlayEnabled, Input.PrimaryPointer).Clicked)
-    {
-        Session->RenderOptions2D.PinOverlayEnabled = !Session->RenderOptions2D.PinOverlayEnabled;
-        Session->FramebuffersDirty                 = true;
-    }
-
-    ToggleY += 30.0f;
-    const bool HeatmapOn = (Session->RenderOptions2D.DisplayMode == GeometricRaster::UVCanvasDisplayMode::StretchHeatmap);
-    Surface.Text({ Area.X + 12.0f, ToggleY + 4.0f }, 11.5f, CrispWhite, "L2 Stretch Heatmap");
-    if (ExclusiveSelector::ConstructCompact(
-            Surface, { Area.X + Area.Width - 60.0f, ToggleY, 48.0f, 22.0f }, HeatmapOn, Input.PrimaryPointer).Clicked)
-    {
-        const bool EnableHeatmap = !HeatmapOn;
-        Session->RenderOptions2D.DisplayMode = EnableHeatmap
-            ? GeometricRaster::UVCanvasDisplayMode::StretchHeatmap
-            : GeometricRaster::UVCanvasDisplayMode::PriorityLayerFill;
-        Session->FramebuffersDirty = true;
-    }
-
-    if (RenderActionCapsule(Surface, { Area.X + 12.0f, Area.Y + 306.0f, Area.Width - 24.0f, 34.0f }, "Re-Evaluate Stretch & Overlaps (GPU)", true, Input))
-    {
-        Session->QueueDirective(UVCommandDirective::ValidateDistortionGPU);
-    }
-}
-
 void UVInspectorPanel::PresentInImGuiPane(double Δt, float ScaleFactor)
 {
-    if (ImGui::GetCurrentContext() == nullptr)
-    {
-        return;
-    }
-
     const float  SafeScale = std::max(0.25f, ScaleFactor);
     const ImVec2 WinPos    = ImGui::GetWindowPos();
     const ImVec2 WinSize   = ImGui::GetWindowSize();
@@ -632,14 +1065,17 @@ void UVInspectorPanel::PresentInImGuiPane(double Δt, float ScaleFactor)
     const float  TopY      = CursorPos.y - ImGui::GetStyle().WindowPadding.y;
     const float  PaneH     = std::max(1.0f, (WinPos.y + WinSize.y) - TopY);
 
-    ImGui::InvisibleButton("##UVInspectorCanvas", ImVec2(std::max(1.0f, ImGui::GetContentRegionAvail().x), std::max(1.0f, ImGui::GetContentRegionAvail().y)));
+    ImGui::InvisibleButton(
+        "##UVInspectorPaneCanvas",
+        ImVec2(std::max(1.0f, ImGui::GetContentRegionAvail().x), std::max(1.0f, ImGui::GetContentRegionAvail().y)),
+        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
 
     const Rectangle2D ScreenBounds{ WinPos.x, TopY, WinSize.x, PaneH };
     const Rectangle2D LogicalBounds{ 0.0f, 0.0f, WinSize.x / SafeScale, PaneH / SafeScale };
 
-    PixelSpace             WindowSurface(ImGui::GetWindowDrawList(), { ScreenBounds.X, ScreenBounds.Y }, SafeScale);
+    PixelSpace             Surface(ImGui::GetWindowDrawList(), { ScreenBounds.X, ScreenBounds.Y }, SafeScale);
     const PaneInputReading Input = WorkspaceAppearance::CaptureImGuiPaneInput(ScreenBounds, SafeScale);
-    Render(WindowSurface, LogicalBounds, Input, Δt);
+    Render(Surface, LogicalBounds, Input, Δt);
 }
 
 } // namespace Frontier::Workspaces

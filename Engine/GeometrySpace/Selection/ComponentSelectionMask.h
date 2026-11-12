@@ -42,7 +42,7 @@ public:
 
     // Expands (Ctrl++) or contracts (Ctrl+-) face/edge selection across shared non-seam neighbors.
     void ExpandFaceSelection(const PolygonNetwork& Network, bool CrossSeams = true);
-    void ContractFaceSelection(const PolygonNetwork& Network);
+    void ShrinkFaceSelection(const PolygonNetwork& Network);
 
     [[nodiscard]] bool QueryVertexSelected(uint32_t VertexIndex) const noexcept;
     [[nodiscard]] bool QueryEdgeSelected(uint32_t EdgeIndex) const noexcept;

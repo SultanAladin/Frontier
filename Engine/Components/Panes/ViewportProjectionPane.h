@@ -32,11 +32,11 @@ namespace Frontier
 struct ViewportToolbarChip
 {
     std::string           Caption      {};            // [-] - Button label rendered in top projection strip
-    bool                  PrimaryStyle = false;       // [-] - Highlighted action capsule when true
-    std::function<void()> OnActivated  {};            // [-] - Invoked on primary click
+    bool                  PrimaryStyle = false;       // [-] - Highlighted command capsule when true
+    std::function<void()> ActivationCallback  {};            // [-] - Invoked on primary click
 };
 
-struct ViewportFramebufferSlice
+struct ViewportRasterBuffer
 {
     const uint8_t* RgbaPixels = nullptr; // [-]  - Row-major RGBA8 GPU framebuffer bytes
     uint32_t       WidthPx    = 0u;      // [px] - Framebuffer pixel width
@@ -45,28 +45,28 @@ struct ViewportFramebufferSlice
 
 struct DualViewportFramebuffers
 {
-    ViewportFramebufferSlice Spatial3D {}; // [-] - 3D spatial framebuffer slice
-    ViewportFramebufferSlice Planar2D  {}; // [-] - 2D planar/tile framebuffer slice
+    ViewportRasterBuffer Spatial3D {}; // [-] - 3D spatial framebuffer slice
+    ViewportRasterBuffer Planar2D  {}; // [-] - 2D planar/tile framebuffer slice
 };
 
-struct ViewportInteractionFrame
+struct ViewportInteractionReading
 {
     Rectangle2D             PlanarBounds  {}; // [px] - Logical rectangle of 2D planar canvas (0 width when hidden)
     Rectangle2D             SpatialBounds {}; // [px] - Logical rectangle of 3D spatial viewport (0 width when hidden)
-    const PaneInputReading& Input;            // [-]  - Current frame pointer, wheel, modifier & keyboard reading
+    const PaneInputReading& Input;            // [-]  - Current step pointer, wheel, modifier & keyboard reading
 };
 
 class ViewportProjectionPane
 {
 public:
-    using FramebufferSyncCallback = std::function<DualViewportFramebuffers(
+    using RasterBufferSyncCallback = std::function<DualViewportFramebuffers(
         uint32_t SpatialWidthPx,
         uint32_t SpatialHeightPx,
         uint32_t PlanarWidthPx,
         uint32_t PlanarHeightPx)>;
 
     using SplitModeChangedCallback    = std::function<void(Editor::ViewportSplitMode NewMode)>;
-    using ViewportInteractionCallback = std::function<void(const ViewportInteractionFrame& Frame)>;
+    using ViewportInteractionCallback = std::function<void(const ViewportInteractionReading& Reading)>;
 
     ViewportProjectionPane();
     ~ViewportProjectionPane();
@@ -75,10 +75,10 @@ public:
     ViewportProjectionPane& operator=(const ViewportProjectionPane&) = delete;
 
     void AttachDocument(Workspaces::WorkspaceDocument* TargetDocument) noexcept;
-    void ConfigurePaneBadges(std::string_view PlanarBadge, std::string_view SpatialBadge);
+    void ConfigurePaneIndicators(std::string_view PlanarIndicator, std::string_view SpatialIndicator);
     void ConfigureToolbarChips(std::vector<ViewportToolbarChip> Chips);
     void ConfigureStatusBanner(std::string_view BannerText);
-    void AssignFramebufferProvider(FramebufferSyncCallback Provider);
+    void AssignRasterBufferSource(RasterBufferSyncCallback SourceCallback);
     void AssignSplitModeCallback(SplitModeChangedCallback Callback);
     void AssignInteractionCallback(ViewportInteractionCallback Callback);
 
@@ -91,18 +91,26 @@ public:
         const PaneInputReading& Input,
         double                  Δt);
 
+    void RenderViewportCanvas(
+        PixelSpace&             Surface,
+        Rectangle2D             CanvasBounds,
+        const PaneInputReading& Input,
+        bool                    AllowInteraction,
+        Rectangle2D*            OutPlanarRect  = nullptr,
+        Rectangle2D*            OutSpatialRect = nullptr);
+
     void PresentInImGuiPane(double Δt, float ScaleFactor = 1.0f);
 
 private:
-    static void SyncTextureData(ImTextureData& TargetTex, const ViewportFramebufferSlice& Source);
+    static void UploadTexturePixels(ImTextureData& TargetTex, const ViewportRasterBuffer& Source);
 
     Workspaces::WorkspaceDocument*   BoundDocument        = nullptr;
     Editor::ViewportProjection       FallbackProjection   {};
-    std::string                      PlanarBadgeTitle     { "2D PLANAR CANVAS + GIZMO" };
-    std::string                      SpatialBadgeTitle    { "3D PROJECTION + MATCAP + GIZMO" };
+    std::string                      PlanarIndicatorTitle     { "2D PLANAR CANVAS + GIZMO" };
+    std::string                      SpatialIndicatorTitle    { "3D PROJECTION + MATCAP + GIZMO" };
     std::string                      StatusBanner         {};
     std::vector<ViewportToolbarChip> DomainChips          {};
-    FramebufferSyncCallback          FramebufferProvider  {};
+    RasterBufferSyncCallback          RasterBufferSource  {};
     SplitModeChangedCallback         SplitChangedNotifier {};
     ViewportInteractionCallback      InteractionCallback  {};
     ImTextureData                    PlanarTexture        {};

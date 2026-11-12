@@ -98,7 +98,7 @@ void ViewportProjection::DollySpatialCamera(float DistanceMultiplier) noexcept
         250.0f);
 }
 
-void ViewportProjection::FrameSpatialExtents(Mathematics::Axis3D MinBounds, Mathematics::Axis3D MaxBounds) noexcept
+void ViewportProjection::FitSpatialExtents(Mathematics::Axis3D MinBounds, Mathematics::Axis3D MaxBounds) noexcept
 {
     SpatialCamera.TargetPivot = {
         0.5f * (MinBounds.X + MaxBounds.X),
@@ -131,14 +131,14 @@ void ViewportProjection::ZoomPlanarAroundPoint(
     float    LocalPixelY,
     float    ZoomMultiplier) noexcept
 {
-    const Mathematics::UVAxes BeforeUV = MapPixelToPlanarUV(CanvasWidthPx, CanvasHeightPx, LocalPixelX, LocalPixelY);
+    const Mathematics::UVAxes BeforeUV = ProjectPixelToPlanarUV(CanvasWidthPx, CanvasHeightPx, LocalPixelX, LocalPixelY);
     ZoomPlanarWindow(ZoomMultiplier);
-    const Mathematics::UVAxes AfterUV  = MapPixelToPlanarUV(CanvasWidthPx, CanvasHeightPx, LocalPixelX, LocalPixelY);
+    const Mathematics::UVAxes AfterUV  = ProjectPixelToPlanarUV(CanvasWidthPx, CanvasHeightPx, LocalPixelX, LocalPixelY);
     PlanarWindow.PanOffsetUV.U += (BeforeUV.U - AfterUV.U);
     PlanarWindow.PanOffsetUV.V += (BeforeUV.V - AfterUV.V);
 }
 
-void ViewportProjection::FramePlanarExtents(Mathematics::UVAxes MinBounds, Mathematics::UVAxes MaxBounds) noexcept
+void ViewportProjection::FitPlanarExtents(Mathematics::UVAxes MinBounds, Mathematics::UVAxes MaxBounds) noexcept
 {
     const float BoxW = std::max(0.05f, MaxBounds.U - MinBounds.U);
     const float BoxH = std::max(0.05f, MaxBounds.V - MinBounds.V);
@@ -238,7 +238,7 @@ void ViewportProjection::EvaluateAspectLockedPlanarBounds(
     OutMaxUV = { CenterU + 0.5f * EffectiveU, CenterV + 0.5f * EffectiveV };
 }
 
-Mathematics::UVAxes ViewportProjection::MapPixelToPlanarUV(
+Mathematics::UVAxes ViewportProjection::ProjectPixelToPlanarUV(
     uint32_t CanvasWidthPx,
     uint32_t CanvasHeightPx,
     float    LocalPixelX,
@@ -262,7 +262,7 @@ ViewportRay3D ViewportProjection::BuildPlanarRay(
     float    LocalPixelX,
     float    LocalPixelY) const noexcept
 {
-    const Mathematics::UVAxes UV = MapPixelToPlanarUV(CanvasWidthPx, CanvasHeightPx, LocalPixelX, LocalPixelY);
+    const Mathematics::UVAxes UV = ProjectPixelToPlanarUV(CanvasWidthPx, CanvasHeightPx, LocalPixelX, LocalPixelY);
     return { { UV.U, UV.V, 5.0f }, { 0.0f, 0.0f, -1.0f } };
 }
 

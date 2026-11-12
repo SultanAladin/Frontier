@@ -47,28 +47,28 @@ ViewportPickQuery::~ViewportPickQuery()
 }
 
 bool ViewportPickQuery::InitializePickQuery(
-    VulkanDeviceContext*         BoundContext,
+    VulkanInterchange*         BoundDevice,
     ComputeDispatchEncoder*      BoundComputeEncoder,
     TimelineTransferRegister*           BoundTransferRegister,
     const std::filesystem::path& PickReductionSpirvPath)
 {
     TeardownPickQuery();
-    if (BoundContext == nullptr || BoundComputeEncoder == nullptr || BoundTransferRegister == nullptr)
+    if (BoundDevice == nullptr || BoundComputeEncoder == nullptr || BoundTransferRegister == nullptr)
     {
         return false;
     }
 
-    Context        = BoundContext;
+    DeviceInterchange        = BoundDevice;
     ComputeEncoder = BoundComputeEncoder;
     TransferRegister   = BoundTransferRegister;
 
-    const std::array<VkDescriptorType, 4u> BindingTypes {{
+    const std::array<VkDescriptorType, 4u> SlotCategories {{
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
     }};
-    ReductionProgramHandle = ComputeEncoder->RegisterProgram(PickReductionSpirvPath, BindingTypes);
+    ReductionProgramHandle = ComputeEncoder->RegisterProgram(PickReductionSpirvPath, SlotCategories);
     if (ReductionProgramHandle == UINT32_MAX)
     {
         TeardownPickQuery();
@@ -82,13 +82,13 @@ bool ViewportPickQuery::InitializePickQuery(
 
 void ViewportPickQuery::TeardownPickQuery() noexcept
 {
-    if (Context != nullptr && Context->Ready())
+    if (DeviceInterchange != nullptr && DeviceInterchange->Ready())
     {
-        Context->ReleaseBuffer(ParamsUniformBuffer);
-        Context->ReleaseBuffer(FlattenedPickBuffer);
-        Context->ReleaseBuffer(SummaryStorageBuffer);
+        DeviceInterchange->ReleaseBuffer(ParamsUniformBuffer);
+        DeviceInterchange->ReleaseBuffer(FlattenedPickBuffer);
+        DeviceInterchange->ReleaseBuffer(SummaryStorageBuffer);
     }
-    Context                = nullptr;
+    DeviceInterchange                = nullptr;
     ComputeEncoder         = nullptr;
     TransferRegister           = nullptr;
     ReductionProgramHandle = UINT32_MAX;
@@ -107,7 +107,7 @@ ViewportPickHit ViewportPickQuery::QuerySinglePixel(
     int32_t       CursorY)
 {
     ViewportPickHit Result {};
-    if (Context == nullptr || TransferRegister == nullptr || ImageWidthPx == 0u || ImageHeightPx == 0u)
+    if (DeviceInterchange == nullptr || TransferRegister == nullptr || ImageWidthPx == 0u || ImageHeightPx == 0u)
     {
         return Result;
     }
@@ -115,7 +115,7 @@ ViewportPickHit ViewportPickQuery::QuerySinglePixel(
     const int32_t ClampedX = std::clamp(CursorX, 0, static_cast<int32_t>(ImageWidthPx) - 1);
     const int32_t ClampedY = std::clamp(CursorY, 0, static_cast<int32_t>(ImageHeightPx) - 1);
 
-    VkCommandBuffer Cmd = Context->BeginSingleTimeCommands();
+    VkCommandBuffer Cmd = DeviceInterchange->BeginSingleTimeCommands();
     ReadbackTicket Ticket = TransferRegister->EncodeImageRegionReadback(
         Cmd,
         PickAttachmentImage,
@@ -126,7 +126,7 @@ ViewportPickHit ViewportPickQuery::QuerySinglePixel(
         1u,
         16u); // R32G32B32A32_UINT = 16 bytes/pixel
 
-    const uint64_t Signal = Context->DispatchCommandBufferAsync(Cmd);
+    const uint64_t Signal = DeviceInterchange->DispatchCommandBufferAsync(Cmd);
     TransferRegister->BindTicketTimelineSignal(Ticket, Signal);
 
     std::array<uint32_t, 4u> RawChannels {{ 0u, GeometrySpace::InvalidNetworkIndex, GeometrySpace::InvalidNetworkIndex, 0u }};
@@ -138,7 +138,7 @@ ViewportPickHit ViewportPickQuery::QuerySinglePixel(
         Result.GizmoHandleOrdinal = RawChannels[3u];
     }
 
-    vkFreeCommandBuffers(Context->AccessDevice(), Context->AccessCommandPool(), 1u, &Cmd);
+    vkFreeCommandBuffers(DeviceInterchange->AccessDevice(), DeviceInterchange->AccessCommandAllocator(), 1u, &Cmd);
     return Result;
 }
 
@@ -158,7 +158,7 @@ RegionPickSummary ViewportPickQuery::ExecuteRegionReduction(
     uint32_t      MaxFaceCount)
 {
     RegionPickSummary Summary {};
-    if (Context == nullptr || ComputeEncoder == nullptr || TransferRegister == nullptr ||
+    if (DeviceInterchange == nullptr || ComputeEncoder == nullptr || TransferRegister == nullptr ||
         ImageWidthPx == 0u || ImageHeightPx == 0u)
     {
         return Summary;
@@ -194,7 +194,7 @@ RegionPickSummary ViewportPickQuery::ExecuteRegionReduction(
     const std::array<uint32_t, 4u> ZeroSummary {{ 0u, 0u, 0u, 0u }};
     ComputeEncoder->UploadSpanToBuffer<uint32_t>(SummaryStorageBuffer, ZeroSummary);
 
-    VkCommandBuffer Cmd = Context->BeginSingleTimeCommands();
+    VkCommandBuffer Cmd = DeviceInterchange->BeginSingleTimeCommands();
 
     VkImageMemoryBarrier ImgToTransfer {};
     ImgToTransfer.sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -238,16 +238,16 @@ RegionPickSummary ViewportPickQuery::ExecuteRegionReduction(
     const uint32_t GroupX = (SpanW + 7u) / 8u;
     const uint32_t GroupY = (SpanH + 7u) / 8u;
 
-    const std::array<ComputeBindingDescriptor, 4u> Bindings {{
+    const std::array<ComputeSlotDescriptor, 4u> Slots {{
         { 0u, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, ParamsUniformBuffer.BufferHandle, sizeof(GPUPickReductionParams) },
         { 1u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, FlattenedPickBuffer.BufferHandle, TotalPickBytes },
         { 2u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, TargetSelectionBitmaskBuffer, VK_WHOLE_SIZE },
         { 3u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, SummaryStorageBuffer.BufferHandle, 16u },
     }};
-    (void)ComputeEncoder->EncodeComputeDispatch(Cmd, ReductionProgramHandle, Bindings, GroupX, GroupY, 1u);
+    (void)ComputeEncoder->EncodeComputeDispatch(Cmd, ReductionProgramHandle, Slots, GroupX, GroupY, 1u);
 
     ReadbackTicket Ticket = TransferRegister->EncodeBufferReadback(Cmd, SummaryStorageBuffer.BufferHandle, 0ull, 12ull);
-    const uint64_t Signal = Context->DispatchCommandBufferAsync(Cmd);
+    const uint64_t Signal = DeviceInterchange->DispatchCommandBufferAsync(Cmd);
     TransferRegister->BindTicketTimelineSignal(Ticket, Signal);
 
     std::array<uint32_t, 3u> OutCounts {{ 0u, 0u, 0u }};
@@ -258,7 +258,7 @@ RegionPickSummary ViewportPickQuery::ExecuteRegionReduction(
         Summary.FirstGizmoOrdinal = OutCounts[2u];
     }
 
-    vkFreeCommandBuffers(Context->AccessDevice(), Context->AccessCommandPool(), 1u, &Cmd);
+    vkFreeCommandBuffers(DeviceInterchange->AccessDevice(), DeviceInterchange->AccessCommandAllocator(), 1u, &Cmd);
     return Summary;
 }
 
@@ -268,10 +268,10 @@ void ViewportPickQuery::EnsureFlattenedBufferCapacity(uint64_t RequiredBytes)
     {
         return;
     }
-    if (Context != nullptr)
+    if (DeviceInterchange != nullptr)
     {
-        Context->ReleaseBuffer(FlattenedPickBuffer);
-        FlattenedPickBuffer = Context->AllocateBuffer(
+        DeviceInterchange->ReleaseBuffer(FlattenedPickBuffer);
+        FlattenedPickBuffer = DeviceInterchange->AllocateBuffer(
             RequiredBytes,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);

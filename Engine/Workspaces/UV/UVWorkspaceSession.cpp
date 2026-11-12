@@ -42,7 +42,7 @@ UVWorkspaceSession::UVWorkspaceSession()
     Gizmo2D.ConfigureDimensionMode(Editor::GizmoDimensionMode::Planar2D);
     Gizmo2D.ConfigureAnchor({ 0.50f, 0.50f, 0.0f }, 0.34f);
 
-    LoadSamplePreset(GeometrySpace::SampleAssetPreset::AeroCoupeGT);
+    LoadSamplePreset(GeometrySpace::SampleAssetPreset::ControlledIntegrator);
 }
 
 bool UVWorkspaceSession::AttachVulkanRasterizer(GeometricRaster::UVWorkspaceRasterizer* BoundRasterizer)
@@ -63,18 +63,18 @@ bool UVWorkspaceSession::AttachVulkanRasterizer(GeometricRaster::UVWorkspaceRast
 }
 
 bool UVWorkspaceSession::InitializeGPUSolvers(
-    GeometricRaster::VulkanDeviceContext* Context,
+    GeometricRaster::VulkanInterchange* DeviceInterchange,
     const std::filesystem::path&          CompiledShaderDir)
 {
-    const bool RelaxReady   = StretchRelaxer.InitializeGPUKernel(Context, CompiledShaderDir);
-    const bool HorizonReady = HorizonPacker.InitializeGPUKernel(Context, CompiledShaderDir);
-    return RelaxReady && HorizonReady;
+    const bool RelaxReady   = StretchRelaxer.InitializeGPUCompute(DeviceInterchange, CompiledShaderDir);
+    const bool SkylineReady = SkylinePacker.InitializeGPUCompute(DeviceInterchange, CompiledShaderDir);
+    return RelaxReady && SkylineReady;
 }
 
 void UVWorkspaceSession::TeardownGPUSolvers() noexcept
 {
-    StretchRelaxer.TeardownGPUKernel();
-    HorizonPacker.TeardownGPUKernel();
+    StretchRelaxer.TeardownGPUCompute();
+    SkylinePacker.TeardownGPUCompute();
 }
 
 void UVWorkspaceSession::InitializeLoadedAssetLayout()
@@ -95,17 +95,53 @@ void UVWorkspaceSession::InitializeLoadedAssetLayout()
 
     SelectionMask.SynchronizeCapacity(Asset.Network);
     SelectionMask.ClearAll();
-    const auto& InitialSpan = Asset.Layers.InspectPartitionSpan(Asset.Network, SelectedLayerOrdinal, RootInstanceToken);
-    SelectionMask.SelectFacesFromList(InitialSpan.FaceIndices, false);
+    if (ActivePreset != GeometrySpace::SampleAssetPreset::ControlledIntegrator)
+    {
+        const auto& InitialSpan = Asset.Layers.InspectPartitionSpan(Asset.Network, SelectedLayerOrdinal, RootInstanceToken);
+        SelectionMask.SelectFacesFromList(InitialSpan.FaceIndices, false);
+    }
 
     RevisionHistory.Reset();
     BaselineUVPairs      = Asset.Network.ExtractParameterizedUVStream();
     RevisionStampCounter = 1ull;
 
+    Mathematics::Axis3D BoundsMin {  1.0e9f,  1.0e9f,  1.0e9f };
+    Mathematics::Axis3D BoundsMax { -1.0e9f, -1.0e9f, -1.0e9f };
+    for (const auto& Vert : Asset.Network.Vertices)
+    {
+        BoundsMin.X = std::min(BoundsMin.X, Vert.Axes.X);
+        BoundsMin.Y = std::min(BoundsMin.Y, Vert.Axes.Y);
+        BoundsMin.Z = std::min(BoundsMin.Z, Vert.Axes.Z);
+        BoundsMax.X = std::max(BoundsMax.X, Vert.Axes.X);
+        BoundsMax.Y = std::max(BoundsMax.Y, Vert.Axes.Y);
+        BoundsMax.Z = std::max(BoundsMax.Z, Vert.Axes.Z);
+    }
+
     auto&                    Projection = ActiveDocument.AccessViewportProjection();
     Editor::SpatialCameraRig Rig        = Projection.InspectSpatialCamera();
-    Rig.DistanceMeters                  = 6.20f;
-    Rig.TargetPivot                     = { 0.0f, 0.42f, 0.0f };
+    if (!Asset.Network.Vertices.empty() && BoundsMin.X <= BoundsMax.X)
+    {
+        const Mathematics::Axis3D Center {
+            0.5f * (BoundsMin.X + BoundsMax.X),
+            0.5f * (BoundsMin.Y + BoundsMax.Y),
+            0.5f * (BoundsMin.Z + BoundsMax.Z),
+        };
+        const Mathematics::Axis3D HalfExt {
+            0.5f * (BoundsMax.X - BoundsMin.X),
+            0.5f * (BoundsMax.Y - BoundsMin.Y),
+            0.5f * (BoundsMax.Z - BoundsMin.Z),
+        };
+        const float Radius = std::max(0.5f, Mathematics::EvaluateLength(HalfExt));
+        Rig.TargetPivot    = Center;
+        Rig.DistanceMeters = std::clamp(Radius * 2.85f, 3.60f, 16.0f);
+        Rig.YawRadians     = 0.88f;
+        Rig.PitchRadians   = 0.30f;
+    }
+    else
+    {
+        Rig.DistanceMeters = 6.20f;
+        Rig.TargetPivot    = { 0.0f, 0.42f, 0.0f };
+    }
     Projection.ConfigureSpatialCamera(Rig);
 
     const float MaxTileU = static_cast<float>(std::max<std::size_t>(1u, Asset.UDIMTiles.size()));
@@ -113,6 +149,8 @@ void UVWorkspaceSession::InitializeLoadedAssetLayout()
 
     RenderOptions3D.Camera.DistanceMeters = Rig.DistanceMeters;
     RenderOptions3D.Camera.TargetPivot    = Rig.TargetPivot;
+    RenderOptions3D.Camera.YawRadians     = Rig.YawRadians;
+    RenderOptions3D.Camera.PitchRadians   = Rig.PitchRadians;
     RenderOptions3D.ActiveLayerOrdinal    = SelectedLayerOrdinal;
     RenderOptions3D.SeamOverlayEnabled    = WorkspaceConfig.InspectUVPreferences().SeamOverlayEnabled;
     RenderOptions3D.WireframeEnabled      = WorkspaceConfig.InspectUVPreferences().WireframeOverlayEnabled;
@@ -190,6 +228,23 @@ void UVWorkspaceSession::SelectPriorityLayer(uint16_t LayerOrdinal)
         Ref.FaceIndices.size(),
         Ref.TotalArea3D);
     StatusBannerText  = Msg;
+    FramebuffersDirty = true;
+}
+
+void UVWorkspaceSession::BindSelectionToPriorityLayer(uint16_t LayerOrdinal)
+{
+    const auto SelectedFaces = SelectionMask.CollectSelectedFaces();
+    if (SelectedFaces.empty())
+    {
+        return;
+    }
+    Asset.Layers.AssignFacesToLayer(Asset.Network, SelectedFaces, LayerOrdinal);
+    Asset.Layers.SynchronizePartitions(Asset.Network, RootInstanceToken);
+    if (Rasterizer != nullptr)
+    {
+        (void)Rasterizer->UploadPolygonNetwork(Asset.Network, RootInstanceToken.SlotIndex);
+        SynchronizeSelectionToGPU();
+    }
     FramebuffersDirty = true;
 }
 
@@ -425,7 +480,7 @@ void UVWorkspaceSession::FinalizeInteractiveUVRevision(std::string_view Operatio
     FramebuffersDirty = true;
 }
 
-void UVWorkspaceSession::FrameSelectionOrNetwork() noexcept
+void UVWorkspaceSession::FitSelectionOrNetwork() noexcept
 {
     auto Selected = SelectionMask.CollectSelectedFaces();
     if (Selected.empty())
@@ -463,8 +518,8 @@ void UVWorkspaceSession::FrameSelectionOrNetwork() noexcept
     }
 
     auto& Proj = ActiveDocument.AccessViewportProjection();
-    Proj.FrameSpatialExtents(Min3D, Max3D);
-    Proj.FramePlanarExtents(MinUV, MaxUV);
+    Proj.FitSpatialExtents(Min3D, Max3D);
+    Proj.FitPlanarExtents(MinUV, MaxUV);
     FramebuffersDirty = true;
 }
 
@@ -641,7 +696,7 @@ bool UVWorkspaceSession::ExecuteDirective(
                 sizeof(Msg),
                 "Relaxed %u Corners (%u Passes, %s) in %.2f ms",
                 Rep.WeldedCornersRelaxed,
-                Rep.ExecutedPasses,
+                Rep.ExecutedIterations,
                 Rep.ExecutedOnVulkanGPU ? "Vulkan .slang" : "CPU",
                 Rep.ElapsedMilliseconds);
             RecordUVRevisionStep("RelaxStretchGPU");
@@ -649,7 +704,7 @@ bool UVWorkspaceSession::ExecuteDirective(
         }
         case UVCommandDirective::PackUVsConcaveSkyline:
         {
-            LatestPackReport = HorizonPacker.PackConcaveSkyline(Asset.Network, Asset.Layers, Prefs, false, OptionalChannels);
+            LatestPackReport = SkylinePacker.PackConcaveSkyline(Asset.Network, Asset.Layers, Prefs, false, OptionalChannels);
             if (FillPocketsEnabled)
             {
                 const float MarginUV = Prefs.IslandMarginPixels / static_cast<float>( std::max(256u, Prefs.DefaultTileResolutionPx));
@@ -701,7 +756,7 @@ bool UVWorkspaceSession::ExecuteDirective(
         }
         case UVCommandDirective::AutoDistributeUDIMs:
         {
-            LatestPackReport = HorizonPacker.PackConcaveSkyline(Asset.Network, Asset.Layers, Prefs, true, OptionalChannels);
+            LatestPackReport = SkylinePacker.PackConcaveSkyline(Asset.Network, Asset.Layers, Prefs, true, OptionalChannels);
             Asset.UDIMTiles  = LatestPackReport.ActiveUDIMNumbers;
             ActiveUDIMNumber = Asset.UDIMTiles.empty() ? 1001u : Asset.UDIMTiles.front();
             std::snprintf(
@@ -738,9 +793,9 @@ bool UVWorkspaceSession::ExecuteDirective(
             StatusBannerText = Msg;
             return true;
         }
-        case UVCommandDirective::FrameActiveSelection:
+        case UVCommandDirective::FitActiveSelection:
         {
-            FrameSelectionOrNetwork();
+            FitSelectionOrNetwork();
             StatusBannerText = "Framed Active Selection in 2D & 3D Viewports";
             return true;
         }
@@ -770,16 +825,16 @@ bool UVWorkspaceSession::ExecuteDirective(
 }
 
 bool UVWorkspaceSession::DispatchDirectiveAsync(
-    Threading::WorkspaceThread&   WorkerThread,
+    Threading::WorkspaceThread&   BackgroundSolverThread,
     Threading::ExecutionChannels* OptionalChannels,
     UVCommandDirective            Directive,
     Threading::CompletionCounter* OptionalCompletion)
 {
-    return WorkerThread.EnqueueAuthoringTask(
-        [this, &WorkerThread, OptionalChannels, Directive]()
+    return BackgroundSolverThread.EnqueueAuthoringTask(
+        [this, &BackgroundSolverThread, OptionalChannels, Directive]()
         {
             (void)ExecuteDirective(Directive, OptionalChannels);
-            WorkerThread.PublishSnapshot(
+            BackgroundSolverThread.PublishSnapshot(
                 1u,
                 RevisionHistory.QueryBytesUsed(),
                 Constants::DefaultGlobalRevisionBudgetBytes,
@@ -995,9 +1050,14 @@ void UVWorkspaceSession::RefreshViewportFramebuffers(
     RenderOptions2D.SeamOverlayEnabled    = WorkspaceConfig.InspectUVPreferences().SeamOverlayEnabled;
     RenderOptions2D.BackdropPreset        = TileCfg.BackdropPreset;
 
+    const bool ShowGizmos =
+        (SelectionMask.CountSelectedFaces() > 0u) ||
+        Gizmo3D.QueryDragging() ||
+        Gizmo2D.QueryDragging();
+
     if (Viewport3DW >= 16u && Viewport3DH >= 16u)
     {
-        if (Rasterizer->Rasterize3DViewport(Viewport3DW, Viewport3DH, RenderOptions3D, &Gizmo3D, &Framebuffer3DRGBA))
+        if (Rasterizer->Rasterize3DViewport(Viewport3DW, Viewport3DH, RenderOptions3D, ShowGizmos ? &Gizmo3D : nullptr, &Framebuffer3DRGBA))
         {
             Framebuffer3DWidth  = Viewport3DW;
             Framebuffer3DHeight = Viewport3DH;
@@ -1010,7 +1070,7 @@ void UVWorkspaceSession::RefreshViewportFramebuffers(
         Projection.ConfigurePlanarDomainSpan(TileSpanU, 1.0f);
         Projection.EvaluateAspectLockedPlanarBounds(Canvas2DW, Canvas2DH, RenderOptions2D.VisibleMinUV, RenderOptions2D.VisibleMaxUV);
 
-        if (Rasterizer->Rasterize2DUVCanvas(Canvas2DW, Canvas2DH, RenderOptions2D, &Gizmo2D, &Framebuffer2DRGBA))
+        if (Rasterizer->Rasterize2DUVCanvas(Canvas2DW, Canvas2DH, RenderOptions2D, ShowGizmos ? &Gizmo2D : nullptr, &Framebuffer2DRGBA))
         {
             Framebuffer2DWidth  = Canvas2DW;
             Framebuffer2DHeight = Canvas2DH;

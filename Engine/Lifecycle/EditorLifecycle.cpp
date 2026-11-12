@@ -305,7 +305,7 @@ EditorLifecycleReading EditorLifecycle::InspectReading() const noexcept
     Reading.ActiveWindowCount   = DockContainer.ActiveOperatingWindowCount();
     Reading.RegisteredPaneCount = static_cast<uint32_t>(DockContainer.RegisteredPaneCount());
     Reading.OpenWorkspaceCount  = Workspaces.OpenSessionCount();
-    Reading.GpuOverlayCount     = RegisteredOverlayHooks;
+    Reading.GpuOverlayCount     = RegisteredGpuOverlays;
     Reading.ControlCentreOpen   = ControlCentre.QueryOpen();
     Reading.ContentBrowserOpen  = ContentBrowserDrawer.QueryPanel().QueryOpen();
     Reading.AuthoringActive     = QueryActive();

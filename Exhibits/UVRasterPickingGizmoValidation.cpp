@@ -11,7 +11,7 @@
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
 #include "Engine/Configuration/WorkspaceConfiguration.h"
 #include "Engine/Editor/Viewports/TransformGizmo.h"
-#include "Engine/GeometricRaster/Backend/VulkanDeviceContext.h"
+#include "Engine/GeometricRaster/VulkanInterchange.h"
 #include "Engine/GeometricRaster/UV/UVWorkspaceRasterizer.h"
 #include "Engine/GeometrySpace/Primitives/AnalyticPrimitives.h"
 #include "Exhibits/SoftwareCanvasRasterizer.h"
@@ -151,15 +151,15 @@ int main()
     const std::filesystem::path RepoRoot  = Frontier::Exhibits::ResolveRepositoryRootPath();
     const std::filesystem::path ShaderDir = std::filesystem::path(FRONTIER_COMPILED_SHADER_DIR);
 
-    VulkanDeviceContext VkCtx {};
+    VulkanInterchange VkInterchange {};
     std::string         VkDiag;
-    if (!VerifyCondition(VkCtx.InitializeContext(RepoRoot, &VkDiag), VkDiag.c_str()))
+    if (!VerifyCondition(VkInterchange.InitializeInterchange(RepoRoot, &VkDiag), VkDiag.c_str()))
     {
         return 1;
     }
 
     UVWorkspaceRasterizer Rasterizer {};
-    if (!VerifyCondition(Rasterizer.InitializeRasterizer(&VkCtx, ShaderDir), "Initialized UVWorkspaceRasterizer (.slang graphics + compute)"))
+    if (!VerifyCondition(Rasterizer.InitializeRasterizer(&VkInterchange, ShaderDir), "Initialized UVWorkspaceRasterizer (.slang graphics + compute)"))
     {
         return 1;
     }
@@ -304,7 +304,7 @@ int main()
 
     Frontier::Exhibits::SoftwareRasterCanvas Canvas(OutW, OutH, { 16, 17, 20, 255 });
 
-    for (int Pass = 0; Pass < 2; ++Pass)
+    for (int AllChecksGreen = 0; AllChecksGreen < 2; ++AllChecksGreen)
     {
         Io.DisplaySize = ImVec2(static_cast<float>(OutW), static_cast<float>(OutH));
         Io.DeltaTime   = 1.0f / 60.0f;
@@ -316,37 +316,37 @@ int main()
             nullptr,
             ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground);
 
-        ImDrawList* Draw       = ImGui::GetWindowDrawList();
-        const ImU32 CardFill   = IM_COL32(24, 26, 31, 255);
-        const ImU32 CardBorder = IM_COL32(48, 52, 62, 255);
+        ImDrawList* ForegroundList       = ImGui::GetWindowDrawList();
+        const ImU32 TileFill   = IM_COL32(24, 26, 31, 255);
+        const ImU32 TileBorder = IM_COL32(48, 52, 62, 255);
         const ImU32 AccentGold = IM_COL32(239, 244, 207, 255);
         const ImU32 AccentBlue = IM_COL32(126, 188, 255, 255);
         const ImU32 EmeraldOk  = IM_COL32(98, 214, 150, 255);
         const ImU32 TextBright = IM_COL32(232, 235, 242, 255);
         const ImU32 TextMuted  = IM_COL32(154, 160, 174, 255);
 
-        Draw->AddRectFilled(ImVec2(20.0f, 16.0f), ImVec2(1640.0f, 66.0f), CardFill, 6.0f);
-        Draw->AddRect(ImVec2(20.0f, 16.0f), ImVec2(1640.0f, 66.0f), CardBorder, 6.0f);
-        Draw->AddText(ImVec2(38.0f, 33.0f), AccentGold, "PHASE 2 VERIFIED  |  VULKAN .SLANG MRT RENDERS, TIMELINE READBACK RING, 3D/2D GPU PICKING & SLATE GIZMO");
+        ForegroundList->AddRectFilled(ImVec2(20.0f, 16.0f), ImVec2(1640.0f, 66.0f), TileFill, 6.0f);
+        ForegroundList->AddRect(ImVec2(20.0f, 16.0f), ImVec2(1640.0f, 66.0f), TileBorder, 6.0f);
+        ForegroundList->AddText(ImVec2(38.0f, 33.0f), AccentGold, "PHASE 2 VERIFIED  |  VULKAN .SLANG MRT RENDERS, TIMELINE READBACK RING, 3D/2D GPU PICKING & SLATE GIZMO");
 
-        char AdapterBadge[128]{};
-        std::snprintf(AdapterBadge, sizeof(AdapterBadge), "Vulkan Adapter: %.*s", static_cast<int>(VkCtx.QueryAdapterName().size()), VkCtx.QueryAdapterName().data());
-        Draw->AddText(ImVec2(1240.0f, 33.0f), EmeraldOk, AdapterBadge);
+        char AdapterTitle[128]{};
+        std::snprintf(AdapterTitle, sizeof(AdapterTitle), "Vulkan Adapter: %.*s", static_cast<int>(VkInterchange.QueryAdapterName().size()), VkInterchange.QueryAdapterName().data());
+        ForegroundList->AddText(ImVec2(1240.0f, 33.0f), EmeraldOk, AdapterTitle);
 
         // Left Viewport Frame (3D Surface + 16-MatCap + 3D Gizmo)
-        Draw->AddRectFilled(ImVec2(20.0f, 80.0f), ImVec2(820.0f, 672.0f), CardFill, 6.0f);
-        Draw->AddRect(ImVec2(20.0f, 80.0f), ImVec2(820.0f, 672.0f), CardBorder, 6.0f);
-        Draw->AddText(ImVec2(36.0f, 94.0f), AccentBlue, "1. 3D .SLANG SURFACE + 16-MATCAP + SLATE 3D GIZMO (MRT RGBA8 + R32G32B32A32_UINT)");
+        ForegroundList->AddRectFilled(ImVec2(20.0f, 80.0f), ImVec2(820.0f, 672.0f), TileFill, 6.0f);
+        ForegroundList->AddRect(ImVec2(20.0f, 80.0f), ImVec2(820.0f, 672.0f), TileBorder, 6.0f);
+        ForegroundList->AddText(ImVec2(36.0f, 94.0f), AccentBlue, "1. 3D .SLANG SURFACE + 16-MATCAP + SLATE 3D GIZMO (MRT RGBA8 + R32G32B32A32_UINT)");
 
         // Right Viewport Frame (2D UDIM 1001/1002 + 2D Gizmo)
-        Draw->AddRectFilled(ImVec2(840.0f, 80.0f), ImVec2(1640.0f, 672.0f), CardFill, 6.0f);
-        Draw->AddRect(ImVec2(840.0f, 80.0f), ImVec2(1640.0f, 672.0f), CardBorder, 6.0f);
-        Draw->AddText(ImVec2(856.0f, 94.0f), AccentBlue, "2. 2D .SLANG UDIM 1001 & 1002 CANVAS + SLATE 2D GIZMO (MRT RGBA8 + PICK)");
+        ForegroundList->AddRectFilled(ImVec2(840.0f, 80.0f), ImVec2(1640.0f, 672.0f), TileFill, 6.0f);
+        ForegroundList->AddRect(ImVec2(840.0f, 80.0f), ImVec2(1640.0f, 672.0f), TileBorder, 6.0f);
+        ForegroundList->AddText(ImVec2(856.0f, 94.0f), AccentBlue, "2. 2D .SLANG UDIM 1001 & 1002 CANVAS + SLATE 2D GIZMO (MRT RGBA8 + PICK)");
 
         // Bottom Telemetry Deck
-        Draw->AddRectFilled(ImVec2(20.0f, 688.0f), ImVec2(1640.0f, 864.0f), CardFill, 6.0f);
-        Draw->AddRect(ImVec2(20.0f, 688.0f), ImVec2(1640.0f, 864.0f), CardBorder, 6.0f);
-        Draw->AddText(ImVec2(38.0f, 704.0f), AccentGold, "GPU COMPUTE, TIMELINE SEMAPHORE READBACK RING & PICKING TELEMETRY");
+        ForegroundList->AddRectFilled(ImVec2(20.0f, 688.0f), ImVec2(1640.0f, 864.0f), TileFill, 6.0f);
+        ForegroundList->AddRect(ImVec2(20.0f, 688.0f), ImVec2(1640.0f, 864.0f), TileBorder, 6.0f);
+        ForegroundList->AddText(ImVec2(38.0f, 704.0f), AccentGold, "GPU COMPUTE, TIMELINE SEMAPHORE READBACK RING & PICKING TELEMETRY");
 
         char LineA[200]{};
         std::snprintf(
@@ -359,7 +359,7 @@ int main()
             SampleGizmoHit3D.GizmoHandleOrdinal,
             Marquee3D.HitPixelCount,
             MarqueeSelectedFaces);
-        Draw->AddText(ImVec2(38.0f, 736.0f), EmeraldOk, LineA);
+        ForegroundList->AddText(ImVec2(38.0f, 736.0f), EmeraldOk, LineA);
 
         char LineB[200]{};
         std::snprintf(
@@ -372,7 +372,7 @@ int main()
             Metrics.MeanL2Stretch,
             Metrics.FlippedFaceCount,
             Metrics.OverlapFaceCount);
-        Draw->AddText(ImVec2(38.0f, 766.0f), TextBright, LineB);
+        ForegroundList->AddText(ImVec2(38.0f, 766.0f), TextBright, LineB);
 
         char LineC[200]{};
         std::snprintf(
@@ -382,13 +382,13 @@ int main()
             MoveHud.c_str(),
             ScaleHud.c_str(),
             RotHud.c_str());
-        Draw->AddText(ImVec2(38.0f, 796.0f), AccentBlue, LineC);
-        Draw->AddText(ImVec2(38.0f, 826.0f), TextMuted, "Zero VkFence Stalls: All GPU->CPU Readbacks Synchronized Strictly via Vulkan 1.2 Timeline Semaphores (TimelineTransferRegister)");
+        ForegroundList->AddText(ImVec2(38.0f, 796.0f), AccentBlue, LineC);
+        ForegroundList->AddText(ImVec2(38.0f, 826.0f), TextMuted, "Zero VkFence Stalls: All GPU->CPU Readbacks Synchronized Strictly via Vulkan 1.2 Timeline Semaphores (TimelineTransferRegister)");
 
         ImGui::End();
         ImGui::Render();
 
-        if (Pass == 1)
+        if (AllChecksGreen == 1)
         {
             Canvas.Clear({ 16, 17, 20, 255 });
             Canvas.RasterizeImGuiBatches(ImGui::GetDrawData());
@@ -403,7 +403,7 @@ int main()
     ImGui::DestroyContext(GuiCtx);
 
     Rasterizer.TeardownRasterizer();
-    VkCtx.TeardownContext();
+    VkInterchange.TeardownInterchange();
 
     if (!VerifyCondition(Saved, "Wrote Exhibits/Images/UV/01-VulkanRendersPickingAndGizmo.png"))
     {

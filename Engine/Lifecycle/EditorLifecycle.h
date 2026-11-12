@@ -74,7 +74,7 @@ public:
     template <LifecycleParticipant OverlayParticipantType>
     [[nodiscard]] uint32_t RegisterGpuViewportOverlay(std::string_view Identifier, OverlayParticipantType& OverlayParticipant)
     {
-        ++RegisteredOverlayHooks;
+        ++RegisteredGpuOverlays;
         return EditorSequence.RegisterParticipant(Identifier, OverlayParticipant);
     }
 
@@ -114,7 +114,7 @@ private:
     Components::WorkspaceDockPaneToken         ViewportPaneToken      {};     // [idx]   - Registered central Viewport pane
     Components::WorkspaceDockPaneToken         InspectorPaneToken     {};     // [idx]   - Registered right Inspector pane
     double                                     CurrentStepSeconds     = 0.016;// [s]     - Active authoring step passed to pane presenters
-    uint32_t                                   RegisteredOverlayHooks = 0u;   // [count] - Registered GPU .slang viewport overlay hooks
+    uint32_t                                   RegisteredGpuOverlays = 0u;   // [count] - Registered GPU .slang viewport overlay hooks
     bool                                       Initialized            = false;// [-]     - True between Initialize and Finalize
     bool                                       TerminationRequested   = false;// [-]     - Latch stopping authoring loop
 };

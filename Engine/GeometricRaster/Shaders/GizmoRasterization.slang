@@ -23,7 +23,7 @@ struct GizmoVSOutput
 {
     float4 ClipPosition          : SV_Position;
     float3 Normal                : TEXCOORD0;
-    float4 BaseColorAndAlpha     : TEXCOORD1;
+    float4 TintAndAlpha     : TEXCOORD1;
     float  ShadingWeight         : TEXCOORD2;
     nointerpolation uint Ordinal : TEXCOORD3;
 };
@@ -48,7 +48,7 @@ GizmoVSOutput VertexEntry(uint VertexID : SV_VertexID)
         Out.ClipPosition = mul(GizmoUniforms.ViewProjection, float4(Rec.PositionAndAlpha.xyz, 1.0));
     }
     Out.Normal            = Rec.NormalAndHandle.xyz;
-    Out.BaseColorAndAlpha = float4(Rec.ColorRGBAndShaded.rgb, Rec.PositionAndAlpha.w);
+    Out.TintAndAlpha = float4(Rec.ColorRGBAndShaded.rgb, Rec.PositionAndAlpha.w);
     Out.ShadingWeight     = Rec.ColorRGBAndShaded.w;
     Out.Ordinal           = uint(Rec.NormalAndHandle.w + 0.5);
     return Out;
@@ -63,9 +63,9 @@ GizmoFSOutput FragmentEntry(GizmoVSOutput In)
 
     float3 LightDir = normalize(float3(0.45, 0.72, 0.52));
     float  Lambert  = 0.62 + 0.38 * saturate(dot(normalize(In.Normal + float3(0.0, 0.0, 1.0e-5)), LightDir));
-    float3 LitRGB   = lerp(In.BaseColorAndAlpha.rgb, In.BaseColorAndAlpha.rgb * Lambert, In.ShadingWeight);
+    float3 LitRGB   = lerp(In.TintAndAlpha.rgb, In.TintAndAlpha.rgb * Lambert, In.ShadingWeight);
 
-    float  Alpha = In.BaseColorAndAlpha.a;
+    float  Alpha = In.TintAndAlpha.a;
     if (HoveredOrActive)
     {
         // Slate GizmoPRO hover rule: +0.33 emissive boost (#555555) and translucent plane alpha 0.28 -> 0.55

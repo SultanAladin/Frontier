@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                            UVINSPECTORPANEL.H
 ============================================================================================================================================*/
-// 🧩 5-tab Frontier UV Inspector pane (Packing, Unwrap, UDIM, Shading, Check) with full solvers, per-UDIM res/backdrop & GPU KPI badges
+// 🧩 5-tab UV Inspector pane matching Experimental/UVEditor pixel-for-pixel (Pack, Unwrap, UDIM, Shading, Check) with ThemeRepository styling
 
 #pragma once
 
@@ -31,17 +31,18 @@ public:
     void PresentInImGuiPane(double Δt, float ScaleFactor = 1.0f);
 
 private:
-    void RenderPackingSection(PixelSpace& Surface, Rectangle2D Area, const PaneInputReading& Input);
-    void RenderUnwrapSection(PixelSpace& Surface, Rectangle2D Area, const PaneInputReading& Input);
-    void RenderUDIMSection(PixelSpace& Surface, Rectangle2D Area, const PaneInputReading& Input);
-    void RenderShadingSection(PixelSpace& Surface, Rectangle2D Area, const PaneInputReading& Input);
-    void RenderCheckSection(PixelSpace& Surface, Rectangle2D Area, const PaneInputReading& Input);
+    float RenderPackingTab(PixelSpace& Surface, float LeftX, float StartY, float InnerW, const PaneInputReading& Input);
+    float RenderUnwrapTab(PixelSpace& Surface, float LeftX, float StartY, float InnerW, const PaneInputReading& Input);
+    float RenderUDIMTab(PixelSpace& Surface, float LeftX, float StartY, float InnerW, const PaneInputReading& Input);
+    float RenderShadingTab(PixelSpace& Surface, float LeftX, float StartY, float InnerW, const PaneInputReading& Input);
+    float RenderCheckTab(PixelSpace& Surface, float LeftX, float StartY, float InnerW, const PaneInputReading& Input);
 
     UVWorkspaceSession* Session          = nullptr;
-    uint32_t            DraggingField    = 0u;
-    float               SurfaceRoughness = 0.32f;
-    float               SurfaceMetallic  = 0.08f;
-    float               SurfaceMatBlend  = 0.85f;
+    float               ScrollOffsetY    = 0.0f;
+    float               SurfaceRoughness = 0.22f;
+    float               SurfaceMetallic  = 0.68f;
+    float               SurfaceMatBlend  = 0.55f;
+    uint8_t             SelectedMatCap   = 2u;
 };
 
 } // namespace Frontier::Workspaces

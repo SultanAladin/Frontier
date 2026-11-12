@@ -100,9 +100,9 @@ public float3 EvaluateStudioSurfaceMaterial(
     return lerp(DirectPBR, TintedMatCap, saturate(MatCapBlend));
 }
 
-public float3 ToneMapACESFilmic(float3 LinearHDR)
+public float3 CompressRadiometricACESFilmic(float3 LinearHDR)
 {
     float3 X = max(LinearHDR, float3(0.0));
-    float3 Mapped = (X * (2.51 * X + 0.03)) / (X * (2.43 * X + 0.59) + 0.14);
-    return pow(saturate(Mapped), float3(1.0 / 2.2));
+    float3 CompressedTone = (X * (2.51 * X + 0.03)) / (X * (2.43 * X + 0.59) + 0.14);
+    return pow(saturate(CompressedTone), float3(1.0 / 2.2));
 }

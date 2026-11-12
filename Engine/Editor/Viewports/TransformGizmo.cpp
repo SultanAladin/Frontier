@@ -30,7 +30,7 @@ constexpr Mathematics::Scalar3D ColorPlaneXZ    { 0.784f, 0.118f, 0.784f }; // #
 constexpr Mathematics::Scalar3D ColorPlaneXY    { 0.878f, 0.804f, 0.071f }; // #E0CD12
 constexpr Mathematics::Scalar3D ColorCenterRing { 1.000f, 1.000f, 1.000f }; // #FFFFFF
 
-void EmitTriangle(
+void AppendTriangle(
     std::vector<GizmoGPUVertex>& OutStream,
     Mathematics::Axis3D          P0,
     Mathematics::Axis3D          P1,
@@ -59,7 +59,7 @@ void EmitTriangle(
     });
 }
 
-void BuildOrthonormalFrame(
+void ConstructOrthonormalBasis(
     Mathematics::Axis3D  AxisDir,
     Mathematics::Axis3D& OutTangentU,
     Mathematics::Axis3D& OutTangentV) noexcept
@@ -82,10 +82,10 @@ void AppendConeHandle(
 {
     constexpr uint32_t Segments = 24u;
     Mathematics::Axis3D U {}, V {};
-    BuildOrthonormalFrame(AxisDir, U, V);
+    ConstructOrthonormalBasis(AxisDir, U, V);
 
-    const Mathematics::Axis3D Apex       = Center + AxisDir * (Height * 0.5f);
-    const Mathematics::Axis3D BaseCenter = Center - AxisDir * (Height * 0.5f);
+    const Mathematics::Axis3D TipPoint       = Center + AxisDir * (Height * 0.5f);
+    const Mathematics::Axis3D OriginCenter = Center - AxisDir * (Height * 0.5f);
 
     for (uint32_t Seg = 0u; Seg < Segments; ++Seg)
     {
@@ -93,12 +93,12 @@ void AppendConeHandle(
         const float θ1 = (static_cast<float>(Seg + 1u) / static_cast<float>(Segments)) * Constants::TauFloat;
         const Mathematics::Axis3D R0 = U * std::cos(θ0) + V * std::sin(θ0);
         const Mathematics::Axis3D R1 = U * std::cos(θ1) + V * std::sin(θ1);
-        const Mathematics::Axis3D B0 = BaseCenter + R0 * Radius;
-        const Mathematics::Axis3D B1 = BaseCenter + R1 * Radius;
+        const Mathematics::Axis3D B0 = OriginCenter + R0 * Radius;
+        const Mathematics::Axis3D B1 = OriginCenter + R1 * Radius;
         const Mathematics::Axis3D SideNormal = Mathematics::NormalizeAxis(R0 + R1 + AxisDir * (Radius / Height));
 
-        EmitTriangle(OutStream, B0, B1, Apex, SideNormal, Color, 1.0f, 1.0f, Handle);
-        EmitTriangle(OutStream, BaseCenter, B1, B0, AxisDir * -1.0f, Color, 1.0f, 1.0f, Handle);
+        AppendTriangle(OutStream, B0, B1, TipPoint, SideNormal, Color, 1.0f, 1.0f, Handle);
+        AppendTriangle(OutStream, OriginCenter, B1, B0, AxisDir * -1.0f, Color, 1.0f, 1.0f, Handle);
     }
 }
 
@@ -113,7 +113,7 @@ void AppendCylinderHandle(
 {
     constexpr uint32_t Segments = 24u;
     Mathematics::Axis3D U {}, V {};
-    BuildOrthonormalFrame(AxisDir, U, V);
+    ConstructOrthonormalBasis(AxisDir, U, V);
 
     const Mathematics::Axis3D BotCenter = Center - AxisDir * (Height * 0.5f);
     const Mathematics::Axis3D TopCenter = Center + AxisDir * (Height * 0.5f);
@@ -131,10 +131,10 @@ void AppendCylinderHandle(
         const Mathematics::Axis3D P01 = TopCenter + R0 * Radius;
         const Mathematics::Axis3D SideNormal = Mathematics::NormalizeAxis(R0 + R1);
 
-        EmitTriangle(OutStream, P00, P10, P11, SideNormal, Color, 1.0f, 1.0f, Handle);
-        EmitTriangle(OutStream, P00, P11, P01, SideNormal, Color, 1.0f, 1.0f, Handle);
-        EmitTriangle(OutStream, TopCenter, P01, P11, AxisDir, Color, 1.0f, 1.0f, Handle);
-        EmitTriangle(OutStream, BotCenter, P10, P00, AxisDir * -1.0f, Color, 1.0f, 1.0f, Handle);
+        AppendTriangle(OutStream, P00, P10, P11, SideNormal, Color, 1.0f, 1.0f, Handle);
+        AppendTriangle(OutStream, P00, P11, P01, SideNormal, Color, 1.0f, 1.0f, Handle);
+        AppendTriangle(OutStream, TopCenter, P01, P11, AxisDir, Color, 1.0f, 1.0f, Handle);
+        AppendTriangle(OutStream, BotCenter, P10, P00, AxisDir * -1.0f, Color, 1.0f, 1.0f, Handle);
     }
 }
 
@@ -157,22 +157,22 @@ void AppendPlaneQuadHandle(
     const Mathematics::Axis3D Normal     = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(AxisU, AxisV));
 
     // Double-sided translucent quad (alpha = 0.28 per Slate Gizmo.html)
-    EmitTriangle(OutStream, Inner, BackU, Outer, Normal, Color, 0.28f, 0.0f, Handle);
-    EmitTriangle(OutStream, Inner, Outer, BackV, Normal, Color, 0.28f, 0.0f, Handle);
-    EmitTriangle(OutStream, Inner, Outer, BackU, Normal * -1.0f, Color, 0.28f, 0.0f, Handle);
-    EmitTriangle(OutStream, Inner, BackV, Outer, Normal * -1.0f, Color, 0.28f, 0.0f, Handle);
+    AppendTriangle(OutStream, Inner, BackU, Outer, Normal, Color, 0.28f, 0.0f, Handle);
+    AppendTriangle(OutStream, Inner, Outer, BackV, Normal, Color, 0.28f, 0.0f, Handle);
+    AppendTriangle(OutStream, Inner, Outer, BackU, Normal * -1.0f, Color, 0.28f, 0.0f, Handle);
+    AppendTriangle(OutStream, Inner, BackV, Outer, Normal * -1.0f, Color, 0.28f, 0.0f, Handle);
 
     // Two opaque outer border edges ONLY: BackU -> Outer and Outer -> BackV
     const Mathematics::Axis3D OffsetN = Normal * (BorderWidth * 0.2f);
     const Mathematics::Axis3D Edge1A  = BackU - AxisU * BorderWidth + OffsetN;
     const Mathematics::Axis3D Edge1B  = Outer - AxisU * BorderWidth + OffsetN;
-    EmitTriangle(OutStream, BackU + OffsetN, Outer + OffsetN, Edge1B, Normal, Color, 1.0f, 0.0f, Handle);
-    EmitTriangle(OutStream, BackU + OffsetN, Edge1B, Edge1A, Normal, Color, 1.0f, 0.0f, Handle);
+    AppendTriangle(OutStream, BackU + OffsetN, Outer + OffsetN, Edge1B, Normal, Color, 1.0f, 0.0f, Handle);
+    AppendTriangle(OutStream, BackU + OffsetN, Edge1B, Edge1A, Normal, Color, 1.0f, 0.0f, Handle);
 
     const Mathematics::Axis3D Edge2A  = Outer - AxisV * BorderWidth + OffsetN;
     const Mathematics::Axis3D Edge2B  = BackV - AxisV * BorderWidth + OffsetN;
-    EmitTriangle(OutStream, Outer + OffsetN, BackV + OffsetN, Edge2B, Normal, Color, 1.0f, 0.0f, Handle);
-    EmitTriangle(OutStream, Outer + OffsetN, Edge2B, Edge2A, Normal, Color, 1.0f, 0.0f, Handle);
+    AppendTriangle(OutStream, Outer + OffsetN, BackV + OffsetN, Edge2B, Normal, Color, 1.0f, 0.0f, Handle);
+    AppendTriangle(OutStream, Outer + OffsetN, Edge2B, Edge2A, Normal, Color, 1.0f, 0.0f, Handle);
 }
 
 void AppendRotationArcHandle(
@@ -208,10 +208,10 @@ void AppendRotationArcHandle(
         const Mathematics::Axis3D O1 = Pivot + Dir1 * OuterR;
         const Mathematics::Axis3D I1 = Pivot + Dir1 * InnerR;
 
-        EmitTriangle(OutStream, I0, O0, O1, Normal, Color, 1.0f, 0.0f, Handle);
-        EmitTriangle(OutStream, I0, O1, I1, Normal, Color, 1.0f, 0.0f, Handle);
-        EmitTriangle(OutStream, I0, O1, O0, Normal * -1.0f, Color, 1.0f, 0.0f, Handle);
-        EmitTriangle(OutStream, I0, I1, O1, Normal * -1.0f, Color, 1.0f, 0.0f, Handle);
+        AppendTriangle(OutStream, I0, O0, O1, Normal, Color, 1.0f, 0.0f, Handle);
+        AppendTriangle(OutStream, I0, O1, I1, Normal, Color, 1.0f, 0.0f, Handle);
+        AppendTriangle(OutStream, I0, O1, O0, Normal * -1.0f, Color, 1.0f, 0.0f, Handle);
+        AppendTriangle(OutStream, I0, I1, O1, Normal * -1.0f, Color, 1.0f, 0.0f, Handle);
     }
 }
 
@@ -244,19 +244,19 @@ void AppendBillboardTorusRing(
             const Mathematics::Axis3D P11 = Pivot + Rad1 * (MajorRadius + TubeRadius * std::cos(θ1)) + CamNormal * (TubeRadius * std::sin(θ1));
             const Mathematics::Axis3D P01 = Pivot + Rad0 * (MajorRadius + TubeRadius * std::cos(θ1)) + CamNormal * (TubeRadius * std::sin(θ1));
 
-            EmitTriangle(OutStream, P00, P10, P11, CamNormal, ColorCenterRing, 1.0f, 0.0f, GizmoHandleOrdinal::CenterRing);
-            EmitTriangle(OutStream, P00, P11, P01, CamNormal, ColorCenterRing, 1.0f, 0.0f, GizmoHandleOrdinal::CenterRing);
+            AppendTriangle(OutStream, P00, P10, P11, CamNormal, ColorCenterRing, 1.0f, 0.0f, GizmoHandleOrdinal::CenterRing);
+            AppendTriangle(OutStream, P00, P11, P01, CamNormal, ColorCenterRing, 1.0f, 0.0f, GizmoHandleOrdinal::CenterRing);
         }
     }
 }
 
-[[nodiscard]] float SnapIncrement(float RawValue, float StepSize) noexcept
+[[nodiscard]] float SnapIncrement(float RawReading, float StepSize) noexcept
 {
     if (StepSize <= 1.0e-6f)
     {
-        return RawValue;
+        return RawReading;
     }
-    return std::round(RawValue / StepSize) * StepSize;
+    return std::round(RawReading / StepSize) * StepSize;
 }
 
 } // namespace

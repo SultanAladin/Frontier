@@ -40,18 +40,18 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     }
 
     uint  FlatIndex = Pixel.y * Params.ViewportDimensions.x + Pixel.x;
-    uint4 PickValue = PickPixelBuffer[FlatIndex];
+    uint4 PickedKey = PickPixelBuffer[FlatIndex];
 
-    if (PickValue.w != 0u)
+    if (PickedKey.w != 0u)
     {
-        InterlockedMax(HitSummary[2u], PickValue.w);
+        InterlockedMax(HitSummary[2u], PickedKey.w);
     }
 
-    uint FaceIdx = PickValue.y;
-    if (PickValue.x != 0u && FaceIdx < Params.MaxFaceCount)
+    uint FaceIdx = PickedKey.y;
+    if (PickedKey.x != 0u && FaceIdx < Params.MaxFaceCount)
     {
         InterlockedOr(SelectionBitmask[FaceIdx >> 5u], 1u << (FaceIdx & 31u));
         InterlockedAdd(HitSummary[0u], 1u);
-        InterlockedMax(HitSummary[1u], PickValue.x);
+        InterlockedMax(HitSummary[1u], PickedKey.x);
     }
 }

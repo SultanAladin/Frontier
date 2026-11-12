@@ -16,7 +16,7 @@ struct FaceMetricOutput
 {
     float L2Stretch;    // Ideal isometric = 1.0 (normalized by global texel scale)
     float SignedAreaUV; // > 0 valid CCW, <= 0 flipped UV face
-    uint  StatusFlags;  // bit 0 = FlippedWinding, bit 1 = OverlappingInterior
+    uint  DistortionMask;  // bit 0 = FlippedWinding, bit 1 = OverlappingInterior
     uint  UDIMNumber;   // 1001 + TileU + 10 * TileV
 };
 
@@ -25,7 +25,7 @@ struct MetricDispatchParams
     uint  FaceCount;
     float ReferenceUVTo3DScale;
     uint  CheckOverlaps;
-    uint  ReservedPad;
+    float MaxFaceSpanU;
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<MetricDispatchParams> Params;
@@ -96,7 +96,7 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     float  SignedUV    = 0.5 * TwoSignedUV;
 
     float StretchL2 = 1.0;
-    if (abs(TwoSignedUV) > 1.0e-8)
+    if (abs(TwoSignedUV) > 1.0e-12)
     {
         float3 Q1     = P1 - P0;
         float3 Q2     = P2 - P0;
@@ -111,10 +111,10 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
         StretchL2 = 8.0;
     }
 
-    uint Flags = 0u;
-    if (SignedUV <= 1.0e-8)
+    uint InspectionMask = 0u;
+    if (SignedUV <= 0.0)
     {
-        Flags |= 1u;
+        InspectionMask |= 1u;
         InterlockedAdd(AggregateCounters[0u], 1u);
     }
 
@@ -127,41 +127,68 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     {
         float2 MyMin        = In.UVBounds.xy;
         float2 MyMax        = In.UVBounds.zw;
-        bool   FoundOverlap = false;
-        for (uint OtherIdx = 0u; OtherIdx < Params.FaceCount; ++OtherIdx)
+        float  SearchFloorU = MyMin.x - Params.MaxFaceSpanU - 1.0e-4;
+        uint   Lo           = 0u;
+        uint   Hi           = Params.FaceCount;
+        while (Lo < Hi)
         {
-            if (!FoundOverlap && OtherIdx != FaceIdx)
+            uint Mid = (Lo + Hi) >> 1u;
+            if (FaceInputs[Mid].UVBounds.x < SearchFloorU)
             {
-                FaceMetricInput OtherIn = FaceInputs[OtherIdx];
-                float4          OtherB  = OtherIn.UVBounds;
-                bool            BoxSeparated =
+                Lo = Mid + 1u;
+            }
+            else
+            {
+                Hi = Mid;
+            }
+        }
+
+        bool FoundOverlap = false;
+        for (uint OtherIdx = Lo; OtherIdx < Params.FaceCount; ++OtherIdx)
+        {
+            FaceMetricInput OtherIn = FaceInputs[OtherIdx];
+            float4          OtherB  = OtherIn.UVBounds;
+            if (OtherB.x >= MyMax.x - 1.0e-4)
+            {
+                break;
+            }
+            if (OtherIdx != FaceIdx)
+            {
+                bool BoxSeparated =
                     (MyMax.x <= OtherB.x + 1.0e-4) || (MyMin.x >= OtherB.z - 1.0e-4) ||
                     (MyMax.y <= OtherB.y + 1.0e-4) || (MyMin.y >= OtherB.w - 1.0e-4);
                 if (!BoxSeparated)
                 {
                     float2 U0 = float2(OtherIn.Pos0AndU0.w, OtherIn.Pos1AndV0.w);
-                    float2 U1 = float2(OtherIn.Pos2AndU1.w, OtherIn.UVRest.x);
+                    float2 U1 = float2(OtherIn.Pos2AndU1.w, OtherIn.Pos2AndU1.w * 0.0 + OtherIn.UVRest.x);
                     float2 U2 = float2(OtherIn.UVRest.y, OtherIn.UVRest.z);
                     if (TrianglesOverlapInterior(T0, T1, T2, U0, U1, U2))
                     {
                         FoundOverlap = true;
+                        break;
                     }
                 }
             }
         }
         if (FoundOverlap)
         {
-            Flags |= 2u;
+            InspectionMask |= 2u;
             InterlockedAdd(AggregateCounters[1u], 1u);
         }
     }
 
     InterlockedAdd(AggregateCounters[2u], uint(clamp(StretchL2, 0.0, 100.0) * 1000.0));
 
+    uint OriginalFaceIdx = asuint(In.UVRest.w);
+    if (OriginalFaceIdx >= Params.FaceCount)
+    {
+        OriginalFaceIdx = FaceIdx;
+    }
+
     FaceMetricOutput Out;
-    Out.L2Stretch        = StretchL2;
-    Out.SignedAreaUV     = SignedUV;
-    Out.StatusFlags      = Flags;
-    Out.UDIMNumber       = UDIMCode;
-    FaceOutputs[FaceIdx] = Out;
+    Out.L2Stretch                = StretchL2;
+    Out.SignedAreaUV             = SignedUV;
+    Out.DistortionMask              = InspectionMask;
+    Out.UDIMNumber               = UDIMCode;
+    FaceOutputs[OriginalFaceIdx] = Out;
 }

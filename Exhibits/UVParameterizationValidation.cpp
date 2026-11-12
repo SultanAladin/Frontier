@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                     UVPARAMETERIZATIONVALIDATION.CPP
 ============================================================================================================================================*/
-// 🧩 Phase 4 end-to-end validation of parallel ConformalUnwrap, Vulkan StretchRelax & ConcaveHorizonPacker, WorkspaceThread & .UVSpace I/O
+// 🧩 Phase 4 end-to-end validation of parallel ConformalUnwrap, Vulkan StretchRelax & ConcaveSkylinePacker, WorkspaceThread & .UVSpace I/O
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
@@ -10,7 +10,7 @@
 #include "Engine/Components/Appearance/ThemeRepository.h"
 #include "Engine/Components/Appearance/TypographyRepository.h"
 #include "Engine/Components/Docking/WorkspaceDockContainer.h"
-#include "Engine/GeometricRaster/Backend/VulkanDeviceContext.h"
+#include "Engine/GeometricRaster/VulkanInterchange.h"
 #include "Engine/GeometricRaster/UV/UVWorkspaceRasterizer.h"
 #include "Engine/Threading/Tasks/ExecutionChannels.h"
 #include "Engine/Threading/Threads/Workspace/WorkspaceThread.h"
@@ -72,16 +72,16 @@ int main()
     const std::filesystem::path ImageDir  = RepoRoot / "Exhibits/Images/UV";
     std::filesystem::create_directories(ImageDir);
 
-    // 1. Initialize Vulkan 1.2 Backend, Rasterizer, Parallel ExecutionChannels (4 lanes) & WorkspaceThread
-    VulkanDeviceContext VkCtx {};
+    // 1. Initialize Vulkan 1.2 Interchange, Rasterizer, Parallel ExecutionChannels (4 lanes) & WorkspaceThread
+    VulkanInterchange VkInterchange {};
     std::string         VkDiag;
-    if (!VerifyCondition(VkCtx.InitializeContext(RepoRoot, &VkDiag), VkDiag.c_str()))
+    if (!VerifyCondition(VkInterchange.InitializeInterchange(RepoRoot, &VkDiag), VkDiag.c_str()))
     {
         return 1;
     }
 
     UVWorkspaceRasterizer Rasterizer {};
-    if (!VerifyCondition(Rasterizer.InitializeRasterizer(&VkCtx, ShaderDir), "Initialized UVWorkspaceRasterizer"))
+    if (!VerifyCondition(Rasterizer.InitializeRasterizer(&VkInterchange, ShaderDir), "Initialized UVWorkspaceRasterizer"))
     {
         return 1;
     }
@@ -92,15 +92,15 @@ int main()
         return 1;
     }
 
-    Threading::WorkspaceThread WorkerThread {};
-    if (!VerifyCondition(WorkerThread.Initialize(nullptr, &ParallelLanes), "Initialized asynchronous WorkspaceThread"))
+    Threading::WorkspaceThread BackgroundSolverThread {};
+    if (!VerifyCondition(BackgroundSolverThread.Initialize(nullptr, &ParallelLanes), "Initialized asynchronous WorkspaceThread"))
     {
         return 1;
     }
 
     UVWorkspaceSession Session {};
     if (!VerifyCondition(Session.AttachVulkanRasterizer(&Rasterizer), "Attached rasterizer to UVWorkspaceSession") ||
-        !VerifyCondition(Session.InitializeGPUSolvers(&VkCtx, ShaderDir), "Initialized StretchRelaxCompute & ConcaveHorizonCompute on Vulkan"))
+        !VerifyCondition(Session.InitializeGPUSolvers(&VkInterchange, ShaderDir), "Initialized StretchRelaxCompute & ConcaveSkylineCompute on Vulkan"))
     {
         return 1;
     }
@@ -110,12 +110,12 @@ int main()
     if (!VerifyCondition(Session.ExecuteDirective(UVCommandDirective::MarkSharpSeams, &ParallelLanes), "MarkSharpSeams on IntegrationCheckAsset") ||
         !VerifyCondition(Session.ExecuteDirective(UVCommandDirective::UnwrapConformal, &ParallelLanes), "Parallel ConformalUnwrap on IntegrationCheckAsset") ||
         !VerifyCondition(Session.ExecuteDirective(UVCommandDirective::RelaxStretchGPU, &ParallelLanes), "Vulkan StretchRelaxCompute on IntegrationCheckAsset") ||
-        !VerifyCondition(Session.ExecuteDirective(UVCommandDirective::PackUVsConcaveSkyline, &ParallelLanes), "Vulkan ConcaveHorizonCompute pack on IntegrationCheckAsset"))
+        !VerifyCondition(Session.ExecuteDirective(UVCommandDirective::PackUVsConcaveSkyline, &ParallelLanes), "Vulkan ConcaveSkylineCompute pack on IntegrationCheckAsset"))
     {
         return 1;
     }
 
-    if (!VerifyCondition(Session.LatestPackReport.EvaluatedOnVulkanGPU, "ConcaveHorizonCompute executed on Vulkan GPU") ||
+    if (!VerifyCondition(Session.LatestPackReport.EvaluatedOnVulkanGPU, "ConcaveSkylineCompute executed on Vulkan GPU") ||
         !VerifyCondition(Session.LatestMetrics.FlippedFaceCount == 0u, "Zero flipped UV faces after Unwrap + GPU Relax + GPU Pack") ||
         !VerifyCondition(Session.LatestMetrics.OverlapFaceCount == 0u, "Zero overlapping UV faces verified by GPU 2D SAT narrowphase"))
     {
@@ -156,14 +156,14 @@ int main()
     // 4. Validate Async WorkspaceThread Dispatch (EqualizeTexelDensity) + Undo/Redo + .UVSpace Persistence
     Threading::CompletionCounter AsyncDone(1u);
     if (!VerifyCondition(
-            Session.DispatchDirectiveAsync(WorkerThread, &ParallelLanes, UVCommandDirective::EqualizeTexelDensity, &AsyncDone),
+            Session.DispatchDirectiveAsync(BackgroundSolverThread, &ParallelLanes, UVCommandDirective::EqualizeTexelDensity, &AsyncDone),
             "Enqueued EqualizeTexelDensity onto WorkspaceThread"))
     {
         return 1;
     }
     ParallelLanes.AssistUntilComplete(AsyncDone);
 
-    const auto PublishedSnap = WorkerThread.InspectPublishedSnapshot();
+    const auto PublishedSnap = BackgroundSolverThread.InspectPublishedSnapshot();
     if (!VerifyCondition(PublishedSnap.GenerationStamp >= 1ull && PublishedSnap.GlobalRevisionBytesUsed > 0u, "WorkspaceThread published non-zero 215 MiB revision snapshot"))
     {
         return 1;
@@ -247,7 +247,7 @@ int main()
 
     Exhibits::SoftwareRasterCanvas Canvas(OutW, OutH, { 16, 17, 20, 255 });
 
-    for (int Pass = 0; Pass < 2; ++Pass)
+    for (int AllChecksGreen = 0; AllChecksGreen < 2; ++AllChecksGreen)
     {
         Io.DisplaySize = ImVec2(static_cast<float>(OutW), static_cast<float>(OutH));
         Io.DeltaTime   = 1.0f / 60.0f;
@@ -256,8 +256,8 @@ int main()
         ImGui::SetNextWindowSize(Io.DisplaySize);
         ImGui::Begin("Phase4SolversExhibit", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground);
 
-        ImDrawList* Draw = ImGui::GetWindowDrawList();
-        const ImU32 CardBg   = IM_COL32(23, 25, 31, 255);
+        ImDrawList* ForegroundList = ImGui::GetWindowDrawList();
+        const ImU32 TileBg   = IM_COL32(23, 25, 31, 255);
         const ImU32 Border   = IM_COL32(48, 52, 62, 255);
         const ImU32 Ivory    = IM_COL32(239, 244, 207, 255);
         const ImU32 Sky      = IM_COL32(122, 186, 255, 255);
@@ -265,17 +265,17 @@ int main()
         const ImU32 Bright   = IM_COL32(228, 232, 240, 255);
         const ImU32 Muted    = IM_COL32(148, 154, 168, 255);
 
-        Draw->AddRectFilled(ImVec2(24.0f, 18.0f), ImVec2(1816.0f, 70.0f), CardBg, 6.0f);
-        Draw->AddRect(ImVec2(24.0f, 18.0f), ImVec2(1816.0f, 70.0f), Border, 6.0f);
-        Draw->AddText(ImVec2(42.0f, 36.0f), Ivory, "PHASE 4 VERIFIED  |  PARALLEL CONFORMAL UNWRAP, VULKAN .SLANG RELAX & CONCAVE SKYLINE PACKER");
-        Draw->AddText(ImVec2(1310.0f, 36.0f), Emerald, "0 FLIPS  |  0 OVERLAPS  |  .UVSPACE + 215 MIB REVISIONS OK");
+        ForegroundList->AddRectFilled(ImVec2(24.0f, 18.0f), ImVec2(1816.0f, 70.0f), TileBg, 6.0f);
+        ForegroundList->AddRect(ImVec2(24.0f, 18.0f), ImVec2(1816.0f, 70.0f), Border, 6.0f);
+        ForegroundList->AddText(ImVec2(42.0f, 36.0f), Ivory, "PHASE 4 VERIFIED  |  PARALLEL CONFORMAL UNWRAP, VULKAN .SLANG RELAX & CONCAVE SKYLINE PACKER");
+        ForegroundList->AddText(ImVec2(1310.0f, 36.0f), Emerald, "0 FLIPS  |  0 OVERLAPS  |  .UVSPACE + 215 MIB REVISIONS OK");
 
         // Panel 1: IntegrationCheckAsset Concave Skyline Pack
-        Draw->AddRectFilled(ImVec2(24.0f, 86.0f), ImVec2(604.0f, 896.0f), CardBg, 6.0f);
-        Draw->AddRect(ImVec2(24.0f, 86.0f), ImVec2(604.0f, 896.0f), Border, 6.0f);
-        Draw->AddText(ImVec2(44.0f, 104.0f), Sky, "1. CONCAVE SKYLINE PACK (INTEGRATION ASSET)");
-        Draw->AddText(ImVec2(44.0f, 128.0f), Muted, "ConcaveHorizonCompute.slang Nesting Inside L-Pockets");
-        Draw->AddRect(ImVec2(43.0f, 159.0f), ImVec2(585.0f, 701.0f), Border, 4.0f);
+        ForegroundList->AddRectFilled(ImVec2(24.0f, 86.0f), ImVec2(604.0f, 896.0f), TileBg, 6.0f);
+        ForegroundList->AddRect(ImVec2(24.0f, 86.0f), ImVec2(604.0f, 896.0f), Border, 6.0f);
+        ForegroundList->AddText(ImVec2(44.0f, 104.0f), Sky, "1. CONCAVE SKYLINE PACK (INTEGRATION ASSET)");
+        ForegroundList->AddText(ImVec2(44.0f, 128.0f), Muted, "ConcaveSkylineCompute.slang Nesting Inside L-Pockets");
+        ForegroundList->AddRect(ImVec2(43.0f, 159.0f), ImVec2(585.0f, 701.0f), Border, 4.0f);
 
         char IntStat[128]{};
         std::snprintf(
@@ -284,29 +284,29 @@ int main()
             "Packed %u Islands on Vulkan GPU in %.2f ms (0 Overlaps)",
             IntegrationReport.IslandsPacked,
             IntegrationReport.ElapsedMilliseconds);
-        Draw->AddText(ImVec2(44.0f, 722.0f), Emerald, IntStat);
-        Draw->AddText(ImVec2(44.0f, 752.0f), Bright, "Conformal LSCM + StretchRelaxCompute.slang: 0 Flips");
-        Draw->AddText(ImVec2(44.0f, 780.0f), Muted, "Skyline Grid: 256 Columns  |  Bleed Gutter: 12 px");
+        ForegroundList->AddText(ImVec2(44.0f, 722.0f), Emerald, IntStat);
+        ForegroundList->AddText(ImVec2(44.0f, 752.0f), Bright, "Conformal LSCM + StretchRelaxCompute.slang: 0 Flips");
+        ForegroundList->AddText(ImVec2(44.0f, 780.0f), Muted, "Skyline Grid: 256 Columns  |  Bleed Gutter: 12 px");
 
         // Panel 2: AeroCoupeGT Priority-Layer Weighted Pack (65% Bodycoat Hero)
-        Draw->AddRectFilled(ImVec2(620.0f, 86.0f), ImVec2(1200.0f, 896.0f), CardBg, 6.0f);
-        Draw->AddRect(ImVec2(620.0f, 86.0f), ImVec2(1200.0f, 896.0f), Border, 6.0f);
-        Draw->AddText(ImVec2(640.0f, 104.0f), Sky, "2. PRIORITY-LAYER WEIGHTED PACK (AERO COUPE 65%)");
-        Draw->AddText(ImVec2(640.0f, 128.0f), Muted, "Layer 1 Expanded 30% -> 65% Share Inside UDIM 1001");
-        Draw->AddRect(ImVec2(639.0f, 159.0f), ImVec2(1181.0f, 701.0f), Border, 4.0f);
+        ForegroundList->AddRectFilled(ImVec2(620.0f, 86.0f), ImVec2(1200.0f, 896.0f), TileBg, 6.0f);
+        ForegroundList->AddRect(ImVec2(620.0f, 86.0f), ImVec2(1200.0f, 896.0f), Border, 6.0f);
+        ForegroundList->AddText(ImVec2(640.0f, 104.0f), Sky, "2. PRIORITY-LAYER WEIGHTED PACK (AERO COUPE 65%)");
+        ForegroundList->AddText(ImVec2(640.0f, 128.0f), Muted, "Layer 1 Expanded 30% -> 65% Share Inside UDIM 1001");
+        ForegroundList->AddRect(ImVec2(639.0f, 159.0f), ImVec2(1181.0f, 701.0f), Border, 4.0f);
 
         char ShareStat[128]{};
         std::snprintf(ShareStat, sizeof(ShareStat), "Layer 1 UV Area: %.3f (30%%) -> %.3f (65%% Share)", HeroAreaAt30, HeroAreaAt65);
-        Draw->AddText(ImVec2(640.0f, 722.0f), Emerald, ShareStat);
-        Draw->AddText(ImVec2(640.0f, 752.0f), Bright, "GPU UVDistortionInspection (2D SAT): 0 Overlaps");
-        Draw->AddText(ImVec2(640.0f, 780.0f), Muted, "EqualizeIntraLayerScale = ON  |  90 deg Rotation Step");
+        ForegroundList->AddText(ImVec2(640.0f, 722.0f), Emerald, ShareStat);
+        ForegroundList->AddText(ImVec2(640.0f, 752.0f), Bright, "GPU UVDistortionInspection (2D SAT): 0 Overlaps");
+        ForegroundList->AddText(ImVec2(640.0f, 780.0f), Muted, "EqualizeIntraLayerScale = ON  |  90 deg Rotation Step");
 
         // Panel 3: 3D Studio View + Async WorkspaceThread & .UVSpace Persistence Telemetry
-        Draw->AddRectFilled(ImVec2(1216.0f, 86.0f), ImVec2(1816.0f, 896.0f), CardBg, 6.0f);
-        Draw->AddRect(ImVec2(1216.0f, 86.0f), ImVec2(1816.0f, 896.0f), Border, 6.0f);
-        Draw->AddText(ImVec2(1236.0f, 104.0f), Sky, "3. ASYNC WORKSPACETHREAD & .UVSPACE CODEC");
-        Draw->AddText(ImVec2(1236.0f, 128.0f), Muted, "4-Lane ExecutionChannels + 215 MiB RevisionTracker");
-        Draw->AddRect(ImVec2(1245.0f, 159.0f), ImVec2(1787.0f, 561.0f), Border, 4.0f);
+        ForegroundList->AddRectFilled(ImVec2(1216.0f, 86.0f), ImVec2(1816.0f, 896.0f), TileBg, 6.0f);
+        ForegroundList->AddRect(ImVec2(1216.0f, 86.0f), ImVec2(1816.0f, 896.0f), Border, 6.0f);
+        ForegroundList->AddText(ImVec2(1236.0f, 104.0f), Sky, "3. ASYNC WORKSPACETHREAD & .UVSPACE CODEC");
+        ForegroundList->AddText(ImVec2(1236.0f, 128.0f), Muted, "4-Lane ExecutionChannels + 215 MiB RevisionTracker");
+        ForegroundList->AddRect(ImVec2(1245.0f, 159.0f), ImVec2(1787.0f, 561.0f), Border, 4.0f);
 
         const auto LaneTelem = ParallelLanes.InspectTelemetry();
         char ThreadLine[128]{};
@@ -316,7 +316,7 @@ int main()
             "ExecutionChannels: %u Lanes | %llu Tasks Executed",
             LaneTelem.LaneCount,
             static_cast<unsigned long long>(LaneTelem.TasksExecuted));
-        Draw->AddText(ImVec2(1236.0f, 584.0f), Emerald, ThreadLine);
+        ForegroundList->AddText(ImVec2(1236.0f, 584.0f), Emerald, ThreadLine);
 
         char RevLine[128]{};
         std::snprintf(
@@ -324,15 +324,15 @@ int main()
             sizeof(RevLine),
             "215 MiB Revision Region: %zu B Used (64B Aligned)",
             Session.RevisionHistory.QueryBytesUsed());
-        Draw->AddText(ImVec2(1236.0f, 614.0f), Bright, RevLine);
-        Draw->AddText(ImVec2(1236.0f, 644.0f), Emerald, "Undo / Redo Parameterization: MaxDiff = 0.000000");
-        Draw->AddText(ImVec2(1236.0f, 674.0f), Emerald, ".UVSpace Disk Round-Trip + Revisions: BIT-EXACT");
-        Draw->AddText(ImVec2(1236.0f, 704.0f), Muted, "All 4 Architectural Phases Verified on Real Vulkan 1.2");
+        ForegroundList->AddText(ImVec2(1236.0f, 614.0f), Bright, RevLine);
+        ForegroundList->AddText(ImVec2(1236.0f, 644.0f), Emerald, "Undo / Redo Parameterization: MaxDiff = 0.000000");
+        ForegroundList->AddText(ImVec2(1236.0f, 674.0f), Emerald, ".UVSpace Disk Round-Trip + Revisions: BIT-EXACT");
+        ForegroundList->AddText(ImVec2(1236.0f, 704.0f), Muted, "All 4 Architectural Phases Verified on Real Vulkan 1.2");
 
         ImGui::End();
         ImGui::Render();
 
-        if (Pass == 1)
+        if (AllChecksGreen == 1)
         {
             Canvas.Clear({ 16, 17, 20, 255 });
             Canvas.RasterizeImGuiBatches(ImGui::GetDrawData());
@@ -356,10 +356,10 @@ int main()
     TypographyRepository::AssignCurrent(nullptr);
     ImGui::DestroyContext(GuiCtx);
     Session.TeardownGPUSolvers();
-    WorkerThread.Finalize();
+    BackgroundSolverThread.Finalize();
     ParallelLanes.Finalize();
     Rasterizer.TeardownRasterizer();
-    VkCtx.TeardownContext();
+    VkInterchange.TeardownInterchange();
 
     std::printf(
         "[UVParameterizationValidation] Phase 4 passed: GPU ConcaveSkyline (0 overlaps, 0 flips), Share 30%%->65%% (%.3f->%.3f), .UVSpace bit-exact.\n",

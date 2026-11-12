@@ -51,9 +51,9 @@ namespace
     return View;
 }
 
-[[nodiscard]] Mathematics::Scalar3D LayerPaletteTint(uint32_t Index) noexcept
+[[nodiscard]] Mathematics::Scalar3D LayerSwatchTint(uint32_t Index) noexcept
 {
-    constexpr std::array<Mathematics::Scalar3D, 6u> Palette {{
+    constexpr std::array<Mathematics::Scalar3D, 6u> Swatches {{
         { 0.95f, 0.88f, 0.62f },
         { 0.42f, 0.72f, 0.96f },
         { 0.56f, 0.86f, 0.68f },
@@ -61,7 +61,7 @@ namespace
         { 0.78f, 0.62f, 0.94f },
         { 0.54f, 0.86f, 0.88f },
     }};
-    return Palette[Index % Palette.size()];
+    return Swatches[Index % Swatches.size()];
 }
 
 void FinalizeConstructedAssetUDIMs(GeometrySpace::ConstructedSampleAsset& Asset)
@@ -83,7 +83,7 @@ void FinalizeConstructedAssetUDIMs(GeometrySpace::ConstructedSampleAsset& Asset)
 //                                                    BASE64 CODEC
 //------------------------------------------------------------------------------------------------------------------------
 
-[[nodiscard]] std::string EncodeBase64(const uint8_t* Bytes, std::size_t Length)
+[[nodiscard]] std::string EncodeRadix64(const uint8_t* Bytes, std::size_t Length)
 {
     static constexpr char Alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     std::string Out;
@@ -104,14 +104,14 @@ void FinalizeConstructedAssetUDIMs(GeometrySpace::ConstructedSampleAsset& Asset)
     return Out;
 }
 
-[[nodiscard]] std::vector<uint8_t> DecodeBase64(std::string_view Encoded)
+[[nodiscard]] std::vector<uint8_t> DecodeRadix64(std::string_view Encoded)
 {
-    std::array<int8_t, 256u> Table {};
-    Table.fill(-1);
+    std::array<int8_t, 256u> DigitLookup {};
+    DigitLookup.fill(-1);
     static constexpr std::string_view Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     for (std::size_t Idx = 0u; Idx < Alphabet.size(); ++Idx)
     {
-        Table[static_cast<uint8_t>(Alphabet[Idx])] = static_cast<int8_t>(Idx);
+        DigitLookup[static_cast<uint8_t>(Alphabet[Idx])] = static_cast<int8_t>(Idx);
     }
 
     std::vector<uint8_t> Out;
@@ -130,7 +130,7 @@ void FinalizeConstructedAssetUDIMs(GeometrySpace::ConstructedSampleAsset& Asset)
         {
             break;
         }
-        const int8_t Val = Table[UCh];
+        const int8_t Val = DigitLookup[UCh];
         if (Val < 0)
         {
             continue;
@@ -320,7 +320,7 @@ bool GeometryInterchange::ImportWavefrontObjText(
                     {
                         const uint16_t NewOrd = OutAsset.Layers.ConstructLayer(
                             GroupName,
-                            LayerPaletteTint(NextColorIdx++),
+                            LayerSwatchTint(NextColorIdx++),
                             20.0f);
                         GroupToLayer.emplace(GroupName, NewOrd);
                         ActiveLayerOrdinal = NewOrd;
@@ -584,7 +584,7 @@ namespace
 
 bool GeometryInterchange::ImportGltf2JsonText(
     std::string_view                       GltfJsonText,
-    const std::filesystem::path&           BaseDirectory,
+    const std::filesystem::path&           RootDirectory,
     std::string_view                       DefaultTitle,
     GeometrySpace::ConstructedSampleAsset& OutAsset,
     std::string&                           OutDiagnostic)
@@ -614,14 +614,14 @@ bool GeometryInterchange::ImportGltf2JsonText(
             if (Q1 != std::string_view::npos && Q2 != std::string_view::npos)
             {
                 const std::string_view Uri = Buf0.substr(Q1 + 1u, Q2 - Q1 - 1u);
-                const std::size_t Base64Marker = Uri.find("base64,");
-                if (Base64Marker != std::string_view::npos)
+                const std::size_t Radix64Marker = Uri.find("base64,");
+                if (Radix64Marker != std::string_view::npos)
                 {
-                    BinaryBlob = DecodeBase64(Uri.substr(Base64Marker + 7u));
+                    BinaryBlob = DecodeRadix64(Uri.substr(Radix64Marker + 7u));
                 }
                 else
                 {
-                    std::ifstream BinIn(BaseDirectory / std::string(Uri), std::ios::binary);
+                    std::ifstream BinIn(RootDirectory / std::string(Uri), std::ios::binary);
                     if (BinIn)
                     {
                         BinaryBlob.assign(std::istreambuf_iterator<char>(BinIn), std::istreambuf_iterator<char>());
@@ -692,7 +692,7 @@ bool GeometryInterchange::ImportGltf2JsonText(
         }
     };
 
-    std::unordered_map<QuantizedPos, uint32_t, QuantizedHash> WeldedMap {};
+    std::unordered_map<QuantizedPos, uint32_t, QuantizedHash> WeldedLookup {};
     std::vector<uint32_t>      RemappedVerts(static_cast<std::size_t>(PosCount));
     std::vector<Mathematics::UVAxes> RawUVs(static_cast<std::size_t>(PosCount), { 0.0f, 0.0f });
 
@@ -707,7 +707,7 @@ bool GeometryInterchange::ImportGltf2JsonText(
             static_cast<int32_t>(std::llround(P.Y * 100000.0)),
             static_cast<int32_t>(std::llround(P.Z * 100000.0)),
         };
-        auto [It, Inserted] = WeldedMap.emplace(Key, 0u);
+        auto [It, Inserted] = WeldedLookup.emplace(Key, 0u);
         if (Inserted)
         {
             It->second = OutAsset.Network.AppendVertex(P);
@@ -806,7 +806,7 @@ std::string GeometryInterchange::ExportGltf2JsonText(const GeometrySpace::Polygo
             FaceEdges.push_back(Cur);
             Cur = Network.Edges[Cur].NextEdgeIndex;
         }
-        const uint32_t BaseOut = static_cast<uint32_t>(Positions.size() / 3u);
+        const uint32_t RootOut = static_cast<uint32_t>(Positions.size() / 3u);
         for (const uint32_t EIdx : FaceEdges)
         {
             const auto& Edge = Network.Edges[EIdx];
@@ -824,9 +824,9 @@ std::string GeometryInterchange::ExportGltf2JsonText(const GeometrySpace::Polygo
         }
         for (std::size_t Tri = 1u; Tri + 1u < FaceEdges.size(); ++Tri)
         {
-            Indices.push_back(BaseOut);
-            Indices.push_back(BaseOut + static_cast<uint32_t>(Tri));
-            Indices.push_back(BaseOut + static_cast<uint32_t>(Tri + 1u));
+            Indices.push_back(RootOut);
+            Indices.push_back(RootOut + static_cast<uint32_t>(Tri));
+            Indices.push_back(RootOut + static_cast<uint32_t>(Tri + 1u));
         }
     }
 
@@ -843,7 +843,7 @@ std::string GeometryInterchange::ExportGltf2JsonText(const GeometrySpace::Polygo
     std::memcpy(Combined.data() + Offset, Texcoords.data(), TexBytes); Offset += TexBytes;
     std::memcpy(Combined.data() + Offset, Indices.data(), IndBytes);
 
-    const std::string Base64Uri = "data:application/octet-stream;base64," + EncodeBase64(Combined.data(), Combined.size());
+    const std::string Radix64Uri = "data:application/octet-stream;base64," + EncodeRadix64(Combined.data(), Combined.size());
     const std::size_t VertCount = Positions.size() / 3u;
 
     std::ostringstream Json;
@@ -861,7 +861,7 @@ std::string GeometryInterchange::ExportGltf2JsonText(const GeometrySpace::Polygo
          << "      \"indices\": 3\n"
          << "    }]\n"
          << "  }],\n"
-         << "  \"buffers\": [{ \"byteLength\": " << TotalLen << ", \"uri\": \"" << Base64Uri << "\" }],\n"
+         << "  \"buffers\": [{ \"byteLength\": " << TotalLen << ", \"uri\": \"" << Radix64Uri << "\" }],\n"
          << "  \"bufferViews\": [\n"
          << "    { \"buffer\": 0, \"byteOffset\": 0, \"byteLength\": " << PosBytes << " },\n"
          << "    { \"buffer\": 0, \"byteOffset\": " << PosBytes << ", \"byteLength\": " << NrmBytes << " },\n"

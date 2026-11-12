@@ -10,7 +10,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Editor/Viewports/TransformGizmo.h"
-#include "Engine/GeometricRaster/Backend/VulkanDeviceContext.h"
+#include "Engine/GeometricRaster/VulkanInterchange.h"
 #include "Engine/GeometricRaster/Compute/TimelineTransferRegister.h"
 #include "Engine/GeometricRaster/Compute/ComputeDispatchEncoder.h"
 #include "Engine/GeometricRaster/Picking/ViewportPickQuery.h"
@@ -59,7 +59,7 @@ enum class GPUSelectionOperation : uint32_t
 //                                                       STRUCTURES
 //------------------------------------------------------------------------------------------------------------------------
 
-struct CameraOrbitState3D
+struct CameraOrbitRig3D
 {
     Mathematics::Axis3D TargetPivot       { 0.0f, 0.35f, 0.0f }; // [m]   - Orbit target point
     float               YawRadians        = 0.68f;               // [rad] - Horizontal orbit angle
@@ -70,7 +70,7 @@ struct CameraOrbitState3D
 
 struct Viewport3DRenderOptions
 {
-    CameraOrbitState3D  Camera              {};
+    CameraOrbitRig3D  Camera              {};
     SurfaceDisplayMode  DisplayMode         = SurfaceDisplayMode::StudioLitAndMatCap;
     bool                WireframeEnabled    = true;
     bool                SeamOverlayEnabled  = false; // Default OFF per workspace policy!
@@ -120,7 +120,7 @@ public:
     UVWorkspaceRasterizer& operator=(const UVWorkspaceRasterizer&) = delete;
 
     [[nodiscard]] bool InitializeRasterizer(
-        VulkanDeviceContext*         BoundContext,
+        VulkanInterchange*         BoundDevice,
         const std::filesystem::path& CompiledShaderDirectory);
 
     void TeardownRasterizer() noexcept;
@@ -131,7 +131,7 @@ public:
 
     [[nodiscard]] bool DispatchGPUSelection(
         GPUSelectionOperation Operation,
-        uint32_t              TargetValue  = 0u,
+        uint32_t              TargetMask  = 0u,
         bool                  AdditiveMask = false);
 
     void UploadSelectionBitmaskWords(std::span<const uint32_t> PackedWords);
@@ -167,7 +167,7 @@ public:
         uint32_t BrushCenterX = 0u, uint32_t BrushCenterY = 0u, uint32_t BrushRadiusPx = 0u);
 
     [[nodiscard]] static Editor::ViewportRay3D ConstructCameraRay3D(
-        const CameraOrbitState3D& Camera,
+        const CameraOrbitRig3D& Camera,
         uint32_t                  WidthPx,
         uint32_t                  HeightPx,
         float                     CursorX,
@@ -177,13 +177,13 @@ public:
     [[nodiscard]] TimelineTransferRegister&      AccessTransferRegister() noexcept   { return TransferRegister; }
 
 private:
-    struct GraphicsPipelineBundle
+    struct GraphicsProgramBundle
     {
-        VkShaderModule        VertModule     = VK_NULL_HANDLE;
-        VkShaderModule        FragModule     = VK_NULL_HANDLE;
-        VkDescriptorSetLayout BindingLayout      = VK_NULL_HANDLE;
-        VkPipelineLayout      PipelineLayout = VK_NULL_HANDLE;
-        VkPipeline            Pipeline       = VK_NULL_HANDLE;
+        VkShaderModule        VertBinary     = VK_NULL_HANDLE;
+        VkShaderModule        FragBinary     = VK_NULL_HANDLE;
+        VkDescriptorSetLayout SlotLayout      = VK_NULL_HANDLE;
+        VkPipelineLayout      ProgramLayout = VK_NULL_HANDLE;
+        VkPipeline            ProgramHandle       = VK_NULL_HANDLE;
     };
 
     struct MRTFramebufferTarget
@@ -197,27 +197,27 @@ private:
         uint32_t            HeightPx    = 0u;
     };
 
-    [[nodiscard]] bool CreateGraphicsPipeline(
+    [[nodiscard]] bool ConstructGraphicsProgram(
         const std::filesystem::path&      VertSpirv,
         const std::filesystem::path&      FragSpirv,
-        std::span<const VkDescriptorType> BindingTypes,
+        std::span<const VkDescriptorType> SlotCategories,
         bool                              DepthTestAndWrite,
-        GraphicsPipelineBundle&           OutBundle);
+        GraphicsProgramBundle&           OutBundle);
 
-    void DestroyGraphicsPipeline(GraphicsPipelineBundle& Bundle) noexcept;
+    void DestroyGraphicsProgram(GraphicsProgramBundle& Bundle) noexcept;
     bool EnsureFramebufferTarget(MRTFramebufferTarget& Target, uint32_t WidthPx, uint32_t HeightPx);
     void ReleaseFramebufferTarget(MRTFramebufferTarget& Target) noexcept;
 
-    VulkanDeviceContext*    Context                 = nullptr;
+    VulkanInterchange*    DeviceInterchange                 = nullptr;
     ComputeDispatchEncoder  ComputeEncoder          {};
     TimelineTransferRegister       TransferRegister            {};
     ViewportPickQuery       PickQuery               {};
-    VkRenderPass            DualTargetRenderPass    = VK_NULL_HANDLE;
-    VkDescriptorPool        GraphicsDescriptorPool  = VK_NULL_HANDLE;
+    VkRenderPass            DualTargetAttachmentFormat    = VK_NULL_HANDLE;
+    VkDescriptorPool        GraphicsDescriptorAllocator  = VK_NULL_HANDLE;
 
-    GraphicsPipelineBundle  SurfacePipeline         {};
-    GraphicsPipelineBundle  UVCanvasPipeline        {};
-    GraphicsPipelineBundle  GizmoDepthOffPipeline   {};
+    GraphicsProgramBundle  SurfaceProgram         {};
+    GraphicsProgramBundle  UVCanvasProgram        {};
+    GraphicsProgramBundle  GizmoDepthOffProgram   {};
 
     uint32_t                SelectionComputeProgram = UINT32_MAX;
     uint32_t                StretchComputeProgram   = UINT32_MAX;

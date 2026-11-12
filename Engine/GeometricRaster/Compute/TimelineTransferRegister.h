@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/GeometricRaster/Backend/VulkanDeviceContext.h"
+#include "Engine/GeometricRaster/VulkanInterchange.h"
 
 #include <array>
 #include <cstdint>
@@ -47,12 +47,12 @@ public:
     TimelineTransferRegister& operator=(const TimelineTransferRegister&) = delete;
 
     [[nodiscard]] bool InitializeRegister(
-        VulkanDeviceContext* BoundContext,
+        VulkanInterchange* BoundDevice,
         uint64_t             SlotCapacityBytes = 8ull * 1024ull * 1024ull);
 
     void TeardownRegister() noexcept;
 
-    void AdvanceFrameSlot() noexcept;
+    void AdvanceRingSlot() noexcept;
 
     [[nodiscard]] ReadbackTicket EncodeBufferReadback(
         VkCommandBuffer SourceCmdBuffer,
@@ -75,14 +75,14 @@ public:
     [[nodiscard]] bool QueryTicketReady(const ReadbackTicket& Ticket) const noexcept;
     [[nodiscard]] bool AwaitAndCopyBytes(const ReadbackTicket& Ticket, std::span<uint8_t> DestinationBytes) const noexcept;
 
-    template <typename ElementType>
-    [[nodiscard]] bool AwaitAndCopyTyped(const ReadbackTicket& Ticket, std::span<ElementType> DestinationElements) const noexcept
+    template <typename EntryScalar>
+    [[nodiscard]] bool AwaitAndCopyTyped(const ReadbackTicket& Ticket, std::span<EntryScalar> DestinationSpan) const noexcept
     {
         return AwaitAndCopyBytes(
             Ticket,
             std::span<uint8_t>(
-                reinterpret_cast<uint8_t*>(DestinationElements.data()),
-                DestinationElements.size_bytes()));
+                reinterpret_cast<uint8_t*>(DestinationSpan.data()),
+                DestinationSpan.size_bytes()));
     }
 
 private:
@@ -93,7 +93,7 @@ private:
         uint64_t             LastSignal     = 0ull; // [cnt] - Last timeline value written to this slot
     };
 
-    VulkanDeviceContext*                     Context      = nullptr; // [-]   - Non-owning device context
+    VulkanInterchange*                     DeviceInterchange      = nullptr; // [-]   - Non-owning device interchange
     std::array<TransferSlot, RingSlotCount>   Slots        {};        // [-]   - Triple-buffered staging slots
     uint32_t                                 ActiveSlot   = 0u;      // [idx] - Current ring write slot
 };

@@ -1,13 +1,13 @@
 /*============================================================================================================================================
-                                                       VULKANSWAPCHAINPRESENTER.CPP
+                                                       IMGUIOVERLAYRASTERIZATION.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of VulkanSwapchainPresenter driving ImGuiOverlayRasterization.slang over OS VkSwapchainKHR or headless targets
+// 🧩 Implementation of ImGuiOverlayRasterization driving ImGuiOverlayRasterization.slang over OS VkSwapchainKHR or headless targets
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/GeometricRaster/Backend/VulkanSwapchainPresenter.h"
+#include "Engine/GeometricRaster/Rasterization/ImGuiOverlayRasterization.h"
 
 #if !defined(__ANDROID__)
 #ifndef GLFW_INCLUDE_NONE
@@ -66,25 +66,25 @@ struct ImGuiPushConstants
 
 } // namespace
 
-VulkanSwapchainPresenter::~VulkanSwapchainPresenter()
+ImGuiOverlayRasterization::~ImGuiOverlayRasterization()
 {
-    TeardownPresenter();
+    TeardownOverlay();
 }
 
-bool VulkanSwapchainPresenter::InitializePresenter(
-    VulkanDeviceContext*              TargetDevice,
+bool ImGuiOverlayRasterization::InitializeOverlay(
+    VulkanInterchange*              TargetDevice,
     const std::filesystem::path&      CompiledShaderDir,
     Windowing::DesktopPlatformWindow* OptionalDesktopWindow,
     uint32_t                          InitialWidthPx,
     uint32_t                          InitialHeightPx,
     std::string*                      OptionalDiagnostic)
 {
-    TeardownPresenter();
+    TeardownOverlay();
     if (TargetDevice == nullptr || !TargetDevice->Ready())
     {
         if (OptionalDiagnostic != nullptr)
         {
-            *OptionalDiagnostic = "VulkanSwapchainPresenter requires an initialized VulkanDeviceContext.";
+            *OptionalDiagnostic = "ImGuiOverlayRasterization requires an initialized VulkanInterchange.";
         }
         return false;
     }
@@ -110,7 +110,7 @@ bool VulkanSwapchainPresenter::InitializePresenter(
             {
                 vkGetPhysicalDeviceSurfaceSupportKHR(
                     BoundDevice->AccessPhysicalDevice(),
-                    BoundDevice->QueryQueueFamilyOrdinal(),
+                    BoundDevice->QueryQueueOrdinal(),
                     WindowSurface,
                     &PresentSupported);
             }
@@ -148,17 +148,17 @@ bool VulkanSwapchainPresenter::InitializePresenter(
         }
     }
 
-    VkSemaphoreCreateInfo SemInfo {};
-    SemInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    VkSemaphoreCreateInfo SemSpec {};
+    SemSpec.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     if (Stats.LiveWindowSwapchain)
     {
-        (void)vkCreateSemaphore(LogicalVk, &SemInfo, nullptr, &ImageAcquireSemaphore);
-        (void)vkCreateSemaphore(LogicalVk, &SemInfo, nullptr, &RenderDoneSemaphore);
+        (void)vkCreateSemaphore(LogicalVk, &SemSpec, nullptr, &ImageAcquireSemaphore);
+        (void)vkCreateSemaphore(LogicalVk, &SemSpec, nullptr, &RenderDoneSemaphore);
     }
 
     if (!ConstructRasterResources(ActiveColorFormat, OptionalDiagnostic))
     {
-        TeardownPresenter();
+        TeardownOverlay();
         return false;
     }
 
@@ -166,48 +166,48 @@ bool VulkanSwapchainPresenter::InitializePresenter(
     {
         if (OptionalDiagnostic != nullptr)
         {
-            *OptionalDiagnostic = "Failed to initialize VulkanSwapchainPresenter target attachments.";
+            *OptionalDiagnostic = "Failed to initialize ImGuiOverlayRasterization target attachments.";
         }
-        TeardownPresenter();
+        TeardownOverlay();
         return false;
     }
 
     return true;
 }
 
-bool VulkanSwapchainPresenter::ConstructRasterResources(VkFormat TargetFormat, std::string* OptionalDiagnostic)
+bool ImGuiOverlayRasterization::ConstructRasterResources(VkFormat TargetFormat, std::string* OptionalDiagnostic)
 {
     const VkDevice LogicalVk = BoundDevice->AccessDevice();
 
-    VkSamplerCreateInfo SampInfo {};
-    SampInfo.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    SampInfo.magFilter    = VK_FILTER_LINEAR;
-    SampInfo.minFilter    = VK_FILTER_LINEAR;
-    SampInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    SampInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    SampInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    SampInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    if (vkCreateSampler(LogicalVk, &SampInfo, nullptr, &LinearSampler) != VK_SUCCESS)
+    VkSamplerCreateInfo SampSpec {};
+    SampSpec.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    SampSpec.magFilter    = VK_FILTER_LINEAR;
+    SampSpec.minFilter    = VK_FILTER_LINEAR;
+    SampSpec.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    SampSpec.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    SampSpec.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    SampSpec.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    if (vkCreateSampler(LogicalVk, &SampSpec, nullptr, &LinearSampler) != VK_SUCCESS)
     {
         return false;
     }
 
-    VkDescriptorSetLayoutBinding Bindings[2]{};
-    Bindings[0].binding         = 0u;
-    Bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    Bindings[0].descriptorCount = 1u;
-    Bindings[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT;
+    VkDescriptorSetLayoutBinding Slots[2]{};
+    Slots[0].binding         = 0u;
+    Slots[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    Slots[0].descriptorCount = 1u;
+    Slots[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT;
 
-    Bindings[1].binding         = 1u;
-    Bindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    Bindings[1].descriptorCount = 1u;
-    Bindings[1].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+    Slots[1].binding         = 1u;
+    Slots[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    Slots[1].descriptorCount = 1u;
+    Slots[1].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-    VkDescriptorSetLayoutCreateInfo SetLayoutInfo {};
-    SetLayoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    SetLayoutInfo.bindingCount = 2u;
-    SetLayoutInfo.pBindings    = Bindings;
-    if (vkCreateDescriptorSetLayout(LogicalVk, &SetLayoutInfo, nullptr, &DescriptorLayout) != VK_SUCCESS)
+    VkDescriptorSetLayoutCreateInfo SlotLayoutSpec {};
+    SlotLayoutSpec.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    SlotLayoutSpec.bindingCount = 2u;
+    SlotLayoutSpec.pBindings    = Slots;
+    if (vkCreateDescriptorSetLayout(LogicalVk, &SlotLayoutSpec, nullptr, &DescriptorLayout) != VK_SUCCESS)
     {
         return false;
     }
@@ -216,12 +216,12 @@ bool VulkanSwapchainPresenter::ConstructRasterResources(VkFormat TargetFormat, s
     AllocSizes[0] = { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 64u };
     AllocSizes[1] = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64u };
 
-    VkDescriptorPoolCreateInfo AllocInfo {};
-    AllocInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    AllocInfo.maxSets       = 64u;
-    AllocInfo.poolSizeCount = 2u;
-    AllocInfo.pPoolSizes    = AllocSizes;
-    if (vkCreateDescriptorPool(LogicalVk, &AllocInfo, nullptr, &DescriptorAllocator) != VK_SUCCESS)
+    VkDescriptorPoolCreateInfo AllocSpec {};
+    AllocSpec.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    AllocSpec.maxSets       = 64u;
+    AllocSpec.poolSizeCount = 2u;
+    AllocSpec.pPoolSizes    = AllocSizes;
+    if (vkCreateDescriptorPool(LogicalVk, &AllocSpec, nullptr, &DescriptorAllocator) != VK_SUCCESS)
     {
         return false;
     }
@@ -263,19 +263,19 @@ bool VulkanSwapchainPresenter::ConstructRasterResources(VkFormat TargetFormat, s
     Subunit.colorAttachmentCount = 1u;
     Subunit.pColorAttachments    = &ColorRef;
 
-    VkRenderPassCreateInfo RpInfo {};
-    RpInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    RpInfo.attachmentCount = 1u;
-    RpInfo.pAttachments    = &ColorAttach;
-    RpInfo.subpassCount    = 1u;
-    RpInfo.pSubpasses      = &Subunit;
-    if (vkCreateRenderPass(LogicalVk, &RpInfo, nullptr, &OverlayRenderUnit) != VK_SUCCESS)
+    VkRenderPassCreateInfo TargetSpec {};
+    TargetSpec.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    TargetSpec.attachmentCount = 1u;
+    TargetSpec.pAttachments    = &ColorAttach;
+    TargetSpec.subpassCount    = 1u;
+    TargetSpec.pSubpasses      = &Subunit;
+    if (vkCreateRenderPass(LogicalVk, &TargetSpec, nullptr, &OverlayRenderUnit) != VK_SUCCESS)
     {
         return false;
     }
 
-    const VkShaderModule VertMod = BoundDevice->LoadShaderModule(ShaderDirectory / "ImGuiOverlayRasterization.vert.spv");
-    const VkShaderModule FragMod = BoundDevice->LoadShaderModule(ShaderDirectory / "ImGuiOverlayRasterization.frag.spv");
+    const VkShaderModule VertMod = BoundDevice->LoadShaderBinary(ShaderDirectory / "ImGuiOverlayRasterization.vert.spv");
+    const VkShaderModule FragMod = BoundDevice->LoadShaderBinary(ShaderDirectory / "ImGuiOverlayRasterization.frag.spv");
     if (VertMod == VK_NULL_HANDLE || FragMod == VK_NULL_HANDLE)
     {
         if (VertMod != VK_NULL_HANDLE) vkDestroyShaderModule(LogicalVk, VertMod, nullptr);
@@ -339,10 +339,10 @@ bool VulkanSwapchainPresenter::ConstructRasterResources(VkFormat TargetFormat, s
     ColorBlend.pAttachments    = &BlendAttach;
 
     const VkDynamicState DynamicOpts[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-    VkPipelineDynamicStateCreateInfo DynamicInfo {};
-    DynamicInfo.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    DynamicInfo.dynamicStateCount = 2u;
-    DynamicInfo.pDynamicStates    = DynamicOpts;
+    VkPipelineDynamicStateCreateInfo DynamicSpec {};
+    DynamicSpec.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    DynamicSpec.dynamicStateCount = 2u;
+    DynamicSpec.pDynamicStates    = DynamicOpts;
 
     VkGraphicsPipelineCreateInfo UnitCreate {};
     UnitCreate.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -354,7 +354,7 @@ bool VulkanSwapchainPresenter::ConstructRasterResources(VkFormat TargetFormat, s
     UnitCreate.pRasterizationState = &RasterSpec;
     UnitCreate.pMultisampleState   = &Multisample;
     UnitCreate.pColorBlendState    = &ColorBlend;
-    UnitCreate.pDynamicState       = &DynamicInfo;
+    UnitCreate.pDynamicState       = &DynamicSpec;
     UnitCreate.layout              = RasterLayout;
     UnitCreate.renderPass          = OverlayRenderUnit;
 
@@ -383,10 +383,10 @@ bool VulkanSwapchainPresenter::ConstructRasterResources(VkFormat TargetFormat, s
         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_IMAGE_ASPECT_COLOR_BIT);
 
-    if (UploadStagingBuffer.MappedPtr != nullptr && FallbackWhiteTex.ImageHandle != VK_NULL_HANDLE)
+    if (UploadStagingBuffer.HostAddress != nullptr && FallbackWhiteTex.ImageHandle != VK_NULL_HANDLE)
     {
         const uint32_t WhitePixel = 0xFFFFFFFFu;
-        std::memcpy(UploadStagingBuffer.MappedPtr, &WhitePixel, sizeof(uint32_t));
+        std::memcpy(UploadStagingBuffer.HostAddress, &WhitePixel, sizeof(uint32_t));
 
         VkCommandBuffer Cmd = BoundDevice->BeginSingleTimeCommands();
         VkImageMemoryBarrier ToDst {};
@@ -412,7 +412,7 @@ bool VulkanSwapchainPresenter::ConstructRasterResources(VkFormat TargetFormat, s
         vkCmdPipelineBarrier(Cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0u, 0u, nullptr, 0u, nullptr, 1u, &ToRead);
 
         const uint64_t SyncPoint = BoundDevice->DispatchCommandBufferAsync(Cmd);
-        (void)BoundDevice->AwaitTimelineValue(SyncPoint);
+        (void)BoundDevice->AwaitTimelineTick(SyncPoint);
     }
 
     VkDescriptorSetAllocateInfo SetAlloc {};
@@ -422,8 +422,8 @@ bool VulkanSwapchainPresenter::ConstructRasterResources(VkFormat TargetFormat, s
     SetAlloc.pSetLayouts        = &DescriptorLayout;
     if (vkAllocateDescriptorSets(LogicalVk, &SetAlloc, &FallbackDescriptor) == VK_SUCCESS)
     {
-        VkDescriptorBufferInfo BufInfo { VertexStreamBuffer.BufferHandle, 0ull, VK_WHOLE_SIZE };
-        VkDescriptorImageInfo  ImgInfo { LinearSampler, FallbackWhiteTex.ViewHandle, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+        VkDescriptorBufferInfo BufSpec { VertexStreamBuffer.BufferHandle, 0ull, VK_WHOLE_SIZE };
+        VkDescriptorImageInfo  ImgSpec { LinearSampler, FallbackWhiteTex.ViewHandle, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 
         VkWriteDescriptorSet Writes[2]{};
         Writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -431,14 +431,14 @@ bool VulkanSwapchainPresenter::ConstructRasterResources(VkFormat TargetFormat, s
         Writes[0].dstBinding      = 0u;
         Writes[0].descriptorCount = 1u;
         Writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        Writes[0].pBufferInfo     = &BufInfo;
+        Writes[0].pBufferInfo     = &BufSpec;
 
         Writes[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         Writes[1].dstSet          = FallbackDescriptor;
         Writes[1].dstBinding      = 1u;
         Writes[1].descriptorCount = 1u;
         Writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        Writes[1].pImageInfo      = &ImgInfo;
+        Writes[1].pImageInfo      = &ImgSpec;
 
         vkUpdateDescriptorSets(LogicalVk, 2u, Writes, 0u, nullptr);
     }
@@ -446,7 +446,7 @@ bool VulkanSwapchainPresenter::ConstructRasterResources(VkFormat TargetFormat, s
     return VertexStreamBuffer.BufferHandle != VK_NULL_HANDLE && FallbackDescriptor != VK_NULL_HANDLE;
 }
 
-void VulkanSwapchainPresenter::DestroyTargetAttachments() noexcept
+void ImGuiOverlayRasterization::DestroyTargetAttachments() noexcept
 {
     if (BoundDevice == nullptr || !BoundDevice->Ready())
     {
@@ -483,7 +483,7 @@ void VulkanSwapchainPresenter::DestroyTargetAttachments() noexcept
     BoundDevice->ReleaseImage2D(OffscreenTarget);
 }
 
-bool VulkanSwapchainPresenter::RebuildSwapchainOrOffscreenTarget(uint32_t WidthPx, uint32_t HeightPx)
+bool ImGuiOverlayRasterization::RebuildSwapchainOrOffscreenTarget(uint32_t WidthPx, uint32_t HeightPx)
 {
     DestroyTargetAttachments();
     const VkDevice LogicalVk = BoundDevice->AccessDevice();
@@ -511,25 +511,25 @@ bool VulkanSwapchainPresenter::RebuildSwapchainOrOffscreenTarget(uint32_t WidthP
             ImageCount = Caps.maxImageCount;
         }
 
-        VkSwapchainCreateInfoKHR ScInfo {};
-        ScInfo.sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-        ScInfo.surface          = WindowSurface;
-        ScInfo.minImageCount    = ImageCount;
-        ScInfo.imageFormat      = ActiveColorFormat;
-        ScInfo.imageColorSpace  = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-        ScInfo.imageExtent      = { WidthPx, HeightPx };
-        ScInfo.imageArrayLayers = 1u;
-        ScInfo.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+        VkSwapchainCreateInfoKHR ScSpec {};
+        ScSpec.sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        ScSpec.surface          = WindowSurface;
+        ScSpec.minImageCount    = ImageCount;
+        ScSpec.imageFormat      = ActiveColorFormat;
+        ScSpec.imageColorSpace  = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+        ScSpec.imageExtent      = { WidthPx, HeightPx };
+        ScSpec.imageArrayLayers = 1u;
+        ScSpec.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
             ((Caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
                  ? static_cast<VkImageUsageFlags>(VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
                  : static_cast<VkImageUsageFlags>(0u));
-        ScInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        ScInfo.preTransform     = Caps.currentTransform;
-        ScInfo.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-        ScInfo.presentMode      = VK_PRESENT_MODE_FIFO_KHR;
-        ScInfo.clipped          = VK_TRUE;
+        ScSpec.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        ScSpec.preTransform     = Caps.currentTransform;
+        ScSpec.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        ScSpec.presentMode      = VK_PRESENT_MODE_FIFO_KHR;
+        ScSpec.clipped          = VK_TRUE;
 
-        if (vkCreateSwapchainKHR(LogicalVk, &ScInfo, nullptr, &SwapchainHandle) != VK_SUCCESS)
+        if (vkCreateSwapchainKHR(LogicalVk, &ScSpec, nullptr, &SwapchainHandle) != VK_SUCCESS)
         {
             return false;
         }
@@ -543,26 +543,26 @@ bool VulkanSwapchainPresenter::RebuildSwapchainOrOffscreenTarget(uint32_t WidthP
         TargetAttachments.resize(RetrievedCount, VK_NULL_HANDLE);
         for (uint32_t Idx = 0u; Idx < RetrievedCount; ++Idx)
         {
-            VkImageViewCreateInfo ViewInfo {};
-            ViewInfo.sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-            ViewInfo.image            = SwapchainImages[Idx];
-            ViewInfo.viewType         = VK_IMAGE_VIEW_TYPE_2D;
-            ViewInfo.format           = ActiveColorFormat;
-            ViewInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
-            if (vkCreateImageView(LogicalVk, &ViewInfo, nullptr, &SwapchainViews[Idx]) != VK_SUCCESS)
+            VkImageViewCreateInfo ViewSpec {};
+            ViewSpec.sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            ViewSpec.image            = SwapchainImages[Idx];
+            ViewSpec.viewType         = VK_IMAGE_VIEW_TYPE_2D;
+            ViewSpec.format           = ActiveColorFormat;
+            ViewSpec.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
+            if (vkCreateImageView(LogicalVk, &ViewSpec, nullptr, &SwapchainViews[Idx]) != VK_SUCCESS)
             {
                 return false;
             }
 
-            VkFramebufferCreateInfo FbInfo {};
-            FbInfo.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-            FbInfo.renderPass      = OverlayRenderUnit;
-            FbInfo.attachmentCount = 1u;
-            FbInfo.pAttachments    = &SwapchainViews[Idx];
-            FbInfo.width           = WidthPx;
-            FbInfo.height          = HeightPx;
-            FbInfo.layers          = 1u;
-            if (vkCreateFramebuffer(LogicalVk, &FbInfo, nullptr, &TargetAttachments[Idx]) != VK_SUCCESS)
+            VkFramebufferCreateInfo FbSpec {};
+            FbSpec.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            FbSpec.renderPass      = OverlayRenderUnit;
+            FbSpec.attachmentCount = 1u;
+            FbSpec.pAttachments    = &SwapchainViews[Idx];
+            FbSpec.width           = WidthPx;
+            FbSpec.height          = HeightPx;
+            FbSpec.layers          = 1u;
+            if (vkCreateFramebuffer(LogicalVk, &FbSpec, nullptr, &TargetAttachments[Idx]) != VK_SUCCESS)
             {
                 return false;
             }
@@ -581,17 +581,17 @@ bool VulkanSwapchainPresenter::RebuildSwapchainOrOffscreenTarget(uint32_t WidthP
             return false;
         }
 
-        VkFramebufferCreateInfo FbInfo {};
-        FbInfo.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        FbInfo.renderPass      = OverlayRenderUnit;
-        FbInfo.attachmentCount = 1u;
-        FbInfo.pAttachments    = &OffscreenTarget.ViewHandle;
-        FbInfo.width           = WidthPx;
-        FbInfo.height          = HeightPx;
-        FbInfo.layers          = 1u;
+        VkFramebufferCreateInfo FbSpec {};
+        FbSpec.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        FbSpec.renderPass      = OverlayRenderUnit;
+        FbSpec.attachmentCount = 1u;
+        FbSpec.pAttachments    = &OffscreenTarget.ViewHandle;
+        FbSpec.width           = WidthPx;
+        FbSpec.height          = HeightPx;
+        FbSpec.layers          = 1u;
 
         VkFramebuffer OffscreenFb = VK_NULL_HANDLE;
-        if (vkCreateFramebuffer(LogicalVk, &FbInfo, nullptr, &OffscreenFb) != VK_SUCCESS)
+        if (vkCreateFramebuffer(LogicalVk, &FbSpec, nullptr, &OffscreenFb) != VK_SUCCESS)
         {
             return false;
         }
@@ -603,7 +603,7 @@ bool VulkanSwapchainPresenter::RebuildSwapchainOrOffscreenTarget(uint32_t WidthP
     return true;
 }
 
-VkDescriptorSet VulkanSwapchainPresenter::EnsureTextureUploaded(const ImTextureData* SourceTex, bool FontAtlasTexture)
+VkDescriptorSet ImGuiOverlayRasterization::EnsureTextureUploaded(const ImTextureData* SourceTex, bool FontAtlasTexture)
 {
     if (SourceTex == nullptr || SourceTex->Pixels == nullptr || SourceTex->Width <= 0 || SourceTex->Height <= 0)
     {
@@ -640,18 +640,18 @@ VkDescriptorSet VulkanSwapchainPresenter::EnsureTextureUploaded(const ImTextureD
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     }
-    if (UploadStagingBuffer.MappedPtr == nullptr)
+    if (UploadStagingBuffer.HostAddress == nullptr)
     {
         return FallbackDescriptor;
     }
 
     if (Rgba32)
     {
-        std::memcpy(UploadStagingBuffer.MappedPtr, RawBytes, static_cast<std::size_t>(UploadBytes));
+        std::memcpy(UploadStagingBuffer.HostAddress, RawBytes, static_cast<std::size_t>(UploadBytes));
     }
     else
     {
-        auto* Dst = static_cast<uint8_t*>(UploadStagingBuffer.MappedPtr);
+        auto* Dst = static_cast<uint8_t*>(UploadStagingBuffer.HostAddress);
         for (std::size_t Px = 0u; Px < static_cast<std::size_t>(W) * H; ++Px)
         {
             Dst[Px * 4u + 0u] = 255u;
@@ -701,23 +701,23 @@ VkDescriptorSet VulkanSwapchainPresenter::EnsureTextureUploaded(const ImTextureD
     vkCmdPipelineBarrier(Cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0u, 0u, nullptr, 0u, nullptr, 1u, &ToRead);
 
     const uint64_t SyncPoint = BoundDevice->DispatchCommandBufferAsync(Cmd);
-    (void)BoundDevice->AwaitTimelineValue(SyncPoint);
+    (void)BoundDevice->AwaitTimelineTick(SyncPoint);
 
     if (Entry.Descriptor == VK_NULL_HANDLE)
     {
-        VkDescriptorSetAllocateInfo AllocInfo {};
-        AllocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        AllocInfo.descriptorPool     = DescriptorAllocator;
-        AllocInfo.descriptorSetCount = 1u;
-        AllocInfo.pSetLayouts        = &DescriptorLayout;
-        if (vkAllocateDescriptorSets(LogicalVk, &AllocInfo, &Entry.Descriptor) != VK_SUCCESS)
+        VkDescriptorSetAllocateInfo AllocSpec {};
+        AllocSpec.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        AllocSpec.descriptorPool     = DescriptorAllocator;
+        AllocSpec.descriptorSetCount = 1u;
+        AllocSpec.pSetLayouts        = &DescriptorLayout;
+        if (vkAllocateDescriptorSets(LogicalVk, &AllocSpec, &Entry.Descriptor) != VK_SUCCESS)
         {
             return FallbackDescriptor;
         }
     }
 
-    VkDescriptorBufferInfo BufInfo { VertexStreamBuffer.BufferHandle, 0ull, VK_WHOLE_SIZE };
-    VkDescriptorImageInfo  ImgInfo { LinearSampler, Entry.Image.ViewHandle, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+    VkDescriptorBufferInfo BufSpec { VertexStreamBuffer.BufferHandle, 0ull, VK_WHOLE_SIZE };
+    VkDescriptorImageInfo  ImgSpec { LinearSampler, Entry.Image.ViewHandle, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 
     VkWriteDescriptorSet Writes[2]{};
     Writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -725,22 +725,22 @@ VkDescriptorSet VulkanSwapchainPresenter::EnsureTextureUploaded(const ImTextureD
     Writes[0].dstBinding      = 0u;
     Writes[0].descriptorCount = 1u;
     Writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    Writes[0].pBufferInfo     = &BufInfo;
+    Writes[0].pBufferInfo     = &BufSpec;
 
     Writes[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     Writes[1].dstSet          = Entry.Descriptor;
     Writes[1].dstBinding      = 1u;
     Writes[1].descriptorCount = 1u;
     Writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    Writes[1].pImageInfo      = &ImgInfo;
+    Writes[1].pImageInfo      = &ImgSpec;
 
     vkUpdateDescriptorSets(LogicalVk, 2u, Writes, 0u, nullptr);
     Entry.ContentHash = Hash;
     return Entry.Descriptor;
 }
 
-bool VulkanSwapchainPresenter::PresentImGuiBatches(
-    const ImDrawData* DrawData,
+bool ImGuiOverlayRasterization::PresentImGuiBatches(
+    const ImDrawData* OverlayGeometry,
     uint32_t          TargetWidthPx,
     uint32_t          TargetHeightPx)
 {
@@ -773,16 +773,16 @@ bool VulkanSwapchainPresenter::PresentImGuiBatches(
 
     uint32_t       WrittenVertices = 0u;
     const uint32_t MaxVertices     = static_cast<uint32_t>(VertexStreamBuffer.ByteCapacity / sizeof(ImGuiShaderVertex));
-    auto*          OutVerts        = static_cast<ImGuiShaderVertex*>(VertexStreamBuffer.MappedPtr);
+    auto*          OutVerts        = static_cast<ImGuiShaderVertex*>(VertexStreamBuffer.HostAddress);
 
-    if (DrawData != nullptr && OutVerts != nullptr)
+    if (OverlayGeometry != nullptr && OutVerts != nullptr)
     {
-        const float OffX = DrawData->DisplayPos.x;
-        const float OffY = DrawData->DisplayPos.y;
+        const float OffX = OverlayGeometry->DisplayPos.x;
+        const float OffY = OverlayGeometry->DisplayPos.y;
 
-        for (int ListIdx = 0; ListIdx < DrawData->CmdListsCount; ++ListIdx)
+        for (int ListIdx = 0; ListIdx < OverlayGeometry->CmdListsCount; ++ListIdx)
         {
-            const ImDrawList* CmdList = DrawData->CmdLists[ListIdx];
+            const ImDrawList* CmdList = OverlayGeometry->CmdLists[ListIdx];
             const ImDrawVert* VtxArr  = CmdList->VtxBuffer.Data;
             const ImDrawIdx*  IdxArr  = CmdList->IdxBuffer.Data;
 
@@ -931,7 +931,7 @@ bool VulkanSwapchainPresenter::PresentImGuiBatches(
 
         const VkResult PresRes = vkQueuePresentKHR(BoundDevice->AccessQueue(), &Pres);
         vkQueueWaitIdle(BoundDevice->AccessQueue());
-        vkFreeCommandBuffers(BoundDevice->AccessDevice(), BoundDevice->AccessCommandPool(), 1u, &Cmd);
+        vkFreeCommandBuffers(BoundDevice->AccessDevice(), BoundDevice->AccessCommandAllocator(), 1u, &Cmd);
 
         if (PresRes == VK_ERROR_OUT_OF_DATE_KHR || PresRes == VK_SUBOPTIMAL_KHR)
         {
@@ -941,14 +941,14 @@ bool VulkanSwapchainPresenter::PresentImGuiBatches(
     else
     {
         const uint64_t SyncPoint = BoundDevice->DispatchCommandBufferAsync(Cmd);
-        (void)BoundDevice->AwaitTimelineValue(SyncPoint);
+        (void)BoundDevice->AwaitTimelineTick(SyncPoint);
     }
 
     ++Stats.PresentedBatchCount;
     return true;
 }
 
-bool VulkanSwapchainPresenter::ReadbackLastPresentedRgba(
+bool ImGuiOverlayRasterization::ReadbackLastPresentedRgba(
     std::vector<uint8_t>& OutRgbaPixels,
     uint32_t&             OutWidthPx,
     uint32_t&             OutHeightPx)
@@ -977,7 +977,7 @@ bool VulkanSwapchainPresenter::ReadbackLastPresentedRgba(
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     }
-    if (UploadStagingBuffer.MappedPtr == nullptr)
+    if (UploadStagingBuffer.HostAddress == nullptr)
     {
         return false;
     }
@@ -1003,7 +1003,7 @@ bool VulkanSwapchainPresenter::ReadbackLastPresentedRgba(
     vkCmdCopyImageToBuffer(Cmd, SourceImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, UploadStagingBuffer.BufferHandle, 1u, &CopyRegion);
 
     const uint64_t SyncPoint = BoundDevice->DispatchCommandBufferAsync(Cmd);
-    if (!BoundDevice->AwaitTimelineValue(SyncPoint))
+    if (!BoundDevice->AwaitTimelineTick(SyncPoint))
     {
         return false;
     }
@@ -1011,7 +1011,7 @@ bool VulkanSwapchainPresenter::ReadbackLastPresentedRgba(
     OutWidthPx  = Stats.WidthPx;
     OutHeightPx = Stats.HeightPx;
     OutRgbaPixels.resize(static_cast<std::size_t>(TotalBytes));
-    std::memcpy(OutRgbaPixels.data(), UploadStagingBuffer.MappedPtr, static_cast<std::size_t>(TotalBytes));
+    std::memcpy(OutRgbaPixels.data(), UploadStagingBuffer.HostAddress, static_cast<std::size_t>(TotalBytes));
 
     if (ActiveColorFormat == VK_FORMAT_B8G8R8A8_UNORM)
     {
@@ -1023,7 +1023,7 @@ bool VulkanSwapchainPresenter::ReadbackLastPresentedRgba(
     return true;
 }
 
-void VulkanSwapchainPresenter::TeardownPresenter() noexcept
+void ImGuiOverlayRasterization::TeardownOverlay() noexcept
 {
     if (BoundDevice == nullptr || !BoundDevice->Ready())
     {

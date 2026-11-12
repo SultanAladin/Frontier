@@ -35,6 +35,7 @@ Frontier/
 ├── README.md                                      // Repository overview and architecture index
 │
 ├── EngineContent/                                 // Engine default assets and stock repositories
+│   ├── Geometry/                                  // Default .GeometrySpace assets (ControlledIntegrator.GeometrySpace)
 │   ├── Icons/                                     // Vector SVGs and compiled icon repositories
 │   ├── FontsArchives/                             // Primary UI and monospace typefaces (FontRepository.FontSpace)
 │   ├── Materials/                                 // Microfacet PBR material definitions (.MaterialSpace)
@@ -79,8 +80,8 @@ Frontier/
 │   ├── ContentBrowserValidation.cpp               // ContentBrowser, ColourCodex, Colour Filters & Vertical/Horizontal strips
 │   ├── GeometryNetworkValidation.cpp              // Half-edge PolygonNetwork, FacePartitionRegister & studio sample presets
 │   ├── UVRasterPickingGizmoValidation.cpp         // Vulkan 1.2 .slang 3D/2D UV rasterizer, GPU pick & TransformGizmo
-│   ├── UVWorkspaceUIValidation.cpp                // UVOutlinerPanel, 5-tab UVInspectorPanel, ContentBrowser & docking
-│   ├── UVParameterizationValidation.cpp           // SeamCut, LSCM, GPU StretchRelax, ConcaveHorizon, .UVSpace & Revision
+│   ├── UVWorkspaceUIValidation.cpp                // UVOutlinerPanel, 5-tab UVInspectorPanel, ControlCentre & docking
+│   ├── UVParameterizationValidation.cpp           // SeamCut, LSCM, GPU StretchRelax, ConcaveSkyline, .UVSpace & Revision
 │   └── UVInteractiveAuthoringValidation.cpp       // Interactive 2D/3D authoring, ABF++/Projections, OBJ/glTF & Vulkan swapchain
 │
 ├── Experimental/                                  // HTML/JS reference UIs & studios for C++20 conversion
@@ -271,9 +272,6 @@ Frontier/
     │   └── ClipboardExchange.{h,cpp}              // Bi-directional OS ↔ Workspace clipboard exchange
     │
     ├── GeometricRaster/                           // Vulkan interchange, GPU rasterization units & command encoding
-    │   ├── Backend/
-    │   │   ├── VulkanDeviceContext.{h,cpp}        // Vulkan 1.2 timeline semaphore device & optional WSI surface context
-    │   │   └── VulkanSwapchainPresenter.{h,cpp}   // Native .slang ImDrawData swapchain & offscreen RGBA presenter
     │   ├── Compute/
     │   │   ├── ComputeDispatchEncoder.{h,cpp}     // Generic .slang compute dispatch & storage-buffer encoder
     │   │   └── TimelineTransferRegister.{h,cpp}   // Triple-buffered Vulkan timeline semaphore readback ring
@@ -283,6 +281,7 @@ Frontier/
     │   │   └── UVWorkspaceRasterizer.{h,cpp}      // 3D PBR/MatCap + 2D UDIM grid, backdrops, seams, pins & heatmaps
     │   ├── Shaders/                               // Active Vulkan 1.2 SPIR-V .slang graphics & compute units
     │   │   ├── SurfaceShading.slang               // 3D Cook-Torrance PBR + 16 procedural MatCaps + selection tint
+    │   │   ├── MatCapEvaluation.slang             // Procedural 16-sphere MatCap shading & ACES Filmic compression
     │   │   ├── UVTileRasterization.slang          // 2D UDIM grid, procedural backdrops, coral seams & pin beacons
     │   │   ├── GizmoRasterization.slang           // 3D/2D Slate TransformGizmo cones, cylinders, quads & arcs
     │   │   ├── ImGuiOverlayRasterization.slang    // Premultiplied-alpha ImDrawData swapchain/offscreen rasterization
@@ -290,15 +289,16 @@ Frontier/
     │   │   ├── ViewportPickReduction.slang        // GPU box-marquee & circle-brush pick reduction
     │   │   ├── UVDistortionInspection.slang       // Parallel stretch, texel density, flip & UDIM overlap reduction
     │   │   ├── StretchRelaxCompute.slang          // Area-preserving GPU spring relaxation (honours EnablePinLock)
-    │   │   └── ConcaveHorizonCompute.slang        // Multi-angle island upper/lower skyline horizon evaluation
+    │   │   └── ConcaveSkylineCompute.slang        // Multi-angle island upper/lower skyline evaluation
     │   ├── RenderExtension.{h,cpp}                // Render lifecycle coordinator and device attachment
     │   ├── RenderDeviceInterface.h                // GPU hardware device interface and capability limits
-    │   ├── VulkanInterchange.{h,cpp}              // Vulkan volk device, swapchain, SPIR-V & semaphore interchange
+    │   ├── VulkanInterchange.{h,cpp}              // Vulkan 1.2 timeline semaphore device, swapchain & SPIR-V interchange
     │   ├── RenderScheduler.{h,cpp}                // Transient dependency-sorted GPU workload coordinator
     │   ├── IndirectCommandEncoder.{h,cpp}         // Instanced and indirect GPU command encoding
     │   ├── DescriptorSlotRegister.{h,cpp}         // Descriptor layout and push-constant slot register
     │   │
     │   ├── Rasterization/                         // Dedicated GPU rasterization & projection units
+    │   │   ├── ImGuiOverlayRasterization.{h,cpp}  // Native .slang ImDrawData swapchain & offscreen RGBA rasterizer
     │   │   ├── DirectionalLitRasterization.{h,cpp}// Fast directional key/hemisphere lit viewport rasterization
     │   │   ├── UVTileRasterization.{h,cpp}        // 2D UVTile grid, boundary lines, UDIM indices & tile fills
     │   │   ├── EdgeHighlightRasterization.{h,cpp} // Seam lines, sharp creases & active wireframe borders
@@ -410,12 +410,13 @@ Frontier/
     │   │   └── NonLinearHistory.{h,cpp}           // Directed acyclic revision history tree
     │   │
     │   ├── UV/                                    // UV workspace session, interactive viewport, panels & solvers
+    │   │   ├── UVPaneAppearance.h                 // ControlAppearance theme binder, studio controls & vector icons
     │   │   ├── UVWorkspaceSession.{h,cpp}         // Editable UV layers, UDIM settings, selection, Interchange & Revision
     │   │   ├── UVViewportInteractor.{h,cpp}       // 2D/3D camera orbit/pan/zoom, GPU picking, gizmo drag & G/R/S modal
-    │   │   ├── UVViewportHost.{h,cpp}             // Dual/single 2D+3D ViewportProjectionPane host & toolbar chips
-    │   │   ├── UVOutlinerPanel.{h,cpp}            // Component mode selector, search, sample presets, layers & UDIMs
-    │   │   ├── UVInspectorPanel.{h,cpp}           // 5-tab Inspector (Pack, Unwrap, UDIM, Shade, Check)
-    │   │   ├── UVWorkspaceHost.{h,cpp}            // Standalone & FeatureSet UV host, ContentBrowser & OS file-drop intake
+    │   │   ├── UVViewportHost.{h,cpp}             // Dual/single 2D+3D ViewportProjectionPane host, tool rail & drawer
+    │   │   ├── UVOutlinerPanel.{h,cpp}            // UV Space outliner, utilization/stretch gauges, layers & budget bar
+    │   │   ├── UVInspectorPanel.{h,cpp}           // 5-tab Inspector (Pack, Unwrap, UDIM, Shading, Check)
+    │   │   ├── UVWorkspaceHost.{h,cpp}            // Standalone & FeatureSet UV host, ControlCentre & OS file-drop intake
     │   │   ├── Operations/                        // Direct authoring & connectivity operations
     │   │   │   └── UVAuthoringOperations.{h,cpp}  // Seam mark/weld/brush, EnablePinLock, stitch, split, mirror & rectify
     │   │   └── Solvers/                           // Parallel & GPU UV parameterization and packing solvers
@@ -423,7 +424,7 @@ Frontier/
     │   │       ├── ConformalUnwrapSolver.{h,cpp}  // Pin-aware parallel LSCM conformal flattening
     │   │       ├── UVProjectionSolvers.{h,cpp}    // ABF++, Smart UV, Box, Cylindrical, Spherical, CameraView & ActiveQuads
     │   │       ├── ProgressiveStretchRelaxer.{h,cpp}// Pin-aware CPU + GPU (.slang) area-preserving stretch relaxer
-    │   │       ├── ConcaveHorizonPacker.{h,cpp}   // Multi-UDIM importance-weighted concave skyline packer
+    │   │       ├── ConcaveSkylinePacker.{h,cpp}   // Multi-UDIM importance-weighted concave skyline packer
     │   │       ├── UVIslandLayoutOperations.{h,cpp}// Stack similar islands, unstack overlaps & fill empty pockets
     │   │       └── TexelDensityEqualizer.{h,cpp}  // Target texel density [px/m] & UDIM spillover equalizer
     │   │
@@ -481,16 +482,14 @@ Frontier/
     │       ├── MemoryDebugger.{h,cpp}             // Allocation leak tracker and region visualizer
     │       └── GPUCaptureRecorder.{h,cpp}         // RenderDoc / PIX programmatic capture recorder
     │
-    ├── Lifecycle/                                 // Deterministic sequence, game runtime, workspace & editor loops
+    ├── Lifecycle/                                 // Deterministic sequence, game runtime, workspace & desktop launch
     │   ├── LifecycleSequence.h                    // C++20 concept & reverse-order teardown sequence (Editor/Dev/Shipping)
-    │   ├── RuntimeLifecycle.{h,cpp}               // Standalone game/runtime main loop (Development/Shipping Game)
+    │   ├── RuntimeLifecycle.{h,cpp}               // Standalone game/runtime loop (Development/Shipping Game)
     │   ├── WorkspaceLifecycle.{h,cpp}             // Multi-document session & revision loop (Editor/Development)
-    │   └── EditorLifecycle.{h,cpp}                // Authoring main loop & GPU overlay entry (FRONTIER_PROFILE_EDITOR only)
-    │
-    ├── Host/                                      // Runnable desktop application runner & executable entrypoints
-    │   ├── DesktopWorkspaceRunner.{h,cpp}         // GLFW + Vulkan 1.2 swapchain/offscreen runner & CLI smoke capture
-    │   ├── FrontierUVMain.cpp                     // Standalone FrontierUV executable entrypoint
-    │   └── FrontierEditorMain.cpp                 // Full FeatureSet FrontierEditor executable entrypoint
+    │   ├── EditorLifecycle.{h,cpp}                // Authoring loop & GPU overlay entry (FRONTIER_PROFILE_EDITOR only)
+    │   ├── DesktopWorkspaceLaunch.{h,cpp}         // GLFW + Vulkan 1.2 swapchain/offscreen launch & CLI smoke capture
+    │   ├── FrontierUVLaunch.cpp                   // Standalone FrontierUV desktop application entry
+    │   └── FrontierEditorLaunch.cpp               // Full FeatureSet FrontierEditor desktop application entry
     │
     ├── Components/                                // Reusable UI controls, themes, typography, motion & panels
     │   ├── PixelSpace.{h,cpp}                     // Logical-to-physical 2D drawing canvas & group transforms

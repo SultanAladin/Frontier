@@ -9,11 +9,15 @@
 
 #include "Engine/GeometrySpace/Primitives/AnalyticPrimitives.h"
 
+#include "Engine/Codecs/SpaceContainerCodec.h"
 #include "Engine/Constants/MathConstants.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
+#include <filesystem>
+#include <mutex>
 
 namespace Frontier::GeometrySpace
 {
@@ -32,11 +36,11 @@ namespace
 {
     const float CellW = 1.0f / static_cast<float>(std::max(1u, GridColumns));
     const float CellH = 1.0f / static_cast<float>(std::max(1u, GridRows));
-    const float BaseU = static_cast<float>(TileU) + static_cast<float>(CellX) * CellW;
-    const float BaseV = static_cast<float>(TileV) + static_cast<float>(CellY) * CellH;
+    const float OriginU = static_cast<float>(TileU) + static_cast<float>(CellX) * CellW;
+    const float OriginV = static_cast<float>(TileV) + static_cast<float>(CellY) * CellH;
     return UVPatchBounds{
-        { BaseU + MarginUV, BaseV + MarginUV },
-        { BaseU + CellW - MarginUV, BaseV + CellH - MarginUV },
+        { OriginU + MarginUV, OriginV + MarginUV },
+        { OriginU + CellW - MarginUV, OriginV + CellH - MarginUV },
     };
 }
 
@@ -71,7 +75,7 @@ void AppendBoxPrimitive(
     uint16_t                     PriorityLayerOrdinal,
     uint16_t                     PartGroupOrdinal)
 {
-    const uint32_t BaseV = static_cast<uint32_t>(TargetNetwork.Vertices.size());
+    const uint32_t OriginV = static_cast<uint32_t>(TargetNetwork.Vertices.size());
     const std::array<Mathematics::Axis3D, 8u> Corners {{
         { Center.X - HalfExtents.X, Center.Y - HalfExtents.Y, Center.Z - HalfExtents.Z }, // 0
         { Center.X + HalfExtents.X, Center.Y - HalfExtents.Y, Center.Z - HalfExtents.Z }, // 1
@@ -90,12 +94,12 @@ void AppendBoxPrimitive(
 
     // 📝 Pack 6 box faces into a non-overlapping 3x2 UV sub-grid with positive counter-clockwise UV winding
     const std::array<std::array<uint32_t, 4u>, 6u> QuadFaces {{
-        {{ BaseV + 4u, BaseV + 5u, BaseV + 6u, BaseV + 7u }}, // +Z Front
-        {{ BaseV + 1u, BaseV + 0u, BaseV + 3u, BaseV + 2u }}, // -Z Back
-        {{ BaseV + 5u, BaseV + 1u, BaseV + 2u, BaseV + 6u }}, // +X Right
-        {{ BaseV + 0u, BaseV + 4u, BaseV + 7u, BaseV + 3u }}, // -X Left
-        {{ BaseV + 7u, BaseV + 6u, BaseV + 2u, BaseV + 3u }}, // +Y Top
-        {{ BaseV + 0u, BaseV + 1u, BaseV + 5u, BaseV + 4u }}, // -Y Bottom
+        {{ OriginV + 4u, OriginV + 5u, OriginV + 6u, OriginV + 7u }}, // +Z Front
+        {{ OriginV + 1u, OriginV + 0u, OriginV + 3u, OriginV + 2u }}, // -Z Back
+        {{ OriginV + 5u, OriginV + 1u, OriginV + 2u, OriginV + 6u }}, // +X Right
+        {{ OriginV + 0u, OriginV + 4u, OriginV + 7u, OriginV + 3u }}, // -X Left
+        {{ OriginV + 7u, OriginV + 6u, OriginV + 2u, OriginV + 3u }}, // +Y Top
+        {{ OriginV + 0u, OriginV + 1u, OriginV + 5u, OriginV + 4u }}, // -Y Bottom
     }};
 
     const float SpanU = UVRegion.Maximum.U - UVRegion.Minimum.U;
@@ -124,9 +128,9 @@ void AppendBoxPrimitive(
 
 void AppendCylinderFrustumPrimitive(
     PolygonNetwork&              TargetNetwork,
-    Mathematics::Axis3D          BaseCenter,
+    Mathematics::Axis3D          OriginCenter,
     Mathematics::Axis3D          TopCenter,
-    float                        BaseRadius,
+    float                        FootRadius,
     float                        TopRadius,
     uint32_t                     RadialSegments,
     UVPatchBounds                UVRegion,
@@ -135,7 +139,7 @@ void AppendCylinderFrustumPrimitive(
     uint16_t                     PartGroupOrdinal)
 {
     const uint32_t Segments = std::max(6u, RadialSegments);
-    const Mathematics::Axis3D AxisVec  = TopCenter - BaseCenter;
+    const Mathematics::Axis3D AxisVec  = TopCenter - OriginCenter;
     const Mathematics::Axis3D AxisUnit = Mathematics::NormalizeAxis(AxisVec, { 0.0f, 1.0f, 0.0f });
     const Mathematics::Axis3D RefUp    = std::abs(AxisUnit.Y) < 0.92f
         ? Mathematics::Axis3D{ 0.0f, 1.0f, 0.0f }
@@ -143,12 +147,12 @@ void AppendCylinderFrustumPrimitive(
     const Mathematics::Axis3D TangentU = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(RefUp, AxisUnit));
     const Mathematics::Axis3D TangentV = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(AxisUnit, TangentU));
 
-    const uint32_t BaseRingStart = static_cast<uint32_t>(TargetNetwork.Vertices.size());
+    const uint32_t LowerRingStart = static_cast<uint32_t>(TargetNetwork.Vertices.size());
     for (uint32_t Seg = 0u; Seg < Segments; ++Seg)
     {
         const float θ = (static_cast<float>(Seg) / static_cast<float>(Segments)) * Constants::TauFloat;
         const Mathematics::Axis3D RadialDir = TangentU * std::cos(θ) + TangentV * std::sin(θ);
-        (void)TargetNetwork.AppendVertex(BaseCenter + RadialDir * BaseRadius);
+        (void)TargetNetwork.AppendVertex(OriginCenter + RadialDir * FootRadius);
     }
     const uint32_t TopRingStart = static_cast<uint32_t>(TargetNetwork.Vertices.size());
     for (uint32_t Seg = 0u; Seg < Segments; ++Seg)
@@ -157,8 +161,8 @@ void AppendCylinderFrustumPrimitive(
         const Mathematics::Axis3D RadialDir = TangentU * std::cos(θ) + TangentV * std::sin(θ);
         (void)TargetNetwork.AppendVertex(TopCenter + RadialDir * TopRadius);
     }
-    const uint32_t BaseHubVertex = TargetNetwork.AppendVertex(BaseCenter);
-    const uint32_t TopHubVertex  = TargetNetwork.AppendVertex(TopCenter);
+    const uint32_t LowerCapVertex = TargetNetwork.AppendVertex(OriginCenter);
+    const uint32_t UpperCapVertex  = TargetNetwork.AppendVertex(TopCenter);
 
     const float SpanU      = UVRegion.Maximum.U - UVRegion.Minimum.U;
     const float SpanV      = UVRegion.Maximum.V - UVRegion.Minimum.V;
@@ -175,8 +179,8 @@ void AppendCylinderFrustumPrimitive(
         const float    U1      = UVRegion.Minimum.U + SpanU * (0.02f + 0.96f * (static_cast<float>(Seg + 1u) / static_cast<float>(Segments)));
 
         const std::array<uint32_t, 4u> SideLoop {{
-            BaseRingStart + Seg,
-            BaseRingStart + NextSeg,
+            LowerRingStart + Seg,
+            LowerRingStart + NextSeg,
             TopRingStart + NextSeg,
             TopRingStart + Seg,
         }};
@@ -199,7 +203,7 @@ void AppendCylinderFrustumPrimitive(
         const float    θ0      = (static_cast<float>(Seg) / static_cast<float>(Segments)) * Constants::TauFloat;
         const float    θ1      = (static_cast<float>(Seg + 1u) / static_cast<float>(Segments)) * Constants::TauFloat;
 
-        const std::array<uint32_t, 3u> TopTri {{ TopHubVertex, TopRingStart + Seg, TopRingStart + NextSeg }};
+        const std::array<uint32_t, 3u> TopTri {{ UpperCapVertex, TopRingStart + Seg, TopRingStart + NextSeg }};
         const std::array<Mathematics::UVAxes, 3u> TopUV {{
             { LeftCapU, CapCenterV },
             { LeftCapU + std::cos(θ0) * CapRadiusU, CapCenterV + std::sin(θ0) * CapRadiusU },
@@ -207,13 +211,13 @@ void AppendCylinderFrustumPrimitive(
         }};
         (void)TargetNetwork.AppendFace(TopTri, TopUV, Shading, PriorityLayerOrdinal, PartGroupOrdinal);
 
-        const std::array<uint32_t, 3u> BaseTri {{ BaseHubVertex, BaseRingStart + NextSeg, BaseRingStart + Seg }};
-        const std::array<Mathematics::UVAxes, 3u> BaseUV {{
+        const std::array<uint32_t, 3u> FirstTri {{ LowerCapVertex, LowerRingStart + NextSeg, LowerRingStart + Seg }};
+        const std::array<Mathematics::UVAxes, 3u> OriginUV {{
             { RightCapU, CapCenterV },
             { RightCapU + std::cos(θ0) * CapRadiusU, CapCenterV + std::sin(θ0) * CapRadiusU },
             { RightCapU + std::cos(θ1) * CapRadiusU, CapCenterV + std::sin(θ1) * CapRadiusU },
         }};
-        (void)TargetNetwork.AppendFace(BaseTri, BaseUV, Shading, PriorityLayerOrdinal, PartGroupOrdinal);
+        (void)TargetNetwork.AppendFace(FirstTri, OriginUV, Shading, PriorityLayerOrdinal, PartGroupOrdinal);
     }
 }
 
@@ -231,7 +235,7 @@ void AppendTorusRingPrimitive(
 {
     const uint32_t MajSegs   = std::max(8u, MajorSegments);
     const uint32_t MinSegs   = std::max(6u, MinorSegments);
-    const uint32_t BaseStart = static_cast<uint32_t>(TargetNetwork.Vertices.size());
+    const uint32_t LowerStart = static_cast<uint32_t>(TargetNetwork.Vertices.size());
 
     for (uint32_t Maj = 0u; Maj < MajSegs; ++Maj)
     {
@@ -267,10 +271,10 @@ void AppendTorusRingPrimitive(
             const float    V1      = OrigV + SpanV * (static_cast<float>(Min + 1u) / static_cast<float>(MinSegs));
 
             const std::array<uint32_t, 4u> QuadLoop {{
-                BaseStart + Maj * MinSegs + Min,
-                BaseStart + NextMaj * MinSegs + Min,
-                BaseStart + NextMaj * MinSegs + NextMin,
-                BaseStart + Maj * MinSegs + NextMin,
+                LowerStart + Maj * MinSegs + Min,
+                LowerStart + NextMaj * MinSegs + Min,
+                LowerStart + NextMaj * MinSegs + NextMin,
+                LowerStart + Maj * MinSegs + NextMin,
             }};
             const std::array<Mathematics::UVAxes, 4u> QuadUV {{
                 { U0, V0 },
@@ -287,6 +291,141 @@ void AppendTorusRingPrimitive(
 //                                              STUDIO SAMPLE ASSET BUILDERS
 //------------------------------------------------------------------------------------------------------------------------
 
+namespace
+{
+
+[[nodiscard]] std::filesystem::path LocateControlledIntegratorContainer()
+{
+    std::error_code FsErr {};
+    std::filesystem::path SearchDir = std::filesystem::current_path(FsErr);
+    for (uint32_t Depth = 0u; Depth < 6u && !SearchDir.empty(); ++Depth)
+    {
+        const std::filesystem::path Candidate = SearchDir / "EngineContent/Geometry/ControlledIntegrator.GeometrySpace";
+        if (std::filesystem::exists(Candidate, FsErr))
+        {
+            return Candidate;
+        }
+        const std::filesystem::path UpperDir = SearchDir.parent_path();
+        if (UpperDir == SearchDir)
+        {
+            break;
+        }
+        SearchDir = UpperDir;
+    }
+    return std::filesystem::path("EngineContent/Geometry/ControlledIntegrator.GeometrySpace");
+}
+
+[[nodiscard]] bool TryLoadControlledIntegratorVehicle(ConstructedSampleAsset& OutAsset)
+{
+    static std::mutex             CacheMutex {};
+    static bool                   CachePopulated = false;
+    static ConstructedSampleAsset CachedVehicle  {};
+
+    std::lock_guard<std::mutex> Lock(CacheMutex);
+    if (CachePopulated)
+    {
+        OutAsset = CachedVehicle;
+        return true;
+    }
+
+    const std::filesystem::path ContainerPath = LocateControlledIntegratorContainer();
+    Codecs::SpaceContainerPayload Payload {};
+    std::string                   Diagnostic {};
+    if (!Codecs::SpaceContainerDecoder::DecodeFromFile(ContainerPath, Payload, Diagnostic) ||
+        Payload.BinarySections.size() < 2u)
+    {
+        return false;
+    }
+
+    const auto& GeometryBytes = Payload.BinarySections[0u].PayloadBytes;
+    const auto& UVBytes       = Payload.BinarySections[1u].PayloadBytes;
+    if (GeometryBytes.size() < 8u)
+    {
+        return false;
+    }
+
+    uint32_t VertCount = 0u;
+    uint32_t FaceCount = 0u;
+    std::memcpy(&VertCount, GeometryBytes.data(), sizeof(uint32_t));
+    std::memcpy(&FaceCount, GeometryBytes.data() + 4u, sizeof(uint32_t));
+
+    const std::size_t ExpectedGeomBytes = 8ull + static_cast<std::size_t>(VertCount) * 12ull + static_cast<std::size_t>(FaceCount) * 16ull;
+    const std::size_t ExpectedUVBytes   = static_cast<std::size_t>(FaceCount) * 24ull;
+    if (VertCount == 0u || FaceCount == 0u || GeometryBytes.size() < ExpectedGeomBytes || UVBytes.size() < ExpectedUVBytes)
+    {
+        return false;
+    }
+
+    ConstructedSampleAsset Built {};
+    Built.Network.NetworkTitle = "Controlled Integrator";
+    Built.UDIMTiles            = { 1001u };
+    (void)Built.Layers.ConstructLayer("Body Coat Hero", { 0.937f, 0.957f, 0.812f }, 55.0f, 1001u);
+    (void)Built.Layers.ConstructLayer("Optics & Glass", { 0.620f, 0.812f, 1.000f }, 15.0f, 1001u);
+
+    const std::array<FaceShadingAssignment, 6u> PartMaterials {{
+        // 0: Body Coat Hero (metallic studio silver-azure clearcoat)
+        { { 0.27f, 0.37f, 0.56f }, 0.72f, 0.18f, 0.88f, 0.52f, 2u },
+        // 1: Vehicle Glass (smoked dielectric canopy)
+        { { 0.05f, 0.08f, 0.12f }, 0.08f, 0.06f, 0.95f, 0.62f, 6u },
+        // 2: Optics & Lights (crisp headlamp/taillamp optics)
+        { { 0.88f, 0.78f, 0.62f }, 0.20f, 0.10f, 0.90f, 0.50f, 5u },
+        // 3: Chassis & Trim (satin carbon-graphite aero underbody)
+        { { 0.10f, 0.11f, 0.13f }, 0.36f, 0.42f, 0.48f, 0.35f, 1u },
+        // 4: Tyre Rubber (vulcanized tread rubber)
+        { { 0.06f, 0.065f, 0.072f }, 0.04f, 0.68f, 0.28f, 0.30f, 8u },
+        // 5: Rim Alloy (CNC forged machined alloy)
+        { { 0.70f, 0.73f, 0.78f }, 0.90f, 0.20f, 0.92f, 0.58f, 2u },
+    }};
+
+    Built.Network.ReserveStorage(VertCount, FaceCount * 3u, FaceCount);
+
+    const std::byte* VertCursor = GeometryBytes.data() + 8u;
+    for (uint32_t VIdx = 0u; VIdx < VertCount; ++VIdx)
+    {
+        float Coords[3] { 0.0f, 0.0f, 0.0f };
+        std::memcpy(Coords, VertCursor + static_cast<std::size_t>(VIdx) * 12ull, 12ull);
+        (void)Built.Network.AppendVertex({ Coords[0], Coords[1], Coords[2] });
+    }
+
+    const std::byte* FaceCursor = VertCursor + static_cast<std::size_t>(VertCount) * 12ull;
+    const std::byte* UVCursor   = UVBytes.data();
+
+    for (uint32_t FIdx = 0u; FIdx < FaceCount; ++FIdx)
+    {
+        uint32_t TriIndices[3] { 0u, 0u, 0u };
+        uint16_t LayerOrd      = 0u;
+        uint16_t PartGroup     = 0u;
+        const std::byte* Rec   = FaceCursor + static_cast<std::size_t>(FIdx) * 16ull;
+        std::memcpy(TriIndices, Rec, 12ull);
+        std::memcpy(&LayerOrd,  Rec + 12ull, 2ull);
+        std::memcpy(&PartGroup, Rec + 14ull, 2ull);
+
+        float RawUV[6] {};
+        std::memcpy(RawUV, UVCursor + static_cast<std::size_t>(FIdx) * 24ull, 24ull);
+
+        const std::array<uint32_t, 3u> Loop {{ TriIndices[0], TriIndices[1], TriIndices[2] }};
+        const std::array<Mathematics::UVAxes, 3u> LoopUV {{
+            { RawUV[0], RawUV[1] },
+            { RawUV[2], RawUV[3] },
+            { RawUV[4], RawUV[5] },
+        }};
+        const FaceShadingAssignment& Mat = PartMaterials[std::min<std::size_t>(PartGroup, PartMaterials.size() - 1u)];
+        (void)Built.Network.AppendFace(Loop, LoopUV, Mat, LayerOrd, static_cast<uint16_t>(PartGroup + 1u));
+    }
+
+    Built.Network.LinkOppositeEdges(true);
+    Built.Network.RecomputeNormals();
+    Built.Network.MarkDihedralSharpSeams(52.0f, false);
+    Built.Layers.SynchronizePartitions(Built.Network);
+
+    CachedVehicle  = std::move(Built);
+    CachePopulated = true;
+    OutAsset       = CachedVehicle;
+    return true;
+}
+
+} // namespace
+
 ConstructedSampleAsset ConstructSamplePolygonNetwork(SampleAssetPreset Preset)
 {
     ConstructedSampleAsset Result {};
@@ -295,10 +434,14 @@ ConstructedSampleAsset ConstructSamplePolygonNetwork(SampleAssetPreset Preset)
     {
         case SampleAssetPreset::ControlledIntegrator:
         {
+            if (TryLoadControlledIntegratorVehicle(Result))
+            {
+                return Result;
+            }
             Result.Network.NetworkTitle = "Controlled Integrator";
             Result.UDIMTiles            = { 1001u };
-            const uint16_t HeroLayer = Result.Layers.ConstructLayer("Primary Housing", { 0.937f, 0.957f, 0.812f }, 55.0f, 1001u);
-            const uint16_t RotorLayer = Result.Layers.ConstructLayer("Drive Rotor", { 0.620f, 0.812f, 1.000f }, 25.0f, 1001u);
+            const uint16_t HeroLayer = Result.Layers.ConstructLayer("Body Coat Hero", { 0.937f, 0.957f, 0.812f }, 55.0f, 1001u);
+            const uint16_t RotorLayer = Result.Layers.ConstructLayer("Optics & Glass", { 0.620f, 0.812f, 1.000f }, 15.0f, 1001u);
 
             const auto AluMat   = ConstructPartMaterial({ 0.77f, 0.80f, 0.85f }, 0.85f, 0.22f, 0u);
             const auto BrassMat = ConstructPartMaterial({ 0.85f, 0.64f, 0.28f }, 0.90f, 0.20f, 3u);
@@ -378,11 +521,11 @@ ConstructedSampleAsset ConstructSamplePolygonNetwork(SampleAssetPreset Preset)
             Result.UDIMTiles            = { 1001u };
             const uint16_t VisorLayer = Result.Layers.ConstructLayer("Helm & Visor", { 0.910f, 0.760f, 0.478f }, 50.0f, 1001u);
 
-            const auto TitanMat = ConstructPartMaterial({ 0.78f, 0.74f, 0.69f }, 0.80f, 0.25f, 1u);
+            const auto AlloyMat = ConstructPartMaterial({ 0.78f, 0.74f, 0.69f }, 0.80f, 0.25f, 1u);
             const auto GoldMat  = ConstructPartMaterial({ 0.85f, 0.64f, 0.28f }, 0.92f, 0.18f, 3u);
 
-            AppendCylinderFrustumPrimitive(Result.Network, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.56f, 0.0f }, 0.68f, 0.46f, 16u, SubdivideUVGridCell(0, 0, 2u, 2u, 0u, 0u), TitanMat, 0u, 1u);
-            AppendCylinderFrustumPrimitive(Result.Network, { 0.0f, 0.56f, 0.0f }, { 0.0f, 1.18f, 0.0f }, 0.34f, 0.30f, 18u, SubdivideUVGridCell(0, 0, 2u, 2u, 1u, 0u), TitanMat, VisorLayer, 2u);
+            AppendCylinderFrustumPrimitive(Result.Network, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.56f, 0.0f }, 0.68f, 0.46f, 16u, SubdivideUVGridCell(0, 0, 2u, 2u, 0u, 0u), AlloyMat, 0u, 1u);
+            AppendCylinderFrustumPrimitive(Result.Network, { 0.0f, 0.56f, 0.0f }, { 0.0f, 1.18f, 0.0f }, 0.34f, 0.30f, 18u, SubdivideUVGridCell(0, 0, 2u, 2u, 1u, 0u), AlloyMat, VisorLayer, 2u);
             AppendBoxPrimitive(Result.Network, { 0.0f, 0.88f, 0.28f }, { 0.26f, 0.10f, 0.10f }, SubdivideUVGridCell(0, 0, 2u, 2u, 0u, 1u), GoldMat, VisorLayer, 3u);
             AppendTorusRingPrimitive(Result.Network, { 0.0f, 0.56f, 0.0f }, 0.46f, 0.07f, 18u, 8u, SubdivideUVGridCell(0, 0, 2u, 2u, 1u, 1u), GoldMat, 0u, 4u);
             break;

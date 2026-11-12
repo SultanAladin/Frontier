@@ -28,19 +28,19 @@ void UVViewportInteractor::AttachSession(UVWorkspaceSession* TargetSession) noex
     RegionStrokeActive = false;
 }
 
-void UVViewportInteractor::ProcessViewportInput(const ViewportInteractionFrame& Context)
+void UVViewportInteractor::ProcessViewportInput(const ViewportInteractionReading& Interaction)
 {
     if (Session == nullptr)
     {
         return;
     }
 
-    const auto&   Input         = Context.Input;
+    const auto&   Input         = Interaction.Input;
     const Point2D Cursor        { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
     const float   CursorX       = Cursor.X;
     const float   CursorY       = Cursor.Y;
-    const bool    InsidePlanar  = (Context.PlanarBounds.Width > 1.0f) && Context.PlanarBounds.Contains(Cursor);
-    const bool    InsideSpatial = (Context.SpatialBounds.Width > 1.0f) && Context.SpatialBounds.Contains(Cursor);
+    const bool    InsidePlanar  = (Interaction.PlanarBounds.Width > 1.0f) && Interaction.PlanarBounds.Contains(Cursor);
+    const bool    InsideSpatial = (Interaction.SpatialBounds.Width > 1.0f) && Interaction.SpatialBounds.Contains(Cursor);
 
     auto& Proj = Session->AccessViewportProjection();
 
@@ -86,14 +86,14 @@ void UVViewportInteractor::ProcessViewportInput(const ViewportInteractionFrame& 
             }
             else
             {
-                const uint32_t W = static_cast<uint32_t>(std::max(16.0f, Context.PlanarBounds.Width));
-                const uint32_t H = static_cast<uint32_t>(std::max(16.0f, Context.PlanarBounds.Height));
+                const uint32_t W = static_cast<uint32_t>(std::max(16.0f, Interaction.PlanarBounds.Width));
+                const uint32_t H = static_cast<uint32_t>(std::max(16.0f, Interaction.PlanarBounds.Height));
                 const float Factor = (Input.WheelDeltaY > 0.0f) ? 1.14f : (1.0f / 1.14f);
                 Proj.ZoomPlanarAroundPoint(
                     W,
                     H,
-                    CursorX - Context.PlanarBounds.X,
-                    CursorY - Context.PlanarBounds.Y,
+                    CursorX - Interaction.PlanarBounds.X,
+                    CursorY - Interaction.PlanarBounds.Y,
                     Factor);
                 Session->FramebuffersDirty = true;
             }
@@ -102,12 +102,12 @@ void UVViewportInteractor::ProcessViewportInput(const ViewportInteractionFrame& 
         {
             Mathematics::UVAxes VisMin {}, VisMax {};
             Proj.EvaluateAspectLockedPlanarBounds(
-                static_cast<uint32_t>(std::max(16.0f, Context.PlanarBounds.Width)),
-                static_cast<uint32_t>(std::max(16.0f, Context.PlanarBounds.Height)),
+                static_cast<uint32_t>(std::max(16.0f, Interaction.PlanarBounds.Width)),
+                static_cast<uint32_t>(std::max(16.0f, Interaction.PlanarBounds.Height)),
                 VisMin,
                 VisMax);
-            const float SpanU = (VisMax.U - VisMin.U) / std::max(16.0f, Context.PlanarBounds.Width);
-            const float SpanV = (VisMax.V - VisMin.V) / std::max(16.0f, Context.PlanarBounds.Height);
+            const float SpanU = (VisMax.U - VisMin.U) / std::max(16.0f, Interaction.PlanarBounds.Width);
+            const float SpanV = (VisMax.V - VisMin.V) / std::max(16.0f, Interaction.PlanarBounds.Height);
             Proj.PanPlanarWindow({ -Input.PointerDeltaX * SpanU, Input.PointerDeltaY * SpanV });
             Session->FramebuffersDirty = true;
             return;
@@ -119,7 +119,7 @@ void UVViewportInteractor::ProcessViewportInput(const ViewportInteractionFrame& 
     //--------------------------------------------------------------------------------------------------------------------
     if (ModalMode != ModalUVTransformMode::Inactive)
     {
-        HandleModalTransformStep(Context, InsidePlanar);
+        HandleModalTransformStep(Interaction, InsidePlanar);
         return;
     }
 
@@ -128,21 +128,21 @@ void UVViewportInteractor::ProcessViewportInput(const ViewportInteractionFrame& 
     //--------------------------------------------------------------------------------------------------------------------
     if (InsidePlanar || InsideSpatial)
     {
-        HandleKeyboardShortcuts(Context, InsidePlanar, InsideSpatial);
+        HandleKeyboardShortcuts(Interaction, InsidePlanar, InsideSpatial);
     }
 
     //--------------------------------------------------------------------------------------------------------------------
     // 4. GPU Hover, Click, Marquee/Brush & TransformGizmo Drag
     //--------------------------------------------------------------------------------------------------------------------
-    HandleGizmoOrSurfaceInteraction(Context, InsidePlanar, InsideSpatial);
+    HandleGizmoOrSurfaceInteraction(Interaction, InsidePlanar, InsideSpatial);
 }
 
 void UVViewportInteractor::HandleKeyboardShortcuts(
-    const ViewportInteractionFrame& Context,
+    const ViewportInteractionReading& Interaction,
     bool                            InsidePlanar,
     bool                            InsideSpatial)
 {
-    const auto& Input = Context.Input;
+    const auto& Input = Interaction.Input;
     if (Input.EscapePressed)
     {
         ActiveRegionTool          = RegionSelectTool::Inactive;
@@ -196,7 +196,7 @@ void UVViewportInteractor::HandleKeyboardShortcuts(
                 Session->StatusBannerText = "Selection Mode: Priority Layers [4]";
                 break;
             case 'f':
-                Session->FrameSelectionOrNetwork();
+                Session->FitSelectionOrNetwork();
                 Session->StatusBannerText = "Framed Active Selection [F]";
                 break;
             case 'k':
@@ -283,11 +283,11 @@ void UVViewportInteractor::HandleKeyboardShortcuts(
 }
 
 void UVViewportInteractor::HandleModalTransformStep(
-    const ViewportInteractionFrame& Context,
+    const ViewportInteractionReading& Interaction,
     bool                            InsidePlanar)
 {
     (void)InsidePlanar;
-    const auto& Input = Context.Input;
+    const auto& Input = Interaction.Input;
 
     // Cancel on Escape or SecondaryPressed
     if (Input.EscapePressed || Input.SecondaryPressed)
@@ -344,8 +344,8 @@ void UVViewportInteractor::HandleModalTransformStep(
 
     if (ModalMode == ModalUVTransformMode::GrabTranslate)
     {
-        float Du = HasNumeric ? ParsedVal : (DxPx / std::max(32.0f, Context.PlanarBounds.Width));
-        float Dv = HasNumeric ? ParsedVal : (-DyPx / std::max(32.0f, Context.PlanarBounds.Height));
+        float Du = HasNumeric ? ParsedVal : (DxPx / std::max(32.0f, Interaction.PlanarBounds.Width));
+        float Dv = HasNumeric ? ParsedVal : (-DyPx / std::max(32.0f, Interaction.PlanarBounds.Height));
         if (Input.ControlHeld && !HasNumeric)
         {
             Du = std::round(Du * 16.0f) / 16.0f;
@@ -415,7 +415,7 @@ void UVViewportInteractor::HandleModalTransformStep(
 }
 
 void UVViewportInteractor::HandleGizmoOrSurfaceInteraction(
-    const ViewportInteractionFrame& Context,
+    const ViewportInteractionReading& Interaction,
     bool                            InsidePlanar,
     bool                            InsideSpatial)
 {
@@ -425,7 +425,7 @@ void UVViewportInteractor::HandleGizmoOrSurfaceInteraction(
         return;
     }
 
-    const auto& Input = Context.Input;
+    const auto& Input = Interaction.Input;
     auto&       Proj  = Session->AccessViewportProjection();
 
     //--------------------------------------------------------------------------------------------------------------------
@@ -433,13 +433,13 @@ void UVViewportInteractor::HandleGizmoOrSurfaceInteraction(
     //--------------------------------------------------------------------------------------------------------------------
     if (DraggingGizmo2D)
     {
-        const uint32_t W   = static_cast<uint32_t>(std::max(16.0f, Context.PlanarBounds.Width));
-        const uint32_t H   = static_cast<uint32_t>(std::max(16.0f, Context.PlanarBounds.Height));
+        const uint32_t W   = static_cast<uint32_t>(std::max(16.0f, Interaction.PlanarBounds.Width));
+        const uint32_t H   = static_cast<uint32_t>(std::max(16.0f, Interaction.PlanarBounds.Height));
         const auto     Ray = Proj.BuildPlanarRay(
             W,
             H,
-            Input.PrimaryPointer.X - Context.PlanarBounds.X,
-            Input.PrimaryPointer.Y - Context.PlanarBounds.Y);
+            Input.PrimaryPointer.X - Interaction.PlanarBounds.X,
+            Input.PrimaryPointer.Y - Interaction.PlanarBounds.Y);
 
         const Configuration::GizmoSnapSettings Snap {};
         const auto Res = Session->Gizmo2D.EvaluateDragInteraction(
@@ -486,13 +486,13 @@ void UVViewportInteractor::HandleGizmoOrSurfaceInteraction(
     //--------------------------------------------------------------------------------------------------------------------
     if (DraggingGizmo3D)
     {
-        const uint32_t W   = static_cast<uint32_t>(std::max(16.0f, Context.SpatialBounds.Width));
-        const uint32_t H   = static_cast<uint32_t>(std::max(16.0f, Context.SpatialBounds.Height));
+        const uint32_t W   = static_cast<uint32_t>(std::max(16.0f, Interaction.SpatialBounds.Width));
+        const uint32_t H   = static_cast<uint32_t>(std::max(16.0f, Interaction.SpatialBounds.Height));
         const auto     Ray = Proj.BuildSpatialRay(
             W,
             H,
-            Input.PrimaryPointer.X - Context.SpatialBounds.X,
-            Input.PrimaryPointer.Y - Context.SpatialBounds.Y);
+            Input.PrimaryPointer.X - Interaction.SpatialBounds.X,
+            Input.PrimaryPointer.Y - Interaction.SpatialBounds.Y);
 
         const Configuration::GizmoSnapSettings Snap {};
         const auto Res = Session->Gizmo3D.EvaluateDragInteraction(
@@ -523,7 +523,7 @@ void UVViewportInteractor::HandleGizmoOrSurfaceInteraction(
     //--------------------------------------------------------------------------------------------------------------------
     if (ActiveRegionTool != RegionSelectTool::Inactive)
     {
-        const auto& Bounds = InsidePlanar ? Context.PlanarBounds : Context.SpatialBounds;
+        const auto& Bounds = InsidePlanar ? Interaction.PlanarBounds : Interaction.SpatialBounds;
         const float LocalX = std::clamp(Input.PrimaryPointer.X - Bounds.X, 0.0f, Bounds.Width - 1.0f);
         const float LocalY = std::clamp(Input.PrimaryPointer.Y - Bounds.Y, 0.0f, Bounds.Height - 1.0f);
 
@@ -576,13 +576,13 @@ void UVViewportInteractor::HandleGizmoOrSurfaceInteraction(
     if (InsidePlanar && Session->Framebuffer2DWidth > 0u && Session->Framebuffer2DHeight > 0u)
     {
         const uint32_t Px = static_cast<uint32_t>(std::clamp(
-            (Input.PrimaryPointer.X - Context.PlanarBounds.X) *
-                (static_cast<float>(Session->Framebuffer2DWidth) / std::max(1.0f, Context.PlanarBounds.Width)),
+            (Input.PrimaryPointer.X - Interaction.PlanarBounds.X) *
+                (static_cast<float>(Session->Framebuffer2DWidth) / std::max(1.0f, Interaction.PlanarBounds.Width)),
             0.0f,
             static_cast<float>(Session->Framebuffer2DWidth - 1u)));
         const uint32_t Py = static_cast<uint32_t>(std::clamp(
-            (Input.PrimaryPointer.Y - Context.PlanarBounds.Y) *
-                (static_cast<float>(Session->Framebuffer2DHeight) / std::max(1.0f, Context.PlanarBounds.Height)),
+            (Input.PrimaryPointer.Y - Interaction.PlanarBounds.Y) *
+                (static_cast<float>(Session->Framebuffer2DHeight) / std::max(1.0f, Interaction.PlanarBounds.Height)),
             0.0f,
             static_cast<float>(Session->Framebuffer2DHeight - 1u)));
         Hit = Rast->Pick2DPixel(Px, Py);
@@ -592,13 +592,13 @@ void UVViewportInteractor::HandleGizmoOrSurfaceInteraction(
     else if (InsideSpatial && Session->Framebuffer3DWidth > 0u && Session->Framebuffer3DHeight > 0u)
     {
         const uint32_t Px = static_cast<uint32_t>(std::clamp(
-            (Input.PrimaryPointer.X - Context.SpatialBounds.X) *
-                (static_cast<float>(Session->Framebuffer3DWidth) / std::max(1.0f, Context.SpatialBounds.Width)),
+            (Input.PrimaryPointer.X - Interaction.SpatialBounds.X) *
+                (static_cast<float>(Session->Framebuffer3DWidth) / std::max(1.0f, Interaction.SpatialBounds.Width)),
             0.0f,
             static_cast<float>(Session->Framebuffer3DWidth - 1u)));
         const uint32_t Py = static_cast<uint32_t>(std::clamp(
-            (Input.PrimaryPointer.Y - Context.SpatialBounds.Y) *
-                (static_cast<float>(Session->Framebuffer3DHeight) / std::max(1.0f, Context.SpatialBounds.Height)),
+            (Input.PrimaryPointer.Y - Interaction.SpatialBounds.Y) *
+                (static_cast<float>(Session->Framebuffer3DHeight) / std::max(1.0f, Interaction.SpatialBounds.Height)),
             0.0f,
             static_cast<float>(Session->Framebuffer3DHeight - 1u)));
         Hit = Rast->Pick3DPixel(Px, Py);
@@ -649,10 +649,10 @@ void UVViewportInteractor::HandleGizmoOrSurfaceInteraction(
                 ActiveGizmoTransform = Mathematics::SpatialTransform{ Pivot3D, {}, { 1.0f, 1.0f, 1.0f } };
 
                 const auto Ray = Proj.BuildPlanarRay(
-                    static_cast<uint32_t>(std::max(16.0f, Context.PlanarBounds.Width)),
-                    static_cast<uint32_t>(std::max(16.0f, Context.PlanarBounds.Height)),
-                    Input.PrimaryPointer.X - Context.PlanarBounds.X,
-                    Input.PrimaryPointer.Y - Context.PlanarBounds.Y);
+                    static_cast<uint32_t>(std::max(16.0f, Interaction.PlanarBounds.Width)),
+                    static_cast<uint32_t>(std::max(16.0f, Interaction.PlanarBounds.Height)),
+                    Input.PrimaryPointer.X - Interaction.PlanarBounds.X,
+                    Input.PrimaryPointer.Y - Interaction.PlanarBounds.Y);
                 DraggingGizmo2D = Session->Gizmo2D.BeginDragInteraction(
                     static_cast<Editor::GizmoHandleOrdinal>(Hit.GizmoHandleOrdinal),
                     Ray,
@@ -667,10 +667,10 @@ void UVViewportInteractor::HandleGizmoOrSurfaceInteraction(
             ActiveGizmoTransform = Mathematics::SpatialTransform{ Pivot3D, {}, { 1.0f, 1.0f, 1.0f } };
 
             const auto Ray = Proj.BuildSpatialRay(
-                static_cast<uint32_t>(std::max(16.0f, Context.SpatialBounds.Width)),
-                static_cast<uint32_t>(std::max(16.0f, Context.SpatialBounds.Height)),
-                Input.PrimaryPointer.X - Context.SpatialBounds.X,
-                Input.PrimaryPointer.Y - Context.SpatialBounds.Y);
+                static_cast<uint32_t>(std::max(16.0f, Interaction.SpatialBounds.Width)),
+                static_cast<uint32_t>(std::max(16.0f, Interaction.SpatialBounds.Height)),
+                Input.PrimaryPointer.X - Interaction.SpatialBounds.X,
+                Input.PrimaryPointer.Y - Interaction.SpatialBounds.Y);
             DraggingGizmo3D = Session->Gizmo3D.BeginDragInteraction(
                 static_cast<Editor::GizmoHandleOrdinal>(Hit.GizmoHandleOrdinal),
                 Ray,

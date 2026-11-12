@@ -64,7 +64,7 @@ struct alignas(16) GPUSelectionParams
 {
     uint32_t FaceCount;
     uint32_t OperationCode;
-    uint32_t TargetValue;
+    uint32_t TargetMask;
     uint32_t AdditiveMask;
 };
 
@@ -81,7 +81,7 @@ struct alignas(16) GPUFaceMetricOutput
 {
     float    L2Stretch;
     float    SignedAreaUV;
-    uint32_t StatusFlags;
+    uint32_t DistortionMask;
     uint32_t UDIMNumber;
 };
 
@@ -90,11 +90,11 @@ struct alignas(16) GPUMetricDispatchParams
     uint32_t FaceCount;
     float    ReferenceScale;
     uint32_t CheckOverlaps;
-    uint32_t ReservedPad;
+    float    MaxFaceSpanU;
 };
 
 void ComputeOrbitBasis(
-    const CameraOrbitState3D& Cam,
+    const CameraOrbitRig3D& Cam,
     Mathematics::Axis3D&      OutEye,
     Mathematics::Axis3D&      OutRight,
     Mathematics::Axis3D&      OutUp,
@@ -118,7 +118,7 @@ void ComputeOrbitBasis(
 
 // Row-major Vulkan clip matrix (Y-flipped for Vulkan NDC, Z in [0, 1])
 void BuildRowMajorViewProjection(
-    const CameraOrbitState3D& Cam,
+    const CameraOrbitRig3D& Cam,
     float                     AspectRatio,
     float                     OutVP[4][4]) noexcept
 {
@@ -188,25 +188,25 @@ UVWorkspaceRasterizer::~UVWorkspaceRasterizer()
 }
 
 bool UVWorkspaceRasterizer::InitializeRasterizer(
-    VulkanDeviceContext*         BoundContext,
+    VulkanInterchange*         BoundDevice,
     const std::filesystem::path& CompiledShaderDirectory)
 {
     TeardownRasterizer();
-    if (BoundContext == nullptr || !BoundContext->Ready())
+    if (BoundDevice == nullptr || !BoundDevice->Ready())
     {
         return false;
     }
 
-    Context = BoundContext;
-    if (!ComputeEncoder.InitializeEncoder(Context, 256u) ||
-        !TransferRegister.InitializeRegister(Context, 16ull * 1024ull * 1024ull))
+    DeviceInterchange = BoundDevice;
+    if (!ComputeEncoder.InitializeEncoder(DeviceInterchange, 256u) ||
+        !TransferRegister.InitializeRegister(DeviceInterchange, 16ull * 1024ull * 1024ull))
     {
         TeardownRasterizer();
         return false;
     }
 
     if (!PickQuery.InitializePickQuery(
-            Context,
+            DeviceInterchange,
             &ComputeEncoder,
             &TransferRegister,
             CompiledShaderDirectory / "ViewportPickReduction.comp.spv"))
@@ -215,20 +215,20 @@ bool UVWorkspaceRasterizer::InitializeRasterizer(
         return false;
     }
 
-    const std::array<VkDescriptorType, 3u> SelBindings {{
+    const std::array<VkDescriptorType, 3u> SelSlots {{
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
     }};
-    SelectionComputeProgram = ComputeEncoder.RegisterProgram(CompiledShaderDirectory / "SelectionMaskCompute.comp.spv", SelBindings);
+    SelectionComputeProgram = ComputeEncoder.RegisterProgram(CompiledShaderDirectory / "SelectionMaskCompute.comp.spv", SelSlots);
 
-    const std::array<VkDescriptorType, 4u> StretchBindings {{
+    const std::array<VkDescriptorType, 4u> StretchSlots {{
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
     }};
-    StretchComputeProgram = ComputeEncoder.RegisterProgram(CompiledShaderDirectory / "UVDistortionInspection.comp.spv", StretchBindings);
+    StretchComputeProgram = ComputeEncoder.RegisterProgram(CompiledShaderDirectory / "UVDistortionInspection.comp.spv", StretchSlots);
 
     if (SelectionComputeProgram == UINT32_MAX || StretchComputeProgram == UINT32_MAX)
     {
@@ -236,7 +236,7 @@ bool UVWorkspaceRasterizer::InitializeRasterizer(
         return false;
     }
 
-    // Create Dual-Attachment MRT + Depth RenderPass (Attachment 0: RGBA8, Attachment 1: R32G32B32A32_UINT, Attachment 2: D32_SFLOAT)
+    // Create Dual-Attachment MRT + DepthSpec RenderPass (Attachment 0: RGBA8, Attachment 1: R32G32B32A32_UINT, Attachment 2: D32_SFLOAT)
     std::array<VkAttachmentDescription, 3u> Attachments {};
     Attachments[0].format         = VK_FORMAT_R8G8B8A8_UNORM;
     Attachments[0].samples        = VK_SAMPLE_COUNT_1_BIT;
@@ -277,29 +277,29 @@ bool UVWorkspaceRasterizer::InitializeRasterizer(
     Subpass.pColorAttachments       = ColorRefs.data();
     Subpass.pDepthStencilAttachment = &DepthRef;
 
-    VkRenderPassCreateInfo PassInfo {};
-    PassInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    PassInfo.attachmentCount = static_cast<uint32_t>(Attachments.size());
-    PassInfo.pAttachments    = Attachments.data();
-    PassInfo.subpassCount    = 1u;
-    PassInfo.pSubpasses      = &Subpass;
+    VkRenderPassCreateInfo TargetSpec {};
+    TargetSpec.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    TargetSpec.attachmentCount = static_cast<uint32_t>(Attachments.size());
+    TargetSpec.pAttachments    = Attachments.data();
+    TargetSpec.subpassCount    = 1u;
+    TargetSpec.pSubpasses      = &Subpass;
 
-    if (vkCreateRenderPass(Context->AccessDevice(), &PassInfo, nullptr, &DualTargetRenderPass) != VK_SUCCESS)
+    if (vkCreateRenderPass(DeviceInterchange->AccessDevice(), &TargetSpec, nullptr, &DualTargetAttachmentFormat) != VK_SUCCESS)
     {
         TeardownRasterizer();
         return false;
     }
 
-    const std::array<VkDescriptorPoolSize, 2u> GfxPoolSizes {{
+    const std::array<VkDescriptorPoolSize, 2u> GfxAllocatorCapacities {{
         { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 128u },
         { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 256u },
     }};
-    VkDescriptorPoolCreateInfo PoolInfo {};
-    PoolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    PoolInfo.maxSets       = 128u;
-    PoolInfo.poolSizeCount = static_cast<uint32_t>(GfxPoolSizes.size());
-    PoolInfo.pPoolSizes    = GfxPoolSizes.data();
-    if (vkCreateDescriptorPool(Context->AccessDevice(), &PoolInfo, nullptr, &GraphicsDescriptorPool) != VK_SUCCESS)
+    VkDescriptorPoolCreateInfo AllocatorSpec {};
+    AllocatorSpec.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    AllocatorSpec.maxSets       = 128u;
+    AllocatorSpec.poolSizeCount = static_cast<uint32_t>(GfxAllocatorCapacities.size());
+    AllocatorSpec.pPoolSizes    = GfxAllocatorCapacities.data();
+    if (vkCreateDescriptorPool(DeviceInterchange->AccessDevice(), &AllocatorSpec, nullptr, &GraphicsDescriptorAllocator) != VK_SUCCESS)
     {
         TeardownRasterizer();
         return false;
@@ -315,24 +315,24 @@ bool UVWorkspaceRasterizer::InitializeRasterizer(
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
     }};
 
-    if (!CreateGraphicsPipeline(
+    if (!ConstructGraphicsProgram(
             CompiledShaderDirectory / "SurfaceShading.vert.spv",
             CompiledShaderDirectory / "SurfaceShading.frag.spv",
             SurfaceSetTypes,
             true,
-            SurfacePipeline) ||
-        !CreateGraphicsPipeline(
+            SurfaceProgram) ||
+        !ConstructGraphicsProgram(
             CompiledShaderDirectory / "UVTileRasterization.vert.spv",
             CompiledShaderDirectory / "UVTileRasterization.frag.spv",
             SurfaceSetTypes,
             false,
-            UVCanvasPipeline) ||
-        !CreateGraphicsPipeline(
+            UVCanvasProgram) ||
+        !ConstructGraphicsProgram(
             CompiledShaderDirectory / "GizmoRasterization.vert.spv",
             CompiledShaderDirectory / "GizmoRasterization.frag.spv",
             GizmoSetTypes,
             false,
-            GizmoDepthOffPipeline))
+            GizmoDepthOffProgram))
     {
         TeardownRasterizer();
         return false;
@@ -351,103 +351,103 @@ bool UVWorkspaceRasterizer::InitializeRasterizer(
 
 void UVWorkspaceRasterizer::TeardownRasterizer() noexcept
 {
-    if (Context != nullptr && Context->Ready())
+    if (DeviceInterchange != nullptr && DeviceInterchange->Ready())
     {
-        VkDevice Dev = Context->AccessDevice();
-        vkDeviceWaitIdle(Dev);
+        VkDevice DeviceHandle = DeviceInterchange->AccessDevice();
+        vkDeviceWaitIdle(DeviceHandle);
 
         ReleaseFramebufferTarget(Target3D);
         ReleaseFramebufferTarget(Target2D);
 
-        DestroyGraphicsPipeline(SurfacePipeline);
-        DestroyGraphicsPipeline(UVCanvasPipeline);
-        DestroyGraphicsPipeline(GizmoDepthOffPipeline);
+        DestroyGraphicsProgram(SurfaceProgram);
+        DestroyGraphicsProgram(UVCanvasProgram);
+        DestroyGraphicsProgram(GizmoDepthOffProgram);
 
-        Context->ReleaseBuffer(SurfaceVertexBuffer);
-        Context->ReleaseBuffer(UVCanvasVertexBuffer);
-        Context->ReleaseBuffer(Gizmo3DVertexBuffer);
-        Context->ReleaseBuffer(Gizmo2DVertexBuffer);
-        Context->ReleaseBuffer(FacePackedAttrBuffer);
-        Context->ReleaseBuffer(SelectionBitmaskBuffer);
-        Context->ReleaseBuffer(Viewport3DUniformBuffer);
-        Context->ReleaseBuffer(Canvas2DUniformBuffer);
-        Context->ReleaseBuffer(Gizmo3DUniformBuffer);
-        Context->ReleaseBuffer(Gizmo2DUniformBuffer);
-        Context->ReleaseBuffer(SelectionUniformBuffer);
-        Context->ReleaseBuffer(StretchUniformBuffer);
-        Context->ReleaseBuffer(StretchInputBuffer);
-        Context->ReleaseBuffer(StretchOutputBuffer);
-        Context->ReleaseBuffer(StretchCountersBuffer);
+        DeviceInterchange->ReleaseBuffer(SurfaceVertexBuffer);
+        DeviceInterchange->ReleaseBuffer(UVCanvasVertexBuffer);
+        DeviceInterchange->ReleaseBuffer(Gizmo3DVertexBuffer);
+        DeviceInterchange->ReleaseBuffer(Gizmo2DVertexBuffer);
+        DeviceInterchange->ReleaseBuffer(FacePackedAttrBuffer);
+        DeviceInterchange->ReleaseBuffer(SelectionBitmaskBuffer);
+        DeviceInterchange->ReleaseBuffer(Viewport3DUniformBuffer);
+        DeviceInterchange->ReleaseBuffer(Canvas2DUniformBuffer);
+        DeviceInterchange->ReleaseBuffer(Gizmo3DUniformBuffer);
+        DeviceInterchange->ReleaseBuffer(Gizmo2DUniformBuffer);
+        DeviceInterchange->ReleaseBuffer(SelectionUniformBuffer);
+        DeviceInterchange->ReleaseBuffer(StretchUniformBuffer);
+        DeviceInterchange->ReleaseBuffer(StretchInputBuffer);
+        DeviceInterchange->ReleaseBuffer(StretchOutputBuffer);
+        DeviceInterchange->ReleaseBuffer(StretchCountersBuffer);
 
-        if (GraphicsDescriptorPool != VK_NULL_HANDLE)
+        if (GraphicsDescriptorAllocator != VK_NULL_HANDLE)
         {
-            vkDestroyDescriptorPool(Dev, GraphicsDescriptorPool, nullptr);
-            GraphicsDescriptorPool = VK_NULL_HANDLE;
+            vkDestroyDescriptorPool(DeviceHandle, GraphicsDescriptorAllocator, nullptr);
+            GraphicsDescriptorAllocator = VK_NULL_HANDLE;
         }
-        if (DualTargetRenderPass != VK_NULL_HANDLE)
+        if (DualTargetAttachmentFormat != VK_NULL_HANDLE)
         {
-            vkDestroyRenderPass(Dev, DualTargetRenderPass, nullptr);
-            DualTargetRenderPass = VK_NULL_HANDLE;
+            vkDestroyRenderPass(DeviceHandle, DualTargetAttachmentFormat, nullptr);
+            DualTargetAttachmentFormat = VK_NULL_HANDLE;
         }
     }
 
     PickQuery.TeardownPickQuery();
     TransferRegister.TeardownRegister();
     ComputeEncoder.TeardownEncoder();
-    Context = nullptr;
+    DeviceInterchange = nullptr;
 }
 
-bool UVWorkspaceRasterizer::CreateGraphicsPipeline(
+bool UVWorkspaceRasterizer::ConstructGraphicsProgram(
     const std::filesystem::path&      VertSpirv,
     const std::filesystem::path&      FragSpirv,
-    std::span<const VkDescriptorType> BindingTypes,
+    std::span<const VkDescriptorType> SlotCategories,
     bool                              DepthTestAndWrite,
-    GraphicsPipelineBundle&           OutBundle)
+    GraphicsProgramBundle&           OutBundle)
 {
-    VkDevice Dev         = Context->AccessDevice();
-    OutBundle.VertModule = Context->LoadShaderModule(VertSpirv);
-    OutBundle.FragModule = Context->LoadShaderModule(FragSpirv);
-    if (OutBundle.VertModule == VK_NULL_HANDLE || OutBundle.FragModule == VK_NULL_HANDLE)
+    VkDevice DeviceHandle         = DeviceInterchange->AccessDevice();
+    OutBundle.VertBinary = DeviceInterchange->LoadShaderBinary(VertSpirv);
+    OutBundle.FragBinary = DeviceInterchange->LoadShaderBinary(FragSpirv);
+    if (OutBundle.VertBinary == VK_NULL_HANDLE || OutBundle.FragBinary == VK_NULL_HANDLE)
     {
         return false;
     }
 
-    std::vector<VkDescriptorSetLayoutBinding> Bindings(BindingTypes.size());
-    for (std::size_t Idx = 0u; Idx < BindingTypes.size(); ++Idx)
+    std::vector<VkDescriptorSetLayoutBinding> Slots(SlotCategories.size());
+    for (std::size_t Idx = 0u; Idx < SlotCategories.size(); ++Idx)
     {
-        Bindings[Idx].binding         = static_cast<uint32_t>(Idx);
-        Bindings[Idx].descriptorType  = BindingTypes[Idx];
-        Bindings[Idx].descriptorCount = 1u;
-        Bindings[Idx].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        Slots[Idx].binding         = static_cast<uint32_t>(Idx);
+        Slots[Idx].descriptorType  = SlotCategories[Idx];
+        Slots[Idx].descriptorCount = 1u;
+        Slots[Idx].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     }
 
-    VkDescriptorSetLayoutCreateInfo BindingInfo {};
-    BindingInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    BindingInfo.bindingCount = static_cast<uint32_t>(Bindings.size());
-    BindingInfo.pBindings    = Bindings.data();
-    if (vkCreateDescriptorSetLayout(Dev, &BindingInfo, nullptr, &OutBundle.BindingLayout) != VK_SUCCESS)
-    {
-        return false;
-    }
-
-    VkPipelineLayoutCreateInfo LayoutInfo {};
-    LayoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    LayoutInfo.setLayoutCount = 1u;
-    LayoutInfo.pSetLayouts    = &OutBundle.BindingLayout;
-    if (vkCreatePipelineLayout(Dev, &LayoutInfo, nullptr, &OutBundle.PipelineLayout) != VK_SUCCESS)
+    VkDescriptorSetLayoutCreateInfo SlotSpec {};
+    SlotSpec.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    SlotSpec.bindingCount = static_cast<uint32_t>(Slots.size());
+    SlotSpec.pBindings    = Slots.data();
+    if (vkCreateDescriptorSetLayout(DeviceHandle, &SlotSpec, nullptr, &OutBundle.SlotLayout) != VK_SUCCESS)
     {
         return false;
     }
 
-    std::array<VkPipelineShaderStageCreateInfo, 2u> Stages {};
-    Stages[0].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    Stages[0].stage  = VK_SHADER_STAGE_VERTEX_BIT;
-    Stages[0].module = OutBundle.VertModule;
-    Stages[0].pName  = "VertexEntry";
-    Stages[1].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    Stages[1].stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
-    Stages[1].module = OutBundle.FragModule;
-    Stages[1].pName  = "FragmentEntry";
+    VkPipelineLayoutCreateInfo LayoutSpec {};
+    LayoutSpec.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    LayoutSpec.setLayoutCount = 1u;
+    LayoutSpec.pSetLayouts    = &OutBundle.SlotLayout;
+    if (vkCreatePipelineLayout(DeviceHandle, &LayoutSpec, nullptr, &OutBundle.ProgramLayout) != VK_SUCCESS)
+    {
+        return false;
+    }
+
+    std::array<VkPipelineShaderStageCreateInfo, 2u> ShaderUnits {};
+    ShaderUnits[0].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    ShaderUnits[0].stage  = VK_SHADER_STAGE_VERTEX_BIT;
+    ShaderUnits[0].module = OutBundle.VertBinary;
+    ShaderUnits[0].pName  = "VertexEntry";
+    ShaderUnits[1].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    ShaderUnits[1].stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
+    ShaderUnits[1].module = OutBundle.FragBinary;
+    ShaderUnits[1].pName  = "FragmentEntry";
 
     VkPipelineVertexInputStateCreateInfo   VertexInput {};
     VertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -456,17 +456,17 @@ bool UVWorkspaceRasterizer::CreateGraphicsPipeline(
     PrimitiveInput.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     PrimitiveInput.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
-    VkPipelineViewportStateCreateInfo ViewportState {};
-    ViewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    ViewportState.viewportCount = 1u;
-    ViewportState.scissorCount  = 1u;
+    VkPipelineViewportStateCreateInfo ViewportScissorConfig {};
+    ViewportScissorConfig.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    ViewportScissorConfig.viewportCount = 1u;
+    ViewportScissorConfig.scissorCount  = 1u;
 
-    VkPipelineRasterizationStateCreateInfo Raster {};
-    Raster.sType       = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    Raster.polygonMode = VK_POLYGON_MODE_FILL;
-    Raster.cullMode    = VK_CULL_MODE_NONE;
-    Raster.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    Raster.lineWidth   = 1.0f;
+    VkPipelineRasterizationStateCreateInfo RastSpec {};
+    RastSpec.sType       = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    RastSpec.polygonMode = VK_POLYGON_MODE_FILL;
+    RastSpec.cullMode    = VK_CULL_MODE_NONE;
+    RastSpec.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    RastSpec.lineWidth   = 1.0f;
 
     VkPipelineMultisampleStateCreateInfo Multisample {};
     Multisample.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -489,43 +489,43 @@ bool UVWorkspaceRasterizer::CreateGraphicsPipeline(
     ColorBlend.attachmentCount = static_cast<uint32_t>(BlendAtts.size());
     ColorBlend.pAttachments    = BlendAtts.data();
 
-    const std::array<VkDynamicState, 2u> DynStates {{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR }};
-    VkPipelineDynamicStateCreateInfo DynInfo {};
-    DynInfo.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    DynInfo.dynamicStateCount = static_cast<uint32_t>(DynStates.size());
-    DynInfo.pDynamicStates    = DynStates.data();
+    const std::array<VkDynamicState, 2u> DynamicDimensions {{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR }};
+    VkPipelineDynamicStateCreateInfo DynSpec {};
+    DynSpec.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    DynSpec.dynamicStateCount = static_cast<uint32_t>(DynamicDimensions.size());
+    DynSpec.pDynamicStates    = DynamicDimensions.data();
 
-    VkGraphicsPipelineCreateInfo PipeInfo {};
-    PipeInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    PipeInfo.stageCount          = static_cast<uint32_t>(Stages.size());
-    PipeInfo.pStages             = Stages.data();
-    PipeInfo.pVertexInputState   = &VertexInput;
-    PipeInfo.pInputAssemblyState = &PrimitiveInput;
-    PipeInfo.pViewportState      = &ViewportState;
-    PipeInfo.pRasterizationState = &Raster;
-    PipeInfo.pMultisampleState   = &Multisample;
-    PipeInfo.pDepthStencilState  = &DepthStencil;
-    PipeInfo.pColorBlendState    = &ColorBlend;
-    PipeInfo.pDynamicState       = &DynInfo;
-    PipeInfo.layout              = OutBundle.PipelineLayout;
-    PipeInfo.renderPass          = DualTargetRenderPass;
-    PipeInfo.subpass             = 0u;
+    VkGraphicsPipelineCreateInfo ProgramSpec {};
+    ProgramSpec.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    ProgramSpec.stageCount          = static_cast<uint32_t>(ShaderUnits.size());
+    ProgramSpec.pStages             = ShaderUnits.data();
+    ProgramSpec.pVertexInputState   = &VertexInput;
+    ProgramSpec.pInputAssemblyState = &PrimitiveInput;
+    ProgramSpec.pViewportState      = &ViewportScissorConfig;
+    ProgramSpec.pRasterizationState = &RastSpec;
+    ProgramSpec.pMultisampleState   = &Multisample;
+    ProgramSpec.pDepthStencilState  = &DepthStencil;
+    ProgramSpec.pColorBlendState    = &ColorBlend;
+    ProgramSpec.pDynamicState       = &DynSpec;
+    ProgramSpec.layout              = OutBundle.ProgramLayout;
+    ProgramSpec.renderPass          = DualTargetAttachmentFormat;
+    ProgramSpec.subpass             = 0u;
 
-    return vkCreateGraphicsPipelines(Dev, VK_NULL_HANDLE, 1u, &PipeInfo, nullptr, &OutBundle.Pipeline) == VK_SUCCESS;
+    return vkCreateGraphicsPipelines(DeviceHandle, VK_NULL_HANDLE, 1u, &ProgramSpec, nullptr, &OutBundle.ProgramHandle) == VK_SUCCESS;
 }
 
-void UVWorkspaceRasterizer::DestroyGraphicsPipeline(GraphicsPipelineBundle& Bundle) noexcept
+void UVWorkspaceRasterizer::DestroyGraphicsProgram(GraphicsProgramBundle& Bundle) noexcept
 {
-    if (Context == nullptr || !Context->Ready())
+    if (DeviceInterchange == nullptr || !DeviceInterchange->Ready())
     {
         return;
     }
-    VkDevice Dev = Context->AccessDevice();
-    if (Bundle.Pipeline != VK_NULL_HANDLE)       { vkDestroyPipeline(Dev, Bundle.Pipeline, nullptr); Bundle.Pipeline = VK_NULL_HANDLE; }
-    if (Bundle.PipelineLayout != VK_NULL_HANDLE) { vkDestroyPipelineLayout(Dev, Bundle.PipelineLayout, nullptr); Bundle.PipelineLayout = VK_NULL_HANDLE; }
-    if (Bundle.BindingLayout != VK_NULL_HANDLE)      { vkDestroyDescriptorSetLayout(Dev, Bundle.BindingLayout, nullptr); Bundle.BindingLayout = VK_NULL_HANDLE; }
-    if (Bundle.VertModule != VK_NULL_HANDLE)     { vkDestroyShaderModule(Dev, Bundle.VertModule, nullptr); Bundle.VertModule = VK_NULL_HANDLE; }
-    if (Bundle.FragModule != VK_NULL_HANDLE)     { vkDestroyShaderModule(Dev, Bundle.FragModule, nullptr); Bundle.FragModule = VK_NULL_HANDLE; }
+    VkDevice DeviceHandle = DeviceInterchange->AccessDevice();
+    if (Bundle.ProgramHandle != VK_NULL_HANDLE)       { vkDestroyPipeline(DeviceHandle, Bundle.ProgramHandle, nullptr); Bundle.ProgramHandle = VK_NULL_HANDLE; }
+    if (Bundle.ProgramLayout != VK_NULL_HANDLE) { vkDestroyPipelineLayout(DeviceHandle, Bundle.ProgramLayout, nullptr); Bundle.ProgramLayout = VK_NULL_HANDLE; }
+    if (Bundle.SlotLayout != VK_NULL_HANDLE)      { vkDestroyDescriptorSetLayout(DeviceHandle, Bundle.SlotLayout, nullptr); Bundle.SlotLayout = VK_NULL_HANDLE; }
+    if (Bundle.VertBinary != VK_NULL_HANDLE)     { vkDestroyShaderModule(DeviceHandle, Bundle.VertBinary, nullptr); Bundle.VertBinary = VK_NULL_HANDLE; }
+    if (Bundle.FragBinary != VK_NULL_HANDLE)     { vkDestroyShaderModule(DeviceHandle, Bundle.FragBinary, nullptr); Bundle.FragBinary = VK_NULL_HANDLE; }
 }
 
 bool UVWorkspaceRasterizer::EnsureFramebufferTarget(MRTFramebufferTarget& Target, uint32_t WidthPx, uint32_t HeightPx)
@@ -537,21 +537,21 @@ bool UVWorkspaceRasterizer::EnsureFramebufferTarget(MRTFramebufferTarget& Target
 
     ReleaseFramebufferTarget(Target);
 
-    Target.ColorImage = Context->AllocateImage2D(
+    Target.ColorImage = DeviceInterchange->AllocateImage2D(
         WidthPx,
         HeightPx,
         VK_FORMAT_R8G8B8A8_UNORM,
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
         VK_IMAGE_ASPECT_COLOR_BIT);
 
-    Target.PickImage = Context->AllocateImage2D(
+    Target.PickImage = DeviceInterchange->AllocateImage2D(
         WidthPx,
         HeightPx,
         VK_FORMAT_R32G32B32A32_UINT,
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
         VK_IMAGE_ASPECT_COLOR_BIT);
 
-    Target.DepthImage = Context->AllocateImage2D(
+    Target.DepthImage = DeviceInterchange->AllocateImage2D(
         WidthPx,
         HeightPx,
         VK_FORMAT_D32_SFLOAT,
@@ -572,16 +572,16 @@ bool UVWorkspaceRasterizer::EnsureFramebufferTarget(MRTFramebufferTarget& Target
         Target.DepthImage.ViewHandle,
     }};
 
-    VkFramebufferCreateInfo FbInfo {};
-    FbInfo.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    FbInfo.renderPass      = DualTargetRenderPass;
-    FbInfo.attachmentCount = static_cast<uint32_t>(Views.size());
-    FbInfo.pAttachments    = Views.data();
-    FbInfo.width           = WidthPx;
-    FbInfo.height          = HeightPx;
-    FbInfo.layers          = 1u;
+    VkFramebufferCreateInfo FbSpec {};
+    FbSpec.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    FbSpec.renderPass      = DualTargetAttachmentFormat;
+    FbSpec.attachmentCount = static_cast<uint32_t>(Views.size());
+    FbSpec.pAttachments    = Views.data();
+    FbSpec.width           = WidthPx;
+    FbSpec.height          = HeightPx;
+    FbSpec.layers          = 1u;
 
-    if (vkCreateFramebuffer(Context->AccessDevice(), &FbInfo, nullptr, &Target.Framebuffer) != VK_SUCCESS)
+    if (vkCreateFramebuffer(DeviceInterchange->AccessDevice(), &FbSpec, nullptr, &Target.Framebuffer) != VK_SUCCESS)
     {
         ReleaseFramebufferTarget(Target);
         return false;
@@ -595,16 +595,16 @@ bool UVWorkspaceRasterizer::EnsureFramebufferTarget(MRTFramebufferTarget& Target
 
 void UVWorkspaceRasterizer::ReleaseFramebufferTarget(MRTFramebufferTarget& Target) noexcept
 {
-    if (Context != nullptr && Context->Ready())
+    if (DeviceInterchange != nullptr && DeviceInterchange->Ready())
     {
         if (Target.Framebuffer != VK_NULL_HANDLE)
         {
-            vkDestroyFramebuffer(Context->AccessDevice(), Target.Framebuffer, nullptr);
+            vkDestroyFramebuffer(DeviceInterchange->AccessDevice(), Target.Framebuffer, nullptr);
             Target.Framebuffer = VK_NULL_HANDLE;
         }
-        Context->ReleaseImage2D(Target.ColorImage);
-        Context->ReleaseImage2D(Target.PickImage);
-        Context->ReleaseImage2D(Target.DepthImage);
+        DeviceInterchange->ReleaseImage2D(Target.ColorImage);
+        DeviceInterchange->ReleaseImage2D(Target.PickImage);
+        DeviceInterchange->ReleaseImage2D(Target.DepthImage);
     }
     Target.WidthPx  = 0u;
     Target.HeightPx = 0u;
@@ -618,7 +618,7 @@ bool UVWorkspaceRasterizer::UploadPolygonNetwork(
     const GeometrySpace::PolygonNetwork& Network,
     uint32_t                             InstanceSlot)
 {
-    if (Context == nullptr || Network.Faces.empty())
+    if (DeviceInterchange == nullptr || Network.Faces.empty())
     {
         return false;
     }
@@ -639,7 +639,7 @@ bool UVWorkspaceRasterizer::UploadPolygonNetwork(
     }
 
     const uint32_t BitmaskWordCount = (UploadedFaceCount + 31u) / 32u;
-    Context->ReleaseBuffer(FacePackedAttrBuffer);
+    DeviceInterchange->ReleaseBuffer(FacePackedAttrBuffer);
     FacePackedAttrBuffer = ComputeEncoder.AllocateHostWritableBuffer(
         PackedFaceAttrs.size() * sizeof(uint32_t),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
@@ -647,7 +647,7 @@ bool UVWorkspaceRasterizer::UploadPolygonNetwork(
 
     if (SelectionBitmaskBuffer.ByteCapacity < BitmaskWordCount * sizeof(uint32_t))
     {
-        Context->ReleaseBuffer(SelectionBitmaskBuffer);
+        DeviceInterchange->ReleaseBuffer(SelectionBitmaskBuffer);
         SelectionBitmaskBuffer = ComputeEncoder.AllocateHostWritableBuffer(
             std::max<uint64_t>(16ull, BitmaskWordCount * sizeof(uint32_t)),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
@@ -736,7 +736,7 @@ bool UVWorkspaceRasterizer::UploadPolygonNetwork(
             const bool Seam2 = (Tri == 1u) &&
                                GeometrySpace::QueryEdgeAttributeEnabled(Network.Edges[TriEdges[0u]].AttributeMask, GeometrySpace::EdgeAttributeMask::EnableSeamCut);
 
-            const uint32_t Packed2DFlags =
+            const uint32_t Packed2DMask =
                 (static_cast<uint32_t>(CurrentFace.PriorityLayerOrdinal) & 0xFFFFu) |
                 (Pin0  ? (1u << 16u) : 0u) |
                 (Pin1  ? (1u << 17u) : 0u) |
@@ -751,7 +751,7 @@ bool UVWorkspaceRasterizer::UploadPolygonNetwork(
                 const GeometrySpace::Vertex&       VX = Network.Vertices[DE.OriginVertexIndex];
                 const bool SeamBit = GeometrySpace::QueryEdgeAttributeEnabled(DE.AttributeMask, GeometrySpace::EdgeAttributeMask::EnableSeamCut);
 
-                const uint32_t PackedFlags =
+                const uint32_t SurfaceMask =
                     (static_cast<uint32_t>(CurrentFace.Shading.MatCapSlot) & 0xFFu) |
                     ((static_cast<uint32_t>(CurrentFace.PriorityLayerOrdinal) & 0xFFFFu) << 8u) |
                     (SeamBit ? (1u << 24u) : 0u);
@@ -776,7 +776,7 @@ bool UVWorkspaceRasterizer::UploadPolygonNetwork(
                 SV.NetworkPickIDs[0] = std::max(1u, InstanceSlot);
                 SV.NetworkPickIDs[1] = FaceIdx;
                 SV.NetworkPickIDs[2] = TriEdges[Corner];
-                SV.NetworkPickIDs[3] = PackedFlags;
+                SV.NetworkPickIDs[3] = SurfaceMask;
                 SV.Barycentric[0]    = Barys[Corner][0];
                 SV.Barycentric[1]    = Barys[Corner][1];
                 SV.Barycentric[2]    = Barys[Corner][2];
@@ -794,7 +794,7 @@ bool UVWorkspaceRasterizer::UploadPolygonNetwork(
                 UVV.NetworkPickIDs[0] = std::max(1u, InstanceSlot);
                 UVV.NetworkPickIDs[1] = FaceIdx;
                 UVV.NetworkPickIDs[2] = TriEdges[Corner];
-                UVV.NetworkPickIDs[3] = Packed2DFlags;
+                UVV.NetworkPickIDs[3] = Packed2DMask;
                 Verts2D.push_back(UVV);
             }
         }
@@ -803,13 +803,13 @@ bool UVWorkspaceRasterizer::UploadPolygonNetwork(
     SurfaceVertexCount  = static_cast<uint32_t>(Verts3D.size());
     UVCanvasVertexCount = static_cast<uint32_t>(Verts2D.size());
 
-    Context->ReleaseBuffer(SurfaceVertexBuffer);
+    DeviceInterchange->ReleaseBuffer(SurfaceVertexBuffer);
     SurfaceVertexBuffer = ComputeEncoder.AllocateHostWritableBuffer(
         Verts3D.size() * sizeof(GPUSurfaceVertex),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     ComputeEncoder.UploadSpanToBuffer<GPUSurfaceVertex>(SurfaceVertexBuffer, Verts3D);
 
-    Context->ReleaseBuffer(UVCanvasVertexBuffer);
+    DeviceInterchange->ReleaseBuffer(UVCanvasVertexBuffer);
     UVCanvasVertexBuffer = ComputeEncoder.AllocateHostWritableBuffer(
         Verts2D.size() * sizeof(GPUUVCanvasVertex),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
@@ -820,10 +820,10 @@ bool UVWorkspaceRasterizer::UploadPolygonNetwork(
 
 bool UVWorkspaceRasterizer::DispatchGPUSelection(
     GPUSelectionOperation Operation,
-    uint32_t              TargetValue,
+    uint32_t              TargetMask,
     bool                  AdditiveMask)
 {
-    if (Context == nullptr || UploadedFaceCount == 0u || SelectionBitmaskBuffer.BufferHandle == VK_NULL_HANDLE)
+    if (DeviceInterchange == nullptr || UploadedFaceCount == 0u || SelectionBitmaskBuffer.BufferHandle == VK_NULL_HANDLE)
     {
         return false;
     }
@@ -831,7 +831,7 @@ bool UVWorkspaceRasterizer::DispatchGPUSelection(
     GPUSelectionParams Params {};
     Params.FaceCount     = UploadedFaceCount;
     Params.OperationCode = static_cast<uint32_t>(Operation);
-    Params.TargetValue   = TargetValue;
+    Params.TargetMask   = TargetMask;
     Params.AdditiveMask  = AdditiveMask ? 1u : 0u;
 
     const std::array<GPUSelectionParams, 1u> ParamsArr {{ Params }};
@@ -840,22 +840,22 @@ bool UVWorkspaceRasterizer::DispatchGPUSelection(
     const uint32_t WordCount = (UploadedFaceCount + 31u) / 32u;
     const uint32_t Groups    = (WordCount + 63u) / 64u;
 
-    VkCommandBuffer Cmd = Context->BeginSingleTimeCommands();
-    const std::array<ComputeBindingDescriptor, 3u> Bindings {{
+    VkCommandBuffer Cmd = DeviceInterchange->BeginSingleTimeCommands();
+    const std::array<ComputeSlotDescriptor, 3u> Slots {{
         { 0u, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, SelectionUniformBuffer.BufferHandle, sizeof(GPUSelectionParams) },
         { 1u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, FacePackedAttrBuffer.BufferHandle, VK_WHOLE_SIZE },
         { 2u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, SelectionBitmaskBuffer.BufferHandle, VK_WHOLE_SIZE },
     }};
-    (void)ComputeEncoder.EncodeComputeDispatch(Cmd, SelectionComputeProgram, Bindings, std::max(1u, Groups));
-    const uint64_t Signal = Context->DispatchCommandBufferAsync(Cmd);
-    (void)Context->AwaitTimelineValue(Signal);
-    vkFreeCommandBuffers(Context->AccessDevice(), Context->AccessCommandPool(), 1u, &Cmd);
+    (void)ComputeEncoder.EncodeComputeDispatch(Cmd, SelectionComputeProgram, Slots, std::max(1u, Groups));
+    const uint64_t Signal = DeviceInterchange->DispatchCommandBufferAsync(Cmd);
+    (void)DeviceInterchange->AwaitTimelineTick(Signal);
+    vkFreeCommandBuffers(DeviceInterchange->AccessDevice(), DeviceInterchange->AccessCommandAllocator(), 1u, &Cmd);
     return true;
 }
 
 void UVWorkspaceRasterizer::UploadSelectionBitmaskWords(std::span<const uint32_t> PackedWords)
 {
-    if (Context == nullptr || SelectionBitmaskBuffer.BufferHandle == VK_NULL_HANDLE || PackedWords.empty())
+    if (DeviceInterchange == nullptr || SelectionBitmaskBuffer.BufferHandle == VK_NULL_HANDLE || PackedWords.empty())
     {
         return;
     }
@@ -868,17 +868,17 @@ std::vector<uint32_t> UVWorkspaceRasterizer::ReadbackSelectionBitmaskWords()
 {
     const uint32_t WordCount = (UploadedFaceCount + 31u) / 32u;
     std::vector<uint32_t> Output(WordCount, 0u);
-    if (Context == nullptr || WordCount == 0u || SelectionBitmaskBuffer.BufferHandle == VK_NULL_HANDLE)
+    if (DeviceInterchange == nullptr || WordCount == 0u || SelectionBitmaskBuffer.BufferHandle == VK_NULL_HANDLE)
     {
         return Output;
     }
 
-    VkCommandBuffer Cmd    = Context->BeginSingleTimeCommands();
+    VkCommandBuffer Cmd    = DeviceInterchange->BeginSingleTimeCommands();
     ReadbackTicket  Ticket = TransferRegister.EncodeBufferReadback(Cmd, SelectionBitmaskBuffer.BufferHandle, 0ull, WordCount * sizeof(uint32_t));
-    const uint64_t  Signal = Context->DispatchCommandBufferAsync(Cmd);
+    const uint64_t  Signal = DeviceInterchange->DispatchCommandBufferAsync(Cmd);
     TransferRegister.BindTicketTimelineSignal(Ticket, Signal);
     (void)TransferRegister.AwaitAndCopyTyped<uint32_t>(Ticket, Output);
-    vkFreeCommandBuffers(Context->AccessDevice(), Context->AccessCommandPool(), 1u, &Cmd);
+    vkFreeCommandBuffers(DeviceInterchange->AccessDevice(), DeviceInterchange->AccessCommandAllocator(), 1u, &Cmd);
     return Output;
 }
 
@@ -888,7 +888,7 @@ GPUUVDistortionSummary UVWorkspaceRasterizer::EvaluateUVDistortionInspection(
 {
     GPUUVDistortionSummary Summary {};
     const uint32_t FaceCount = static_cast<uint32_t>(Network.Faces.size());
-    if (Context == nullptr || FaceCount == 0u)
+    if (DeviceInterchange == nullptr || FaceCount == 0u)
     {
         return Summary;
     }
@@ -937,8 +937,8 @@ GPUUVDistortionSummary UVWorkspaceRasterizer::EvaluateUVDistortionInspection(
 
     const float RefScale = Total3D > 1.0e-8 ? static_cast<float>(std::sqrt(TotalUV / Total3D)) : 1.0f;
 
-    Context->ReleaseBuffer(StretchInputBuffer);
-    Context->ReleaseBuffer(StretchOutputBuffer);
+    DeviceInterchange->ReleaseBuffer(StretchInputBuffer);
+    DeviceInterchange->ReleaseBuffer(StretchOutputBuffer);
     StretchInputBuffer  = ComputeEncoder.AllocateHostWritableBuffer(Inputs.size() * sizeof(GPUFaceMetricInput), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     StretchOutputBuffer = ComputeEncoder.AllocateHostWritableBuffer(FaceCount * sizeof(GPUFaceMetricOutput), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     ComputeEncoder.UploadSpanToBuffer<GPUFaceMetricInput>(StretchInputBuffer, Inputs);
@@ -950,18 +950,18 @@ GPUUVDistortionSummary UVWorkspaceRasterizer::EvaluateUVDistortionInspection(
     const std::array<uint32_t, 4u> ZeroCounters {{ 0u, 0u, 0u, 0u }};
     ComputeEncoder.UploadSpanToBuffer<uint32_t>(StretchCountersBuffer, ZeroCounters);
 
-    VkCommandBuffer Cmd = Context->BeginSingleTimeCommands();
-    const std::array<ComputeBindingDescriptor, 4u> Bindings {{
+    VkCommandBuffer Cmd = DeviceInterchange->BeginSingleTimeCommands();
+    const std::array<ComputeSlotDescriptor, 4u> Slots {{
         { 0u, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, StretchUniformBuffer.BufferHandle, sizeof(GPUMetricDispatchParams) },
         { 1u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, StretchInputBuffer.BufferHandle, VK_WHOLE_SIZE },
         { 2u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, StretchOutputBuffer.BufferHandle, VK_WHOLE_SIZE },
         { 3u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, StretchCountersBuffer.BufferHandle, 16u },
     }};
-    (void)ComputeEncoder.EncodeComputeDispatch(Cmd, StretchComputeProgram, Bindings, (FaceCount + 63u) / 64u);
+    (void)ComputeEncoder.EncodeComputeDispatch(Cmd, StretchComputeProgram, Slots, (FaceCount + 63u) / 64u);
 
     ReadbackTicket CountsTicket  = TransferRegister.EncodeBufferReadback(Cmd, StretchCountersBuffer.BufferHandle, 0ull, 12ull);
     ReadbackTicket OutputsTicket = TransferRegister.EncodeBufferReadback(Cmd, StretchOutputBuffer.BufferHandle, 0ull, FaceCount * sizeof(GPUFaceMetricOutput));
-    const uint64_t Signal        = Context->DispatchCommandBufferAsync(Cmd);
+    const uint64_t Signal        = DeviceInterchange->DispatchCommandBufferAsync(Cmd);
     TransferRegister.BindTicketTimelineSignal(CountsTicket, Signal);
     TransferRegister.BindTicketTimelineSignal(OutputsTicket, Signal);
 
@@ -969,7 +969,7 @@ GPUUVDistortionSummary UVWorkspaceRasterizer::EvaluateUVDistortionInspection(
     std::vector<GPUFaceMetricOutput> Outputs(FaceCount);
     (void)TransferRegister.AwaitAndCopyTyped<uint32_t>(CountsTicket, RawCounts);
     (void)TransferRegister.AwaitAndCopyTyped<GPUFaceMetricOutput>(OutputsTicket, Outputs);
-    vkFreeCommandBuffers(Context->AccessDevice(), Context->AccessCommandPool(), 1u, &Cmd);
+    vkFreeCommandBuffers(DeviceInterchange->AccessDevice(), DeviceInterchange->AccessCommandAllocator(), 1u, &Cmd);
 
     Summary.FlippedFaceCount = RawCounts[0u];
     Summary.OverlapFaceCount = RawCounts[1u];
@@ -994,12 +994,12 @@ bool UVWorkspaceRasterizer::Rasterize3DViewport(
     const Editor::TransformGizmo*  OptionalGizmo3D,
     std::vector<uint8_t>*          OptionalOutRGBA)
 {
-    if (Context == nullptr || SurfaceVertexCount == 0u || !EnsureFramebufferTarget(Target3D, WidthPx, HeightPx))
+    if (DeviceInterchange == nullptr || SurfaceVertexCount == 0u || !EnsureFramebufferTarget(Target3D, WidthPx, HeightPx))
     {
         return false;
     }
 
-    vkResetDescriptorPool(Context->AccessDevice(), GraphicsDescriptorPool, 0u);
+    vkResetDescriptorPool(DeviceInterchange->AccessDevice(), GraphicsDescriptorAllocator, 0u);
 
     Mathematics::Axis3D Eye {}, Right {}, Up {}, Fwd {};
     ComputeOrbitBasis(Options.Camera, Eye, Right, Up, Fwd);
@@ -1037,7 +1037,7 @@ bool UVWorkspaceRasterizer::Rasterize3DViewport(
             const uint64_t ReqBytes = GizmoVerts.size() * sizeof(Editor::GizmoGPUVertex);
             if (Gizmo3DVertexBuffer.ByteCapacity < ReqBytes)
             {
-                Context->ReleaseBuffer(Gizmo3DVertexBuffer);
+                DeviceInterchange->ReleaseBuffer(Gizmo3DVertexBuffer);
                 Gizmo3DVertexBuffer = ComputeEncoder.AllocateHostWritableBuffer(ReqBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
             }
             ComputeEncoder.UploadSpanToBuffer<Editor::GizmoGPUVertex>(Gizmo3DVertexBuffer, GizmoVerts);
@@ -1052,12 +1052,12 @@ bool UVWorkspaceRasterizer::Rasterize3DViewport(
         }
     }
 
-    VkDevice Dev = Context->AccessDevice();
+    VkDevice DeviceHandle = DeviceInterchange->AccessDevice();
 
     // Allocate descriptor sets
     VkDescriptorSet SurfaceSet = VK_NULL_HANDLE;
-    VkDescriptorSetAllocateInfo SurfAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorPool, 1u, &SurfacePipeline.BindingLayout };
-    vkAllocateDescriptorSets(Dev, &SurfAlloc, &SurfaceSet);
+    VkDescriptorSetAllocateInfo SurfAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorAllocator, 1u, &SurfaceProgram.SlotLayout };
+    vkAllocateDescriptorSets(DeviceHandle, &SurfAlloc, &SurfaceSet);
 
     const std::array<VkDescriptorBufferInfo, 3u> SurfBufs {{
         { Viewport3DUniformBuffer.BufferHandle, 0u, sizeof(GPUViewport3DUniforms) },
@@ -1074,13 +1074,13 @@ bool UVWorkspaceRasterizer::Rasterize3DViewport(
         SurfWrites[Idx].descriptorType  = (Idx == 0u) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         SurfWrites[Idx].pBufferInfo     = &SurfBufs[Idx];
     }
-    vkUpdateDescriptorSets(Dev, 3u, SurfWrites.data(), 0u, nullptr);
+    vkUpdateDescriptorSets(DeviceHandle, 3u, SurfWrites.data(), 0u, nullptr);
 
     VkDescriptorSet GizmoSet = VK_NULL_HANDLE;
     if (GizmoVertCount > 0u)
     {
-        VkDescriptorSetAllocateInfo GizAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorPool, 1u, &GizmoDepthOffPipeline.BindingLayout };
-        vkAllocateDescriptorSets(Dev, &GizAlloc, &GizmoSet);
+        VkDescriptorSetAllocateInfo GizAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorAllocator, 1u, &GizmoDepthOffProgram.SlotLayout };
+        vkAllocateDescriptorSets(DeviceHandle, &GizAlloc, &GizmoSet);
         const std::array<VkDescriptorBufferInfo, 2u> GizBufs {{
             { Gizmo3DUniformBuffer.BufferHandle, 0u, sizeof(GPUGizmoUniforms) },
             { Gizmo3DVertexBuffer.BufferHandle, 0u, VK_WHOLE_SIZE },
@@ -1095,10 +1095,10 @@ bool UVWorkspaceRasterizer::Rasterize3DViewport(
             GizWrites[Idx].descriptorType  = (Idx == 0u) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             GizWrites[Idx].pBufferInfo     = &GizBufs[Idx];
         }
-        vkUpdateDescriptorSets(Dev, 2u, GizWrites.data(), 0u, nullptr);
+        vkUpdateDescriptorSets(DeviceHandle, 2u, GizWrites.data(), 0u, nullptr);
     }
 
-    VkCommandBuffer Cmd = Context->BeginSingleTimeCommands();
+    VkCommandBuffer Cmd = DeviceInterchange->BeginSingleTimeCommands();
 
     std::array<VkClearValue, 3u> Clears {};
     Clears[0].color        = { { 0.068f, 0.072f, 0.084f, 1.0f } };
@@ -1108,30 +1108,30 @@ bool UVWorkspaceRasterizer::Rasterize3DViewport(
     Clears[1].color.uint32[3] = 0u;
     Clears[2].depthStencil = { 1.0f, 0u };
 
-    VkRenderPassBeginInfo PassBegin {};
-    PassBegin.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    PassBegin.renderPass        = DualTargetRenderPass;
-    PassBegin.framebuffer       = Target3D.Framebuffer;
-    PassBegin.renderArea.extent = { WidthPx, HeightPx };
-    PassBegin.clearValueCount   = static_cast<uint32_t>(Clears.size());
-    PassBegin.pClearValues      = Clears.data();
+    VkRenderPassBeginInfo TargetBegin {};
+    TargetBegin.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    TargetBegin.renderPass        = DualTargetAttachmentFormat;
+    TargetBegin.framebuffer       = Target3D.Framebuffer;
+    TargetBegin.renderArea.extent = { WidthPx, HeightPx };
+    TargetBegin.clearValueCount   = static_cast<uint32_t>(Clears.size());
+    TargetBegin.pClearValues      = Clears.data();
 
-    vkCmdBeginRenderPass(Cmd, &PassBegin, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBeginRenderPass(Cmd, &TargetBegin, VK_SUBPASS_CONTENTS_INLINE);
 
     VkViewport VP { 0.0f, 0.0f, static_cast<float>(WidthPx), static_cast<float>(HeightPx), 0.0f, 1.0f };
     VkRect2D   Scissor { { 0, 0 }, { WidthPx, HeightPx } };
     vkCmdSetViewport(Cmd, 0u, 1u, &VP);
     vkCmdSetScissor(Cmd, 0u, 1u, &Scissor);
 
-    vkCmdBindPipeline(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, SurfacePipeline.Pipeline);
-    vkCmdBindDescriptorSets(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, SurfacePipeline.PipelineLayout, 0u, 1u, &SurfaceSet, 0u, nullptr);
+    vkCmdBindPipeline(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, SurfaceProgram.ProgramHandle);
+    vkCmdBindDescriptorSets(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, SurfaceProgram.ProgramLayout, 0u, 1u, &SurfaceSet, 0u, nullptr);
     const uint32_t FirstVert = Options.GroundGridEnabled ? 0u : GroundGridVertexCount;
     vkCmdDraw(Cmd, SurfaceVertexCount - FirstVert, 1u, FirstVert, 0u);
 
     if (GizmoVertCount > 0u)
     {
-        vkCmdBindPipeline(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, GizmoDepthOffPipeline.Pipeline);
-        vkCmdBindDescriptorSets(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, GizmoDepthOffPipeline.PipelineLayout, 0u, 1u, &GizmoSet, 0u, nullptr);
+        vkCmdBindPipeline(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, GizmoDepthOffProgram.ProgramHandle);
+        vkCmdBindDescriptorSets(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, GizmoDepthOffProgram.ProgramLayout, 0u, 1u, &GizmoSet, 0u, nullptr);
         vkCmdDraw(Cmd, GizmoVertCount, 1u, 0u, 0u);
     }
 
@@ -1152,7 +1152,7 @@ bool UVWorkspaceRasterizer::Rasterize3DViewport(
             4u);
     }
 
-    const uint64_t Signal = Context->DispatchCommandBufferAsync(Cmd);
+    const uint64_t Signal = DeviceInterchange->DispatchCommandBufferAsync(Cmd);
     if (OptionalOutRGBA != nullptr)
     {
         TransferRegister.BindTicketTimelineSignal(ColorTicket, Signal);
@@ -1161,10 +1161,10 @@ bool UVWorkspaceRasterizer::Rasterize3DViewport(
     }
     else
     {
-        (void)Context->AwaitTimelineValue(Signal);
+        (void)DeviceInterchange->AwaitTimelineTick(Signal);
     }
 
-    vkFreeCommandBuffers(Dev, Context->AccessCommandPool(), 1u, &Cmd);
+    vkFreeCommandBuffers(DeviceHandle, DeviceInterchange->AccessCommandAllocator(), 1u, &Cmd);
     return true;
 }
 
@@ -1175,12 +1175,12 @@ bool UVWorkspaceRasterizer::Rasterize2DUVCanvas(
     const Editor::TransformGizmo* OptionalGizmo2D,
     std::vector<uint8_t>*         OptionalOutRGBA)
 {
-    if (Context == nullptr || UVCanvasVertexCount == 0u || !EnsureFramebufferTarget(Target2D, WidthPx, HeightPx))
+    if (DeviceInterchange == nullptr || UVCanvasVertexCount == 0u || !EnsureFramebufferTarget(Target2D, WidthPx, HeightPx))
     {
         return false;
     }
 
-    vkResetDescriptorPool(Context->AccessDevice(), GraphicsDescriptorPool, 0u);
+    vkResetDescriptorPool(DeviceInterchange->AccessDevice(), GraphicsDescriptorAllocator, 0u);
 
     GPUCanvas2DUniforms Uniforms {};
     Uniforms.CanvasMinMaxUV[0] = Options.VisibleMinUV.U;
@@ -1211,7 +1211,7 @@ bool UVWorkspaceRasterizer::Rasterize2DUVCanvas(
             const uint64_t ReqBytes = GizmoVerts.size() * sizeof(Editor::GizmoGPUVertex);
             if (Gizmo2DVertexBuffer.ByteCapacity < ReqBytes)
             {
-                Context->ReleaseBuffer(Gizmo2DVertexBuffer);
+                DeviceInterchange->ReleaseBuffer(Gizmo2DVertexBuffer);
                 Gizmo2DVertexBuffer = ComputeEncoder.AllocateHostWritableBuffer(ReqBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
             }
             ComputeEncoder.UploadSpanToBuffer<Editor::GizmoGPUVertex>(Gizmo2DVertexBuffer, GizmoVerts);
@@ -1226,11 +1226,11 @@ bool UVWorkspaceRasterizer::Rasterize2DUVCanvas(
         }
     }
 
-    VkDevice Dev = Context->AccessDevice();
+    VkDevice DeviceHandle = DeviceInterchange->AccessDevice();
 
     VkDescriptorSet CanvasSet = VK_NULL_HANDLE;
-    VkDescriptorSetAllocateInfo CanvAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorPool, 1u, &UVCanvasPipeline.BindingLayout };
-    vkAllocateDescriptorSets(Dev, &CanvAlloc, &CanvasSet);
+    VkDescriptorSetAllocateInfo CanvAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorAllocator, 1u, &UVCanvasProgram.SlotLayout };
+    vkAllocateDescriptorSets(DeviceHandle, &CanvAlloc, &CanvasSet);
 
     const std::array<VkDescriptorBufferInfo, 3u> CanvBufs {{
         { Canvas2DUniformBuffer.BufferHandle, 0u, sizeof(GPUCanvas2DUniforms) },
@@ -1247,13 +1247,13 @@ bool UVWorkspaceRasterizer::Rasterize2DUVCanvas(
         CanvWrites[Idx].descriptorType  = (Idx == 0u) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         CanvWrites[Idx].pBufferInfo     = &CanvBufs[Idx];
     }
-    vkUpdateDescriptorSets(Dev, 3u, CanvWrites.data(), 0u, nullptr);
+    vkUpdateDescriptorSets(DeviceHandle, 3u, CanvWrites.data(), 0u, nullptr);
 
     VkDescriptorSet GizmoSet = VK_NULL_HANDLE;
     if (GizmoVertCount > 0u)
     {
-        VkDescriptorSetAllocateInfo GizAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorPool, 1u, &GizmoDepthOffPipeline.BindingLayout };
-        vkAllocateDescriptorSets(Dev, &GizAlloc, &GizmoSet);
+        VkDescriptorSetAllocateInfo GizAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorAllocator, 1u, &GizmoDepthOffProgram.SlotLayout };
+        vkAllocateDescriptorSets(DeviceHandle, &GizAlloc, &GizmoSet);
         const std::array<VkDescriptorBufferInfo, 2u> GizBufs {{
             { Gizmo2DUniformBuffer.BufferHandle, 0u, sizeof(GPUGizmoUniforms) },
             { Gizmo2DVertexBuffer.BufferHandle, 0u, VK_WHOLE_SIZE },
@@ -1268,10 +1268,10 @@ bool UVWorkspaceRasterizer::Rasterize2DUVCanvas(
             GizWrites[Idx].descriptorType  = (Idx == 0u) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             GizWrites[Idx].pBufferInfo     = &GizBufs[Idx];
         }
-        vkUpdateDescriptorSets(Dev, 2u, GizWrites.data(), 0u, nullptr);
+        vkUpdateDescriptorSets(DeviceHandle, 2u, GizWrites.data(), 0u, nullptr);
     }
 
-    VkCommandBuffer Cmd = Context->BeginSingleTimeCommands();
+    VkCommandBuffer Cmd = DeviceInterchange->BeginSingleTimeCommands();
 
     std::array<VkClearValue, 3u> Clears {};
     Clears[0].color           = { { 0.050f, 0.052f, 0.060f, 1.0f } };
@@ -1281,29 +1281,29 @@ bool UVWorkspaceRasterizer::Rasterize2DUVCanvas(
     Clears[1].color.uint32[3] = 0u;
     Clears[2].depthStencil    = { 1.0f, 0u };
 
-    VkRenderPassBeginInfo PassBegin {};
-    PassBegin.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    PassBegin.renderPass        = DualTargetRenderPass;
-    PassBegin.framebuffer       = Target2D.Framebuffer;
-    PassBegin.renderArea.extent = { WidthPx, HeightPx };
-    PassBegin.clearValueCount   = static_cast<uint32_t>(Clears.size());
-    PassBegin.pClearValues      = Clears.data();
+    VkRenderPassBeginInfo TargetBegin {};
+    TargetBegin.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    TargetBegin.renderPass        = DualTargetAttachmentFormat;
+    TargetBegin.framebuffer       = Target2D.Framebuffer;
+    TargetBegin.renderArea.extent = { WidthPx, HeightPx };
+    TargetBegin.clearValueCount   = static_cast<uint32_t>(Clears.size());
+    TargetBegin.pClearValues      = Clears.data();
 
-    vkCmdBeginRenderPass(Cmd, &PassBegin, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBeginRenderPass(Cmd, &TargetBegin, VK_SUBPASS_CONTENTS_INLINE);
 
     VkViewport VP { 0.0f, 0.0f, static_cast<float>(WidthPx), static_cast<float>(HeightPx), 0.0f, 1.0f };
     VkRect2D   Scissor { { 0, 0 }, { WidthPx, HeightPx } };
     vkCmdSetViewport(Cmd, 0u, 1u, &VP);
     vkCmdSetScissor(Cmd, 0u, 1u, &Scissor);
 
-    vkCmdBindPipeline(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, UVCanvasPipeline.Pipeline);
-    vkCmdBindDescriptorSets(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, UVCanvasPipeline.PipelineLayout, 0u, 1u, &CanvasSet, 0u, nullptr);
+    vkCmdBindPipeline(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, UVCanvasProgram.ProgramHandle);
+    vkCmdBindDescriptorSets(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, UVCanvasProgram.ProgramLayout, 0u, 1u, &CanvasSet, 0u, nullptr);
     vkCmdDraw(Cmd, UVCanvasVertexCount, 1u, 0u, 0u);
 
     if (GizmoVertCount > 0u)
     {
-        vkCmdBindPipeline(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, GizmoDepthOffPipeline.Pipeline);
-        vkCmdBindDescriptorSets(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, GizmoDepthOffPipeline.PipelineLayout, 0u, 1u, &GizmoSet, 0u, nullptr);
+        vkCmdBindPipeline(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, GizmoDepthOffProgram.ProgramHandle);
+        vkCmdBindDescriptorSets(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, GizmoDepthOffProgram.ProgramLayout, 0u, 1u, &GizmoSet, 0u, nullptr);
         vkCmdDraw(Cmd, GizmoVertCount, 1u, 0u, 0u);
     }
 
@@ -1324,7 +1324,7 @@ bool UVWorkspaceRasterizer::Rasterize2DUVCanvas(
             4u);
     }
 
-    const uint64_t Signal = Context->DispatchCommandBufferAsync(Cmd);
+    const uint64_t Signal = DeviceInterchange->DispatchCommandBufferAsync(Cmd);
     if (OptionalOutRGBA != nullptr)
     {
         TransferRegister.BindTicketTimelineSignal(ColorTicket, Signal);
@@ -1333,10 +1333,10 @@ bool UVWorkspaceRasterizer::Rasterize2DUVCanvas(
     }
     else
     {
-        (void)Context->AwaitTimelineValue(Signal);
+        (void)DeviceInterchange->AwaitTimelineTick(Signal);
     }
 
-    vkFreeCommandBuffers(Dev, Context->AccessCommandPool(), 1u, &Cmd);
+    vkFreeCommandBuffers(DeviceHandle, DeviceInterchange->AccessCommandAllocator(), 1u, &Cmd);
     return true;
 }
 
@@ -1405,7 +1405,7 @@ RegionPickSummary UVWorkspaceRasterizer::Reduce2DRegionPick(
 }
 
 Editor::ViewportRay3D UVWorkspaceRasterizer::ConstructCameraRay3D(
-    const CameraOrbitState3D& Camera,
+    const CameraOrbitRig3D& Camera,
     uint32_t                  WidthPx,
     uint32_t                  HeightPx,
     float                     CursorX,

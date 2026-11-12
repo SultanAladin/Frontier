@@ -302,8 +302,8 @@ struct PhaseOneTelemetry
     ImGuiIO& Io = ImGui::GetIO();
 
     Frontier::TypographyRepository Typefaces {};
-    const auto FontArchiveRoot = Frontier::Exhibits::ResolveRepositoryRootPath() / "EngineContent/FontsArchives";
-    (void)Typefaces.LoadRepository(FontArchiveRoot);
+    const auto FontDirectoryRoot = Frontier::Exhibits::ResolveRepositoryRootPath() / "EngineContent/FontsArchives";
+    (void)Typefaces.LoadRepository(FontDirectoryRoot);
     Frontier::TypographyRepository::AssignCurrent(&Typefaces);
     if (ImFont* DefaultFace = Typefaces.QueryFont(0u, Frontier::FontWeightClass::Regular))
     {
@@ -323,15 +323,15 @@ struct PhaseOneTelemetry
     Frontier::Exhibits::SoftwareRasterCanvas Canvas(CanvasW, CanvasH, { 18, 19, 22, 255 });
 
     const ImU32 BgDark     = IM_COL32(18, 19, 22, 255);
-    const ImU32 CardFill   = IM_COL32(25, 27, 32, 255);
-    const ImU32 CardBorder = IM_COL32(48, 52, 62, 255);
+    const ImU32 TileFill   = IM_COL32(25, 27, 32, 255);
+    const ImU32 TileBorder = IM_COL32(48, 52, 62, 255);
     const ImU32 AccentGold = IM_COL32(239, 244, 207, 255);
     const ImU32 AccentBlue = IM_COL32(126, 188, 255, 255);
     const ImU32 EmeraldOk  = IM_COL32(98, 214, 150, 255);
     const ImU32 TextBright = IM_COL32(232, 235, 242, 255);
     const ImU32 TextMuted  = IM_COL32(148, 154, 168, 255);
 
-    for (int Pass = 0; Pass < 2; ++Pass)
+    for (int AllChecksGreen = 0; AllChecksGreen < 2; ++AllChecksGreen)
     {
         Io.DisplaySize = ImVec2(static_cast<float>(CanvasW), static_cast<float>(CanvasH));
         Io.DeltaTime   = 1.0f / 60.0f;
@@ -343,36 +343,36 @@ struct PhaseOneTelemetry
             nullptr,
             ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground);
 
-        ImDrawList* Draw = ImGui::GetWindowDrawList();
-        Draw->AddRectFilled(ImVec2(0.0f, 0.0f), Io.DisplaySize, BgDark);
+        ImDrawList* ForegroundList = ImGui::GetWindowDrawList();
+        ForegroundList->AddRectFilled(ImVec2(0.0f, 0.0f), Io.DisplaySize, BgDark);
 
         // Header Bar
-        Draw->AddRectFilled(ImVec2(24.0f, 20.0f), ImVec2(1696.0f, 72.0f), CardFill, 6.0f);
-        Draw->AddRect(ImVec2(24.0f, 20.0f), ImVec2(1696.0f, 72.0f), CardBorder, 6.0f);
-        Draw->AddText(ImVec2(42.0f, 38.0f), AccentGold, "PHASE 1 VERIFIED  |  ENGINE CONFIGURATION, AXISCOORDINATES & POLYGONNETWORK");
-        Draw->AddText(ImVec2(1218.0f, 38.0f), EmeraldOk, "ALL 5 STUDIO ASSETS: 0 FLIPS, MANIFOLD OK");
+        ForegroundList->AddRectFilled(ImVec2(24.0f, 20.0f), ImVec2(1696.0f, 72.0f), TileFill, 6.0f);
+        ForegroundList->AddRect(ImVec2(24.0f, 20.0f), ImVec2(1696.0f, 72.0f), TileBorder, 6.0f);
+        ForegroundList->AddText(ImVec2(42.0f, 38.0f), AccentGold, "PHASE 1 VERIFIED  |  ENGINE CONFIGURATION, AXISCOORDINATES & POLYGONNETWORK");
+        ForegroundList->AddText(ImVec2(1218.0f, 38.0f), EmeraldOk, "ALL 5 STUDIO ASSETS: 0 FLIPS, MANIFOLD OK");
 
         // Column 1: 3D PolygonNetwork Isometric Projection (Aero Coupe GT)
-        Draw->AddRectFilled(ImVec2(24.0f, 88.0f), ImVec2(592.0f, 896.0f), CardFill, 6.0f);
-        Draw->AddRect(ImVec2(24.0f, 88.0f), ImVec2(592.0f, 896.0f), CardBorder, 6.0f);
-        Draw->AddText(ImVec2(42.0f, 106.0f), AccentBlue, "1. 3D POLYGONNETWORK (AERO COUPE GT)");
-        Draw->AddText(ImVec2(42.0f, 132.0f), TextMuted, "Half-Edge Vertex / DirectedEdge / Face + Layer Tint");
+        ForegroundList->AddRectFilled(ImVec2(24.0f, 88.0f), ImVec2(592.0f, 896.0f), TileFill, 6.0f);
+        ForegroundList->AddRect(ImVec2(24.0f, 88.0f), ImVec2(592.0f, 896.0f), TileBorder, 6.0f);
+        ForegroundList->AddText(ImVec2(42.0f, 106.0f), AccentBlue, "1. 3D POLYGONNETWORK (AERO COUPE GT)");
+        ForegroundList->AddText(ImVec2(42.0f, 132.0f), TextMuted, "Half-Edge Vertex / DirectedEdge / Face + Layer Tint");
 
         const ImVec2 ViewMin(42.0f, 162.0f), ViewMax(574.0f, 640.0f);
-        Draw->AddRectFilled(ViewMin, ViewMax, IM_COL32(15, 16, 19, 255), 5.0f);
-        Draw->AddRect(ViewMin, ViewMax, CardBorder, 5.0f);
-        Draw->PushClipRect(ViewMin, ViewMax, true);
+        ForegroundList->AddRectFilled(ViewMin, ViewMax, IM_COL32(15, 16, 19, 255), 5.0f);
+        ForegroundList->AddRect(ViewMin, ViewMax, TileBorder, 5.0f);
+        ForegroundList->PushClipRect(ViewMin, ViewMax, true);
 
         const ImVec2 Origin3D(308.0f, 430.0f);
         for (int GridIdx = -4; GridIdx <= 4; ++GridIdx)
         {
             const float Coord = static_cast<float>(GridIdx) * 0.6f;
-            Draw->AddLine(
+            ForegroundList->AddLine(
                 ProjectIsometric3D({ Coord, 0.0f, -2.4f }, Origin3D, 108.0f),
                 ProjectIsometric3D({ Coord, 0.0f,  2.4f }, Origin3D, 108.0f),
                 IM_COL32(36, 40, 48, 255),
                 1.0f);
-            Draw->AddLine(
+            ForegroundList->AddLine(
                 ProjectIsometric3D({ -2.4f, 0.0f, Coord }, Origin3D, 108.0f),
                 ProjectIsometric3D({  2.4f, 0.0f, Coord }, Origin3D, 108.0f),
                 IM_COL32(36, 40, 48, 255),
@@ -396,30 +396,30 @@ struct PhaseOneTelemetry
             }
             if (ScreenPts.size() >= 3u)
             {
-                Draw->AddConvexPolyFilled(ScreenPts.data(), static_cast<int>(ScreenPts.size()), ResolveLayerFillColour(CurrentFace.PriorityLayerOrdinal, 64u));
-                Draw->AddPolyline(ScreenPts.data(), static_cast<int>(ScreenPts.size()), ResolveLayerFillColour(CurrentFace.PriorityLayerOrdinal, 215u), ImDrawFlags_Closed, 1.2f);
+                ForegroundList->AddConvexPolyFilled(ScreenPts.data(), static_cast<int>(ScreenPts.size()), ResolveLayerFillColour(CurrentFace.PriorityLayerOrdinal, 64u));
+                ForegroundList->AddPolyline(ScreenPts.data(), static_cast<int>(ScreenPts.size()), ResolveLayerFillColour(CurrentFace.PriorityLayerOrdinal, 215u), ImDrawFlags_Closed, 1.2f);
             }
         }
-        Draw->PopClipRect();
+        ForegroundList->PopClipRect();
 
-        char MeshStats[160]{};
+        char PolygonStats[160]{};
         std::snprintf(
-            MeshStats,
-            sizeof(MeshStats),
+            PolygonStats,
+            sizeof(PolygonStats),
             "AeroCoupeGT: %u Verts | %u DirectedEdges | %u Faces",
             Telemetry.AeroVertexCount,
             Telemetry.AeroEdgeCount,
             Telemetry.AeroFaceCount);
-        Draw->AddText(ImVec2(42.0f, 662.0f), TextBright, MeshStats);
-        Draw->AddText(ImVec2(42.0f, 694.0f), EmeraldOk, "FeatureSet & StandaloneWorkspace: READY");
-        Draw->AddText(ImVec2(42.0f, 724.0f), EmeraldOk, "Axis3D / Axis2D + Separate UVAxes: OK");
-        Draw->AddText(ImVec2(42.0f, 754.0f), EmeraldOk, "SeamOverlayEnabled = false (Default): OK");
+        ForegroundList->AddText(ImVec2(42.0f, 662.0f), TextBright, PolygonStats);
+        ForegroundList->AddText(ImVec2(42.0f, 694.0f), EmeraldOk, "FeatureSet & StandaloneWorkspace: READY");
+        ForegroundList->AddText(ImVec2(42.0f, 724.0f), EmeraldOk, "Axis3D / Axis2D + Separate UVAxes: OK");
+        ForegroundList->AddText(ImVec2(42.0f, 754.0f), EmeraldOk, "SeamOverlayEnabled = false (Default): OK");
 
         // Column 2: UDIM 1001 & UDIM 1002 Parameterized UV Tiles
-        Draw->AddRectFilled(ImVec2(608.0f, 88.0f), ImVec2(1188.0f, 896.0f), CardFill, 6.0f);
-        Draw->AddRect(ImVec2(608.0f, 88.0f), ImVec2(1188.0f, 896.0f), CardBorder, 6.0f);
-        Draw->AddText(ImVec2(626.0f, 106.0f), AccentBlue, "2. UDIM 1001 & 1002 PARAMETERIZED UV TILES");
-        Draw->AddText(ImVec2(626.0f, 132.0f), TextMuted, "Zero Overlaps, Positive CCW Winding, Layer Tint");
+        ForegroundList->AddRectFilled(ImVec2(608.0f, 88.0f), ImVec2(1188.0f, 896.0f), TileFill, 6.0f);
+        ForegroundList->AddRect(ImVec2(608.0f, 88.0f), ImVec2(1188.0f, 896.0f), TileBorder, 6.0f);
+        ForegroundList->AddText(ImVec2(626.0f, 106.0f), AccentBlue, "2. UDIM 1001 & 1002 PARAMETERIZED UV TILES");
+        ForegroundList->AddText(ImVec2(626.0f, 132.0f), TextMuted, "Zero Overlaps, Positive CCW Winding, Layer Tint");
 
         for (int TileIdx = 0; TileIdx < 2; ++TileIdx)
         {
@@ -428,14 +428,14 @@ struct PhaseOneTelemetry
             const ImVec2 TileMin(640.0f, TileTop);
             const ImVec2 TileMax(640.0f + TileSize, TileTop + TileSize);
 
-            Draw->AddRectFilled(TileMin, TileMax, IM_COL32(14, 15, 18, 255), 4.0f);
-            Draw->AddRect(TileMin, TileMax, AccentBlue, 4.0f, 0, 1.4f);
+            ForegroundList->AddRectFilled(TileMin, TileMax, IM_COL32(14, 15, 18, 255), 4.0f);
+            ForegroundList->AddRect(TileMin, TileMax, AccentBlue, 4.0f, 0, 1.4f);
 
             for (int Sub = 1; Sub < 4; ++Sub)
             {
                 const float Offset = TileSize * (static_cast<float>(Sub) / 4.0f);
-                Draw->AddLine(ImVec2(TileMin.x + Offset, TileMin.y), ImVec2(TileMin.x + Offset, TileMax.y), IM_COL32(32, 35, 42, 255));
-                Draw->AddLine(ImVec2(TileMin.x, TileMin.y + Offset), ImVec2(TileMax.x, TileMin.y + Offset), IM_COL32(32, 35, 42, 255));
+                ForegroundList->AddLine(ImVec2(TileMin.x + Offset, TileMin.y), ImVec2(TileMin.x + Offset, TileMax.y), IM_COL32(32, 35, 42, 255));
+                ForegroundList->AddLine(ImVec2(TileMin.x, TileMin.y + Offset), ImVec2(TileMax.x, TileMin.y + Offset), IM_COL32(32, 35, 42, 255));
             }
 
             for (uint32_t FaceIdx = 0u; FaceIdx < FaceCount; ++FaceIdx)
@@ -461,71 +461,71 @@ struct PhaseOneTelemetry
                 }
                 if (UVScreenPts.size() >= 3u)
                 {
-                    Draw->AddConvexPolyFilled(UVScreenPts.data(), static_cast<int>(UVScreenPts.size()), ResolveLayerFillColour(CurrentFace.PriorityLayerOrdinal, 110u));
-                    Draw->AddPolyline(UVScreenPts.data(), static_cast<int>(UVScreenPts.size()), ResolveLayerFillColour(CurrentFace.PriorityLayerOrdinal, 240u), ImDrawFlags_Closed, 1.3f);
+                    ForegroundList->AddConvexPolyFilled(UVScreenPts.data(), static_cast<int>(UVScreenPts.size()), ResolveLayerFillColour(CurrentFace.PriorityLayerOrdinal, 110u));
+                    ForegroundList->AddPolyline(UVScreenPts.data(), static_cast<int>(UVScreenPts.size()), ResolveLayerFillColour(CurrentFace.PriorityLayerOrdinal, 240u), ImDrawFlags_Closed, 1.3f);
                 }
             }
 
             char TileLabel[64]{};
             std::snprintf(TileLabel, sizeof(TileLabel), "UDIM %d", 1001 + TileIdx);
-            Draw->AddText(ImVec2(976.0f, TileTop + 14.0f), AccentGold, TileLabel);
-            Draw->AddText(
+            ForegroundList->AddText(ImVec2(976.0f, TileTop + 14.0f), AccentGold, TileLabel);
+            ForegroundList->AddText(
                 ImVec2(976.0f, TileTop + 42.0f),
                 TextMuted,
                 TileIdx == 0 ? "Hero Bodycoat +\nCanopy + Aero Trim" : "Four Radial Wheel\nFrustums & Caps");
         }
 
         // Column 3: GeometryInstance Tree, O(1) Layer Telemetry & .UVSpace Round-Trip
-        Draw->AddRectFilled(ImVec2(1204.0f, 88.0f), ImVec2(1696.0f, 896.0f), CardFill, 6.0f);
-        Draw->AddRect(ImVec2(1204.0f, 88.0f), ImVec2(1696.0f, 896.0f), CardBorder, 6.0f);
-        Draw->AddText(ImVec2(1222.0f, 106.0f), AccentBlue, "3. INSTANCE REGISTRY & O(1) LAYER BENCHMARK");
+        ForegroundList->AddRectFilled(ImVec2(1204.0f, 88.0f), ImVec2(1696.0f, 896.0f), TileFill, 6.0f);
+        ForegroundList->AddRect(ImVec2(1204.0f, 88.0f), ImVec2(1696.0f, 896.0f), TileBorder, 6.0f);
+        ForegroundList->AddText(ImVec2(1222.0f, 106.0f), AccentBlue, "3. INSTANCE REGISTRY & O(1) LAYER BENCHMARK");
 
         char PerfLine[128]{};
         std::snprintf(PerfLine, sizeof(PerfLine), "Layer Click Latency: %.3f us (< 50 us)", Telemetry.AverageLayerSelectMicros);
-        Draw->AddRectFilled(ImVec2(1222.0f, 146.0f), ImVec2(1678.0f, 206.0f), IM_COL32(24, 42, 34, 255), 5.0f);
-        Draw->AddRect(ImVec2(1222.0f, 146.0f), ImVec2(1678.0f, 206.0f), EmeraldOk, 5.0f);
-        Draw->AddText(ImVec2(1238.0f, 168.0f), EmeraldOk, PerfLine);
+        ForegroundList->AddRectFilled(ImVec2(1222.0f, 146.0f), ImVec2(1678.0f, 206.0f), IM_COL32(24, 42, 34, 255), 5.0f);
+        ForegroundList->AddRect(ImVec2(1222.0f, 146.0f), ImVec2(1678.0f, 206.0f), EmeraldOk, 5.0f);
+        ForegroundList->AddText(ImVec2(1238.0f, 168.0f), EmeraldOk, PerfLine);
 
-        const char* HierarchyNodes[4] = {
+        const char* SceneEntries[4] = {
             "[1|G1] AeroCoupe_Chassis (Root)",
             "  +-- [2|G1] AeroCoupe_Canopy  (L1)",
             "  +-- [3|G1] AeroCoupe_WheelFL (L1)",
             "  +-- [4|G2] AeroCoupe_Spoiler (Recycled)"
         };
-        Draw->AddText(ImVec2(1222.0f, 232.0f), AccentGold, "Non-Kinship GeometryInstance Index Tree:");
-        for (int NodeIdx = 0; NodeIdx < 4; ++NodeIdx)
+        ForegroundList->AddText(ImVec2(1222.0f, 232.0f), AccentGold, "Non-Kinship GeometryInstance Index Tree:");
+        for (int EntryIdx = 0; EntryIdx < 4; ++EntryIdx)
         {
-            const float RowY = 264.0f + static_cast<float>(NodeIdx) * 44.0f;
-            Draw->AddRectFilled(ImVec2(1222.0f, RowY), ImVec2(1678.0f, RowY + 36.0f), IM_COL32(31, 34, 41, 255), 4.0f);
-            Draw->AddText(ImVec2(1236.0f, RowY + 10.0f), TextBright, HierarchyNodes[NodeIdx]);
+            const float RowY = 264.0f + static_cast<float>(EntryIdx) * 44.0f;
+            ForegroundList->AddRectFilled(ImVec2(1222.0f, RowY), ImVec2(1678.0f, RowY + 36.0f), IM_COL32(31, 34, 41, 255), 4.0f);
+            ForegroundList->AddText(ImVec2(1236.0f, RowY + 10.0f), TextBright, SceneEntries[EntryIdx]);
         }
 
         char PresetStats[128]{};
         std::snprintf(PresetStats, sizeof(PresetStats), "5 Studio Presets Verified: %u Total Faces", Telemetry.TotalSampleFacesVerified);
-        Draw->AddText(ImVec2(1222.0f, 468.0f), EmeraldOk, PresetStats);
+        ForegroundList->AddText(ImVec2(1222.0f, 468.0f), EmeraldOk, PresetStats);
 
         char CodecStats[128]{};
         std::snprintf(CodecStats, sizeof(CodecStats), ".UVSpace Round-Trip: %u Floats (64B OK)", Telemetry.RoundTripUVFloatCount);
-        Draw->AddText(ImVec2(1222.0f, 500.0f), EmeraldOk, CodecStats);
+        ForegroundList->AddText(ImVec2(1222.0f, 500.0f), EmeraldOk, CodecStats);
 
-        Draw->AddRectFilled(ImVec2(1222.0f, 548.0f), ImVec2(1678.0f, 868.0f), IM_COL32(20, 22, 27, 255), 5.0f);
-        Draw->AddRect(ImVec2(1222.0f, 548.0f), ImVec2(1678.0f, 868.0f), CardBorder, 5.0f);
-        Draw->AddText(ImVec2(1238.0f, 568.0f), AccentGold, "PriorityAllocationLayer Legend:");
-        Draw->AddRectFilled(ImVec2(1238.0f, 604.0f), ImVec2(1262.0f, 628.0f), ResolveLayerFillColour(1u, 255u), 4.0f);
-        Draw->AddText(ImVec2(1274.0f, 608.0f), TextBright, "L1: Bodycoat Hero (55% | UDIM 1001)");
-        Draw->AddRectFilled(ImVec2(1238.0f, 644.0f), ImVec2(1262.0f, 668.0f), ResolveLayerFillColour(2u, 255u), 4.0f);
-        Draw->AddText(ImVec2(1274.0f, 648.0f), TextBright, "L2: Aero Trim     (25% | UDIM 1001)");
-        Draw->AddRectFilled(ImVec2(1238.0f, 684.0f), ImVec2(1262.0f, 708.0f), ResolveLayerFillColour(0u, 255u), 4.0f);
-        Draw->AddText(ImVec2(1274.0f, 688.0f), TextBright, "L0: Remainder     (20% | UDIM 1002)");
+        ForegroundList->AddRectFilled(ImVec2(1222.0f, 548.0f), ImVec2(1678.0f, 868.0f), IM_COL32(20, 22, 27, 255), 5.0f);
+        ForegroundList->AddRect(ImVec2(1222.0f, 548.0f), ImVec2(1678.0f, 868.0f), TileBorder, 5.0f);
+        ForegroundList->AddText(ImVec2(1238.0f, 568.0f), AccentGold, "PriorityAllocationLayer Legend:");
+        ForegroundList->AddRectFilled(ImVec2(1238.0f, 604.0f), ImVec2(1262.0f, 628.0f), ResolveLayerFillColour(1u, 255u), 4.0f);
+        ForegroundList->AddText(ImVec2(1274.0f, 608.0f), TextBright, "L1: Bodycoat Hero (55% | UDIM 1001)");
+        ForegroundList->AddRectFilled(ImVec2(1238.0f, 644.0f), ImVec2(1262.0f, 668.0f), ResolveLayerFillColour(2u, 255u), 4.0f);
+        ForegroundList->AddText(ImVec2(1274.0f, 648.0f), TextBright, "L2: Aero Trim     (25% | UDIM 1001)");
+        ForegroundList->AddRectFilled(ImVec2(1238.0f, 684.0f), ImVec2(1262.0f, 708.0f), ResolveLayerFillColour(0u, 255u), 4.0f);
+        ForegroundList->AddText(ImVec2(1274.0f, 688.0f), TextBright, "L0: Remainder     (20% | UDIM 1002)");
 
-        Draw->AddText(ImVec2(1238.0f, 742.0f), TextMuted, "Zero CPU Face Loops on Layer Click:");
-        Draw->AddText(ImVec2(1238.0f, 768.0f), TextMuted, "- PriorityLayerOrdinal uploaded once to VRAM");
-        Draw->AddText(ImVec2(1238.0f, 794.0f), TextMuted, "- Cached TotalArea3D & TotalAreaUV readouts");
+        ForegroundList->AddText(ImVec2(1238.0f, 742.0f), TextMuted, "Zero CPU Face Loops on Layer Click:");
+        ForegroundList->AddText(ImVec2(1238.0f, 768.0f), TextMuted, "- PriorityLayerOrdinal uploaded once to VRAM");
+        ForegroundList->AddText(ImVec2(1238.0f, 794.0f), TextMuted, "- Cached TotalArea3D & TotalAreaUV readouts");
 
         ImGui::End();
         ImGui::Render();
 
-        if (Pass == 1)
+        if (AllChecksGreen == 1)
         {
             Canvas.Clear({ 18, 19, 22, 255 });
             Canvas.RasterizeImGuiBatches(ImGui::GetDrawData());

@@ -60,7 +60,7 @@ EnqueueComputeOperation(Descriptor) ─────────► Encode .slang
   • Target shader & threadgroupXYZ             Signal Vulkan Timeline Semaphore (Ticket N)       [2] ViewportPickReduction.slang
   • PushConstants (64 B)                       Copy compact result -> TimelineTransferRegister[N % 3]   [3] UVDistortionInspection.slang
   • Optional ReadbackByteCount                                                                   [4] StretchRelaxCompute.slang
-                                                                                                 [5] ConcaveHorizonCompute.slang
+                                                                                                 [5] ConcaveSkylineCompute.slang
 PollCompletedReadback(Ticket N) ◄────────────── Zero CPU stalls (NO vkWaitForFences!) ◄────────── Host-cached 64B-aligned ring slot
   • Updates KPI tiles / Revision baseline        ReadbackTicket completes asynchronously           ready on next completed timeline value
 ```
@@ -72,7 +72,7 @@ PollCompletedReadback(Ticket N) ◄────────────── Ze
 | **`SelectionMaskCompute.slang`** | `UV`, `Geometry`, `Fracture`, `Paint` | Evaluates layer click (`FaceLayerOrdinal == LayerId`), box frustum, brush sphere, coplanar/similar tolerances **entirely in VRAM**; writes `FaceSelectionBits` (`1 bit/face`) and reads back `16 B` (`SelectedFaceCount`, `SelectedIslandCount`, `Bounds`). |
 | **`UVDistortionInspection.slang`** | `UV`, `Texture` | Parallel per-face angle/area stretch, texel density `[px/m]`, flipped winding, and UDIM spatial-hash overlap count; writes GPU heatmap buffer + `64 B` KPI summary via `TimelineTransferRegister`. |
 | **`StretchRelaxCompute.slang`** | `UV` | Parallel Jacobi / Red-Black area-preserving UV spring relaxation in VRAM during interactive brush/Tier 3 slack; reads back `ParameterUV` stream only when recording a revision step in `OperationRecorder`. |
-| **`ConcaveHorizonCompute.slang`** | `UV` | Evaluates rotated island upper/lower raster horizons across `0°/90°/45°/15°` candidates in parallel on GPU for `IslandLayoutPacker`. |
+| **`ConcaveSkylineCompute.slang`** | `UV` | Evaluates rotated island upper/lower raster horizons across `0°/90°/45°/15°` candidates in parallel on GPU for `IslandLayoutPacker`. |
 
 ---
 
@@ -259,7 +259,7 @@ public:
 
 ### Phase 4 — Remaining UV Solvers, `WorkspaceThread` Execution & `215/750 MiB` Revision
 1. `GeometrySpace/Selection/{ComponentSelectionMask,GeometrySelection,SelectionTraversal,IslandFloodSelection}.{h,cpp}` (Edge Loops, Rings, Geodesic Shortest Path, Sharp/Boundary, Face Loops, Flat/Coplanar, Similar, Checker & Random).
-2. `GeometrySpace/UV/{UDIMTileAddressing,TileLayout,TexelLayout,TileSegmentation,SeamRouter,ConformalFlattening,StretchRelaxer,IslandLayoutPacker}.{h,cpp}` + `StretchRelaxCompute.slang` & `ConcaveHorizonCompute.slang` (LSCM/ABF++, Projections, `FollowActiveQuads`, Importance `%` Concave Packing, `StackSimilarUVTiles` / `UnstackOverlappingUVTiles`, Auto-UDIM Spillover).
+2. `GeometrySpace/UV/{UDIMTileAddressing,TileLayout,TexelLayout,TileSegmentation,SeamRouter,ConformalFlattening,StretchRelaxer,IslandLayoutPacker}.{h,cpp}` + `StretchRelaxCompute.slang` & `ConcaveSkylineCompute.slang` (LSCM/ABF++, Projections, `FollowActiveQuads`, Importance `%` Concave Packing, `StackSimilarUVTiles` / `UnstackOverlappingUVTiles`, Auto-UDIM Spillover).
 3. `Workspaces/UV/{UVWorkspaceDocument,UVWorkspaceLifecycle}.{h,cpp}` & `Operations/*` (`WorkspaceThread` + `ExecutionCluster`, `OperationRecorder` `215/750 MiB` `RedoPurge → PrefixFold`, `.UVSpace` `UVCodec`, `.OBJ` `GeometryInterchange`, `WorkspaceExchange`).
 4. `Exhibits/UVParameterizationValidation.cpp` & `Exhibits/UVInteractiveAuthoringValidation.cpp` → CTest + `.png` visual proofs in `Exhibits/Images/UV/`.
 
@@ -269,7 +269,7 @@ public:
 
 | Pillar | Status | Implemented Modules & Targets |
 | :--- | :---: | :--- |
-| **1. Runnable Desktop Executables & Vulkan Swapchain** | 🟢 Complete | `FrontierUV`, `FrontierEditor`, `Engine/Host/{DesktopWorkspaceRunner,FrontierUVMain,FrontierEditorMain}`, `VulkanSwapchainPresenter`, `ImGuiOverlayRasterization.slang`, `EditorLifecycle::AttachUVWorkspaceHost` |
+| **1. Runnable Desktop Executables & Vulkan Swapchain** | 🟢 Complete | `FrontierUV`, `FrontierEditor`, `Engine/Lifecycle/{DesktopWorkspaceLaunch,FrontierUVLaunch,FrontierEditorLaunch}`, `ImGuiOverlayRasterization`, `ImGuiOverlayRasterization.slang`, `EditorLifecycle::AttachUVWorkspaceHost` |
 | **2. Interactive 2D & 3D Viewport Navigation, GPU Picking & Gizmo Drag** | 🟢 Complete | `UVViewportInteractor`, `ViewportProjection`, `ViewportProjectionPane` (orbit/pan/cursor-zoom/frame, `R32G32B32A32_UINT` hover/click/marquee/brush, 2D/3D `TransformGizmo` drag, modal `G`/`R`/`S` + numeric input) |
 | **3. Direct Seam, Pin, Stitch, Split, Selection Traversal & Rectify** | 🟢 Complete | `ComponentSelectionMask`, `GeometrySelection`, `UVAuthoringOperations`, `UVTileRasterization.slang` (GPU pin beacons & coral seams), pin-locked `ConformalUnwrapSolver` & `ProgressiveStretchRelaxer` |
 | **4. Full Unwrap, Projection & Island Layout Suite** | 🟢 Complete | `UVProjectionSolvers` (ABF++, Smart UV, Box, Cylindrical, Spherical, CameraView, Follow Active Quads) & `UVIslandLayoutOperations` (Stack Similar, Unstack Overlaps, Fill Empty Pockets) |

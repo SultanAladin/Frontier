@@ -1,13 +1,13 @@
 /*============================================================================================================================================
-                                                            FRONTIERUVMAIN.CPP
+                                                          FRONTIEREDITORLAUNCH.CPP
 ============================================================================================================================================*/
-// 🧩 Standalone FrontierUV desktop executable (--standalone=uv) launching UV Space Outliner, Dual GPU Viewports & 5-Tab UV Inspector
+// 🧩 Multi-workspace FrontierEditor desktop executable launching EditorLifecycle, UVWorkspaceHost, ControlCentre & ContentBrowser
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Host/DesktopWorkspaceRunner.h"
+#include "Engine/Lifecycle/DesktopWorkspaceLaunch.h"
 
 #include <filesystem>
 #include <span>
@@ -18,9 +18,9 @@
 
 int main(int Argc, char** Argv)
 {
-    Frontier::Host::DesktopLaunchOptions Options {};
-    Options.DefaultLaunchMode = Frontier::Configuration::HostLaunchMode::StandaloneWorkspace;
-    Options.WindowTitle       = "Frontier UV";
+    Frontier::Lifecycle::DesktopLaunchOptions Options {};
+    Options.DefaultLaunchMode = Frontier::Configuration::HostLaunchMode::FeatureSet;
+    Options.WindowTitle       = "Frontier Editor";
     Options.InitialWidthPx    = 1840u;
     Options.InitialHeightPx   = 980u;
 
@@ -28,7 +28,7 @@ int main(int Argc, char** Argv)
         const_cast<const char* const*>(Argv),
         static_cast<std::size_t>(Argc > 0 ? Argc : 0));
 
-    return Frontier::Host::RunDesktopUVApplication(
+    return Frontier::Lifecycle::LaunchDesktopWorkspace(
         Options,
         Args,
         std::filesystem::path(FRONTIER_REPO_ROOT_DIR),

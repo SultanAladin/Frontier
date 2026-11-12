@@ -125,20 +125,22 @@ void UVWorkspaceHost::RegisterDockPanes(Components::HeadlessWorkspaceDockContain
 
     RegisteredTabCount = 0u;
 
-    // Left Pane: UV Space Outliner
+    // Left Pane: Outliner (UV Space)
     (void)DockContainer.RegisterPane(WorkspaceDockPaneDescriptor{
-        "UV Space",
+        "Outliner",
         DockPlacementDirection::SplitLeft,
-        0.20f,
+        0.19f,
         PaneDirectiveMask::StandardPaneDirectives,
         [this]() { Outliner.PresentInImGuiPane(1.0 / 60.0, 1.0f); },
     });
 
-    // Center Pane: UV Parameterization Viewport (Reusable ViewportProjectionPane)
+    // Center Pane: Viewport (Standalone) or UV (FeatureSet multi-workspace group)
+    const char* CentralTitle =
+        (ActiveEngineConfig.QueryLaunchMode() == Configuration::HostLaunchMode::FeatureSet) ? "UV" : "Viewport";
     (void)DockContainer.RegisterPane(WorkspaceDockPaneDescriptor{
-        "UV",
+        CentralTitle,
         DockPlacementDirection::CenterTabGroup,
-        0.58f,
+        0.57f,
         PaneDirectiveMask::CentralViewportDirectives,
         [this]() { ViewportHost.PresentInImGuiPane(1.0 / 60.0, 1.0f); },
     });
@@ -158,7 +160,7 @@ void UVWorkspaceHost::RegisterDockPanes(Components::HeadlessWorkspaceDockContain
             (void)DockContainer.RegisterPane(WorkspaceDockPaneDescriptor{
                 PeerTitle,
                 DockPlacementDirection::CenterTabGroup,
-                0.58f,
+                0.57f,
                 PaneDirectiveMask::CentralViewportDirectives,
                 [PeerTitle]()
                 {
@@ -171,9 +173,9 @@ void UVWorkspaceHost::RegisterDockPanes(Components::HeadlessWorkspaceDockContain
 
     // Right Pane: 5-Tab UV Inspector
     (void)DockContainer.RegisterPane(WorkspaceDockPaneDescriptor{
-        "UV Inspector",
+        "Inspector",
         DockPlacementDirection::SplitRight,
-        0.22f,
+        0.24f,
         PaneDirectiveMask::StandardPaneDirectives,
         [this]() { Inspector.PresentInImGuiPane(1.0 / 60.0, 1.0f); },
     });

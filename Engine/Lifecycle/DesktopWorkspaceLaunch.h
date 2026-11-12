@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                         DESKTOPWORKSPACERUNNER.H
+                                                         DESKTOPWORKSPACELAUNCH.H
 ============================================================================================================================================*/
 // 🧩 Desktop host runner mounting FrontierUV (StandaloneWorkspace) or FrontierEditor (FeatureSet + ContentBrowser) on GLFW + Vulkan
 
@@ -16,7 +16,7 @@
 #include <span>
 #include <string_view>
 
-namespace Frontier::Host
+namespace Frontier::Lifecycle
 {
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -29,16 +29,16 @@ struct DesktopLaunchOptions
     std::string_view              WindowTitle          = "Frontier UV";
     uint32_t                      InitialWidthPx       = 1840u;
     uint32_t                      InitialHeightPx      = 980u;
-    uint32_t                      BoundedFrameLimit    = 0u; // 0 = run until user closes window (auto-bounds on GlfwNull)
+    uint32_t                      BoundedStepLimit    = 0u; // 0 = run until user closes window (auto-bounds on GlfwNull)
     std::filesystem::path         StartupImportPath    {};
     std::filesystem::path         CapturePngOutputPath {};
     bool                          OpenContentBrowser   = false;
 };
 
-[[nodiscard]] int RunDesktopUVApplication(
-    DesktopLaunchOptions                BaseOptions,
+[[nodiscard]] int LaunchDesktopWorkspace(
+    DesktopLaunchOptions                InitialOptions,
     std::span<const char* const>        CommandLineArgs,
     const std::filesystem::path&        RepositoryRootPath,
     const std::filesystem::path&        CompiledShaderDir);
 
-} // namespace Frontier::Host
+} // namespace Frontier::Lifecycle

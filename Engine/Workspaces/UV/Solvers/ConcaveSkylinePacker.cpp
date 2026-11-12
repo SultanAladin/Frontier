@@ -1,13 +1,13 @@
 /*============================================================================================================================================
                                                          CONCAVEHORIZONPACKER.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of ConcaveHorizonPacker using ConcaveHorizonCompute.comp.spv + ExecutionChannels parallel island profiles
+// 🧩 Implementation of ConcaveSkylinePacker using ConcaveSkylineCompute.comp.spv + ExecutionChannels parallel island profiles
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Workspaces/UV/Solvers/ConcaveHorizonPacker.h"
+#include "Engine/Workspaces/UV/Solvers/ConcaveSkylinePacker.h"
 
 #include "Engine/Constants/MathConstants.h"
 #include "Engine/Workspaces/UV/Solvers/SeamCutGenerator.h"
@@ -27,7 +27,7 @@ namespace
 
 constexpr uint32_t SkylineGridColumns = 256u;
 
-struct GPUHorizonCandidateQuery
+struct GPUSkylineCandidateQuery
 {
     uint32_t IslandFootprintCols = 0u;
     uint32_t RotationIndex       = 0u;
@@ -35,15 +35,15 @@ struct GPUHorizonCandidateQuery
     uint32_t GridColumns         = SkylineGridColumns;
 };
 
-struct GPUHorizonScoreResult
+struct GPUSkylineScoreResult
 {
     float    PlacementScore = 1.0e9f;
-    uint32_t BaseLandingY   = SkylineGridColumns;
+    uint32_t LandingFloorY   = SkylineGridColumns;
     uint32_t CandidateIndex = 0u;
-    uint32_t ValidFlag      = 0u;
+    uint32_t PlacementValid      = 0u;
 };
 
-struct GPUHorizonDispatchParams
+struct GPUSkylineDispatchParams
 {
     uint32_t CandidateCount      = 0u;
     uint32_t TileCeilingRows     = SkylineGridColumns;
@@ -169,46 +169,46 @@ RotatedCandidateProfile BuildRotatedSpanProfile(
 
 } // namespace
 
-ConcaveHorizonPacker::~ConcaveHorizonPacker()
+ConcaveSkylinePacker::~ConcaveSkylinePacker()
 {
-    TeardownGPUKernel();
+    TeardownGPUCompute();
 }
 
-bool ConcaveHorizonPacker::InitializeGPUKernel(
-    GeometricRaster::VulkanDeviceContext* Context,
-    const std::filesystem::path&          CompiledShaderDir)
+bool ConcaveSkylinePacker::InitializeGPUCompute(
+    GeometricRaster::VulkanInterchange* BoundDevice,
+    const std::filesystem::path&        CompiledShaderDir)
 {
-    TeardownGPUKernel();
-    if (Context == nullptr || !Context->Ready())
+    TeardownGPUCompute();
+    if (BoundDevice == nullptr || !BoundDevice->Ready())
     {
         return false;
     }
-    VkContext = Context;
-    if (!Encoder.InitializeEncoder(VkContext, 128u))
+    this->DeviceInterchange = BoundDevice;
+    if (!Encoder.InitializeEncoder(BoundDevice, 2048u))
     {
-        VkContext = nullptr;
+        this->DeviceInterchange = nullptr;
         return false;
     }
 
-    const std::array<VkDescriptorType, 5u> Bindings {{
+    const std::array<VkDescriptorType, 5u> Slots {{
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
     }};
-    HorizonProgramHandle = Encoder.RegisterProgram(CompiledShaderDir / "ConcaveHorizonCompute.comp.spv", Bindings, "ComputeEntry");
-    return HorizonProgramHandle != UINT32_MAX;
+    SkylineProgramHandle = Encoder.RegisterProgram(CompiledShaderDir / "ConcaveSkylineCompute.comp.spv", Slots, "ComputeEntry");
+    return SkylineProgramHandle != UINT32_MAX;
 }
 
-void ConcaveHorizonPacker::TeardownGPUKernel() noexcept
+void ConcaveSkylinePacker::TeardownGPUCompute() noexcept
 {
     Encoder.TeardownEncoder();
-    HorizonProgramHandle = UINT32_MAX;
-    VkContext            = nullptr;
+    SkylineProgramHandle = UINT32_MAX;
+    DeviceInterchange            = nullptr;
 }
 
-ConcavePackReport ConcaveHorizonPacker::PackConcaveSkyline(
+ConcavePackReport ConcaveSkylinePacker::PackConcaveSkyline(
     GeometrySpace::PolygonNetwork&               Network,
     const GeometrySpace::FacePartitionRegister&  LayerRegistry,
     const Configuration::UVWorkspacePreferences& Preferences,
@@ -268,30 +268,30 @@ ConcavePackReport ConcaveHorizonPacker::PackConcaveSkyline(
     std::vector<PreparedPackIsland> Prepared(Islands.size());
     auto PrepareIslandFn = [&](std::size_t Idx)
     {
-        PreparedPackIsland Item {};
-        Item.Source = Islands[Idx];
-        Item.CentroidUV = {
-            0.5f * (Item.Source.BoundsMinUV.U + Item.Source.BoundsMaxUV.U),
-            0.5f * (Item.Source.BoundsMinUV.V + Item.Source.BoundsMaxUV.V),
+        PreparedPackIsland Piece {};
+        Piece.Source = Islands[Idx];
+        Piece.CentroidUV = {
+            0.5f * (Piece.Source.BoundsMinUV.U + Piece.Source.BoundsMaxUV.U),
+            0.5f * (Piece.Source.BoundsMinUV.V + Piece.Source.BoundsMaxUV.V),
         };
 
-        const float TargetLayerUV = TotalBudgetUV * ResolveLayerShareFraction(Item.Source.PriorityLayerOrdinal);
+        const float TargetLayerUV = TotalBudgetUV * ResolveLayerShareFraction(Piece.Source.PriorityLayerOrdinal);
         if (Preferences.EqualizeIntraLayerScale)
         {
-            const float DesiredIslandUV = TargetLayerUV * (Item.Source.TotalArea3D / LayerArea3D[Item.Source.PriorityLayerOrdinal]);
-            Item.ScaleFactor = std::sqrt(DesiredIslandUV / std::max(1.0e-7f, Item.Source.TotalAreaUV));
+            const float DesiredIslandUV = TargetLayerUV * (Piece.Source.TotalArea3D / LayerArea3D[Piece.Source.PriorityLayerOrdinal]);
+            Piece.ScaleFactor = std::sqrt(DesiredIslandUV / std::max(1.0e-7f, Piece.Source.TotalAreaUV));
         }
         else
         {
-            Item.ScaleFactor = std::sqrt(TargetLayerUV / std::max(1.0e-7f, LayerAreaUV[Item.Source.PriorityLayerOrdinal]));
+            Piece.ScaleFactor = std::sqrt(TargetLayerUV / std::max(1.0e-7f, LayerAreaUV[Piece.Source.PriorityLayerOrdinal]));
         }
-        Item.ScaleFactor = std::clamp(Item.ScaleFactor, 0.05f, 4.0f);
+        Piece.ScaleFactor = std::clamp(Piece.ScaleFactor, 0.05f, 4.0f);
 
         for (const float Ang : CandidateAngles)
         {
-            Item.Rotations.push_back(BuildRotatedSpanProfile(Network, Item.Source, Item.CentroidUV, Item.ScaleFactor, Ang, GutterCols));
+            Piece.Rotations.push_back(BuildRotatedSpanProfile(Network, Piece.Source, Piece.CentroidUV, Piece.ScaleFactor, Ang, GutterCols));
         }
-        Prepared[Idx] = std::move(Item);
+        Prepared[Idx] = std::move(Piece);
     };
 
     if (OptionalChannels != nullptr && OptionalChannels->QueryActive() && Islands.size() > 1u)
@@ -329,7 +329,7 @@ ConcavePackReport ConcaveHorizonPacker::PackConcaveSkyline(
     });
 
     // 3. Allocate GPU horizon candidate scoring buffers if Vulkan is active
-    const bool UseGPU = (VkContext != nullptr && VkContext->Ready() && HorizonProgramHandle != UINT32_MAX);
+    const bool UseGPU = (DeviceInterchange != nullptr && DeviceInterchange->Ready() && SkylineProgramHandle != UINT32_MAX);
     const uint32_t MaxRotations  = static_cast<uint32_t>(CandidateAngles.size());
     const uint32_t MaxCandidates = MaxRotations * SkylineGridColumns;
 
@@ -341,20 +341,20 @@ ConcavePackReport ConcaveHorizonPacker::PackConcaveSkyline(
 
     if (UseGPU)
     {
-        ParamBuf = Encoder.AllocateHostWritableBuffer(sizeof(GPUHorizonDispatchParams), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        ParamBuf = Encoder.AllocateHostWritableBuffer(sizeof(GPUSkylineDispatchParams), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
         SkyBuf   = Encoder.AllocateHostWritableBuffer(sizeof(uint32_t) * SkylineGridColumns, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         SpanBuf  = Encoder.AllocateHostWritableBuffer(sizeof(int32_t) * 2u * SkylineGridColumns * MaxRotations, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-        QueryBuf = Encoder.AllocateHostWritableBuffer(sizeof(GPUHorizonCandidateQuery) * MaxCandidates, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-        ScoreBuf = Encoder.AllocateHostWritableBuffer(sizeof(GPUHorizonScoreResult) * MaxCandidates, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        QueryBuf = Encoder.AllocateHostWritableBuffer(sizeof(GPUSkylineCandidateQuery) * MaxCandidates, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        ScoreBuf = Encoder.AllocateHostWritableBuffer(sizeof(GPUSkylineScoreResult) * MaxCandidates, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     }
 
-    struct UDIMTileHorizon
+    struct UDIMTileSkyline
     {
         int32_t               TileU = 0;
         std::vector<uint32_t> Columns;
-        UDIMTileHorizon(int32_t InU, uint32_t Margin) : TileU(InU), Columns(SkylineGridColumns, Margin) {}
+        UDIMTileSkyline(int32_t InU, uint32_t Margin) : TileU(InU), Columns(SkylineGridColumns, Margin) {}
     };
-    std::vector<UDIMTileHorizon> Tiles;
+    std::vector<UDIMTileSkyline> Tiles;
     Tiles.emplace_back(0, GutterCols);
 
     struct FinalIslandPlacement
@@ -363,20 +363,20 @@ ConcavePackReport ConcaveHorizonPacker::PackConcaveSkyline(
         uint32_t    TileIdx     = 0u;
         uint32_t    RotIdx      = 0u;
         uint32_t    ColX        = 0u;
-        uint32_t    BaseRowY    = 0u;
+        uint32_t    RowFloorY    = 0u;
     };
     std::vector<FinalIslandPlacement> Placements;
     Placements.reserve(Prepared.size());
 
-    auto TryPlaceOnTile = [&](std::size_t IslIdx, UDIMTileHorizon& Tile, uint32_t& OutRot, uint32_t& OutCol, uint32_t& OutRowY) -> bool
+    auto TryPlaceOnTile = [&](std::size_t IslIdx, UDIMTileSkyline& Tile, uint32_t& OutRot, uint32_t& OutCol, uint32_t& OutRowY) -> bool
     {
-        const auto& Item = Prepared[IslIdx];
-        std::vector<GPUHorizonCandidateQuery> Queries;
+        const auto& Piece = Prepared[IslIdx];
+        std::vector<GPUSkylineCandidateQuery> Queries;
         Queries.reserve(MaxCandidates);
 
-        for (uint32_t RIdx = 0u; RIdx < Item.Rotations.size(); ++RIdx)
+        for (uint32_t RIdx = 0u; RIdx < Piece.Rotations.size(); ++RIdx)
         {
-            const uint32_t FCols = Item.Rotations[RIdx].FootprintCols;
+            const uint32_t FCols = Piece.Rotations[RIdx].FootprintCols;
             if (FCols + GutterCols > SkylineGridColumns)
             {
                 continue;
@@ -398,44 +398,44 @@ ConcavePackReport ConcaveHorizonPacker::PackConcaveSkyline(
         if (UseGPU)
         {
             Encoder.ResetTransientDescriptors();
-            const GPUHorizonDispatchParams Params { static_cast<uint32_t>(Queries.size()), CeilingRows, 0u, 0u };
-            const std::array<GPUHorizonDispatchParams, 1u> PSpan {{ Params }};
-            Encoder.UploadSpanToBuffer<GPUHorizonDispatchParams>(ParamBuf, PSpan);
+            const GPUSkylineDispatchParams Params { static_cast<uint32_t>(Queries.size()), CeilingRows, 0u, 0u };
+            const std::array<GPUSkylineDispatchParams, 1u> PSpan {{ Params }};
+            Encoder.UploadSpanToBuffer<GPUSkylineDispatchParams>(ParamBuf, PSpan);
             Encoder.UploadSpanToBuffer<uint32_t>(SkyBuf, Tile.Columns);
 
-            std::vector<std::array<int32_t, 2u>> FlatSpans(SkylineGridColumns * Item.Rotations.size(), { 0, 0 });
-            for (std::size_t RIdx = 0u; RIdx < Item.Rotations.size(); ++RIdx)
+            std::vector<std::array<int32_t, 2u>> FlatSpans(SkylineGridColumns * Piece.Rotations.size(), { 0, 0 });
+            for (std::size_t RIdx = 0u; RIdx < Piece.Rotations.size(); ++RIdx)
             {
                 std::copy(
-                    Item.Rotations[RIdx].ColSpans.begin(),
-                    Item.Rotations[RIdx].ColSpans.end(),
+                    Piece.Rotations[RIdx].ColSpans.begin(),
+                    Piece.Rotations[RIdx].ColSpans.end(),
                     FlatSpans.begin() + static_cast<std::ptrdiff_t>(RIdx * SkylineGridColumns));
             }
             Encoder.UploadSpanToBuffer<std::array<int32_t, 2u>>(SpanBuf, FlatSpans);
-            Encoder.UploadSpanToBuffer<GPUHorizonCandidateQuery>(QueryBuf, Queries);
+            Encoder.UploadSpanToBuffer<GPUSkylineCandidateQuery>(QueryBuf, Queries);
 
-            VkCommandBuffer Cmd = VkContext->BeginSingleTimeCommands();
-            const std::array<GeometricRaster::ComputeBindingDescriptor, 5u> Binds {{
-                { 0u, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, ParamBuf.BufferHandle, sizeof(GPUHorizonDispatchParams) },
+            VkCommandBuffer Cmd = DeviceInterchange->BeginSingleTimeCommands();
+            const std::array<GeometricRaster::ComputeSlotDescriptor, 5u> Slots {{
+                { 0u, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, ParamBuf.BufferHandle, sizeof(GPUSkylineDispatchParams) },
                 { 1u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, SkyBuf.BufferHandle, VK_WHOLE_SIZE },
                 { 2u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, SpanBuf.BufferHandle, VK_WHOLE_SIZE },
                 { 3u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, QueryBuf.BufferHandle, VK_WHOLE_SIZE },
                 { 4u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ScoreBuf.BufferHandle, VK_WHOLE_SIZE },
             }};
-            (void)Encoder.EncodeComputeDispatch(Cmd, HorizonProgramHandle, Binds, (static_cast<uint32_t>(Queries.size()) + 63u) / 64u);
-            const uint64_t Signal = VkContext->DispatchCommandBufferAsync(Cmd);
-            (void)VkContext->AwaitTimelineValue(Signal);
-            vkFreeCommandBuffers(VkContext->AccessDevice(), VkContext->AccessCommandPool(), 1u, &Cmd);
+            (void)Encoder.EncodeComputeDispatch(Cmd, SkylineProgramHandle, Slots, (static_cast<uint32_t>(Queries.size()) + 63u) / 64u);
+            const uint64_t Signal = DeviceInterchange->DispatchCommandBufferAsync(Cmd);
+            (void)DeviceInterchange->AwaitTimelineTick(Signal);
+            vkFreeCommandBuffers(DeviceInterchange->AccessDevice(), DeviceInterchange->AccessCommandAllocator(), 1u, &Cmd);
 
-            const auto* Scores = static_cast<const GPUHorizonScoreResult*>(ScoreBuf.MappedPtr);
+            const auto* Scores = static_cast<const GPUSkylineScoreResult*>(ScoreBuf.HostAddress);
             for (std::size_t QIdx = 0u; QIdx < Queries.size(); ++QIdx)
             {
-                if (Scores[QIdx].ValidFlag != 0u && Scores[QIdx].PlacementScore < BestScore)
+                if (Scores[QIdx].PlacementValid != 0u && Scores[QIdx].PlacementScore < BestScore)
                 {
                     BestScore = Scores[QIdx].PlacementScore;
                     OutRot    = Queries[QIdx].RotationIndex;
                     OutCol    = Queries[QIdx].CandidateColumnX;
-                    OutRowY   = Scores[QIdx].BaseLandingY;
+                    OutRowY   = Scores[QIdx].LandingFloorY;
                     Found     = true;
                 }
             }
@@ -444,18 +444,18 @@ ConcavePackReport ConcaveHorizonPacker::PackConcaveSkyline(
         {
             for (const auto& Q : Queries)
             {
-                const auto& Prof = Item.Rotations[Q.RotationIndex];
-                uint32_t BaseY = 0u, PeakY = 0u, Wasted = 0u;
+                const auto& Prof = Piece.Rotations[Q.RotationIndex];
+                uint32_t FloorY = 0u, PeakY = 0u, Wasted = 0u;
                 for (uint32_t C = 0u; C < Q.IslandFootprintCols; ++C)
                 {
                     const int32_t Req = static_cast<int32_t>(Tile.Columns[Q.CandidateColumnX + C]) - Prof.ColSpans[C][0];
-                    if (Req > static_cast<int32_t>(BaseY)) BaseY = static_cast<uint32_t>(Req);
+                    if (Req > static_cast<int32_t>(FloorY)) FloorY = static_cast<uint32_t>(Req);
                 }
                 for (uint32_t C = 0u; C < Q.IslandFootprintCols; ++C)
                 {
                     const uint32_t SkyH = Tile.Columns[Q.CandidateColumnX + C];
-                    const uint32_t Bot  = static_cast<uint32_t>(std::max(0, static_cast<int32_t>(BaseY) + Prof.ColSpans[C][0]));
-                    const uint32_t Top  = static_cast<uint32_t>(std::max(0, static_cast<int32_t>(BaseY) + Prof.ColSpans[C][1]));
+                    const uint32_t Bot  = static_cast<uint32_t>(std::max(0, static_cast<int32_t>(FloorY) + Prof.ColSpans[C][0]));
+                    const uint32_t Top  = static_cast<uint32_t>(std::max(0, static_cast<int32_t>(FloorY) + Prof.ColSpans[C][1]));
                     if (Bot > SkyH) Wasted += (Bot - SkyH);
                     PeakY = std::max(PeakY, Top);
                 }
@@ -467,7 +467,7 @@ ConcavePackReport ConcaveHorizonPacker::PackConcaveSkyline(
                         BestScore = Score;
                         OutRot    = Q.RotationIndex;
                         OutCol    = Q.CandidateColumnX;
-                        OutRowY   = BaseY;
+                        OutRowY   = FloorY;
                         Found     = true;
                     }
                 }
@@ -476,7 +476,7 @@ ConcavePackReport ConcaveHorizonPacker::PackConcaveSkyline(
 
         if (Found)
         {
-            const auto& Prof = Item.Rotations[OutRot];
+            const auto& Prof = Piece.Rotations[OutRot];
             for (uint32_t C = 0u; C < Prof.FootprintCols; ++C)
             {
                 const uint32_t NewH = static_cast<uint32_t>(std::max(0, static_cast<int32_t>(OutRowY) + Prof.ColSpans[C][1]));
@@ -539,31 +539,31 @@ ConcavePackReport ConcaveHorizonPacker::PackConcaveSkyline(
 
     if (UseGPU)
     {
-        VkContext->ReleaseBuffer(ParamBuf);
-        VkContext->ReleaseBuffer(SkyBuf);
-        VkContext->ReleaseBuffer(SpanBuf);
-        VkContext->ReleaseBuffer(QueryBuf);
-        VkContext->ReleaseBuffer(ScoreBuf);
+        DeviceInterchange->ReleaseBuffer(ParamBuf);
+        DeviceInterchange->ReleaseBuffer(SkyBuf);
+        DeviceInterchange->ReleaseBuffer(SpanBuf);
+        DeviceInterchange->ReleaseBuffer(QueryBuf);
+        DeviceInterchange->ReleaseBuffer(ScoreBuf);
     }
 
-    // 4. Commit placed island transforms into PolygonNetwork::Edges[e].ParameterUV
+    // 4. Finalize placed island transforms into PolygonNetwork::Edges[e].ParameterUV
     const float InvGrid = 1.0f / static_cast<float>(SkylineGridColumns);
     float PrimaryUVArea = 0.0f;
 
     for (const auto& P : Placements)
     {
-        const auto& Item = Prepared[P.IslandIdx];
-        const auto& Prof = Item.Rotations[P.RotIdx];
+        const auto& Piece = Prepared[P.IslandIdx];
+        const auto& Prof = Piece.Rotations[P.RotIdx];
         const float CosA = std::cos(Prof.AngleRadians);
         const float SinA = std::sin(Prof.AngleRadians);
         const float DestMinU = static_cast<float>(Tiles[P.TileIdx].TileU) + static_cast<float>(P.ColX + GutterCols) * InvGrid;
-        const float DestMinV = static_cast<float>(P.BaseRowY + GutterCols) * InvGrid;
+        const float DestMinV = static_cast<float>(P.RowFloorY + GutterCols) * InvGrid;
 
-        for (const uint32_t EdgeIdx : Item.Source.CornerEdgeIndices)
+        for (const uint32_t EdgeIdx : Piece.Source.CornerEdgeIndices)
         {
             const auto& Orig = Network.Edges[EdgeIdx].ParameterUV;
-            const float dU   = (Orig.U - Item.CentroidUV.U) * Item.ScaleFactor;
-            const float dV   = (Orig.V - Item.CentroidUV.V) * Item.ScaleFactor;
+            const float dU   = (Orig.U - Piece.CentroidUV.U) * Piece.ScaleFactor;
+            const float dV   = (Orig.V - Piece.CentroidUV.V) * Piece.ScaleFactor;
             const float RotU = (dU * CosA - dV * SinA) - Prof.MinRotated.U;
             const float RotV = (dU * SinA + dV * CosA) - Prof.MinRotated.V;
             Network.Edges[EdgeIdx].ParameterUV = { DestMinU + RotU, DestMinV + RotV };
@@ -571,7 +571,7 @@ ConcavePackReport ConcaveHorizonPacker::PackConcaveSkyline(
 
         if (P.TileIdx == 0u)
         {
-            for (const uint32_t FaceIdx : Item.Source.FaceIndices)
+            for (const uint32_t FaceIdx : Piece.Source.FaceIndices)
             {
                 PrimaryUVArea += std::max(0.0f, Network.EvaluateFaceSignedAreaUV(FaceIdx));
             }

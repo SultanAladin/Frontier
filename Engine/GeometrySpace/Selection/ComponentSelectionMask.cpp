@@ -176,7 +176,7 @@ void ComponentSelectionMask::ExpandFaceSelection(const PolygonNetwork& Network, 
     }
 }
 
-void ComponentSelectionMask::ContractFaceSelection(const PolygonNetwork& Network)
+void ComponentSelectionMask::ShrinkFaceSelection(const PolygonNetwork& Network)
 {
     SynchronizeCapacity(Network);
     std::vector<uint32_t> ToDeselect {};

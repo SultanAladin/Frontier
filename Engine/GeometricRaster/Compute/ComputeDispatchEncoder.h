@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/GeometricRaster/Backend/VulkanDeviceContext.h"
+#include "Engine/GeometricRaster/VulkanInterchange.h"
 #include "Engine/GeometricRaster/Compute/TimelineTransferRegister.h"
 
 #include <cstdint>
@@ -25,21 +25,21 @@ namespace Frontier::GeometricRaster
 //                                                       STRUCTURES
 //------------------------------------------------------------------------------------------------------------------------
 
-struct ComputeBindingDescriptor
+struct ComputeSlotDescriptor
 {
-    uint32_t         BindingIndex   = 0u;                                    // [idx]  - [[vk::binding(N, 0)]] slot
-    VkDescriptorType DescriptorKind = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;     // [-]    - UNIFORM_BUFFER or STORAGE_BUFFER
+    uint32_t         SlotIndex   = 0u;                                    // [idx]  - [[vk::binding(N, 0)]] slot
+    VkDescriptorType SlotCategory = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;     // [-]    - UNIFORM_BUFFER or STORAGE_BUFFER
     VkBuffer         BufferHandle   = VK_NULL_HANDLE;                        // [-]    - Bound device or host-visible buffer
     uint64_t         ByteRange      = VK_WHOLE_SIZE;                         // [B]    - Bound byte range
 };
 
 struct RegisteredComputeProgram
 {
-    VkShaderModule        ShaderModule   = VK_NULL_HANDLE; // [-] - Compiled .slang SPIR-V module
-    VkDescriptorSetLayout BindingLayout      = VK_NULL_HANDLE; // [-] - Set 0 descriptor layout
-    VkPipelineLayout      PipelineLayout = VK_NULL_HANDLE; // [-] - Compute pipeline layout
-    VkPipeline            Pipeline       = VK_NULL_HANDLE; // [-] - Compiled VkPipeline
-    uint32_t              BindingCount   = 0u;             // [-] - Number of bindings in Set 0
+    VkShaderModule        ShaderBinary   = VK_NULL_HANDLE; // [-] - Compiled .slang SPIR-V module
+    VkDescriptorSetLayout SlotLayout      = VK_NULL_HANDLE; // [-] - Set 0 descriptor layout
+    VkPipelineLayout      ProgramLayout = VK_NULL_HANDLE; // [-] - Compute pipeline layout
+    VkPipeline            ComputeProgram       = VK_NULL_HANDLE; // [-] - Compiled VkPipeline
+    uint32_t              SlotCount   = 0u;             // [-] - Number of bindings in Set 0
 };
 
 class ComputeDispatchEncoder
@@ -51,12 +51,12 @@ public:
     ComputeDispatchEncoder(const ComputeDispatchEncoder&)            = delete;
     ComputeDispatchEncoder& operator=(const ComputeDispatchEncoder&) = delete;
 
-    [[nodiscard]] bool InitializeEncoder(VulkanDeviceContext* BoundContext, uint32_t MaxDispatchesPerPool = 128u);
+    [[nodiscard]] bool InitializeEncoder(VulkanInterchange* BoundDevice, uint32_t MaxDispatchesPerAllocator = 128u);
     void               TeardownEncoder() noexcept;
 
     [[nodiscard]] uint32_t RegisterProgram(
         const std::filesystem::path&        SpirvPath,
-        std::span<const VkDescriptorType>   BindingTypes,
+        std::span<const VkDescriptorType>   SlotCategories,
         const char*                         EntryPointName = "ComputeEntry");
 
     void ResetTransientDescriptors() noexcept;
@@ -64,27 +64,27 @@ public:
     [[nodiscard]] bool EncodeComputeDispatch(
         VkCommandBuffer                             CmdBuffer,
         uint32_t                                    ProgramHandle,
-        std::span<const ComputeBindingDescriptor>   Bindings,
+        std::span<const ComputeSlotDescriptor>   Slots,
         uint32_t                                    GroupCountX,
         uint32_t                                    GroupCountY = 1u,
         uint32_t                                    GroupCountZ = 1u);
 
     [[nodiscard]] DeviceBufferResource AllocateHostWritableBuffer(
         uint64_t           ByteSize,
-        VkBufferUsageFlags UsageFlags) const;
+        VkBufferUsageFlags UsageMask) const;
 
-    template <typename ElementType>
-    void UploadSpanToBuffer(DeviceBufferResource& TargetBuffer, std::span<const ElementType> Elements) const noexcept
+    template <typename EntryScalar>
+    void UploadSpanToBuffer(DeviceBufferResource& TargetBuffer, std::span<const EntryScalar> EntryCount) const noexcept
     {
-        if (TargetBuffer.MappedPtr != nullptr && Elements.size_bytes() <= TargetBuffer.ByteCapacity)
+        if (TargetBuffer.HostAddress != nullptr && EntryCount.size_bytes() <= TargetBuffer.ByteCapacity)
         {
-            std::memcpy(TargetBuffer.MappedPtr, Elements.data(), Elements.size_bytes());
+            std::memcpy(TargetBuffer.HostAddress, EntryCount.data(), EntryCount.size_bytes());
         }
     }
 
 private:
-    VulkanDeviceContext*                  Context        = nullptr;        // [-] - Non-owning Vulkan device context
-    VkDescriptorPool                      DescriptorPool = VK_NULL_HANDLE; // [-] - Reusable compute descriptor pool
+    VulkanInterchange*                  DeviceInterchange        = nullptr;        // [-] - Non-owning Vulkan device interchange
+    VkDescriptorPool                      DescriptorAllocator = VK_NULL_HANDLE; // [-] - Reusable compute descriptor pool
     std::vector<RegisteredComputeProgram> Programs       {};               // [-] - Registered .slang compute pipelines
 };
 

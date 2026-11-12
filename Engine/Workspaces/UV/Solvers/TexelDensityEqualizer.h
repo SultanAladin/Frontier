@@ -10,7 +10,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometrySpace/Network/PolygonNetwork.h"
-#include "Engine/Workspaces/UV/Solvers/ConcaveHorizonPacker.h"
+#include "Engine/Workspaces/UV/Solvers/ConcaveSkylinePacker.h"
 
 #include <cstdint>
 

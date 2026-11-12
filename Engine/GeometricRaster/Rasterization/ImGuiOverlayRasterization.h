@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                        VULKANSWAPCHAINPRESENTER.H
+                                                        IMGUIOVERLAYRASTERIZATION.H
 ============================================================================================================================================*/
 // 🧩 Native Vulkan 1.2+ swapchain & offscreen presenter executing ImGuiOverlayRasterization.slang over GLFW OS windows or headless targets
 
@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/GeometricRaster/Backend/VulkanDeviceContext.h"
+#include "Engine/GeometricRaster/VulkanInterchange.h"
 #include "Engine/Windowing/PlatformWindow.h"
 
 #include <imgui.h>
@@ -27,7 +27,7 @@ namespace Frontier::GeometricRaster
 //                                                       STRUCTURES
 //------------------------------------------------------------------------------------------------------------------------
 
-struct SwapchainPresenterStats
+struct OverlayRasterizationStats
 {
     bool     LiveWindowSwapchain = false; // [-]     - True when presenting to OS VkSwapchainKHR; false when offscreen
     uint32_t WidthPx             = 0u;    // [px]    - Active presentation width
@@ -35,27 +35,27 @@ struct SwapchainPresenterStats
     uint64_t PresentedBatchCount = 0ull;  // [count] - Total frames rasterized through ImGuiOverlayRasterization.slang
 };
 
-class VulkanSwapchainPresenter
+class ImGuiOverlayRasterization
 {
 public:
-    VulkanSwapchainPresenter() = default;
-    ~VulkanSwapchainPresenter();
+    ImGuiOverlayRasterization() = default;
+    ~ImGuiOverlayRasterization();
 
-    VulkanSwapchainPresenter(const VulkanSwapchainPresenter&)            = delete;
-    VulkanSwapchainPresenter& operator=(const VulkanSwapchainPresenter&) = delete;
+    ImGuiOverlayRasterization(const ImGuiOverlayRasterization&)            = delete;
+    ImGuiOverlayRasterization& operator=(const ImGuiOverlayRasterization&) = delete;
 
-    [[nodiscard]] bool InitializePresenter(
-        VulkanDeviceContext*              TargetDevice,
+    [[nodiscard]] bool InitializeOverlay(
+        VulkanInterchange*              TargetDevice,
         const std::filesystem::path&      CompiledShaderDir,
         Windowing::DesktopPlatformWindow* OptionalDesktopWindow,
         uint32_t                          InitialWidthPx,
         uint32_t                          InitialHeightPx,
         std::string*                      OptionalDiagnostic = nullptr);
 
-    void TeardownPresenter() noexcept;
+    void TeardownOverlay() noexcept;
 
     [[nodiscard]] bool PresentImGuiBatches(
-        const ImDrawData* DrawData,
+        const ImDrawData* OverlayGeometry,
         uint32_t          TargetWidthPx,
         uint32_t          TargetHeightPx);
 
@@ -64,7 +64,7 @@ public:
         uint32_t&             OutWidthPx,
         uint32_t&             OutHeightPx);
 
-    [[nodiscard]] SwapchainPresenterStats InspectStats() const noexcept
+    [[nodiscard]] OverlayRasterizationStats InspectStats() const noexcept
     {
         return Stats;
     }
@@ -82,7 +82,7 @@ private:
     void               DestroyTargetAttachments() noexcept;
     [[nodiscard]] VkDescriptorSet EnsureTextureUploaded(const ImTextureData* SourceTex, bool FontAtlasTexture);
 
-    VulkanDeviceContext*                                      BoundDevice           = nullptr;
+    VulkanInterchange*                                      BoundDevice           = nullptr;
     Windowing::DesktopPlatformWindow*                         DesktopWindow         = nullptr;
     std::filesystem::path                                     ShaderDirectory       {};
     VkSurfaceKHR                                              WindowSurface         = VK_NULL_HANDLE;
@@ -107,7 +107,7 @@ private:
     DeviceImageResource                                       FallbackWhiteTex      {};
     VkDescriptorSet                                           FallbackDescriptor    = VK_NULL_HANDLE;
     std::unordered_map<const ImTextureData*, CachedImGuiTexture> TextureCache       {};
-    SwapchainPresenterStats                                   Stats                 {};
+    OverlayRasterizationStats                                   Stats                 {};
 };
 
 } // namespace Frontier::GeometricRaster

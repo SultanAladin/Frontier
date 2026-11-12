@@ -13,7 +13,7 @@
 #include "Engine/Components/Docking/WorkspaceDockContainer.h"
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
 #include "Engine/Configuration/EngineConfiguration.h"
-#include "Engine/GeometricRaster/Backend/VulkanDeviceContext.h"
+#include "Engine/GeometricRaster/VulkanInterchange.h"
 #include "Engine/GeometricRaster/UV/UVWorkspaceRasterizer.h"
 #include "Engine/Workspaces/UV/UVWorkspaceHost.h"
 #include "Exhibits/SoftwareCanvasRasterizer.h"
@@ -48,7 +48,7 @@ namespace
     Frontier::ControlCentrePanel&                         ControlCentre,
     const std::filesystem::path&                          TargetPngPath)
 {
-    for (int FrameIdx = 0; FrameIdx < 3; ++FrameIdx)
+    for (int StepIdx = 0; StepIdx < 3; ++StepIdx)
     {
         Io.DisplaySize = ImVec2(1840.0f, 980.0f);
         Io.DeltaTime   = 1.0f / 60.0f;
@@ -81,15 +81,15 @@ int main()
     const std::filesystem::path ImageDir  = RepoRoot / "Exhibits/Images/UV";
     std::filesystem::create_directories(ImageDir);
 
-    VulkanDeviceContext VkCtx {};
+    VulkanInterchange VkInterchange {};
     std::string         VkDiag;
-    if (!VerifyCondition(VkCtx.InitializeContext(RepoRoot, &VkDiag), VkDiag.c_str()))
+    if (!VerifyCondition(VkInterchange.InitializeInterchange(RepoRoot, &VkDiag), VkDiag.c_str()))
     {
         return 1;
     }
 
     UVWorkspaceRasterizer Rasterizer {};
-    if (!VerifyCondition(Rasterizer.InitializeRasterizer(&VkCtx, ShaderDir), "Initialized UVWorkspaceRasterizer"))
+    if (!VerifyCondition(Rasterizer.InitializeRasterizer(&VkInterchange, ShaderDir), "Initialized UVWorkspaceRasterizer"))
     {
         return 1;
     }
@@ -147,15 +147,26 @@ int main()
         StandaloneHost.AccessSession().AssignSelectedLayerTint(SavedLayer1Tint);
 #endif
 
-        // Verify share ceiling clamp (Layer 1 + Layer 2 <= 100%)
+        // Verify default vehicle sample asset (25,068-triangle Controlled Integrator) & share ceiling clamp (Layer 1 + Layer 2 <= 100%)
+        if (!VerifyCondition(
+                StandaloneHost.InspectSession().ActivePreset == GeometrySpace::SampleAssetPreset::ControlledIntegrator &&
+                    StandaloneHost.InspectSession().Asset.Network.Faces.size() == 25068u,
+                "Default UVWorkspaceSession sample asset is the 25,068-triangle Controlled Integrator vehicle"))
+        {
+            return 1;
+        }
+
         StandaloneHost.AccessSession().SelectPriorityLayer(1u);
-        StandaloneHost.AccessSession().AdjustSelectedLayerShare(95.0f); // Layer 2 has 25%, so Layer 1 must clamp to 75%
+        StandaloneHost.AccessSession().AdjustSelectedLayerShare(95.0f); // Layer 2 ("Optics & Glass") has 15%, so Layer 1 clamps to 85%
         const auto* Layer1 = StandaloneHost.InspectSession().Asset.Layers.InspectLayer(1u);
-        if (!VerifyCondition(Layer1 != nullptr && std::abs(Layer1->TargetSharePercent - 75.0f) < 1.0e-3f, "Layer share slider clamps cleanly at 100% ceiling"))
+        if (!VerifyCondition(Layer1 != nullptr && std::abs(Layer1->TargetSharePercent - 85.0f) < 1.0e-3f, "Layer share slider clamps cleanly at 100% ceiling"))
         {
             return 1;
         }
         StandaloneHost.AccessSession().AdjustSelectedLayerShare(55.0f);
+        StandaloneHost.AccessSession().SelectionMask.ClearAll();
+        StandaloneHost.AccessSession().SynchronizeSelectionToGPU();
+        StandaloneHost.AccessSession().FramebuffersDirty = true;
 
         Components::HeadlessWorkspaceDockContainer StandaloneDock {};
         const auto WinDesc = Windowing::WindowConfigurationDescriptor::ConstructApplicationWindow("Frontier UV", 1840, 980);
@@ -201,8 +212,12 @@ int main()
         }
 
         SuiteHost.AccessSession().LoadSamplePreset(GeometrySpace::SampleAssetPreset::UDIMArchKit);
+        if (!VerifyCondition(SuiteHost.InspectSession().Asset.UDIMTiles.size() == 4u, "UDIMArchKit exposes 4 UDIM tiles"))
+        {
+            return 1;
+        }
+        SuiteHost.AccessSession().LoadSamplePreset(GeometrySpace::SampleAssetPreset::ControlledIntegrator);
         SuiteHost.AccessSession().ActiveInspectorTab = UVInspectorTab::Shading;
-        SuiteHost.AccessSession().ApplyMatCapToActiveSelection(3u);
 
         Components::HeadlessWorkspaceDockContainer SuiteDock {};
         const auto WinDesc = Windowing::WindowConfigurationDescriptor::ConstructApplicationWindow("Frontier", 1840, 980);
@@ -221,12 +236,12 @@ int main()
         }
 
         ThemeRepository Theme {};
-        Theme.ConfigureTheme(ThemePreset::Dark);
+        Theme.ConfigureTheme(ThemePreset::Nord);
         Components::ConfigureImGuiWorkspaceTheme(SuiteDock.ActiveTabMetrics(), Theme);
 
         ControlCentrePanel ControlCentre {};
         ControlCentre.AttachTypefaces(&Typefaces);
-        ControlCentre.AccessDraftAppearance().Theme = ThemePreset::Dark;
+        ControlCentre.AccessDraftAppearance().Theme = ThemePreset::Nord;
         ControlCentre.ApplyDraftAppearanceImmediate();
         ControlCentre.AccessNotificationStream().ClearPending();
 
@@ -240,7 +255,7 @@ int main()
     TypographyRepository::AssignCurrent(nullptr);
     ImGui::DestroyContext(GuiCtx);
     Rasterizer.TeardownRasterizer();
-    VkCtx.TeardownContext();
+    VkInterchange.TeardownInterchange();
 
     std::printf("[UVWorkspaceUIValidation] Phase 3 passed: StandaloneWorkspace (FrontierUV) & FeatureSet docked UI snapshots verified.\n");
     return 0;

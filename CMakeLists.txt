@@ -108,7 +108,7 @@ if(NOT FRONTIER_PROFILE STREQUAL "Shipping" OR BUILD_TESTING)
 endif()
 
 #------------------------------------------------------------------------------------------------------------------------
-#                                         DESKTOP GLFW 3.4 BACKEND (NON-ANDROID)
+#                                         DESKTOP GLFW 3.4 WINDOWING (NON-ANDROID)
 #------------------------------------------------------------------------------------------------------------------------
 
 if(NOT ANDROID)
@@ -177,13 +177,13 @@ set(FRONTIER_UI_COMPONENT_SOURCES
     Engine/Workspaces/UV/UVViewportInteractor.cpp
     Engine/Workspaces/UV/UVViewportHost.cpp
     Engine/Workspaces/UV/UVWorkspaceHost.cpp
-    Engine/GeometricRaster/Backend/VulkanSwapchainPresenter.cpp
+    Engine/GeometricRaster/Rasterization/ImGuiOverlayRasterization.cpp
     Engine/Configuration/InputSettings.cpp
     Engine/Configuration/ProjectSpaceRepository.cpp
     Engine/Lifecycle/WorkspaceLifecycle.cpp
 )
 if(NOT ANDROID)
-    list(APPEND FRONTIER_UI_COMPONENT_SOURCES Engine/Host/DesktopWorkspaceRunner.cpp)
+    list(APPEND FRONTIER_UI_COMPONENT_SOURCES Engine/Lifecycle/DesktopWorkspaceLaunch.cpp)
 endif()
 
 #------------------------------------------------------------------------------------------------------------------------
@@ -204,7 +204,7 @@ file(MAKE_DIRECTORY "${FRONTIER_COMPILED_SHADER_DIR}")
 set(FRONTIER_SHADER_SRC_DIR "${CMAKE_SOURCE_DIR}/Engine/GeometricRaster/Shaders")
 set(FRONTIER_SPV_OUTPUTS "")
 
-function(frontier_compile_slang_stage SLANG_FILE ENTRY_NAME STAGE_NAME OUT_SPV_NAME)
+function(frontier_compile_slang_shader SLANG_FILE ENTRY_NAME SHADER_UNIT OUT_SPV_NAME)
     set(OUT_SPV "${FRONTIER_COMPILED_SHADER_DIR}/${OUT_SPV_NAME}")
     add_custom_command(
         OUTPUT "${OUT_SPV}"
@@ -218,30 +218,30 @@ function(frontier_compile_slang_stage SLANG_FILE ENTRY_NAME STAGE_NAME OUT_SPV_N
             -matrix-layout-row-major
             -O0
             -entry "${ENTRY_NAME}"
-            -stage "${STAGE_NAME}"
+            -stage "${SHADER_UNIT}"
             -o "${OUT_SPV}"
         DEPENDS
             "${FRONTIER_SHADER_SRC_DIR}/${SLANG_FILE}"
             "${FRONTIER_SHADER_SRC_DIR}/MatCapEvaluation.slang"
-        COMMENT "[Slang] Compiling ${SLANG_FILE} (${STAGE_NAME}) -> ${OUT_SPV_NAME}"
+        COMMENT "[Slang] Compiling ${SLANG_FILE} (${SHADER_UNIT}) -> ${OUT_SPV_NAME}"
         VERBATIM
     )
     set(FRONTIER_SPV_OUTPUTS ${FRONTIER_SPV_OUTPUTS} "${OUT_SPV}" PARENT_SCOPE)
 endfunction()
 
-frontier_compile_slang_stage(SurfaceShading.slang           VertexEntry   vertex   SurfaceShading.vert.spv)
-frontier_compile_slang_stage(SurfaceShading.slang           FragmentEntry fragment SurfaceShading.frag.spv)
-frontier_compile_slang_stage(UVTileRasterization.slang      VertexEntry   vertex   UVTileRasterization.vert.spv)
-frontier_compile_slang_stage(UVTileRasterization.slang      FragmentEntry fragment UVTileRasterization.frag.spv)
-frontier_compile_slang_stage(GizmoRasterization.slang        VertexEntry   vertex   GizmoRasterization.vert.spv)
-frontier_compile_slang_stage(GizmoRasterization.slang        FragmentEntry fragment GizmoRasterization.frag.spv)
-frontier_compile_slang_stage(ImGuiOverlayRasterization.slang VertexEntry   vertex   ImGuiOverlayRasterization.vert.spv)
-frontier_compile_slang_stage(ImGuiOverlayRasterization.slang FragmentEntry fragment ImGuiOverlayRasterization.frag.spv)
-frontier_compile_slang_stage(SelectionMaskCompute.slang     ComputeEntry  compute  SelectionMaskCompute.comp.spv)
-frontier_compile_slang_stage(ViewportPickReduction.slang    ComputeEntry  compute  ViewportPickReduction.comp.spv)
-frontier_compile_slang_stage(UVDistortionInspection.slang   ComputeEntry  compute  UVDistortionInspection.comp.spv)
-frontier_compile_slang_stage(StretchRelaxCompute.slang      ComputeEntry  compute  StretchRelaxCompute.comp.spv)
-frontier_compile_slang_stage(ConcaveHorizonCompute.slang    ComputeEntry  compute  ConcaveHorizonCompute.comp.spv)
+frontier_compile_slang_shader(SurfaceShading.slang           VertexEntry   vertex   SurfaceShading.vert.spv)
+frontier_compile_slang_shader(SurfaceShading.slang           FragmentEntry fragment SurfaceShading.frag.spv)
+frontier_compile_slang_shader(UVTileRasterization.slang      VertexEntry   vertex   UVTileRasterization.vert.spv)
+frontier_compile_slang_shader(UVTileRasterization.slang      FragmentEntry fragment UVTileRasterization.frag.spv)
+frontier_compile_slang_shader(GizmoRasterization.slang        VertexEntry   vertex   GizmoRasterization.vert.spv)
+frontier_compile_slang_shader(GizmoRasterization.slang        FragmentEntry fragment GizmoRasterization.frag.spv)
+frontier_compile_slang_shader(ImGuiOverlayRasterization.slang VertexEntry   vertex   ImGuiOverlayRasterization.vert.spv)
+frontier_compile_slang_shader(ImGuiOverlayRasterization.slang FragmentEntry fragment ImGuiOverlayRasterization.frag.spv)
+frontier_compile_slang_shader(SelectionMaskCompute.slang     ComputeEntry  compute  SelectionMaskCompute.comp.spv)
+frontier_compile_slang_shader(ViewportPickReduction.slang    ComputeEntry  compute  ViewportPickReduction.comp.spv)
+frontier_compile_slang_shader(UVDistortionInspection.slang   ComputeEntry  compute  UVDistortionInspection.comp.spv)
+frontier_compile_slang_shader(StretchRelaxCompute.slang      ComputeEntry  compute  StretchRelaxCompute.comp.spv)
+frontier_compile_slang_shader(ConcaveSkylineCompute.slang    ComputeEntry  compute  ConcaveSkylineCompute.comp.spv)
 
 add_custom_target(FrontierShaders DEPENDS ${FRONTIER_SPV_OUTPUTS})
 
@@ -257,7 +257,7 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/Interchange/GeometryInterchange.cpp
     Engine/Editor/Viewports/TransformGizmo.cpp
     Engine/Editor/Viewports/ViewportProjection.cpp
-    Engine/GeometricRaster/Backend/VulkanDeviceContext.cpp
+    Engine/GeometricRaster/VulkanInterchange.cpp
     Engine/GeometricRaster/Compute/TimelineTransferRegister.cpp
     Engine/GeometricRaster/Compute/ComputeDispatchEncoder.cpp
     Engine/GeometricRaster/Picking/ViewportPickQuery.cpp
@@ -296,7 +296,7 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/Workspaces/UV/Solvers/SeamCutGenerator.cpp
     Engine/Workspaces/UV/Solvers/ConformalUnwrapSolver.cpp
     Engine/Workspaces/UV/Solvers/ProgressiveStretchRelaxer.cpp
-    Engine/Workspaces/UV/Solvers/ConcaveHorizonPacker.cpp
+    Engine/Workspaces/UV/Solvers/ConcaveSkylinePacker.cpp
     Engine/Workspaces/UV/Solvers/TexelDensityEqualizer.cpp
     Engine/Workspaces/UV/Solvers/UVProjectionSolvers.cpp
     Engine/Workspaces/UV/Solvers/UVIslandLayoutOperations.cpp
@@ -341,11 +341,11 @@ endif()
 #------------------------------------------------------------------------------------------------------------------------
 
 if(NOT ANDROID AND NOT FRONTIER_PROFILE STREQUAL "Shipping")
-    add_executable(FrontierUV Engine/Host/FrontierUVMain.cpp)
+    add_executable(FrontierUV Engine/Lifecycle/FrontierUVLaunch.cpp)
     target_compile_definitions(FrontierUV PRIVATE "FRONTIER_REPO_ROOT_DIR=\"${CMAKE_SOURCE_DIR}\"")
     target_link_libraries(FrontierUV PRIVATE FrontierEngine FrontierImGui)
 
-    add_executable(FrontierEditor Engine/Host/FrontierEditorMain.cpp)
+    add_executable(FrontierEditor Engine/Lifecycle/FrontierEditorLaunch.cpp)
     target_compile_definitions(FrontierEditor PRIVATE "FRONTIER_REPO_ROOT_DIR=\"${CMAKE_SOURCE_DIR}\"")
     target_link_libraries(FrontierEditor PRIVATE FrontierEngine FrontierImGui)
 endif()

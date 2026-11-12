@@ -8,7 +8,7 @@ struct RelaxCornerRecord
     float2 CurrentUV;        // Current corner UV
     float2 NeighborAvgUV;    // Area-weighted 1-ring interior UV centroid
     float2 IsometricTargetUV;// Local 3D-edge-length isometric target UV
-    uint   PinnedOrSeamFlag; // 1 = Pinned or seam border (locked or tangential-only), 0 = Free interior corner
+    uint   PinnedOrSeamLock; // 1 = Pinned or seam border (locked or tangential-only), 0 = Free interior corner
     float  DampingWeight;    // Relaxation step weight [0..1]
 };
 
@@ -35,13 +35,13 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
     }
 
     RelaxCornerRecord Rec = InputCorners[Idx];
-    if ((Rec.PinnedOrSeamFlag & 1u) != 0u)
+    if ((Rec.PinnedOrSeamLock & 1u) != 0u)
     {
         OutputCornerUVs[Idx] = Rec.CurrentUV;
         return;
     }
 
-    if ((Rec.PinnedOrSeamFlag & 2u) != 0u && Params.PreserveSeams != 0u)
+    if ((Rec.PinnedOrSeamLock & 2u) != 0u && Params.PreserveSeams != 0u)
     {
         float2 GentleTarget  = lerp(Rec.CurrentUV, Rec.IsometricTargetUV, 0.25);
         OutputCornerUVs[Idx] = lerp(Rec.CurrentUV, GentleTarget, saturate(Params.StepScale * Rec.DampingWeight));

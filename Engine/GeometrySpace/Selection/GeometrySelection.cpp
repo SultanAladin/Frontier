@@ -240,8 +240,8 @@ std::vector<uint32_t> GeometrySelection::EvaluateShortestEdgePath(
     const uint32_t EndV1   = Network.Edges[Network.Edges[EndEdgeIndex].NextEdgeIndex].OriginVertexIndex;
 
     std::vector<float>    Dist(VCount, std::numeric_limits<float>::infinity());
-    std::vector<uint32_t> ParentVert(VCount, InvalidNetworkIndex);
-    std::vector<uint32_t> ParentEdge(VCount, InvalidNetworkIndex);
+    std::vector<uint32_t> PredecessorVert(VCount, InvalidNetworkIndex);
+    std::vector<uint32_t> PredecessorEdge(VCount, InvalidNetworkIndex);
 
     using QueueEntry = std::pair<float, uint32_t>;
     std::priority_queue<QueueEntry, std::vector<QueueEntry>, std::greater<QueueEntry>> FrontierQueue;
@@ -288,8 +288,8 @@ std::vector<uint32_t> GeometrySelection::EvaluateShortestEdgePath(
             if (CurDist + Weight < Dist[V])
             {
                 Dist[V]       = CurDist + Weight;
-                ParentVert[V] = U;
-                ParentEdge[V] = EIdx;
+                PredecessorVert[V] = U;
+                PredecessorEdge[V] = EIdx;
                 FrontierQueue.push({ Dist[V], V });
             }
         }
@@ -306,10 +306,10 @@ std::vector<uint32_t> GeometrySelection::EvaluateShortestEdgePath(
     Path.push_back(StartEdgeIndex);
     std::vector<uint32_t> Reversed {};
     uint32_t Walk = GoalV;
-    while (Walk != InvalidNetworkIndex && ParentEdge[Walk] != InvalidNetworkIndex)
+    while (Walk != InvalidNetworkIndex && PredecessorEdge[Walk] != InvalidNetworkIndex)
     {
-        Reversed.push_back(ParentEdge[Walk]);
-        Walk = ParentVert[Walk];
+        Reversed.push_back(PredecessorEdge[Walk]);
+        Walk = PredecessorVert[Walk];
     }
     std::reverse(Reversed.begin(), Reversed.end());
     for (const uint32_t EIdx : Reversed)

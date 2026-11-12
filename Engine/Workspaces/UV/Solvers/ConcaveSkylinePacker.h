@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                           CONCAVEHORIZONPACKER.H
 ============================================================================================================================================*/
-// 🧩 Priority-Layer-Weighted Concave Skyline Horizon Packer accelerated by ConcaveHorizonCompute.comp.spv & ExecutionChannels
+// 🧩 Priority-Layer-Weighted Concave Skyline Horizon Packer accelerated by ConcaveSkylineCompute.comp.spv & ExecutionChannels
 
 #pragma once
 
@@ -10,7 +10,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Configuration/WorkspaceConfiguration.h"
-#include "Engine/GeometricRaster/Backend/VulkanDeviceContext.h"
+#include "Engine/GeometricRaster/VulkanInterchange.h"
 #include "Engine/GeometricRaster/Compute/ComputeDispatchEncoder.h"
 #include "Engine/GeometrySpace/Network/FacePartitionRegister.h"
 #include "Engine/GeometrySpace/Network/PolygonNetwork.h"
@@ -33,20 +33,20 @@ struct ConcavePackReport
     std::vector<uint32_t> ActiveUDIMNumbers {}; // [code] - Sorted list of occupied UDIM codes (1001, 1002, ...)
 };
 
-class ConcaveHorizonPacker
+class ConcaveSkylinePacker
 {
 public:
-    ConcaveHorizonPacker() = default;
-    ~ConcaveHorizonPacker();
+    ConcaveSkylinePacker() = default;
+    ~ConcaveSkylinePacker();
 
-    ConcaveHorizonPacker(const ConcaveHorizonPacker&)            = delete;
-    ConcaveHorizonPacker& operator=(const ConcaveHorizonPacker&) = delete;
+    ConcaveSkylinePacker(const ConcaveSkylinePacker&)            = delete;
+    ConcaveSkylinePacker& operator=(const ConcaveSkylinePacker&) = delete;
 
-    [[nodiscard]] bool InitializeGPUKernel(
-        GeometricRaster::VulkanDeviceContext* Context,
+    [[nodiscard]] bool InitializeGPUCompute(
+        GeometricRaster::VulkanInterchange* DeviceInterchange,
         const std::filesystem::path&          CompiledShaderDir);
 
-    void TeardownGPUKernel() noexcept;
+    void TeardownGPUCompute() noexcept;
 
     // Packs all islands into UDIM 1001 (or across multiple UDIMs when AllowMultiUDIMOverflow == true),
     // weighting each layer's target share (e.g., 55%, 25%, Remainder 20%) and scoring concave horizons on GPU.
@@ -58,9 +58,9 @@ public:
         Threading::ExecutionChannels*                OptionalChannels       = nullptr);
 
 private:
-    GeometricRaster::VulkanDeviceContext*   VkContext            = nullptr;
+    GeometricRaster::VulkanInterchange*   DeviceInterchange            = nullptr;
     GeometricRaster::ComputeDispatchEncoder Encoder              {};
-    uint32_t                                HorizonProgramHandle = UINT32_MAX;
+    uint32_t                                SkylineProgramHandle = UINT32_MAX;
 };
 
 } // namespace Frontier::Workspaces

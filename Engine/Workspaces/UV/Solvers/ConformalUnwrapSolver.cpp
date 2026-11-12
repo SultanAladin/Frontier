@@ -48,7 +48,7 @@ SolvedIslandUVs SolveSingleIslandConformal(
     Mathematics::Axis3D Centroid3D { 0.0f, 0.0f, 0.0f };
     uint32_t            SampledPts = 0u;
 
-    std::unordered_map<uint32_t, uint32_t> LocalVertexMap;
+    std::unordered_map<uint32_t, uint32_t> LocalVertexLookup;
     std::vector<uint32_t>                  IslandVertices;
 
     for (const uint32_t FaceIdx : Island.FaceIndices)
@@ -65,7 +65,7 @@ SolvedIslandUVs SolveSingleIslandConformal(
         for (uint16_t Corner = 0u; Corner < Face.CornerCount; ++Corner)
         {
             const uint32_t VIdx = Network.Edges[EdgeCur].OriginVertexIndex;
-            if (LocalVertexMap.try_emplace(VIdx, static_cast<uint32_t>(IslandVertices.size())).second)
+            if (LocalVertexLookup.try_emplace(VIdx, static_cast<uint32_t>(IslandVertices.size())).second)
             {
                 IslandVertices.push_back(VIdx);
                 const auto& Pos = Network.Vertices[VIdx].Axes;
@@ -116,7 +116,7 @@ SolvedIslandUVs SolveSingleIslandConformal(
         const auto& Edge = Network.Edges[EdgeIdx];
         if (GeometrySpace::QueryEdgeAttributeEnabled(Edge.AttributeMask, GeometrySpace::EdgeAttributeMask::EnablePinLock))
         {
-            const uint32_t LocalIdx = LocalVertexMap[Edge.OriginVertexIndex];
+            const uint32_t LocalIdx = LocalVertexLookup[Edge.OriginVertexIndex];
             if (BoundaryPinned[LocalIdx] == 0u)
             {
                 BoundaryPinned[LocalIdx] = 1u;
@@ -131,7 +131,7 @@ SolvedIslandUVs SolveSingleIslandConformal(
         for (const uint32_t EdgeIdx : Island.CornerEdgeIndices)
         {
             const auto&    Edge     = Network.Edges[EdgeIdx];
-            const uint32_t LocalIdx = LocalVertexMap[Edge.OriginVertexIndex];
+            const uint32_t LocalIdx = LocalVertexLookup[Edge.OriginVertexIndex];
             LocalUV[LocalIdx]       = Edge.ParameterUV;
         }
     }
@@ -139,8 +139,8 @@ SolvedIslandUVs SolveSingleIslandConformal(
     {
         for (const uint32_t BVert : Island.OrderedBoundaryVertices)
         {
-            const auto It = LocalVertexMap.find(BVert);
-            if (It != LocalVertexMap.end())
+            const auto It = LocalVertexLookup.find(BVert);
+            if (It != LocalVertexLookup.end())
             {
                 BoundaryPinned[It->second] = 1u;
             }
@@ -152,7 +152,7 @@ SolvedIslandUVs SolveSingleIslandConformal(
         uint32_t NeighborLocalIdx = 0u;
         float    CotWeight        = 1.0f;
     };
-    std::vector<std::vector<WeightedNeighbor>> Adjacency(VCount);
+    std::vector<std::vector<WeightedNeighbor>> EdgeLinkage(VCount);
 
     for (const uint32_t FaceIdx : Island.FaceIndices)
     {
@@ -162,7 +162,7 @@ SolvedIslandUVs SolveSingleIslandConformal(
         uint32_t EdgeCur = Face.BoundaryLoopEdgeIndex;
         for (uint16_t Corner = 0u; Corner < Face.CornerCount; ++Corner)
         {
-            LoopLocal.push_back(LocalVertexMap[Network.Edges[EdgeCur].OriginVertexIndex]);
+            LoopLocal.push_back(LocalVertexLookup[Network.Edges[EdgeCur].OriginVertexIndex]);
             EdgeCur = Network.Edges[EdgeCur].NextEdgeIndex;
         }
 
@@ -189,12 +189,12 @@ SolvedIslandUVs SolveSingleIslandConformal(
             const float Cot1 = ComputeCot(P1, P2, P0);
             const float Cot2 = ComputeCot(P2, P0, P1);
 
-            Adjacency[I1].push_back({ I2, Cot0 });
-            Adjacency[I2].push_back({ I1, Cot0 });
-            Adjacency[I2].push_back({ I0, Cot1 });
-            Adjacency[I0].push_back({ I2, Cot1 });
-            Adjacency[I0].push_back({ I1, Cot2 });
-            Adjacency[I1].push_back({ I0, Cot2 });
+            EdgeLinkage[I1].push_back({ I2, Cot0 });
+            EdgeLinkage[I2].push_back({ I1, Cot0 });
+            EdgeLinkage[I2].push_back({ I0, Cot1 });
+            EdgeLinkage[I0].push_back({ I2, Cot1 });
+            EdgeLinkage[I0].push_back({ I1, Cot2 });
+            EdgeLinkage[I1].push_back({ I0, Cot2 });
         }
     }
 
@@ -203,14 +203,14 @@ SolvedIslandUVs SolveSingleIslandConformal(
     {
         for (std::size_t Idx = 0u; Idx < VCount; ++Idx)
         {
-            if (BoundaryPinned[Idx] != 0u || Adjacency[Idx].empty())
+            if (BoundaryPinned[Idx] != 0u || EdgeLinkage[Idx].empty())
             {
                 continue;
             }
             float SumW = 0.0f;
             float SumU = 0.0f;
             float SumV = 0.0f;
-            for (const auto& EdgeW : Adjacency[Idx])
+            for (const auto& EdgeW : EdgeLinkage[Idx])
             {
                 SumW += EdgeW.CotWeight;
                 SumU += EdgeW.CotWeight * LocalUV[EdgeW.NeighborLocalIdx].U;
@@ -232,7 +232,7 @@ SolvedIslandUVs SolveSingleIslandConformal(
         uint32_t EdgeCur = Face.BoundaryLoopEdgeIndex;
         for (uint16_t Corner = 0u; Corner < Face.CornerCount; ++Corner)
         {
-            Poly.push_back(LocalUV[LocalVertexMap[Network.Edges[EdgeCur].OriginVertexIndex]]);
+            Poly.push_back(LocalUV[LocalVertexLookup[Network.Edges[EdgeCur].OriginVertexIndex]]);
             EdgeCur = Network.Edges[EdgeCur].NextEdgeIndex;
         }
         float SignedSum = 0.0f;
@@ -296,7 +296,7 @@ SolvedIslandUVs SolveSingleIslandConformal(
         for (std::size_t CornerIdx = 0u; CornerIdx < Island.CornerEdgeIndices.size(); ++CornerIdx)
         {
             const uint32_t EdgeIdx  = Island.CornerEdgeIndices[CornerIdx];
-            const uint32_t LocalIdx = LocalVertexMap[Network.Edges[EdgeIdx].OriginVertexIndex];
+            const uint32_t LocalIdx = LocalVertexLookup[Network.Edges[EdgeIdx].OriginVertexIndex];
             Result.CornerUVs[CornerIdx] = LocalUV[LocalIdx];
         }
         return Result;
@@ -314,7 +314,7 @@ SolvedIslandUVs SolveSingleIslandConformal(
     for (std::size_t CornerIdx = 0u; CornerIdx < Island.CornerEdgeIndices.size(); ++CornerIdx)
     {
         const uint32_t EdgeIdx  = Island.CornerEdgeIndices[CornerIdx];
-        const uint32_t LocalIdx = LocalVertexMap[Network.Edges[EdgeIdx].OriginVertexIndex];
+        const uint32_t LocalIdx = LocalVertexLookup[Network.Edges[EdgeIdx].OriginVertexIndex];
         Result.CornerUVs[CornerIdx] = Mathematics::UVAxes{
             CenterOrigU + (LocalUV[LocalIdx].U - CenterSolvU) * FitScale,
             CenterOrigV + (LocalUV[LocalIdx].V - CenterSolvV) * FitScale,

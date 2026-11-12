@@ -64,9 +64,9 @@ void AppendBoxPrimitive(
 
 void AppendCylinderFrustumPrimitive(
     PolygonNetwork&              TargetNetwork,
-    Mathematics::Axis3D          BaseCenter,
+    Mathematics::Axis3D          OriginCenter,
     Mathematics::Axis3D          TopCenter,
-    float                        BaseRadius,
+    float                        FootRadius,
     float                        TopRadius,
     uint32_t                     RadialSegments,
     UVPatchBounds                UVRegion,

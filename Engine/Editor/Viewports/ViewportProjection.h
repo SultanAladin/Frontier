@@ -75,7 +75,7 @@ public:
     void OrbitSpatialCamera(float DeltaYawRad, float DeltaPitchRad) noexcept;
     void PanSpatialCamera(float DeltaRightMeters, float DeltaUpMeters) noexcept;
     void DollySpatialCamera(float DistanceMultiplier) noexcept;
-    void FrameSpatialExtents(Mathematics::Axis3D MinBounds, Mathematics::Axis3D MaxBounds) noexcept;
+    void FitSpatialExtents(Mathematics::Axis3D MinBounds, Mathematics::Axis3D MaxBounds) noexcept;
 
     void PanPlanarWindow(Mathematics::UVAxes DeltaUV) noexcept;
     void ZoomPlanarWindow(float ZoomMultiplier) noexcept;
@@ -85,7 +85,7 @@ public:
         float               LocalPixelX,
         float               LocalPixelY,
         float               ZoomMultiplier) noexcept;
-    void FramePlanarExtents(Mathematics::UVAxes MinBounds, Mathematics::UVAxes MaxBounds) noexcept;
+    void FitPlanarExtents(Mathematics::UVAxes MinBounds, Mathematics::UVAxes MaxBounds) noexcept;
 
     [[nodiscard]] ViewportSplitMode       QuerySplitMode() const noexcept { return SplitMode; }
     [[nodiscard]] float                   QuerySplitRatio() const noexcept { return SplitRatio; }
@@ -113,7 +113,7 @@ public:
         Mathematics::UVAxes& OutMinUV,
         Mathematics::UVAxes& OutMaxUV) const noexcept;
 
-    [[nodiscard]] Mathematics::UVAxes MapPixelToPlanarUV(
+    [[nodiscard]] Mathematics::UVAxes ProjectPixelToPlanarUV(
         uint32_t CanvasWidthPx,
         uint32_t CanvasHeightPx,
         float    LocalPixelX,

@@ -12,8 +12,8 @@
 #include "Engine/Components/ControlCentre/ControlCentrePanel.h"
 #include "Engine/Components/Docking/WorkspaceDockContainer.h"
 #include "Engine/Configuration/EngineConfiguration.h"
-#include "Engine/GeometricRaster/Backend/VulkanDeviceContext.h"
-#include "Engine/GeometricRaster/Backend/VulkanSwapchainPresenter.h"
+#include "Engine/GeometricRaster/VulkanInterchange.h"
+#include "Engine/GeometricRaster/Rasterization/ImGuiOverlayRasterization.h"
 #include "Engine/GeometricRaster/UV/UVWorkspaceRasterizer.h"
 #include "Engine/GeometrySpace/Selection/GeometrySelection.h"
 #include "Engine/Interchange/GeometryInterchange.h"
@@ -81,21 +81,21 @@ int main()
     std::filesystem::create_directories(ImageDir);
     std::filesystem::create_directories(TempDir);
 
-    VulkanDeviceContext VkCtx {};
+    VulkanInterchange VkInterchange {};
     std::string         Diag {};
-    if (!VerifyCheck(VkCtx.InitializeContext(RepoRoot, &Diag), Diag.c_str()))
+    if (!VerifyCheck(VkInterchange.InitializeInterchange(RepoRoot, &Diag), Diag.c_str()))
     {
         return 1;
     }
 
     UVWorkspaceRasterizer Rasterizer {};
-    if (!VerifyCheck(Rasterizer.InitializeRasterizer(&VkCtx, ShaderDir), "InitializeRasterizer"))
+    if (!VerifyCheck(Rasterizer.InitializeRasterizer(&VkInterchange, ShaderDir), "InitializeRasterizer"))
     {
         return 1;
     }
 
     UVWorkspaceHost Host {};
-    (void)Host.AccessSession().InitializeGPUSolvers(&VkCtx, ShaderDir);
+    (void)Host.AccessSession().InitializeGPUSolvers(&VkInterchange, ShaderDir);
     if (!VerifyCheck(Host.AttachVulkanRasterizer(&Rasterizer), "AttachVulkanRasterizer"))
     {
         return 1;
@@ -282,7 +282,7 @@ int main()
     OrbitIn.MiddleDown       = true;
     OrbitIn.PointerDeltaX    = 42.0f;
     OrbitIn.PointerDeltaY    = -18.0f;
-    Interactor.ProcessViewportInput(ViewportInteractionFrame{ PlanarBounds, SpatialBounds, OrbitIn });
+    Interactor.ProcessViewportInput(ViewportInteractionReading{ PlanarBounds, SpatialBounds, OrbitIn });
     if (!VerifyCheck(
             std::abs(Session.InspectViewportProjection().InspectSpatialCamera().YawRadians - YawBefore) > 1.0e-4f,
             "3D Spatial Camera Orbit"))
@@ -296,7 +296,7 @@ int main()
     StartModalIn.PrimaryPointer.X = 320.0f;
     StartModalIn.PrimaryPointer.Y = 320.0f;
     StartModalIn.TypedUtf8        = "g";
-    Interactor.ProcessViewportInput(ViewportInteractionFrame{ PlanarBounds, SpatialBounds, StartModalIn });
+    Interactor.ProcessViewportInput(ViewportInteractionReading{ PlanarBounds, SpatialBounds, StartModalIn });
     if (!VerifyCheck(Interactor.QueryModalTransformMode() == ModalUVTransformMode::GrabTranslate, "Entered Modal Grab [G]"))
     {
         return 1;
@@ -307,7 +307,7 @@ int main()
     TypeConfirmIn.PrimaryPointer.Y = 300.0f;
     TypeConfirmIn.TypedUtf8        = "0.12";
     TypeConfirmIn.EnterPressed     = true;
-    Interactor.ProcessViewportInput(ViewportInteractionFrame{ PlanarBounds, SpatialBounds, TypeConfirmIn });
+    Interactor.ProcessViewportInput(ViewportInteractionReading{ PlanarBounds, SpatialBounds, TypeConfirmIn });
     if (!VerifyCheck(
             Interactor.QueryModalTransformMode() == ModalUVTransformMode::Inactive &&
                 Session.RevisionStampCounter == RevBeforeModal + 1ull,
@@ -321,7 +321,7 @@ int main()
     }
 
     //--------------------------------------------------------------------------------------------------------------------
-    // 5. Outliner Layer Authoring + Full Docked UI + VulkanSwapchainPresenter (ImGuiComposite.slang) Proof
+    // 5. Outliner Layer Authoring + Full Docked UI + ImGuiOverlayRasterization (ImGuiComposite.slang) Proof
     //--------------------------------------------------------------------------------------------------------------------
     Session.RenameSelectedLayer("Primary Aero Body");
     const uint16_t DupOrd = Session.DuplicateSelectedLayer();
@@ -367,16 +367,16 @@ int main()
 
     Host.RegisterDockPanes(Dock);
 
-    VulkanSwapchainPresenter SwapchainPresenter {};
+    ImGuiOverlayRasterization SwapchainPresenter {};
     if (!VerifyCheck(
-            SwapchainPresenter.InitializePresenter(&VkCtx, ShaderDir, nullptr, 1840u, 980u, &Diag),
-            "Initialize VulkanSwapchainPresenter"))
+            SwapchainPresenter.InitializeOverlay(&VkInterchange, ShaderDir, nullptr, 1840u, 980u, &Diag),
+            "Initialize ImGuiOverlayRasterization"))
     {
         ImGui::DestroyContext(GuiCtx);
         return 1;
     }
 
-    for (int Frame = 0; Frame < 3; ++Frame)
+    for (int StepReading = 0; StepReading < 3; ++StepReading)
     {
         Io.DisplaySize = ImVec2(1840.0f, 980.0f);
         Io.DeltaTime   = 1.0f / 60.0f;
@@ -386,7 +386,7 @@ int main()
         ImGui::Render();
         if (!VerifyCheck(SwapchainPresenter.PresentImGuiBatches(ImGui::GetDrawData(), 1840u, 980u), "PresentImGuiBatches on GPU"))
         {
-            SwapchainPresenter.TeardownPresenter();
+            SwapchainPresenter.TeardownOverlay();
             ImGui::DestroyContext(GuiCtx);
             return 1;
         }
@@ -399,20 +399,20 @@ int main()
             SwapchainPresenter.ReadbackLastPresentedRgba(PresentedRgba, PresW, PresH) && PresW == 1840u && PresH == 980u,
             "ReadbackLastPresentedRgba 1840x980"))
     {
-        SwapchainPresenter.TeardownPresenter();
+        SwapchainPresenter.TeardownOverlay();
         ImGui::DestroyContext(GuiCtx);
         return 1;
     }
     if (!VerifyCheck(
-            WriteRawRgbaPng(ImageDir / "UVSwapchain_PresentedComposite.png", PresentedRgba, PresW, PresH),
-            "Write UVSwapchain_PresentedComposite.png"))
+            WriteRawRgbaPng(ImageDir / "UVSwapchain_PresentedViewport.png", PresentedRgba, PresW, PresH),
+            "Write UVSwapchain_PresentedViewport.png"))
     {
-        SwapchainPresenter.TeardownPresenter();
+        SwapchainPresenter.TeardownOverlay();
         ImGui::DestroyContext(GuiCtx);
         return 1;
     }
 
-    SwapchainPresenter.TeardownPresenter();
+    SwapchainPresenter.TeardownOverlay();
     Dock.Finalize();
     Session.TeardownGPUSolvers();
     Rasterizer.TeardownRasterizer();

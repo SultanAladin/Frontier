@@ -56,14 +56,14 @@ struct UVWorkspacePreferences
     UVViewportLayoutMode    InitialViewportLayout  = UVViewportLayoutMode::Spatial3DOnly;       // [-]    - Default viewport split
     UVBudgetEnforcementMode BudgetMode             = UVBudgetEnforcementMode::StrictRatio;      // [-]    - Strict vs pocket fill
     UVPackingScopeMode      PackingScope           = UVPackingScopeMode::ActiveUDIMTile;        // [-]    - UDIM target scope
-    uint32_t                DefaultTileResolutionPx = 2048u;                                    // [px]   - Default UDIM resolution
+    uint32_t                DefaultTileResolutionPx = 4096u;                                    // [px]   - Default UDIM resolution
     uint32_t                IslandMarginPixels     = 12u;                                       // [px]   - Bleed gutter padding
     uint32_t                RotationStepDegrees    = 90u;                                       // [°]    - Candidate pack orientations
     float                   TargetTexelDensity     = 850.0f;                                    // [px/m] - Physical texel density
     float                   SplitRatioNormalized   = 0.50f;                                     // [0-1]  - 2D/3D divider ratio
     float                   LeftOutlinerWidthPx    = 304.0f;                                    // [px]   - UV Space pane width
     float                   RightInspectorWidthPx  = 336.0f;                                    // [px]   - Inspector pane width
-    bool                    WireframeOverlayEnabled = true;                                     // [-]    - 3D/2D wireframe visibility
+    bool                    WireframeOverlayEnabled = false;                                    // [-]    - 3D wireframe visibility (default off)
     bool                    SeamOverlayEnabled     = false;                                     // [-]    - Optional seam debug (OFF by default)
     bool                    BoundaryOverlayEnabled = false;                                     // [-]    - Optional border debug (OFF by default)
     bool                    CheckerOverlayEnabled  = true;                                      // [-]    - 2D UV checker visibility

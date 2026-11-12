@@ -24,19 +24,19 @@ TimelineTransferRegister::~TimelineTransferRegister()
 }
 
 bool TimelineTransferRegister::InitializeRegister(
-    VulkanDeviceContext* BoundContext,
+    VulkanInterchange* BoundDevice,
     uint64_t             SlotCapacityBytes)
 {
     TeardownRegister();
-    if (BoundContext == nullptr || !BoundContext->Ready() || SlotCapacityBytes == 0ull)
+    if (BoundDevice == nullptr || !BoundDevice->Ready() || SlotCapacityBytes == 0ull)
     {
         return false;
     }
 
-    Context = BoundContext;
+    DeviceInterchange = BoundDevice;
     for (TransferSlot& Slot : Slots)
     {
-        Slot.Buffer = Context->AllocateBuffer(
+        Slot.Buffer = DeviceInterchange->AllocateBuffer(
             SlotCapacityBytes,
             VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -44,7 +44,7 @@ bool TimelineTransferRegister::InitializeRegister(
         Slot.WriteCursor = 0ull;
         Slot.LastSignal  = 0ull;
 
-        if (Slot.Buffer.BufferHandle == VK_NULL_HANDLE || Slot.Buffer.MappedPtr == nullptr)
+        if (Slot.Buffer.BufferHandle == VK_NULL_HANDLE || Slot.Buffer.HostAddress == nullptr)
         {
             TeardownRegister();
             return false;
@@ -57,25 +57,25 @@ bool TimelineTransferRegister::InitializeRegister(
 
 void TimelineTransferRegister::TeardownRegister() noexcept
 {
-    if (Context != nullptr)
+    if (DeviceInterchange != nullptr)
     {
         for (TransferSlot& Slot : Slots)
         {
-            Context->ReleaseBuffer(Slot.Buffer);
+            DeviceInterchange->ReleaseBuffer(Slot.Buffer);
             Slot.WriteCursor = 0ull;
             Slot.LastSignal  = 0ull;
         }
     }
-    Context = nullptr;
+    DeviceInterchange = nullptr;
 }
 
-void TimelineTransferRegister::AdvanceFrameSlot() noexcept
+void TimelineTransferRegister::AdvanceRingSlot() noexcept
 {
     ActiveSlot = (ActiveSlot + 1u) % RingSlotCount;
     TransferSlot& Next = Slots[ActiveSlot];
-    if (Context != nullptr && Next.LastSignal != 0ull)
+    if (DeviceInterchange != nullptr && Next.LastSignal != 0ull)
     {
-        (void)Context->AwaitTimelineValue(Next.LastSignal);
+        (void)DeviceInterchange->AwaitTimelineTick(Next.LastSignal);
     }
     Next.WriteCursor = 0ull;
 }
@@ -91,7 +91,7 @@ ReadbackTicket TimelineTransferRegister::EncodeBufferReadback(
     uint64_t        CopyByteCount)
 {
     ReadbackTicket Ticket {};
-    if (Context == nullptr || CopyByteCount == 0ull)
+    if (DeviceInterchange == nullptr || CopyByteCount == 0ull)
     {
         return Ticket;
     }
@@ -100,7 +100,7 @@ ReadbackTicket TimelineTransferRegister::EncodeBufferReadback(
     const uint64_t AlignedOffset = (Slot.WriteCursor + 63ull) & ~63ull;
     if (AlignedOffset + CopyByteCount > Slot.Buffer.ByteCapacity)
     {
-        AdvanceFrameSlot();
+        AdvanceRingSlot();
     }
 
     TransferSlot& TargetSlot    = Slots[ActiveSlot];
@@ -168,7 +168,7 @@ ReadbackTicket TimelineTransferRegister::EncodeImageRegionReadback(
 {
     ReadbackTicket Ticket {};
     const uint64_t TotalBytes = static_cast<uint64_t>(ExtentWidth) * static_cast<uint64_t>(ExtentHeight) * BytesPerPixel;
-    if (Context == nullptr || TotalBytes == 0ull)
+    if (DeviceInterchange == nullptr || TotalBytes == 0ull)
     {
         return Ticket;
     }
@@ -176,7 +176,7 @@ ReadbackTicket TimelineTransferRegister::EncodeImageRegionReadback(
     TransferSlot& Slot = Slots[ActiveSlot];
     if (((Slot.WriteCursor + 63ull) & ~63ull) + TotalBytes > Slot.Buffer.ByteCapacity)
     {
-        AdvanceFrameSlot();
+        AdvanceRingSlot();
     }
 
     TransferSlot&   TargetSlot = Slots[ActiveSlot];
@@ -266,27 +266,27 @@ void TimelineTransferRegister::BindTicketTimelineSignal(ReadbackTicket& Ticket, 
 
 bool TimelineTransferRegister::QueryTicketReady(const ReadbackTicket& Ticket) const noexcept
 {
-    return Context != nullptr && Ticket.Valid() && Context->QueryTimelineReached(Ticket.TimelineSignal);
+    return DeviceInterchange != nullptr && Ticket.Valid() && DeviceInterchange->QueryTimelineReached(Ticket.TimelineSignal);
 }
 
 bool TimelineTransferRegister::AwaitAndCopyBytes(const ReadbackTicket& Ticket, std::span<uint8_t> DestinationBytes) const noexcept
 {
-    if (Context == nullptr || !Ticket.Valid() || DestinationBytes.size() < Ticket.ByteLength || Ticket.SlotIndex >= RingSlotCount)
+    if (DeviceInterchange == nullptr || !Ticket.Valid() || DestinationBytes.size() < Ticket.ByteLength || Ticket.SlotIndex >= RingSlotCount)
     {
         return false;
     }
-    if (!Context->AwaitTimelineValue(Ticket.TimelineSignal))
+    if (!DeviceInterchange->AwaitTimelineTick(Ticket.TimelineSignal))
     {
         return false;
     }
 
     const TransferSlot& Slot = Slots[Ticket.SlotIndex];
-    if (Slot.Buffer.MappedPtr == nullptr || Ticket.ByteOffset + Ticket.ByteLength > Slot.Buffer.ByteCapacity)
+    if (Slot.Buffer.HostAddress == nullptr || Ticket.ByteOffset + Ticket.ByteLength > Slot.Buffer.ByteCapacity)
     {
         return false;
     }
 
-    const auto* SourceBytes = static_cast<const uint8_t*>(Slot.Buffer.MappedPtr) + Ticket.ByteOffset;
+    const auto* SourceBytes = static_cast<const uint8_t*>(Slot.Buffer.HostAddress) + Ticket.ByteOffset;
     std::memcpy(DestinationBytes.data(), SourceBytes, static_cast<std::size_t>(Ticket.ByteLength));
     return true;
 }

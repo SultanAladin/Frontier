@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                             UVOUTLINERPANEL.H
 ============================================================================================================================================*/
-// 🧩 Frontier-styled UV Space Outliner pane with Search, UDIM Filter, Inline Layer Rename (TextInputField), Dup/Delete & Selection Modes
+// 🧩 UV Space Outliner pane matching Experimental/UVEditor pixel-for-pixel with ControlCentre ThemeRepository styling & 0px layer boxes
 
 #pragma once
 
@@ -32,11 +32,21 @@ public:
     void PresentInImGuiPane(double Δt, float ScaleFactor = 1.0f);
 
 private:
-    UVWorkspaceSession* Session            = nullptr;
-    uint32_t            CreatedLayerCount  = 3u;
-    TextEditBuffer      SearchEditBuffer   {};
-    TextEditBuffer      RenameEditBuffer   {};
-    uint16_t            RenamingLayerOrd   = 0u;
+    void RefreshCachedAtlasTelemetry();
+
+    UVWorkspaceSession* Session                 = nullptr;
+    uint32_t            CreatedLayerCount       = 3u;
+    uint32_t            UDIMFilterCode          = 0u; // 0 = All UDIMs
+    float               ScrollOffsetY           = 0.0f;
+    TextEditBuffer      SearchEditBuffer        {};
+    TextEditBuffer      RenameEditBuffer        {};
+    uint16_t            RenamingLayerOrd        = 0u;
+
+    uint64_t            CachedNetworkRevision   = UINT64_MAX;
+    uint64_t            CachedUVRevision        = UINT64_MAX;
+    uint32_t            CachedIslandCount       = 0u;
+    float               CachedUtilizationPct    = 0.0f;
+    float               CachedStretchCautionPct = 0.0f;
 };
 
 } // namespace Frontier::Workspaces

@@ -56,15 +56,15 @@ public:
 
     void AttachSession(UVWorkspaceSession* TargetSession) noexcept;
 
-    void ProcessViewportInput(const ViewportInteractionFrame& Frame);
+    void ProcessViewportInput(const ViewportInteractionReading& Reading);
 
     [[nodiscard]] ModalUVTransformMode QueryModalTransformMode() const noexcept { return ModalMode; }
     [[nodiscard]] RegionSelectTool     QueryRegionSelectTool() const noexcept { return ActiveRegionTool; }
 
 private:
-    void HandleKeyboardShortcuts(const ViewportInteractionFrame& Frame, bool InsidePlanar, bool InsideSpatial);
-    void HandleModalTransformStep(const ViewportInteractionFrame& Frame, bool InsidePlanar);
-    void HandleGizmoOrSurfaceInteraction(const ViewportInteractionFrame& Frame, bool InsidePlanar, bool InsideSpatial);
+    void HandleKeyboardShortcuts(const ViewportInteractionReading& Reading, bool InsidePlanar, bool InsideSpatial);
+    void HandleModalTransformStep(const ViewportInteractionReading& Reading, bool InsidePlanar);
+    void HandleGizmoOrSurfaceInteraction(const ViewportInteractionReading& Reading, bool InsidePlanar, bool InsideSpatial);
     void ApplySurfaceHitSelection(const GeometricRaster::ViewportPickHit& Hit, const PaneInputReading& Input, bool PlanarMetric);
 
     UVWorkspaceSession*   Session              = nullptr;

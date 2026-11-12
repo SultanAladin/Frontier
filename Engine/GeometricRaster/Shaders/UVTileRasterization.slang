@@ -60,8 +60,8 @@ float3 EvaluateBackdropTexture(uint BackdropPreset, float2 LocalUV)
         if (Idx == 6u) Swatch = float3(0.84, 0.49, 0.18);
         if (Idx == 7u) Swatch = float3(0.78, 0.22, 0.24);
         float2 Inner = frac(LocalUV * float2(6.0, 4.0));
-        float  Frame = step(0.06, Inner.x) * step(Inner.x, 0.94) * step(0.08, Inner.y) * step(Inner.y, 0.92);
-        return lerp(float3(0.09, 0.09, 0.11), Swatch * 0.55, Frame);
+        float  CellInterior = step(0.06, Inner.x) * step(Inner.x, 0.94) * step(0.08, Inner.y) * step(Inner.y, 0.92);
+        return lerp(float3(0.09, 0.09, 0.11), Swatch * 0.55, CellInterior);
     }
     if (BackdropPreset == 2u) // TrimSheet Atlas
     {
@@ -99,28 +99,28 @@ UVVertexOutput VertexEntry(uint VertexID : SV_VertexID)
 UVFragmentOutput FragmentEntry(UVVertexOutput In)
 {
     UVFragmentOutput Out;
-    uint OverlayFlags   = CanvasUniforms.OverlayAndPick.y;
-    bool CheckerOn      = (OverlayFlags & 1u) != 0u;
-    bool SeamOverlayOn  = (OverlayFlags & 2u) != 0u;
-    bool PinOverlayOn   = (OverlayFlags & 4u) != 0u;
-    uint BackdropPreset = (OverlayFlags >> 8u) & 0xFFu;
+    uint OverlayMask   = CanvasUniforms.OverlayAndPick.y;
+    bool CheckerOn      = (OverlayMask & 1u) != 0u;
+    bool SeamOverlayOn  = (OverlayMask & 2u) != 0u;
+    bool PinOverlayOn   = (OverlayMask & 4u) != 0u;
+    uint BackdropPreset = (OverlayMask >> 8u) & 0xFFu;
 
     // Background UDIM Checker / Backdrop & Grid Pass (NetworkPickIDs.x == 0u)
     if (In.IDs.x == 0u)
     {
         float2 UV     = In.ParameterUV;
         bool   InTile = (UV.x >= 0.0 && UV.y >= 0.0);
-        float3 BgBase = InTile ? float3(0.072, 0.076, 0.088) : float3(0.050, 0.052, 0.060);
+        float3 BackdropTone = InTile ? float3(0.072, 0.076, 0.088) : float3(0.050, 0.052, 0.060);
 
         if (InTile && BackdropPreset != 0u)
         {
-            BgBase = EvaluateBackdropTexture(BackdropPreset, frac(UV));
+            BackdropTone = EvaluateBackdropTexture(BackdropPreset, frac(UV));
         }
         else if (InTile && CheckerOn)
         {
             int2  Cell   = int2(floor(UV * 16.0));
             float Parity = float((Cell.x + Cell.y) & 1);
-            BgBase       = lerp(float3(0.068, 0.072, 0.084), float3(0.098, 0.104, 0.120), Parity);
+            BackdropTone       = lerp(float3(0.068, 0.072, 0.084), float3(0.098, 0.104, 0.120), Parity);
         }
 
         float2 SubDeriv  = max(fwidth(UV * 4.0), float2(1.0e-4, 1.0e-4));
@@ -131,7 +131,7 @@ UVFragmentOutput FragmentEntry(UVVertexOutput In)
         float2 TileGrid  = abs(frac(UV - 0.5) - 0.5) / TileDeriv;
         float  TileLine  = 1.0 - smoothstep(0.0, 1.6, min(TileGrid.x, TileGrid.y));
 
-        float3 FinalBg = lerp(BgBase, float3(0.16, 0.18, 0.22), SubLine * 0.55);
+        float3 FinalBg = lerp(BackdropTone, float3(0.16, 0.18, 0.22), SubLine * 0.55);
         FinalBg        = lerp(FinalBg, float3(0.36, 0.56, 0.86), TileLine * 0.85);
         Out.ColorRGBA  = float4(FinalBg, 1.0);
         Out.PickIDs    = uint4(0u, 0xFFFFFFFFu, 0xFFFFFFFFu, 0u);
@@ -202,9 +202,9 @@ UVFragmentOutput FragmentEntry(UVVertexOutput In)
         if ((PinMask & 2u) != 0u) PinDist = min(PinDist, CornerPx.y);
         if ((PinMask & 4u) != 0u) PinDist = min(PinDist, CornerPx.z);
         float PinDisc = 1.0 - smoothstep(3.2, 4.8, PinDist);
-        float PinCore = 1.0 - smoothstep(1.4, 2.5, PinDist);
+        float PinCenter = 1.0 - smoothstep(1.4, 2.5, PinDist);
         FinalRGB = lerp(FinalRGB, float3(0.98, 0.24, 0.30), PinDisc);
-        FinalRGB = lerp(FinalRGB, float3(1.00, 0.92, 0.56), PinCore);
+        FinalRGB = lerp(FinalRGB, float3(1.00, 0.92, 0.56), PinCenter);
     }
 
     Out.ColorRGBA = float4(FinalRGB, 1.0);

@@ -1,7 +1,7 @@
 /*============================================================================================================================================
-                                                          VULKANDEVICECONTEXT.H
+                                                          VULKANINTERCHANGE.H
 ============================================================================================================================================*/
-// 🧩 Headless & desktop Vulkan 1.2+ device context using volk, Timeline Semaphores (zero fences), and SwiftShader fallback
+// 🧩 Headless & desktop Vulkan 1.2+ device interchange using volk, Timeline Semaphores (zero fences), and SwiftShader fallback
 
 #pragma once
 
@@ -32,7 +32,7 @@ struct DeviceBufferResource
     VkBuffer       BufferHandle = VK_NULL_HANDLE; // [-]   - Vulkan buffer object
     VkDeviceMemory MemoryHandle = VK_NULL_HANDLE; // [-]   - Bound device or host-cached memory
     uint64_t       ByteCapacity = 0ull;           // [B]   - Allocated byte size
-    void*          MappedPtr    = nullptr;        // [-]   - Persistently mapped pointer when host-visible
+    void*          HostAddress    = nullptr;        // [-]   - Persistently mapped pointer when host-visible
 };
 
 struct DeviceImageResource
@@ -45,20 +45,20 @@ struct DeviceImageResource
     uint32_t       HeightPx     = 0u;                     // [px]  - Image height
 };
 
-class VulkanDeviceContext
+class VulkanInterchange
 {
 public:
-    VulkanDeviceContext() = default;
-    ~VulkanDeviceContext();
+    VulkanInterchange() = default;
+    ~VulkanInterchange();
 
-    VulkanDeviceContext(const VulkanDeviceContext&)            = delete;
-    VulkanDeviceContext& operator=(const VulkanDeviceContext&) = delete;
+    VulkanInterchange(const VulkanInterchange&)            = delete;
+    VulkanInterchange& operator=(const VulkanInterchange&) = delete;
 
-    [[nodiscard]] bool InitializeContext(
+    [[nodiscard]] bool InitializeInterchange(
         const std::filesystem::path& RepositoryRootPath,
         std::string*                 OptionalDiagnostic = nullptr);
 
-    void TeardownContext() noexcept;
+    void TeardownInterchange() noexcept;
 
     [[nodiscard]] bool Ready() const noexcept
     {
@@ -69,8 +69,8 @@ public:
     [[nodiscard]] VkDevice         AccessDevice() const noexcept         { return LogicalDevice; }
     [[nodiscard]] VkPhysicalDevice AccessPhysicalDevice() const noexcept { return PhysicalAdapter; }
     [[nodiscard]] VkQueue          AccessQueue() const noexcept          { return PrimaryQueue; }
-    [[nodiscard]] uint32_t         QueryQueueFamilyOrdinal() const noexcept { return QueueFamilyOrdinal; }
-    [[nodiscard]] VkCommandPool    AccessCommandPool() const noexcept    { return PrimaryCommandPool; }
+    [[nodiscard]] uint32_t         QueryQueueOrdinal() const noexcept { return QueueOrdinal; }
+    [[nodiscard]] VkCommandPool    AccessCommandAllocator() const noexcept    { return PrimaryCommandAllocator; }
     [[nodiscard]] VkSemaphore      AccessTimelineSemaphore() const noexcept { return TimelineSyncHandle; }
     [[nodiscard]] std::string_view QueryAdapterName() const noexcept     { return AdapterName; }
     [[nodiscard]] bool             QueryHardwareAccelerated() const noexcept { return HardwareAccelerated; }
@@ -92,12 +92,12 @@ public:
 
     void ReleaseImage2D(DeviceImageResource& Resource) const noexcept;
 
-    [[nodiscard]] VkShaderModule LoadShaderModule(const std::filesystem::path& SpirvFilePath) const;
+    [[nodiscard]] VkShaderModule LoadShaderBinary(const std::filesystem::path& SpirvFilePath) const;
 
     [[nodiscard]] VkCommandBuffer BeginSingleTimeCommands() const;
     [[nodiscard]] uint64_t        DispatchCommandBufferAsync(VkCommandBuffer CmdBuffer);
-    [[nodiscard]] bool            QueryTimelineReached(uint64_t TargetTimelineValue) const noexcept;
-    [[nodiscard]] bool            AwaitTimelineValue(uint64_t TargetTimelineValue, uint64_t TimeoutNanoseconds = 5000000000ull) const noexcept;
+    [[nodiscard]] bool            QueryTimelineReached(uint64_t TargetTimelineTick) const noexcept;
+    [[nodiscard]] bool            AwaitTimelineTick(uint64_t TargetTimelineTick, uint64_t TimeoutNanoseconds = 5000000000ull) const noexcept;
 
 private:
     [[nodiscard]] uint32_t SelectMemoryTypeIndex(uint32_t TypeFilterBits, VkMemoryPropertyFlags Properties) const noexcept;
@@ -107,10 +107,10 @@ private:
     VkPhysicalDevice PhysicalAdapter      = VK_NULL_HANDLE; // [-]     - Selected GPU or SwiftShader CPU ICD
     VkDevice         LogicalDevice        = VK_NULL_HANDLE; // [-]     - Logical device with Timeline Semaphores
     VkQueue          PrimaryQueue         = VK_NULL_HANDLE; // [-]     - Unified graphics + compute + transfer queue
-    VkCommandPool    PrimaryCommandPool   = VK_NULL_HANDLE; // [-]     - Resettable command buffer pool
+    VkCommandPool    PrimaryCommandAllocator   = VK_NULL_HANDLE; // [-]     - Resettable command buffer pool
     VkSemaphore      TimelineSyncHandle   = VK_NULL_HANDLE; // [-]     - Monotonic Vulkan Timeline Semaphore
-    uint64_t         NextTimelineValue    = 1ull;           // [count] - Next timeline signal counter
-    uint32_t         QueueFamilyOrdinal   = 0u;             // [idx]   - Selected queue family index
+    uint64_t         NextTimelineTick    = 1ull;           // [count] - Next timeline signal counter
+    uint32_t         QueueOrdinal   = 0u;             // [idx]   - Selected queue family index
     bool             UseKhrTimelineEntry  = false;          // [-]     - True when KHR extension entry points are active
     bool             HardwareAccelerated  = false;          // [-]     - True when discrete/integrated GPU is active
     std::string      AdapterName          { "Uninitialized" }; // [-]  - Physical device name

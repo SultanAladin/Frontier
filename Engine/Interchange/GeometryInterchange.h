@@ -63,7 +63,7 @@ public:
 
     [[nodiscard]] static bool ImportGltf2JsonText(
         std::string_view                       GltfJsonText,
-        const std::filesystem::path&           BaseDirectory,
+        const std::filesystem::path&           RootDirectory,
         std::string_view                       DefaultTitle,
         GeometrySpace::ConstructedSampleAsset& OutAsset,
         std::string&                           OutDiagnostic);

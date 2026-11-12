@@ -1,20 +1,20 @@
 /*============================================================================================================================================
-                                                        DESKTOPWORKSPACERUNNER.CPP
+                                                        DESKTOPWORKSPACELAUNCH.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of DesktopWorkspaceRunner orchestrating GLFW 3.4, VulkanSwapchainPresenter, UVWorkspaceRasterizer & EditorLifecycle
+// 🧩 Implementation of DesktopWorkspaceLaunch orchestrating GLFW 3.4, ImGuiOverlayRasterization, UVWorkspaceRasterizer & EditorLifecycle
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/Host/DesktopWorkspaceRunner.h"
+#include "Engine/Lifecycle/DesktopWorkspaceLaunch.h"
 
 #include "Engine/Components/Appearance/ThemeRepository.h"
 #include "Engine/Components/Appearance/TypographyRepository.h"
 #include "Engine/Components/ControlCentre/ControlCentrePanel.h"
 #include "Engine/Components/Docking/WorkspaceDockContainer.h"
-#include "Engine/GeometricRaster/Backend/VulkanDeviceContext.h"
-#include "Engine/GeometricRaster/Backend/VulkanSwapchainPresenter.h"
+#include "Engine/GeometricRaster/VulkanInterchange.h"
+#include "Engine/GeometricRaster/Rasterization/ImGuiOverlayRasterization.h"
 #include "Engine/GeometricRaster/UV/UVWorkspaceRasterizer.h"
 #include "Engine/Input/InputExtension.h"
 #include "Engine/Windowing/PlatformWindow.h"
@@ -43,7 +43,7 @@
 #include <string>
 #include <vector>
 
-namespace Frontier::Host
+namespace Frontier::Lifecycle
 {
 
 namespace
@@ -59,19 +59,19 @@ struct GlfwSupplementalQueue
 
 GlfwSupplementalQueue* ActiveSupplementalQueue = nullptr;
 
-void AppendBigEndian32(std::vector<uint8_t>& Buffer, uint32_t Value)
+void AppendBigEndian32(std::vector<uint8_t>& Buffer, uint32_t Word)
 {
-    Buffer.push_back(static_cast<uint8_t>((Value >> 24u) & 0xFFu));
-    Buffer.push_back(static_cast<uint8_t>((Value >> 16u) & 0xFFu));
-    Buffer.push_back(static_cast<uint8_t>((Value >> 8u) & 0xFFu));
-    Buffer.push_back(static_cast<uint8_t>(Value & 0xFFu));
+    Buffer.push_back(static_cast<uint8_t>((Word >> 24u) & 0xFFu));
+    Buffer.push_back(static_cast<uint8_t>((Word >> 16u) & 0xFFu));
+    Buffer.push_back(static_cast<uint8_t>((Word >> 8u) & 0xFFu));
+    Buffer.push_back(static_cast<uint8_t>(Word & 0xFFu));
 }
 
-[[nodiscard]] uint32_t ComputeAdler32(const std::vector<uint8_t>& Data) noexcept
+[[nodiscard]] uint32_t ComputeAdler32(const std::vector<uint8_t>& Bytes) noexcept
 {
     uint32_t S1 = 1u;
     uint32_t S2 = 0u;
-    for (const uint8_t Byte : Data)
+    for (const uint8_t Byte : Bytes)
     {
         S1 = (S1 + Byte) % 65521u;
         S2 = (S2 + S1) % 65521u;
@@ -203,14 +203,14 @@ void SynchronizeGlfwToImGui(GLFWwindow* Win, ImGuiIO& Io, GlfwSupplementalQueue&
 
 } // namespace
 
-int RunDesktopUVApplication(
-    DesktopLaunchOptions          BaseOptions,
+int LaunchDesktopWorkspace(
+    DesktopLaunchOptions          InitialOptions,
     std::span<const char* const>  CommandLineArgs,
     const std::filesystem::path&  RepositoryRootPath,
     const std::filesystem::path&  CompiledShaderDir)
 {
     Configuration::EngineConfiguration EngineConfig(
-        BaseOptions.DefaultLaunchMode == Configuration::HostLaunchMode::StandaloneWorkspace
+        InitialOptions.DefaultLaunchMode == Configuration::HostLaunchMode::StandaloneWorkspace
             ? Configuration::EngineConfiguration::ConstructStandaloneUVDefault()
             : Configuration::EngineConfiguration::ConstructFeatureSetDefault());
 
@@ -234,32 +234,32 @@ int RunDesktopUVApplication(
         const std::string_view Arg(RawArg);
         if (Arg.starts_with("--frames="))
         {
-            BaseOptions.BoundedFrameLimit = static_cast<uint32_t>(std::max(1, std::atoi(std::string(Arg.substr(9u)).c_str())));
+            InitialOptions.BoundedStepLimit = static_cast<uint32_t>(std::max(1, std::atoi(std::string(Arg.substr(9u)).c_str())));
         }
         else if (Arg.starts_with("--import="))
         {
-            BaseOptions.StartupImportPath = std::filesystem::path(Arg.substr(9u));
+            InitialOptions.StartupImportPath = std::filesystem::path(Arg.substr(9u));
         }
         else if (Arg.starts_with("--capture-png="))
         {
-            BaseOptions.CapturePngOutputPath = std::filesystem::path(Arg.substr(14u));
+            InitialOptions.CapturePngOutputPath = std::filesystem::path(Arg.substr(14u));
         }
         else if (Arg == "--open-browser")
         {
-            BaseOptions.OpenContentBrowser = true;
+            InitialOptions.OpenContentBrowser = true;
         }
     }
 
-    GeometricRaster::VulkanDeviceContext VkContext {};
+    GeometricRaster::VulkanInterchange DeviceInterchange {};
     std::string                          VkDiag {};
-    if (!VkContext.InitializeContext(RepositoryRootPath, &VkDiag))
+    if (!DeviceInterchange.InitializeInterchange(RepositoryRootPath, &VkDiag))
     {
         std::fprintf(stderr, "[FrontierHost] Vulkan initialization failed: %s\n", VkDiag.c_str());
         return 1;
     }
 
     GeometricRaster::UVWorkspaceRasterizer UVRasterizer {};
-    if (!UVRasterizer.InitializeRasterizer(&VkContext, CompiledShaderDir))
+    if (!UVRasterizer.InitializeRasterizer(&DeviceInterchange, CompiledShaderDir))
     {
         std::fprintf(stderr, "[FrontierHost] UVWorkspaceRasterizer initialization failed.\n");
         return 1;
@@ -268,9 +268,9 @@ int RunDesktopUVApplication(
 #if !defined(__ANDROID__)
     Windowing::DesktopPlatformWindow DesktopWindow {};
     const auto WinDesc = Windowing::WindowConfigurationDescriptor::ConstructApplicationWindow(
-        BaseOptions.WindowTitle,
-        BaseOptions.InitialWidthPx,
-        BaseOptions.InitialHeightPx);
+        InitialOptions.WindowTitle,
+        InitialOptions.InitialWidthPx,
+        InitialOptions.InitialHeightPx);
     if (!DesktopWindow.Initialize(WinDesc))
     {
         std::fprintf(stderr, "[FrontierHost] DesktopPlatformWindow initialization failed.\n");
@@ -317,9 +317,9 @@ int RunDesktopUVApplication(
 
     // In headless GLFW_PLATFORM_NULL environments without an interactive display server, bound frame loop unless specified
     if (DesktopWindow.PlatformCategory() == Windowing::WindowPlatformCategory::GlfwNull &&
-        BaseOptions.BoundedFrameLimit == 0u)
+        InitialOptions.BoundedStepLimit == 0u)
     {
-        BaseOptions.BoundedFrameLimit = 4u;
+        InitialOptions.BoundedStepLimit = 4u;
     }
 #endif
 
@@ -342,13 +342,13 @@ int RunDesktopUVApplication(
 
     Workspaces::UVWorkspaceHost UVHost {};
     UVHost.ConfigureLaunchPolicy(EngineConfig);
-    (void)UVHost.AccessSession().InitializeGPUSolvers(&VkContext, CompiledShaderDir);
+    (void)UVHost.AccessSession().InitializeGPUSolvers(&DeviceInterchange, CompiledShaderDir);
     (void)UVHost.AttachVulkanRasterizer(&UVRasterizer);
 
-    if (!BaseOptions.StartupImportPath.empty())
+    if (!InitialOptions.StartupImportPath.empty())
     {
         std::string ImportDiag {};
-        if (!UVHost.IntakeExternalFileDrop(BaseOptions.StartupImportPath, ImportDiag))
+        if (!UVHost.IntakeExternalFileDrop(InitialOptions.StartupImportPath, ImportDiag))
         {
             std::fprintf(stderr, "[FrontierHost] Startup import failed: %s\n", ImportDiag.c_str());
         }
@@ -370,7 +370,7 @@ int RunDesktopUVApplication(
     {
         Lifecycle::EditorStartupConfiguration EditorCfg {};
         EditorCfg.WindowDescriptor   = Windowing::WindowConfigurationDescriptor::ConstructApplicationWindow(
-            BaseOptions.WindowTitle, BaseOptions.InitialWidthPx, BaseOptions.InitialHeightPx);
+            InitialOptions.WindowTitle, InitialOptions.InitialWidthPx, InitialOptions.InitialHeightPx);
         EditorCfg.FontRepositoryRoot = RepositoryRootPath / "EngineContent/FontsArchives";
         EditorLoop.AttachUVWorkspaceHost(&UVHost);
         if (!EditorLoop.Initialize(EditorCfg))
@@ -379,7 +379,7 @@ int RunDesktopUVApplication(
             ImGui::DestroyContext(GuiCtx);
             return 1;
         }
-        if (BaseOptions.OpenContentBrowser)
+        if (InitialOptions.OpenContentBrowser)
         {
             EditorLoop.AccessContentBrowser().AccessPanel().ConfigureShelfExtent(ContentShelfExtent::SplitHalf, true);
         }
@@ -390,7 +390,7 @@ int RunDesktopUVApplication(
         ThemeRepository ThemeRepo {};
         (void)StandaloneDock.Initialize(
             Windowing::WindowConfigurationDescriptor::ConstructApplicationWindow(
-                BaseOptions.WindowTitle, BaseOptions.InitialWidthPx, BaseOptions.InitialHeightPx));
+                InitialOptions.WindowTitle, InitialOptions.InitialWidthPx, InitialOptions.InitialHeightPx));
         Components::ConfigureImGuiWorkspaceStyle(StandaloneDock.ActiveTabMetrics());
         Components::ConfigureImGuiWorkspaceTheme(StandaloneDock.ActiveTabMetrics(), ThemeRepo);
         StandaloneControlCentre.AttachTypefaces(&Typography);
@@ -399,7 +399,7 @@ int RunDesktopUVApplication(
         StandaloneControlCentre.AccessNotificationStream().ClearPending();
 #if FRONTIER_EDITOR_ENABLED
         UVHost.AttachContentBrowser(&StandaloneBrowser);
-        if (BaseOptions.OpenContentBrowser)
+        if (InitialOptions.OpenContentBrowser)
         {
             StandaloneBrowser.AccessPanel().ConfigureShelfExtent(ContentShelfExtent::SplitHalf, true);
         }
@@ -412,26 +412,26 @@ int RunDesktopUVApplication(
     int            FontH      = 0;
     Io.Fonts->GetTexDataAsRGBA32(&FontPixels, &FontW, &FontH);
 
-    GeometricRaster::VulkanSwapchainPresenter SwapchainPresenter {};
+    GeometricRaster::ImGuiOverlayRasterization SwapchainPresenter {};
 #if !defined(__ANDROID__)
     Windowing::DesktopPlatformWindow* PresenterWindow = &DesktopWindow;
 #else
     Windowing::DesktopPlatformWindow* PresenterWindow = nullptr;
 #endif
-    if (!SwapchainPresenter.InitializePresenter(
-            &VkContext,
+    if (!SwapchainPresenter.InitializeOverlay(
+            &DeviceInterchange,
             CompiledShaderDir,
             PresenterWindow,
-            BaseOptions.InitialWidthPx,
-            BaseOptions.InitialHeightPx,
+            InitialOptions.InitialWidthPx,
+            InitialOptions.InitialHeightPx,
             &VkDiag))
     {
-        std::fprintf(stderr, "[FrontierHost] VulkanSwapchainPresenter initialization failed: %s\n", VkDiag.c_str());
+        std::fprintf(stderr, "[FrontierHost] ImGuiOverlayRasterization initialization failed: %s\n", VkDiag.c_str());
         ImGui::DestroyContext(GuiCtx);
         return 1;
     }
 
-    uint32_t ExecutedFrames = 0u;
+    uint32_t ExecutedSteps = 0u;
     auto     LastTick       = std::chrono::steady_clock::now();
 
     while (true)
@@ -442,7 +442,7 @@ int RunDesktopUVApplication(
             break;
         }
 #endif
-        if (BaseOptions.BoundedFrameLimit > 0u && ExecutedFrames >= BaseOptions.BoundedFrameLimit)
+        if (InitialOptions.BoundedStepLimit > 0u && ExecutedSteps >= InitialOptions.BoundedStepLimit)
         {
             break;
         }
@@ -451,8 +451,8 @@ int RunDesktopUVApplication(
         const double Dt      = std::clamp(std::chrono::duration<double>(NowTick - LastTick).count(), 1.0 / 240.0, 0.050);
         LastTick             = NowTick;
 
-        uint32_t FrameW = BaseOptions.InitialWidthPx;
-        uint32_t FrameH = BaseOptions.InitialHeightPx;
+        uint32_t SurfaceW = InitialOptions.InitialWidthPx;
+        uint32_t SurfaceH = InitialOptions.InitialHeightPx;
 
 #if !defined(__ANDROID__)
         InputCoordinator.BeginTick();
@@ -460,8 +460,8 @@ int RunDesktopUVApplication(
         const auto Extent = DesktopWindow.InspectExtent();
         if (Extent.SurfacePixelWidth > 0u && Extent.SurfacePixelHeight > 0u)
         {
-            FrameW = Extent.SurfacePixelWidth;
-            FrameH = Extent.SurfacePixelHeight;
+            SurfaceW = Extent.SurfacePixelWidth;
+            SurfaceH = Extent.SurfacePixelHeight;
         }
         if (auto* GlfwWin = static_cast<GLFWwindow*>(DesktopWindow.NativeGlfwHandle()))
         {
@@ -479,7 +479,7 @@ int RunDesktopUVApplication(
         SupplementalQueue.DroppedPaths.clear();
 #endif
 
-        Io.DisplaySize = ImVec2(static_cast<float>(FrameW), static_cast<float>(FrameH));
+        Io.DisplaySize = ImVec2(static_cast<float>(SurfaceW), static_cast<float>(SurfaceH));
         Io.DeltaTime   = static_cast<float>(Dt);
 
         ImGui::NewFrame();
@@ -492,8 +492,11 @@ int RunDesktopUVApplication(
         else
 #endif
         {
+            Components::ConfigureImGuiWorkspaceTheme(
+                StandaloneDock.ActiveTabMetrics(),
+                StandaloneControlCentre.QueryThemeRepository());
             StandaloneDock.PresentWindowImGuiPanes(Components::HostWindowToken{ 0u });
-            const Rectangle2D FullBounds { 0.0f, 0.0f, static_cast<float>(FrameW), static_cast<float>(FrameH) };
+            const Rectangle2D FullBounds { 0.0f, 0.0f, static_cast<float>(SurfaceW), static_cast<float>(SurfaceH) };
 #if FRONTIER_EDITOR_ENABLED
             StandaloneBrowser.Render(FullBounds, Dt, 1.0f);
 #endif
@@ -501,26 +504,26 @@ int RunDesktopUVApplication(
         }
         ImGui::Render();
 
-        (void)SwapchainPresenter.PresentImGuiBatches(ImGui::GetDrawData(), FrameW, FrameH);
-        ++ExecutedFrames;
+        (void)SwapchainPresenter.PresentImGuiBatches(ImGui::GetDrawData(), SurfaceW, SurfaceH);
+        ++ExecutedSteps;
     }
 
-    if (!BaseOptions.CapturePngOutputPath.empty())
+    if (!InitialOptions.CapturePngOutputPath.empty())
     {
         std::vector<uint8_t> CapturedRgba {};
         uint32_t             CapW = 0u;
         uint32_t             CapH = 0u;
         if (!SwapchainPresenter.ReadbackLastPresentedRgba(CapturedRgba, CapW, CapH) ||
-            !WriteLosslessRgbaPng(BaseOptions.CapturePngOutputPath, CapturedRgba, CapW, CapH))
+            !WriteLosslessRgbaPng(InitialOptions.CapturePngOutputPath, CapturedRgba, CapW, CapH))
         {
             std::fprintf(stderr, "[FrontierHost] Failed to capture presented swapchain PNG.\n");
-            SwapchainPresenter.TeardownPresenter();
+            SwapchainPresenter.TeardownOverlay();
             ImGui::DestroyContext(GuiCtx);
             return 1;
         }
     }
 
-    SwapchainPresenter.TeardownPresenter();
+    SwapchainPresenter.TeardownOverlay();
 #if FRONTIER_EDITOR_ENABLED
     if (UseFullEditorLifecycle)
     {
@@ -543,4 +546,4 @@ int RunDesktopUVApplication(
     return 0;
 }
 
-} // namespace Frontier::Host
+} // namespace Frontier::Lifecycle

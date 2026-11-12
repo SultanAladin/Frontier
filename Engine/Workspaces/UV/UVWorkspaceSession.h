@@ -24,7 +24,7 @@
 #include "Engine/Threading/Threads/Workspace/WorkspaceThread.h"
 #include "Engine/Workspaces/Revision/RevisionTracker.h"
 #include "Engine/Workspaces/UV/Operations/UVAuthoringOperations.h"
-#include "Engine/Workspaces/UV/Solvers/ConcaveHorizonPacker.h"
+#include "Engine/Workspaces/UV/Solvers/ConcaveSkylinePacker.h"
 #include "Engine/Workspaces/UV/Solvers/ConformalUnwrapSolver.h"
 #include "Engine/Workspaces/UV/Solvers/ProgressiveStretchRelaxer.h"
 #include "Engine/Workspaces/UV/Solvers/SeamCutGenerator.h"
@@ -93,7 +93,7 @@ enum class UVCommandDirective : uint8_t
     ExpandEmptyPockets       = 25u,
     SelectFlippedFaces       = 26u,
     SelectOverlappingFaces   = 27u,
-    FrameActiveSelection     = 28u,
+    FitActiveSelection     = 28u,
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -115,7 +115,7 @@ public:
     [[nodiscard]] GeometricRaster::UVWorkspaceRasterizer* AccessRasterizer() noexcept { return Rasterizer; }
 
     [[nodiscard]] bool InitializeGPUSolvers(
-        GeometricRaster::VulkanDeviceContext* BoundDevice,
+        GeometricRaster::VulkanInterchange* BoundDevice,
         const std::filesystem::path&          CompiledShaderDir);
     void TeardownGPUSolvers() noexcept;
 
@@ -130,6 +130,7 @@ public:
         std::string&                 OutDiagnostic) const;
 
     void     SelectPriorityLayer(uint16_t LayerOrdinal);
+    void     BindSelectionToPriorityLayer(uint16_t LayerOrdinal);
     uint16_t CreatePriorityLayer(std::string_view Title, Mathematics::Scalar3D LinearTint, float InitialSharePercent);
     void     RenameSelectedLayer(std::string_view NewTitle);
     uint16_t DuplicateSelectedLayer();
@@ -146,7 +147,7 @@ public:
     void SynchronizeSelectionToGPU();
     void RefreshGizmoAnchorsFromSelection() noexcept;
     void FinalizeInteractiveUVRevision(std::string_view OperationTag);
-    void FrameSelectionOrNetwork() noexcept;
+    void FitSelectionOrNetwork() noexcept;
 
     void                             QueueDirective(UVCommandDirective Directive) noexcept;
     [[nodiscard]] UVCommandDirective ConsumePendingDirective() noexcept;
@@ -156,7 +157,7 @@ public:
         Threading::ExecutionChannels* OptionalChannels = nullptr);
 
     [[nodiscard]] bool DispatchDirectiveAsync(
-        Threading::WorkspaceThread&   WorkerThread,
+        Threading::WorkspaceThread&   BackgroundSolverThread,
         Threading::ExecutionChannels* OptionalChannels,
         UVCommandDirective            Directive,
         Threading::CompletionCounter* OptionalCompletion = nullptr);
@@ -179,7 +180,7 @@ public:
     [[nodiscard]] Editor::ViewportProjection&       AccessViewportProjection() noexcept { return ActiveDocument.AccessViewportProjection(); }
     [[nodiscard]] const Editor::ViewportProjection& InspectViewportProjection() const noexcept { return ActiveDocument.InspectViewportProjection(); }
 
-    GeometrySpace::SampleAssetPreset         ActivePreset         = GeometrySpace::SampleAssetPreset::AeroCoupeGT;
+    GeometrySpace::SampleAssetPreset         ActivePreset         = GeometrySpace::SampleAssetPreset::ControlledIntegrator;
     GeometrySpace::ConstructedSampleAsset    Asset                {};
     GeometrySpace::GeometryInstanceRegistry  Instances            {};
     GeometrySpace::GeometryInstanceToken     RootInstanceToken    {};
@@ -191,7 +192,7 @@ public:
     uint64_t                                 RevisionStampCounter = 1ull;
 
     ProgressiveStretchRelaxer                StretchRelaxer       {};
-    ConcaveHorizonPacker                     HorizonPacker        {};
+    ConcaveSkylinePacker                     SkylinePacker        {};
     ConcavePackReport                        LatestPackReport     {};
 
     UVInspectorTab                           ActiveInspectorTab   = UVInspectorTab::Packing;

@@ -11,7 +11,7 @@ struct SurfaceVertexRecord
     float4 NormalAndV;         // xyz = World Normal,   w = UV.V
     float4 AlbedoAndMetallic;  // rgb = AlbedoLinear,   a = Metallic
     float4 ShadingParams;      // x = Roughness, y = Specular, z = MatCapBlend, w = StretchMetric
-    uint4  NetworkPickIDs;     // x = InstanceSlot, y = FaceIndex, z = DirectedEdgeIndex, w = PackedFlags (bits 0..7 MatCap, 8..23 Layer, 24 Seam, 25 Border)
+    uint4  NetworkPickIDs;     // x = InstanceSlot, y = FaceIndex, z = DirectedEdgeIndex, w = SurfaceMask (bits 0..7 MatCap, 8..23 Layer, 24 Seam, 25 Border)
     float4 BarycentricAndPad;  // xyz = Triangle Barycentric (1,0,0)/(0,1,0)/(0,0,1), w = EdgeSeamMask
 };
 
@@ -29,7 +29,7 @@ struct ViewportUniformBlock
 [[vk::binding(1, 0)]] StructuredBuffer<SurfaceVertexRecord> VertexRecords;
 [[vk::binding(2, 0)]] StructuredBuffer<uint>                FaceSelectionBitmask;
 
-struct VertexStageOutput
+struct VertexInterpolators
 {
     float4 ClipPosition       : SV_Position;
     float3 WorldPosition      : TEXCOORD0;
@@ -41,13 +41,13 @@ struct VertexStageOutput
     nointerpolation uint4 IDs : TEXCOORD6;
 };
 
-struct FragmentStageOutput
+struct FragmentAttachmentOutput
 {
     float4 ColorRGBA : SV_Target0;
     uint4  PickIDs   : SV_Target1;
 };
 
-float3 ResolvePriorityLayerPalette(uint LayerOrdinal)
+float3 ResolvePriorityLayerSwatch(uint LayerOrdinal)
 {
     if (LayerOrdinal == 1u) return float3(0.937, 0.957, 0.812); // #EFF4CF Ivory
     if (LayerOrdinal == 2u) return float3(0.620, 0.812, 1.000); // #9ECFFF Sky
@@ -57,10 +57,10 @@ float3 ResolvePriorityLayerPalette(uint LayerOrdinal)
 }
 
 [shader("vertex")]
-VertexStageOutput VertexEntry(uint VertexID : SV_VertexID)
+VertexInterpolators VertexEntry(uint VertexID : SV_VertexID)
 {
     SurfaceVertexRecord Rec = VertexRecords[VertexID];
-    VertexStageOutput   Out;
+    VertexInterpolators   Out;
     Out.ClipPosition      = mul(ViewportUniforms.ViewProjection, float4(Rec.PositionAndU.xyz, 1.0));
     Out.WorldPosition     = Rec.PositionAndU.xyz;
     Out.WorldNormal       = Rec.NormalAndV.xyz;
@@ -73,9 +73,9 @@ VertexStageOutput VertexEntry(uint VertexID : SV_VertexID)
 }
 
 [shader("fragment")]
-FragmentStageOutput FragmentEntry(VertexStageOutput In)
+FragmentAttachmentOutput FragmentEntry(VertexInterpolators In)
 {
-    FragmentStageOutput Out;
+    FragmentAttachmentOutput Out;
 
     // Ground Grid Analytic Pass (when NetworkPickIDs.x == 0u)
     if (In.IDs.x == 0u)
@@ -85,17 +85,17 @@ FragmentStageOutput FragmentEntry(VertexStageOutput In)
         float2 GridDist  = abs(frac(GridCoord - 0.5) - 0.5) / Deriv;
         float  LineMask  = 1.0 - saturate(min(GridDist.x, GridDist.y));
         float  Fade      = exp(-0.085 * dot(In.WorldPosition.xz, In.WorldPosition.xz));
-        float3 BaseFloor = float3(0.068, 0.072, 0.082);
-        float3 GridColor = lerp(BaseFloor, float3(0.24, 0.27, 0.33), LineMask * Fade * 0.75);
+        float3 GroundTone = float3(0.068, 0.072, 0.082);
+        float3 GridColor = lerp(GroundTone, float3(0.24, 0.27, 0.33), LineMask * Fade * 0.75);
         Out.ColorRGBA    = float4(GridColor, 1.0);
         Out.PickIDs      = uint4(0u, 0xFFFFFFFFu, 0xFFFFFFFFu, 0u);
         return Out;
     }
 
-    uint   PackedFlags  = In.IDs.w;
-    uint   MatCapSlot   = PackedFlags & 0xFFu;
-    uint   LayerOrdinal = (PackedFlags >> 8u) & 0xFFFFu;
-    bool   EdgeIsSeam   = ((PackedFlags >> 24u) & 1u) != 0u;
+    uint   SurfaceMask  = In.IDs.w;
+    uint   MatCapSlot   = SurfaceMask & 0xFFu;
+    uint   LayerOrdinal = (SurfaceMask >> 8u) & 0xFFFFu;
+    bool   EdgeIsSeam   = ((SurfaceMask >> 24u) & 1u) != 0u;
 
     uint   FaceIdx      = In.IDs.y;
     uint   WordIdx      = FaceIdx >> 5u;
@@ -121,11 +121,11 @@ FragmentStageOutput FragmentEntry(VertexStageOutput In)
         ViewportUniforms.CameraUpAndSeam.xyz,
         ViewportUniforms.CameraForwardAndLayer.xyz);
 
-    float3 FinalColor = ToneMapACESFilmic(LitLinear);
+    float3 FinalColor = CompressRadiometricACESFilmic(LitLinear);
 
     if (Mode > 0.5 && Mode < 1.5) // Mode 1: Layer Allocation Tint
     {
-        float3 LayerTint = ResolvePriorityLayerPalette(LayerOrdinal);
+        float3 LayerTint = ResolvePriorityLayerSwatch(LayerOrdinal);
         FinalColor       = lerp(FinalColor, LayerTint * (0.45 + 0.55 * FinalColor.g), 0.72);
     }
     else if (Mode >= 1.5 && Mode < 2.5) // Mode 2: L2 Stretch Heatmap
@@ -143,7 +143,7 @@ FragmentStageOutput FragmentEntry(VertexStageOutput In)
     }
 
     // GPU O(1) Selection / Active Layer / Hover Highlight
-    if (FaceSelected || LayerActive)
+    if (FaceSelected || (LayerActive && Mode > 0.5 && Mode < 1.5))
     {
         FinalColor = lerp(FinalColor, float3(0.937, 0.957, 0.812), 0.34);
     }

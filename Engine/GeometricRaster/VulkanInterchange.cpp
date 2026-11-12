@@ -1,14 +1,14 @@
 /*============================================================================================================================================
-                                                         VULKANDEVICECONTEXT.CPP
+                                                         VULKANINTERCHANGE.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of VulkanDeviceContext with volk dynamic loading, SwiftShader ICD auto-discovery, and Timeline Semaphore synchronization
+// 🧩 Implementation of VulkanInterchange with volk dynamic loading, SwiftShader ICD auto-discovery, and Timeline Semaphore synchronization
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
 #define VOLK_IMPLEMENTATION
-#include "Engine/GeometricRaster/Backend/VulkanDeviceContext.h"
+#include "Engine/GeometricRaster/VulkanInterchange.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -25,12 +25,12 @@ namespace Frontier::GeometricRaster
 //                                                      LIFECYCLE
 //------------------------------------------------------------------------------------------------------------------------
 
-VulkanDeviceContext::~VulkanDeviceContext()
+VulkanInterchange::~VulkanInterchange()
 {
-    TeardownContext();
+    TeardownInterchange();
 }
 
-bool VulkanDeviceContext::InitializeContext(
+bool VulkanInterchange::InitializeInterchange(
     const std::filesystem::path& RepositoryRootPath,
     std::string*                 OptionalDiagnostic)
 {
@@ -80,13 +80,13 @@ bool VulkanDeviceContext::InitializeContext(
         return false;
     }
 
-    VkApplicationInfo AppInfo {};
-    AppInfo.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    AppInfo.pApplicationName   = "FrontierGeometricRaster";
-    AppInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    AppInfo.pEngineName        = "Frontier";
-    AppInfo.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
-    AppInfo.apiVersion         = VK_API_VERSION_1_2;
+    VkApplicationInfo AppSpec {};
+    AppSpec.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    AppSpec.pApplicationName   = "FrontierGeometricRaster";
+    AppSpec.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+    AppSpec.pEngineName        = "Frontier";
+    AppSpec.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
+    AppSpec.apiVersion         = VK_API_VERSION_1_2;
 
     uint32_t InstExtCount = 0u;
     vkEnumerateInstanceExtensionProperties(nullptr, &InstExtCount, nullptr);
@@ -116,13 +116,13 @@ bool VulkanDeviceContext::InitializeContext(
         }
     }
 
-    VkInstanceCreateInfo InstanceInfo {};
-    InstanceInfo.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    InstanceInfo.pApplicationInfo        = &AppInfo;
-    InstanceInfo.enabledExtensionCount   = static_cast<uint32_t>(EnabledInstanceExtensions.size());
-    InstanceInfo.ppEnabledExtensionNames = EnabledInstanceExtensions.data();
+    VkInstanceCreateInfo InstanceSpec {};
+    InstanceSpec.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    InstanceSpec.pApplicationInfo        = &AppSpec;
+    InstanceSpec.enabledExtensionCount   = static_cast<uint32_t>(EnabledInstanceExtensions.size());
+    InstanceSpec.ppEnabledExtensionNames = EnabledInstanceExtensions.data();
 
-    if (vkCreateInstance(&InstanceInfo, nullptr, &InstanceHandle) != VK_SUCCESS)
+    if (vkCreateInstance(&InstanceSpec, nullptr, &InstanceHandle) != VK_SUCCESS)
     {
         if (OptionalDiagnostic != nullptr)
         {
@@ -140,7 +140,7 @@ bool VulkanDeviceContext::InitializeContext(
         {
             *OptionalDiagnostic = "No Vulkan physical devices enumerated.";
         }
-        TeardownContext();
+        TeardownInterchange();
         return false;
     }
 
@@ -166,18 +166,18 @@ bool VulkanDeviceContext::InitializeContext(
     vkGetPhysicalDeviceProperties(PhysicalAdapter, &SelectedProps);
     AdapterName = SelectedProps.deviceName;
 
-    uint32_t FamilyCount = 0u;
-    vkGetPhysicalDeviceQueueFamilyProperties(PhysicalAdapter, &FamilyCount, nullptr);
-    std::vector<VkQueueFamilyProperties> Families(FamilyCount);
-    vkGetPhysicalDeviceQueueFamilyProperties(PhysicalAdapter, &FamilyCount, Families.data());
+    uint32_t QueueGroupCount = 0u;
+    vkGetPhysicalDeviceQueueFamilyProperties(PhysicalAdapter, &QueueGroupCount, nullptr);
+    std::vector<VkQueueFamilyProperties> QueueGroups(QueueGroupCount);
+    vkGetPhysicalDeviceQueueFamilyProperties(PhysicalAdapter, &QueueGroupCount, QueueGroups.data());
 
     bool FoundQueue = false;
-    for (uint32_t FamIdx = 0u; FamIdx < FamilyCount; ++FamIdx)
+    for (uint32_t FamIdx = 0u; FamIdx < QueueGroupCount; ++FamIdx)
     {
-        const VkQueueFlags Flags = Families[FamIdx].queueFlags;
-        if ((Flags & VK_QUEUE_GRAPHICS_BIT) != 0u && (Flags & VK_QUEUE_COMPUTE_BIT) != 0u)
+        const VkQueueFlags UsageMask = QueueGroups[FamIdx].queueFlags;
+        if ((UsageMask & VK_QUEUE_GRAPHICS_BIT) != 0u && (UsageMask & VK_QUEUE_COMPUTE_BIT) != 0u)
         {
-            QueueFamilyOrdinal = FamIdx;
+            QueueOrdinal = FamIdx;
             FoundQueue         = true;
             break;
         }
@@ -188,19 +188,19 @@ bool VulkanDeviceContext::InitializeContext(
         {
             *OptionalDiagnostic = "No unified Graphics+Compute Vulkan queue family found.";
         }
-        TeardownContext();
+        TeardownInterchange();
         return false;
     }
 
     // Check extension list for VK_KHR_timeline_semaphore when adapter reports < 1.2 or KHR entry points
-    uint32_t DevExtCount = 0u;
-    vkEnumerateDeviceExtensionProperties(PhysicalAdapter, nullptr, &DevExtCount, nullptr);
-    std::vector<VkExtensionProperties> DevExts(DevExtCount);
-    vkEnumerateDeviceExtensionProperties(PhysicalAdapter, nullptr, &DevExtCount, DevExts.data());
+    uint32_t DeviceExtCount = 0u;
+    vkEnumerateDeviceExtensionProperties(PhysicalAdapter, nullptr, &DeviceExtCount, nullptr);
+    std::vector<VkExtensionProperties> DeviceExts(DeviceExtCount);
+    vkEnumerateDeviceExtensionProperties(PhysicalAdapter, nullptr, &DeviceExtCount, DeviceExts.data());
 
     bool SupportsTimelineExt  = false;
     bool SupportsSwapchainExt = false;
-    for (const VkExtensionProperties& Ext : DevExts)
+    for (const VkExtensionProperties& Ext : DeviceExts)
     {
         if (std::strcmp(Ext.extensionName, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME) == 0)
         {
@@ -229,7 +229,7 @@ bool VulkanDeviceContext::InitializeContext(
     const float QueuePriority = 1.0f;
     VkDeviceQueueCreateInfo QueueCreate {};
     QueueCreate.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    QueueCreate.queueFamilyIndex = QueueFamilyOrdinal;
+    QueueCreate.queueFamilyIndex = QueueOrdinal;
     QueueCreate.queueCount       = 1u;
     QueueCreate.pQueuePriorities = &QueuePriority;
 
@@ -247,43 +247,43 @@ bool VulkanDeviceContext::InitializeContext(
         {
             *OptionalDiagnostic = "vkCreateDevice with Timeline Semaphores failed.";
         }
-        TeardownContext();
+        TeardownInterchange();
         return false;
     }
     volkLoadDevice(LogicalDevice);
     UseKhrTimelineEntry = (vkWaitSemaphores == nullptr && vkWaitSemaphoresKHR != nullptr);
 
-    vkGetDeviceQueue(LogicalDevice, QueueFamilyOrdinal, 0u, &PrimaryQueue);
+    vkGetDeviceQueue(LogicalDevice, QueueOrdinal, 0u, &PrimaryQueue);
 
-    VkCommandPoolCreateInfo PoolInfo {};
-    PoolInfo.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    PoolInfo.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    PoolInfo.queueFamilyIndex = QueueFamilyOrdinal;
-    if (vkCreateCommandPool(LogicalDevice, &PoolInfo, nullptr, &PrimaryCommandPool) != VK_SUCCESS)
+    VkCommandPoolCreateInfo AllocatorSpec {};
+    AllocatorSpec.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    AllocatorSpec.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    AllocatorSpec.queueFamilyIndex = QueueOrdinal;
+    if (vkCreateCommandPool(LogicalDevice, &AllocatorSpec, nullptr, &PrimaryCommandAllocator) != VK_SUCCESS)
     {
-        TeardownContext();
+        TeardownInterchange();
         return false;
     }
 
-    VkSemaphoreTypeCreateInfo TimelineTypeInfo {};
-    TimelineTypeInfo.sType         = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
-    TimelineTypeInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-    TimelineTypeInfo.initialValue  = 0ull;
+    VkSemaphoreTypeCreateInfo TimelineTypeSpec {};
+    TimelineTypeSpec.sType         = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+    TimelineTypeSpec.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    TimelineTypeSpec.initialValue  = 0ull;
 
-    VkSemaphoreCreateInfo SemInfo {};
-    SemInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    SemInfo.pNext = &TimelineTypeInfo;
-    if (vkCreateSemaphore(LogicalDevice, &SemInfo, nullptr, &TimelineSyncHandle) != VK_SUCCESS)
+    VkSemaphoreCreateInfo SemSpec {};
+    SemSpec.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    SemSpec.pNext = &TimelineTypeSpec;
+    if (vkCreateSemaphore(LogicalDevice, &SemSpec, nullptr, &TimelineSyncHandle) != VK_SUCCESS)
     {
-        TeardownContext();
+        TeardownInterchange();
         return false;
     }
 
-    NextTimelineValue = 1ull;
+    NextTimelineTick = 1ull;
     return true;
 }
 
-void VulkanDeviceContext::TeardownContext() noexcept
+void VulkanInterchange::TeardownInterchange() noexcept
 {
     if (LogicalDevice != VK_NULL_HANDLE)
     {
@@ -293,10 +293,10 @@ void VulkanDeviceContext::TeardownContext() noexcept
             vkDestroySemaphore(LogicalDevice, TimelineSyncHandle, nullptr);
             TimelineSyncHandle = VK_NULL_HANDLE;
         }
-        if (PrimaryCommandPool != VK_NULL_HANDLE)
+        if (PrimaryCommandAllocator != VK_NULL_HANDLE)
         {
-            vkDestroyCommandPool(LogicalDevice, PrimaryCommandPool, nullptr);
-            PrimaryCommandPool = VK_NULL_HANDLE;
+            vkDestroyCommandPool(LogicalDevice, PrimaryCommandAllocator, nullptr);
+            PrimaryCommandAllocator = VK_NULL_HANDLE;
         }
         vkDestroyDevice(LogicalDevice, nullptr);
         LogicalDevice = VK_NULL_HANDLE;
@@ -321,7 +321,7 @@ void VulkanDeviceContext::TeardownContext() noexcept
 //                                              RESOURCE ALLOCATION & SHADERS
 //------------------------------------------------------------------------------------------------------------------------
 
-uint32_t VulkanDeviceContext::SelectMemoryTypeIndex(
+uint32_t VulkanInterchange::SelectMemoryTypeIndex(
     uint32_t              TypeFilterBits,
     VkMemoryPropertyFlags Properties) const noexcept
 {
@@ -338,7 +338,7 @@ uint32_t VulkanDeviceContext::SelectMemoryTypeIndex(
     return UINT32_MAX;
 }
 
-DeviceBufferResource VulkanDeviceContext::AllocateBuffer(
+DeviceBufferResource VulkanInterchange::AllocateBuffer(
     uint64_t              ByteSize,
     VkBufferUsageFlags    UsageMask,
     VkMemoryPropertyFlags RequiredProperties,
@@ -350,13 +350,13 @@ DeviceBufferResource VulkanDeviceContext::AllocateBuffer(
         return Result;
     }
 
-    VkBufferCreateInfo BufInfo {};
-    BufInfo.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    BufInfo.size        = ByteSize;
-    BufInfo.usage       = UsageMask;
-    BufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VkBufferCreateInfo BufSpec {};
+    BufSpec.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    BufSpec.size        = ByteSize;
+    BufSpec.usage       = UsageMask;
+    BufSpec.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateBuffer(LogicalDevice, &BufInfo, nullptr, &Result.BufferHandle) != VK_SUCCESS)
+    if (vkCreateBuffer(LogicalDevice, &BufSpec, nullptr, &Result.BufferHandle) != VK_SUCCESS)
     {
         return Result;
     }
@@ -380,12 +380,12 @@ DeviceBufferResource VulkanDeviceContext::AllocateBuffer(
         return Result;
     }
 
-    VkMemoryAllocateInfo AllocInfo {};
-    AllocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    AllocInfo.allocationSize  = MemReq.size;
-    AllocInfo.memoryTypeIndex = MemIndex;
+    VkMemoryAllocateInfo AllocSpec {};
+    AllocSpec.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    AllocSpec.allocationSize  = MemReq.size;
+    AllocSpec.memoryTypeIndex = MemIndex;
 
-    if (vkAllocateMemory(LogicalDevice, &AllocInfo, nullptr, &Result.MemoryHandle) != VK_SUCCESS)
+    if (vkAllocateMemory(LogicalDevice, &AllocSpec, nullptr, &Result.MemoryHandle) != VK_SUCCESS)
     {
         vkDestroyBuffer(LogicalDevice, Result.BufferHandle, nullptr);
         Result.BufferHandle = VK_NULL_HANDLE;
@@ -397,21 +397,21 @@ DeviceBufferResource VulkanDeviceContext::AllocateBuffer(
 
     if ((RequiredProperties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0u)
     {
-        vkMapMemory(LogicalDevice, Result.MemoryHandle, 0u, ByteSize, 0u, &Result.MappedPtr);
+        vkMapMemory(LogicalDevice, Result.MemoryHandle, 0u, ByteSize, 0u, &Result.HostAddress);
     }
     return Result;
 }
 
-void VulkanDeviceContext::ReleaseBuffer(DeviceBufferResource& Resource) const noexcept
+void VulkanInterchange::ReleaseBuffer(DeviceBufferResource& Resource) const noexcept
 {
     if (LogicalDevice == VK_NULL_HANDLE)
     {
         return;
     }
-    if (Resource.MappedPtr != nullptr && Resource.MemoryHandle != VK_NULL_HANDLE)
+    if (Resource.HostAddress != nullptr && Resource.MemoryHandle != VK_NULL_HANDLE)
     {
         vkUnmapMemory(LogicalDevice, Resource.MemoryHandle);
-        Resource.MappedPtr = nullptr;
+        Resource.HostAddress = nullptr;
     }
     if (Resource.BufferHandle != VK_NULL_HANDLE)
     {
@@ -426,7 +426,7 @@ void VulkanDeviceContext::ReleaseBuffer(DeviceBufferResource& Resource) const no
     Resource.ByteCapacity = 0ull;
 }
 
-DeviceImageResource VulkanDeviceContext::AllocateImage2D(
+DeviceImageResource VulkanInterchange::AllocateImage2D(
     uint32_t           WidthPx,
     uint32_t           HeightPx,
     VkFormat           Format,
@@ -439,20 +439,20 @@ DeviceImageResource VulkanDeviceContext::AllocateImage2D(
         return Result;
     }
 
-    VkImageCreateInfo ImgInfo {};
-    ImgInfo.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    ImgInfo.imageType     = VK_IMAGE_TYPE_2D;
-    ImgInfo.format        = Format;
-    ImgInfo.extent        = { WidthPx, HeightPx, 1u };
-    ImgInfo.mipLevels     = 1u;
-    ImgInfo.arrayLayers   = 1u;
-    ImgInfo.samples       = VK_SAMPLE_COUNT_1_BIT;
-    ImgInfo.tiling        = VK_IMAGE_TILING_OPTIMAL;
-    ImgInfo.usage         = UsageMask;
-    ImgInfo.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
-    ImgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkImageCreateInfo ImgSpec {};
+    ImgSpec.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ImgSpec.imageType     = VK_IMAGE_TYPE_2D;
+    ImgSpec.format        = Format;
+    ImgSpec.extent        = { WidthPx, HeightPx, 1u };
+    ImgSpec.mipLevels     = 1u;
+    ImgSpec.arrayLayers   = 1u;
+    ImgSpec.samples       = VK_SAMPLE_COUNT_1_BIT;
+    ImgSpec.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    ImgSpec.usage         = UsageMask;
+    ImgSpec.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+    ImgSpec.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    if (vkCreateImage(LogicalDevice, &ImgInfo, nullptr, &Result.ImageHandle) != VK_SUCCESS)
+    if (vkCreateImage(LogicalDevice, &ImgSpec, nullptr, &Result.ImageHandle) != VK_SUCCESS)
     {
         return Result;
     }
@@ -468,11 +468,11 @@ DeviceImageResource VulkanDeviceContext::AllocateImage2D(
         return Result;
     }
 
-    VkMemoryAllocateInfo AllocInfo {};
-    AllocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    AllocInfo.allocationSize  = MemReq.size;
-    AllocInfo.memoryTypeIndex = MemIndex;
-    if (vkAllocateMemory(LogicalDevice, &AllocInfo, nullptr, &Result.MemoryHandle) != VK_SUCCESS)
+    VkMemoryAllocateInfo AllocSpec {};
+    AllocSpec.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    AllocSpec.allocationSize  = MemReq.size;
+    AllocSpec.memoryTypeIndex = MemIndex;
+    if (vkAllocateMemory(LogicalDevice, &AllocSpec, nullptr, &Result.MemoryHandle) != VK_SUCCESS)
     {
         vkDestroyImage(LogicalDevice, Result.ImageHandle, nullptr);
         Result.ImageHandle = VK_NULL_HANDLE;
@@ -481,18 +481,18 @@ DeviceImageResource VulkanDeviceContext::AllocateImage2D(
 
     vkBindImageMemory(LogicalDevice, Result.ImageHandle, Result.MemoryHandle, 0u);
 
-    VkImageViewCreateInfo ViewInfo {};
-    ViewInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    ViewInfo.image                           = Result.ImageHandle;
-    ViewInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
-    ViewInfo.format                          = Format;
-    ViewInfo.subresourceRange.aspectMask     = AspectMask;
-    ViewInfo.subresourceRange.baseMipLevel   = 0u;
-    ViewInfo.subresourceRange.levelCount     = 1u;
-    ViewInfo.subresourceRange.baseArrayLayer = 0u;
-    ViewInfo.subresourceRange.layerCount     = 1u;
+    VkImageViewCreateInfo ViewSpec {};
+    ViewSpec.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    ViewSpec.image                           = Result.ImageHandle;
+    ViewSpec.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
+    ViewSpec.format                          = Format;
+    ViewSpec.subresourceRange.aspectMask     = AspectMask;
+    ViewSpec.subresourceRange.baseMipLevel   = 0u;
+    ViewSpec.subresourceRange.levelCount     = 1u;
+    ViewSpec.subresourceRange.baseArrayLayer = 0u;
+    ViewSpec.subresourceRange.layerCount     = 1u;
 
-    if (vkCreateImageView(LogicalDevice, &ViewInfo, nullptr, &Result.ViewHandle) != VK_SUCCESS)
+    if (vkCreateImageView(LogicalDevice, &ViewSpec, nullptr, &Result.ViewHandle) != VK_SUCCESS)
     {
         ReleaseImage2D(Result);
         return Result;
@@ -504,7 +504,7 @@ DeviceImageResource VulkanDeviceContext::AllocateImage2D(
     return Result;
 }
 
-void VulkanDeviceContext::ReleaseImage2D(DeviceImageResource& Resource) const noexcept
+void VulkanInterchange::ReleaseImage2D(DeviceImageResource& Resource) const noexcept
 {
     if (LogicalDevice == VK_NULL_HANDLE)
     {
@@ -529,7 +529,7 @@ void VulkanDeviceContext::ReleaseImage2D(DeviceImageResource& Resource) const no
     Resource.HeightPx = 0u;
 }
 
-VkShaderModule VulkanDeviceContext::LoadShaderModule(const std::filesystem::path& SpirvFilePath) const
+VkShaderModule VulkanInterchange::LoadShaderBinary(const std::filesystem::path& SpirvFilePath) const
 {
     std::ifstream Stream(SpirvFilePath, std::ios::binary | std::ios::ate);
     if (!Stream.is_open())
@@ -548,68 +548,68 @@ VkShaderModule VulkanDeviceContext::LoadShaderModule(const std::filesystem::path
         return VK_NULL_HANDLE;
     }
 
-    VkShaderModuleCreateInfo ModInfo {};
-    ModInfo.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    ModInfo.codeSize = static_cast<std::size_t>(ByteLen);
-    ModInfo.pCode    = Words.data();
+    VkShaderModuleCreateInfo BinarySpec {};
+    BinarySpec.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    BinarySpec.codeSize = static_cast<std::size_t>(ByteLen);
+    BinarySpec.pCode    = Words.data();
 
-    VkShaderModule Module = VK_NULL_HANDLE;
-    if (vkCreateShaderModule(LogicalDevice, &ModInfo, nullptr, &Module) != VK_SUCCESS)
+    VkShaderModule BinaryHandle = VK_NULL_HANDLE;
+    if (vkCreateShaderModule(LogicalDevice, &BinarySpec, nullptr, &BinaryHandle) != VK_SUCCESS)
     {
         return VK_NULL_HANDLE;
     }
-    return Module;
+    return BinaryHandle;
 }
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                         TIMELINE SEMAPHORE COMMAND DISPATCH
 //------------------------------------------------------------------------------------------------------------------------
 
-VkCommandBuffer VulkanDeviceContext::BeginSingleTimeCommands() const
+VkCommandBuffer VulkanInterchange::BeginSingleTimeCommands() const
 {
-    VkCommandBufferAllocateInfo AllocInfo {};
-    AllocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    AllocInfo.commandPool        = PrimaryCommandPool;
-    AllocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    AllocInfo.commandBufferCount = 1u;
+    VkCommandBufferAllocateInfo AllocSpec {};
+    AllocSpec.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    AllocSpec.commandPool        = PrimaryCommandAllocator;
+    AllocSpec.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    AllocSpec.commandBufferCount = 1u;
 
     VkCommandBuffer CmdBuffer = VK_NULL_HANDLE;
-    if (vkAllocateCommandBuffers(LogicalDevice, &AllocInfo, &CmdBuffer) != VK_SUCCESS)
+    if (vkAllocateCommandBuffers(LogicalDevice, &AllocSpec, &CmdBuffer) != VK_SUCCESS)
     {
         return VK_NULL_HANDLE;
     }
 
-    VkCommandBufferBeginInfo BeginInfo {};
-    BeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    BeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(CmdBuffer, &BeginInfo);
+    VkCommandBufferBeginInfo BeginSpec {};
+    BeginSpec.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    BeginSpec.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(CmdBuffer, &BeginSpec);
     return CmdBuffer;
 }
 
-uint64_t VulkanDeviceContext::DispatchCommandBufferAsync(VkCommandBuffer CmdBuffer)
+uint64_t VulkanInterchange::DispatchCommandBufferAsync(VkCommandBuffer CmdBuffer)
 {
     vkEndCommandBuffer(CmdBuffer);
 
-    const uint64_t SignalValue = NextTimelineValue++;
+    const uint64_t SignalTick = NextTimelineTick++;
 
-    VkTimelineSemaphoreSubmitInfo TimelineInfo {};
-    TimelineInfo.sType                     = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-    TimelineInfo.signalSemaphoreValueCount = 1u;
-    TimelineInfo.pSignalSemaphoreValues    = &SignalValue;
+    VkTimelineSemaphoreSubmitInfo TimelineSpec {};
+    TimelineSpec.sType                     = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+    TimelineSpec.signalSemaphoreValueCount = 1u;
+    TimelineSpec.pSignalSemaphoreValues    = &SignalTick;
 
     VkSubmitInfo QueueDispatch {};
     QueueDispatch.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    QueueDispatch.pNext                = &TimelineInfo;
+    QueueDispatch.pNext                = &TimelineSpec;
     QueueDispatch.commandBufferCount   = 1u;
     QueueDispatch.pCommandBuffers      = &CmdBuffer;
     QueueDispatch.signalSemaphoreCount = 1u;
     QueueDispatch.pSignalSemaphores    = &TimelineSyncHandle;
 
     vkQueueSubmit(PrimaryQueue, 1u, &QueueDispatch, VK_NULL_HANDLE);
-    return SignalValue;
+    return SignalTick;
 }
 
-bool VulkanDeviceContext::QueryTimelineReached(uint64_t TargetTimelineValue) const noexcept
+bool VulkanInterchange::QueryTimelineReached(uint64_t TargetTimelineTick) const noexcept
 {
     uint64_t CurrentCounter = 0ull;
     VkResult Status         = VK_ERROR_UNKNOWN;
@@ -621,27 +621,27 @@ bool VulkanDeviceContext::QueryTimelineReached(uint64_t TargetTimelineValue) con
     {
         Status = vkGetSemaphoreCounterValue(LogicalDevice, TimelineSyncHandle, &CurrentCounter);
     }
-    return Status == VK_SUCCESS && CurrentCounter >= TargetTimelineValue;
+    return Status == VK_SUCCESS && CurrentCounter >= TargetTimelineTick;
 }
 
-bool VulkanDeviceContext::AwaitTimelineValue(
-    uint64_t TargetTimelineValue,
+bool VulkanInterchange::AwaitTimelineTick(
+    uint64_t TargetTimelineTick,
     uint64_t TimeoutNanoseconds) const noexcept
 {
-    VkSemaphoreWaitInfo WaitInfo {};
-    WaitInfo.sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
-    WaitInfo.semaphoreCount = 1u;
-    WaitInfo.pSemaphores    = &TimelineSyncHandle;
-    WaitInfo.pValues        = &TargetTimelineValue;
+    VkSemaphoreWaitInfo WaitSpec {};
+    WaitSpec.sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+    WaitSpec.semaphoreCount = 1u;
+    WaitSpec.pSemaphores    = &TimelineSyncHandle;
+    WaitSpec.pValues        = &TargetTimelineTick;
 
     VkResult Status = VK_ERROR_UNKNOWN;
     if (UseKhrTimelineEntry && vkWaitSemaphoresKHR != nullptr)
     {
-        Status = vkWaitSemaphoresKHR(LogicalDevice, &WaitInfo, TimeoutNanoseconds);
+        Status = vkWaitSemaphoresKHR(LogicalDevice, &WaitSpec, TimeoutNanoseconds);
     }
     else if (vkWaitSemaphores != nullptr)
     {
-        Status = vkWaitSemaphores(LogicalDevice, &WaitInfo, TimeoutNanoseconds);
+        Status = vkWaitSemaphores(LogicalDevice, &WaitSpec, TimeoutNanoseconds);
     }
     return Status == VK_SUCCESS;
 }

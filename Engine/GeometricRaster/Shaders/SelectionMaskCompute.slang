@@ -7,7 +7,7 @@ struct SelectionDispatchParams
 {
     uint FaceCount;          // Total faces in PolygonNetwork
     uint OperationCode;      // 0 = ClearAll, 1 = SelectByLayer, 2 = SelectByPartGroup, 3 = SelectSingleFace, 4 = ToggleSingleFace, 5 = SelectAll
-    uint TargetValue;        // LayerOrdinal, PartGroupOrdinal, or FaceIndex
+    uint TargetMask;        // LayerOrdinal, PartGroupOrdinal, or FaceIndex
     uint AdditiveMask;       // 0 = Replace selection, 1 = Union into existing selection
 };
 
@@ -20,8 +20,8 @@ struct SelectionDispatchParams
 void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
 {
     uint WordIndex = DispatchThreadID.x;
-    uint BaseFace  = WordIndex * 32u;
-    if (BaseFace >= Params.FaceCount)
+    uint FirstFace  = WordIndex * 32u;
+    if (FirstFace >= Params.FaceCount)
     {
         return;
     }
@@ -37,42 +37,42 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
 
     for (uint Bit = 0u; Bit < 32u; ++Bit)
     {
-        uint FaceIdx = BaseFace + Bit;
+        uint FaceIdx = FirstFace + Bit;
         if (FaceIdx < Params.FaceCount)
         {
             uint Packed   = FacePackedAttributes[FaceIdx];
             uint LayerOrd = Packed & 0xFFFFu;
             uint PartOrd  = (Packed >> 16u) & 0xFFFFu;
-            uint BitFlag  = 1u << Bit;
+            uint BitChannel  = 1u << Bit;
 
-            if (Params.OperationCode == 1u && LayerOrd == Params.TargetValue)
+            if (Params.OperationCode == 1u && LayerOrd == Params.TargetMask)
             {
-                ResultWord |= BitFlag;
+                ResultWord |= BitChannel;
             }
-            else if (Params.OperationCode == 2u && PartOrd == Params.TargetValue)
+            else if (Params.OperationCode == 2u && PartOrd == Params.TargetMask)
             {
-                ResultWord |= BitFlag;
+                ResultWord |= BitChannel;
             }
-            else if (Params.OperationCode == 3u && FaceIdx == Params.TargetValue)
+            else if (Params.OperationCode == 3u && FaceIdx == Params.TargetMask)
             {
-                ResultWord |= BitFlag;
+                ResultWord |= BitChannel;
             }
             else if (Params.OperationCode == 4u)
             {
-                bool BitEnabled = (ExistingWord & BitFlag) != 0u;
-                bool Flip       = (FaceIdx == Params.TargetValue);
+                bool BitEnabled = (ExistingWord & BitChannel) != 0u;
+                bool Flip       = (FaceIdx == Params.TargetMask);
                 if (BitEnabled != Flip)
                 {
-                    ResultWord |= BitFlag;
+                    ResultWord |= BitChannel;
                 }
                 else
                 {
-                    ResultWord &= ~BitFlag;
+                    ResultWord &= ~BitChannel;
                 }
             }
             else if (Params.OperationCode == 5u)
             {
-                ResultWord |= BitFlag;
+                ResultWord |= BitChannel;
             }
         }
     }

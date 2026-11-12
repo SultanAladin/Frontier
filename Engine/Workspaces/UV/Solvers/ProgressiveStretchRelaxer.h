@@ -9,7 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/GeometricRaster/Backend/VulkanDeviceContext.h"
+#include "Engine/GeometricRaster/VulkanInterchange.h"
 #include "Engine/GeometricRaster/Compute/ComputeDispatchEncoder.h"
 #include "Engine/GeometrySpace/Network/PolygonNetwork.h"
 
@@ -22,7 +22,7 @@ namespace Frontier::Workspaces
 struct StretchRelaxReport
 {
     uint32_t WeldedCornersRelaxed = 0u;    // [count] - Unique welded UV corners evaluated per pass
-    uint32_t ExecutedPasses       = 0u;    // [count] - Jacobi relaxation passes executed
+    uint32_t ExecutedIterations       = 0u;    // [count] - Jacobi relaxation passes executed
     bool     ExecutedOnVulkanGPU  = false; // [-]     - True when dispatched via StretchRelaxCompute.comp.spv
     double   ElapsedMilliseconds  = 0.0;   // [ms]    - Total GPU/CPU relaxation wall time
 };
@@ -36,20 +36,20 @@ public:
     ProgressiveStretchRelaxer(const ProgressiveStretchRelaxer&)            = delete;
     ProgressiveStretchRelaxer& operator=(const ProgressiveStretchRelaxer&) = delete;
 
-    [[nodiscard]] bool InitializeGPUKernel(
-        GeometricRaster::VulkanDeviceContext* Context,
+    [[nodiscard]] bool InitializeGPUCompute(
+        GeometricRaster::VulkanInterchange* DeviceInterchange,
         const std::filesystem::path&          CompiledShaderDir);
 
-    void TeardownGPUKernel() noexcept;
+    void TeardownGPUCompute() noexcept;
 
     StretchRelaxReport RelaxStretch(
         GeometrySpace::PolygonNetwork& Network,
-        uint32_t                       IterationPasses = 12u,
+        uint32_t                       RelaxationIterations = 12u,
         float                          StepScale       = 0.35f,
         bool                           PreserveSeams   = true);
 
 private:
-    GeometricRaster::VulkanDeviceContext*   VkContext          = nullptr;
+    GeometricRaster::VulkanInterchange*   DeviceInterchange          = nullptr;
     GeometricRaster::ComputeDispatchEncoder Encoder            {};
     uint32_t                                RelaxProgramHandle = UINT32_MAX;
 };

@@ -58,7 +58,7 @@ public:
     ViewportPickQuery& operator=(const ViewportPickQuery&) = delete;
 
     [[nodiscard]] bool InitializePickQuery(
-        VulkanDeviceContext*         BoundContext,
+        VulkanInterchange*         BoundDevice,
         ComputeDispatchEncoder*      BoundComputeEncoder,
         TimelineTransferRegister*           BoundTransferRegister,
         const std::filesystem::path& PickReductionSpirvPath);
@@ -91,7 +91,7 @@ public:
 private:
     void EnsureFlattenedBufferCapacity(uint64_t RequiredBytes);
 
-    VulkanDeviceContext*    Context                = nullptr;    // [-] - Vulkan device context
+    VulkanInterchange*    DeviceInterchange                = nullptr;    // [-] - Vulkan device interchange
     ComputeDispatchEncoder* ComputeEncoder         = nullptr;    // [-] - Modular compute dispatcher
     TimelineTransferRegister*      TransferRegister           = nullptr;    // [-] - Timeline Semaphore readback ring
     uint32_t                ReductionProgramHandle = UINT32_MAX; // [idx] - ViewportPickReduction.comp.spv handle
