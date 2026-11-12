@@ -707,6 +707,28 @@ void ThumbnailSheetRepository::CopyTileBytesIntoPage(
             std::memcpy(Page.TextureStorage.Pixels + DstOffset, TileRgbaBytes.data() + SrcOffset, TileDimensionPixels * 4u);
         }
     }
+
+    ImTextureData& Texture = Page.TextureStorage;
+    if (Texture.Status == ImTextureStatus_OK || Texture.Status == ImTextureStatus_WantUpdates)
+    {
+        const uint32_t X0 = Texture.Status == ImTextureStatus_WantUpdates
+            ? std::min<uint32_t>(Texture.UpdateRect.x, DestX) : DestX;
+        const uint32_t Y0 = Texture.Status == ImTextureStatus_WantUpdates
+            ? std::min<uint32_t>(Texture.UpdateRect.y, DestY) : DestY;
+        const uint32_t X1 = Texture.Status == ImTextureStatus_WantUpdates
+            ? std::max<uint32_t>(Texture.UpdateRect.x + Texture.UpdateRect.w, DestX + TileDimensionPixels)
+            : DestX + TileDimensionPixels;
+        const uint32_t Y1 = Texture.Status == ImTextureStatus_WantUpdates
+            ? std::max<uint32_t>(Texture.UpdateRect.y + Texture.UpdateRect.h, DestY + TileDimensionPixels)
+            : DestY + TileDimensionPixels;
+        Texture.UpdateRect = {
+            static_cast<unsigned short>(X0),
+            static_cast<unsigned short>(Y0),
+            static_cast<unsigned short>(X1 - X0),
+            static_cast<unsigned short>(Y1 - Y0),
+        };
+        Texture.SetStatus(ImTextureStatus_WantUpdates);
+    }
 }
 
 void ThumbnailSheetRepository::BakeProceduralTileIntoPage(ContentRepositoryEntry& Entry)

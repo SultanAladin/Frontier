@@ -350,6 +350,86 @@ void UVWorkspaceSession::AdjustSelectedLayerShare(float RequestedSharePercent) n
     FramebuffersDirty         = true;
 }
 
+bool UVWorkspaceSession::MoveSelectedLayerToUDIM(uint32_t TargetUDIMNumber)
+{
+    auto* Layer = Asset.Layers.ResolveLayer(SelectedLayerOrdinal);
+    if (Layer == nullptr)
+    {
+        return false;
+    }
+    if (TargetUDIMNumber != 0u && TargetUDIMNumber < 1001u)
+    {
+        return false;
+    }
+
+    Layer->TargetUDIMNumber = TargetUDIMNumber;
+    if (TargetUDIMNumber == 0u)
+    {
+        Asset.Layers.SynchronizePartitions(Asset.Network, RootInstanceToken);
+        FramebuffersDirty = true;
+        return true;
+    }
+    if (std::find(Asset.UDIMTiles.begin(), Asset.UDIMTiles.end(), TargetUDIMNumber) == Asset.UDIMTiles.end())
+    {
+        Asset.UDIMTiles.push_back(TargetUDIMNumber);
+        std::sort(Asset.UDIMTiles.begin(), Asset.UDIMTiles.end());
+    }
+
+    const uint32_t TargetTileIndex = TargetUDIMNumber - 1001u;
+    const float TargetOriginU = static_cast<float>(TargetTileIndex % 10u);
+    const float TargetOriginV = static_cast<float>(TargetTileIndex / 10u);
+    uint32_t MovedIslandCount = 0u;
+
+    for (const UVIslandPartition& Island : SeamCutGenerator::PartitionConnectedUVIslands(Asset.Network))
+    {
+        if (Island.PriorityLayerOrdinal != SelectedLayerOrdinal || Island.FaceIndices.empty())
+        {
+            continue;
+        }
+
+        const uint32_t CurrentTile = Island.AssignedUDIMNumber >= 1001u ? Island.AssignedUDIMNumber : 1001u;
+        const uint32_t CurrentTileIndex = CurrentTile - 1001u;
+        const float CurrentOriginU = static_cast<float>(CurrentTileIndex % 10u);
+        const float CurrentOriginV = static_cast<float>(CurrentTileIndex / 10u);
+        const bool IsOutOfBounds =
+            Island.BoundsMinUV.U < CurrentOriginU - 1.0e-4f || Island.BoundsMaxUV.U > CurrentOriginU + 1.0001f ||
+            Island.BoundsMinUV.V < CurrentOriginV - 1.0e-4f || Island.BoundsMaxUV.V > CurrentOriginV + 1.0001f;
+        const float ShiftU = IsOutOfBounds
+            ? TargetOriginU + 0.5f - (Island.BoundsMinUV.U + Island.BoundsMaxUV.U) * 0.5f
+            : TargetOriginU - CurrentOriginU;
+        const float ShiftV = IsOutOfBounds
+            ? TargetOriginV + 0.5f - (Island.BoundsMinUV.V + Island.BoundsMaxUV.V) * 0.5f
+            : TargetOriginV - CurrentOriginV;
+
+        if (std::abs(ShiftU) < 1.0e-6f && std::abs(ShiftV) < 1.0e-6f)
+        {
+            continue;
+        }
+        for (const uint32_t EdgeIndex : Island.CornerEdgeIndices)
+        {
+            if (EdgeIndex < Asset.Network.Edges.size())
+            {
+                auto& UV = Asset.Network.Edges[EdgeIndex].ParameterUV;
+                UV.U += ShiftU;
+                UV.V += ShiftV;
+            }
+        }
+        ++MovedIslandCount;
+    }
+
+    if (MovedIslandCount > 0u)
+    {
+        ++Asset.Network.UVRevision;
+        FinalizeInteractiveUVRevision("Move priority layer to UDIM");
+    }
+    else
+    {
+        Asset.Layers.SynchronizePartitions(Asset.Network, RootInstanceToken);
+        FramebuffersDirty = true;
+    }
+    return true;
+}
+
 void UVWorkspaceSession::ApplyMatCapToActiveSelection(uint8_t MatCapSlot)
 {
     auto TargetFaces = SelectionMask.CollectSelectedFaces();

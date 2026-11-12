@@ -372,11 +372,6 @@ int main()
             Io.FontDefault = TabFont;
         }
     }
-    unsigned char* FontBytes = nullptr;
-    int            FontW     = 0;
-    int            FontH     = 0;
-    Io.Fonts->GetTexDataAsRGBA32(&FontBytes, &FontW, &FontH);
-
     ThemeRepository ThemeRepo {};
     Components::HeadlessWorkspaceDockContainer Dock {};
     (void)Dock.Initialize(Windowing::WindowConfigurationDescriptor::ConstructApplicationWindow("Frontier UV", 1840u, 980u));
@@ -404,6 +399,7 @@ int main()
     {
         Io.DisplaySize = ImVec2(1840.0f, 980.0f);
         Io.DeltaTime   = 1.0f / 60.0f;
+        SwapchainPresenter.PrepareImGuiFrame();
         ImGui::NewFrame();
         Dock.PresentWindowImGuiPanes(Components::HostWindowToken{ 0u });
         ControlCentre.Render({ 0.0f, 0.0f, 1840.0f, 980.0f }, 1.0 / 60.0, 60.0f);

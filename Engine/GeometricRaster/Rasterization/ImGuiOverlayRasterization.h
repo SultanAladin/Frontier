@@ -13,10 +13,12 @@
 #include "Engine/Windowing/PlatformWindow.h"
 
 #include <imgui.h>
+#include <backends/imgui_impl_vulkan.h>
 
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -33,6 +35,10 @@ struct OverlayRasterizationStats
     uint32_t WidthPx             = 0u;    // [px]    - Active presentation width
     uint32_t HeightPx            = 0u;    // [px]    - Active presentation height
     uint64_t PresentedBatchCount = 0ull;  // [count] - Total frames rasterized through ImGuiOverlayRasterization.slang
+    uint32_t LastDrawCommandCount = 0u;    // [count] - ImGui draw commands submitted during the latest frame
+    uint32_t LastDrawVertexCount  = 0u;    // [count] - Expanded ImGui vertices submitted during the latest frame
+    uint32_t ResidentTextureCount = 0u;    // [count] - ImGui texture records represented by Vulkan descriptors
+    uint64_t TextureUploadCount   = 0ull;  // [count] - Completed ImGui texture create/update uploads
 };
 
 class ImGuiOverlayRasterization
@@ -53,6 +59,7 @@ public:
         std::string*                      OptionalDiagnostic = nullptr);
 
     void TeardownOverlay() noexcept;
+    void PrepareImGuiFrame() noexcept;
 
     [[nodiscard]] bool PresentImGuiBatches(
         const ImDrawData* OverlayGeometry,
@@ -69,6 +76,11 @@ public:
         return Stats;
     }
 
+    [[nodiscard]] std::string_view QueryLastPresentationDiagnostic() const noexcept
+    {
+        return LastPresentationDiagnostic;
+    }
+
 private:
     struct CachedImGuiTexture
     {
@@ -81,8 +93,10 @@ private:
 
     [[nodiscard]] bool ConstructRasterResources(VkFormat TargetFormat, std::string* OptionalDiagnostic);
     [[nodiscard]] bool RebuildSwapchainOrOffscreenTarget(uint32_t WidthPx, uint32_t HeightPx);
+    [[nodiscard]] bool InitializeUpstreamImGuiBackend(std::string* OptionalDiagnostic);
+    void               TeardownUpstreamImGuiBackend() noexcept;
     void               DestroyTargetAttachments() noexcept;
-    [[nodiscard]] VkDescriptorSet EnsureTextureUploaded(const ImTextureData* SourceTex, bool FontAtlasTexture);
+    [[nodiscard]] VkDescriptorSet EnsureTextureUploaded(ImTextureData* SourceTex, bool FontAtlasTexture);
 
     VulkanInterchange*                                      BoundDevice           = nullptr;
     Windowing::DesktopPlatformWindow*                         DesktopWindow         = nullptr;
@@ -103,6 +117,7 @@ private:
     VkDescriptorPool                                          DescriptorAllocator   = VK_NULL_HANDLE;
     VkPipelineLayout                                          RasterLayout          = VK_NULL_HANDLE;
     VkPipeline                                                OverlayRasterUnit     = VK_NULL_HANDLE;
+    bool                                                      UpstreamImGuiBackendReady = false;
 
     DeviceBufferResource                                      VertexStreamBuffer    {};
     DeviceBufferResource                                      UploadStagingBuffer   {};
@@ -111,6 +126,7 @@ private:
     std::unordered_map<const ImTextureData*, CachedImGuiTexture> TextureCache       {};
     uint64_t                                                      TextureUseCounter    = 0ull;
     uint64_t                                                      TexturePresentSerial = 0ull;
+    std::string                                                   LastPresentationDiagnostic {};
     OverlayRasterizationStats                                   Stats                 {};
 };
 

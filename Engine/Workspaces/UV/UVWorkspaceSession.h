@@ -137,6 +137,7 @@ public:
     bool     DeleteSelectedLayer();
     void     AssignSelectedLayerTint(Mathematics::Scalar3D LinearTint) noexcept;
     void     AdjustSelectedLayerShare(float RequestedSharePercent) noexcept;
+    [[nodiscard]] bool MoveSelectedLayerToUDIM(uint32_t TargetUDIMNumber);
     void     ApplyMatCapToActiveSelection(uint8_t MatCapSlot);
     void     ApplySurfaceRoughnessMetallic(float Roughness, float Metallic, float MatCapBlend);
 

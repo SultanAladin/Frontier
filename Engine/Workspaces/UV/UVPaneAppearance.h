@@ -127,7 +127,8 @@ inline bool ConstructCapsuleButton(
     bool                 Active       = false,
     bool                 PrimaryStyle = false,
     float                FontPx       = 10.0f,
-    float                RadiusOverride = -1.0f)
+    float                RadiusOverride = -1.0f,
+    const OptionalTooltip& Tooltip = {})
 {
     const bool  Hovered = Rect.Contains(Cursor);
     const float Radius  = (RadiusOverride >= 0.0f) ? RadiusOverride : (Rect.Height * 0.5f);
@@ -176,6 +177,10 @@ inline bool ConstructCapsuleButton(
         Ink,
         Label);
 
+    if (Hovered && Tooltip.Enabled)
+    {
+        ControlAppearance::RecordHoveredTooltip(Rect, Tooltip);
+    }
     return Hovered && Pressed;
 }
 
@@ -224,7 +229,8 @@ inline bool ConstructSliderControl(
     Point2D              Cursor,
     bool                 PointerDown,
     bool                 PointerPressed,
-    ColorRgba            FillTintOverride = ColorRgba{ 0, 0, 0, 0 })
+    ColorRgba            FillTintOverride = ColorRgba{ 0, 0, 0, 0 },
+    const OptionalTooltip& Tooltip = {})
 {
     WorkspaceAppearance::ConstructWeightedText(
         Surface,
@@ -246,6 +252,10 @@ inline bool ConstructSliderControl(
     const Rectangle2D Track{ RowRect.X, RowRect.Y + 18.0f, RowRect.Width, 8.0f };
     const Rectangle2D HitBox{ Track.X - 4.0f, Track.Y - 5.0f, Track.Width + 8.0f, 18.0f };
     const bool        Hovered = HitBox.Contains(Cursor);
+    if (Hovered && Tooltip.Enabled)
+    {
+        ControlAppearance::RecordHoveredTooltip(RowRect, Tooltip);
+    }
 
     Surface.FillRectangle(Track, Theme.WellBg, 4.0f);
     Surface.StrokeRectangle(Track, Theme.BorderSubtle, 4.0f, 1.0f);
@@ -281,7 +291,8 @@ inline bool ConstructToggleRow(
     bool&                InOutEnabled,
     const UVThemeColors& Theme,
     Point2D              Cursor,
-    bool                 Pressed)
+    bool                 Pressed,
+    const OptionalTooltip& Tooltip = {})
 {
     WorkspaceAppearance::ConstructWeightedText(
         Surface,
@@ -293,6 +304,10 @@ inline bool ConstructToggleRow(
 
     const Rectangle2D TrackCapsule{ RowRect.Right() - 34.0f, RowRect.Y + 2.0f, 34.0f, 18.0f };
     const bool        Hovered = RowRect.Contains(Cursor);
+    if (Hovered && Tooltip.Enabled)
+    {
+        ControlAppearance::RecordHoveredTooltip(RowRect, Tooltip);
+    }
 
     Surface.FillRectangle(TrackCapsule, InOutEnabled ? Theme.AccentFill : Theme.WellBg, 9.0f);
     Surface.StrokeRectangle(TrackCapsule, InOutEnabled ? Theme.AccentFill : Theme.BorderStrong, 9.0f, 1.0f);

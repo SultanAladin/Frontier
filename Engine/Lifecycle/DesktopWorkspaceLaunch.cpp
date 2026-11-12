@@ -396,6 +396,7 @@ int LaunchDesktopWorkspace(
     ImGui::SetCurrentContext(GuiCtx);
     ImGuiIO& Io = ImGui::GetIO();
     Io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    // The Vulkan renderer is initialized after the presenter creates its render pass.
     Io.IniFilename  = nullptr;
 
     TypographyRepository Typography {};
@@ -474,11 +475,6 @@ int LaunchDesktopWorkspace(
 #endif
         UVHost.RegisterDockPanes(StandaloneDock);
     }
-
-    unsigned char* FontPixels = nullptr;
-    int            FontW      = 0;
-    int            FontH      = 0;
-    Io.Fonts->GetTexDataAsRGBA32(&FontPixels, &FontW, &FontH);
 
     GeometricRaster::ImGuiOverlayRasterization SwapchainPresenter {};
 #if !defined(__ANDROID__)
@@ -561,6 +557,7 @@ int LaunchDesktopWorkspace(
         Io.DisplaySize = ImVec2(static_cast<float>(SurfaceW), static_cast<float>(SurfaceH));
         Io.DeltaTime   = static_cast<float>(Dt);
 
+        SwapchainPresenter.PrepareImGuiFrame();
         ImGui::NewFrame();
 #if FRONTIER_EDITOR_ENABLED
         if (UseFullEditorLifecycle)
@@ -583,7 +580,14 @@ int LaunchDesktopWorkspace(
         }
         ImGui::Render();
 
-        (void)SwapchainPresenter.PresentImGuiBatches(ImGui::GetDrawData(), SurfaceW, SurfaceH);
+        if (!SwapchainPresenter.PresentImGuiBatches(ImGui::GetDrawData(), SurfaceW, SurfaceH))
+        {
+            const std::string Diagnostic(SwapchainPresenter.QueryLastPresentationDiagnostic());
+            std::fprintf(stderr, "[FrontierHost] ImGui Vulkan presentation failed: %s\n", Diagnostic.c_str());
+            SwapchainPresenter.TeardownOverlay();
+            ImGui::DestroyContext(GuiCtx);
+            return 1;
+        }
         ++ExecutedSteps;
     }
 

@@ -19,8 +19,19 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <limits>
+
+namespace
+{
+
+[[nodiscard]] ImTextureID EncodeImGuiTextureId(VkDescriptorSet Descriptor) noexcept
+{
+    return static_cast<ImTextureID>(reinterpret_cast<uintptr_t>(Descriptor));
+}
+
+} // namespace
 
 namespace Frontier::GeometricRaster
 {
@@ -180,7 +191,74 @@ bool ImGuiOverlayRasterization::InitializeOverlay(
         return false;
     }
 
+    if (!InitializeUpstreamImGuiBackend(OptionalDiagnostic))
+    {
+        TeardownOverlay();
+        return false;
+    }
+
     return true;
+}
+
+bool ImGuiOverlayRasterization::InitializeUpstreamImGuiBackend(std::string* OptionalDiagnostic)
+{
+    if (UpstreamImGuiBackendReady)
+    {
+        return true;
+    }
+    if (ImGui::GetCurrentContext() == nullptr || BoundDevice == nullptr || OverlayRenderUnit == VK_NULL_HANDLE)
+    {
+        if (OptionalDiagnostic != nullptr)
+        {
+            *OptionalDiagnostic = "Dear ImGui and the Vulkan render pass must exist before its Vulkan renderer is initialized.";
+        }
+        return false;
+    }
+
+    ImGui_ImplVulkan_InitInfo InitInfo {};
+    InitInfo.ApiVersion                   = VK_API_VERSION_1_2;
+    InitInfo.Instance                     = BoundDevice->AccessInstance();
+    InitInfo.PhysicalDevice               = BoundDevice->AccessPhysicalDevice();
+    InitInfo.Device                       = BoundDevice->AccessDevice();
+    InitInfo.QueueFamily                  = BoundDevice->QueryQueueOrdinal();
+    InitInfo.Queue                        = BoundDevice->AccessQueue();
+    InitInfo.DescriptorPoolSize           = 512u;
+    InitInfo.MinImageCount                = 2u;
+    InitInfo.ImageCount                   = std::max(2u, static_cast<uint32_t>(SwapchainImages.size()));
+    InitInfo.PipelineInfoMain.RenderPass  = OverlayRenderUnit;
+    InitInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+    if (!ImGui_ImplVulkan_Init(&InitInfo))
+    {
+        if (OptionalDiagnostic != nullptr)
+        {
+            *OptionalDiagnostic = "Dear ImGui's upstream Vulkan renderer rejected the Frontier Vulkan presentation configuration.";
+        }
+        return false;
+    }
+
+    UpstreamImGuiBackendReady = true;
+    return true;
+}
+
+void ImGuiOverlayRasterization::TeardownUpstreamImGuiBackend() noexcept
+{
+    if (UpstreamImGuiBackendReady)
+    {
+        if (ImGui::GetCurrentContext() != nullptr)
+        {
+            ImGui_ImplVulkan_Shutdown();
+        }
+        UpstreamImGuiBackendReady = false;
+    }
+}
+
+void ImGuiOverlayRasterization::PrepareImGuiFrame() noexcept
+{
+    if (UpstreamImGuiBackendReady && ImGui::GetCurrentContext() != nullptr)
+    {
+        ImGui_ImplVulkan_NewFrame();
+    }
 }
 
 bool ImGuiOverlayRasterization::ConstructRasterResources(VkFormat TargetFormat, std::string* OptionalDiagnostic)
@@ -612,9 +690,32 @@ bool ImGuiOverlayRasterization::RebuildSwapchainOrOffscreenTarget(uint32_t Width
     return true;
 }
 
-VkDescriptorSet ImGuiOverlayRasterization::EnsureTextureUploaded(const ImTextureData* SourceTex, bool FontAtlasTexture)
+VkDescriptorSet ImGuiOverlayRasterization::EnsureTextureUploaded(ImTextureData* SourceTex, bool FontAtlasTexture)
 {
-    if (SourceTex == nullptr || SourceTex->Pixels == nullptr || SourceTex->Width <= 0 || SourceTex->Height <= 0)
+    if (SourceTex == nullptr)
+    {
+        return FallbackDescriptor;
+    }
+
+    if (SourceTex->Status == ImTextureStatus_WantDestroy || SourceTex->Status == ImTextureStatus_Destroyed)
+    {
+        const auto Existing = TextureCache.find(SourceTex);
+        if (Existing != TextureCache.end())
+        {
+            if (Existing->second.Descriptor != VK_NULL_HANDLE)
+            {
+                (void)vkFreeDescriptorSets(BoundDevice->AccessDevice(), DescriptorAllocator, 1u, &Existing->second.Descriptor);
+            }
+            BoundDevice->ReleaseImage2D(Existing->second.Image);
+            TextureCache.erase(Existing);
+        }
+        SourceTex->SetTexID(ImTextureID_Invalid);
+        SourceTex->SetStatus(ImTextureStatus_Destroyed);
+        Stats.ResidentTextureCount = static_cast<uint32_t>(TextureCache.size());
+        return FallbackDescriptor;
+    }
+
+    if (SourceTex->Pixels == nullptr || SourceTex->Width <= 0 || SourceTex->Height <= 0)
     {
         return FallbackDescriptor;
     }
@@ -624,6 +725,8 @@ VkDescriptorSet ImGuiOverlayRasterization::EnsureTextureUploaded(const ImTexture
     const bool        Rgba32   = (SourceTex->Format == ImTextureFormat_RGBA32);
     const std::size_t ByteLen  = static_cast<std::size_t>(W) * H * (Rgba32 ? 4u : 1u);
     const auto*       RawBytes = static_cast<const uint8_t*>(SourceTex->Pixels);
+    const bool        TextureRequestsUpload =
+        SourceTex->Status == ImTextureStatus_WantCreate || SourceTex->Status == ImTextureStatus_WantUpdates;
 
     auto FoundEntry = TextureCache.find(SourceTex);
     if (FoundEntry == TextureCache.end() && TextureCache.size() >= 255u)
@@ -661,16 +764,19 @@ VkDescriptorSet ImGuiOverlayRasterization::EnsureTextureUploaded(const ImTexture
     auto& Entry = FoundEntry->second;
     Entry.LastTouched = ++TextureUseCounter;
     Entry.LastPresentSerial = TexturePresentSerial;
-    const uint64_t Hash  = FontAtlasTexture
+    const uint64_t Hash = FontAtlasTexture && !TextureRequestsUpload
         ? ((Entry.ContentHash != 0ull && Entry.Image.WidthPx == W && Entry.Image.HeightPx == H) ? Entry.ContentHash : 1ull)
         : HashPixelBytesSampled(RawBytes, ByteLen);
 
-    if (Entry.Image.ImageHandle != VK_NULL_HANDLE &&
+    if (!TextureRequestsUpload &&
+        Entry.Image.ImageHandle != VK_NULL_HANDLE &&
         Entry.Image.WidthPx == W &&
         Entry.Image.HeightPx == H &&
         Entry.ContentHash == Hash &&
         Entry.Descriptor != VK_NULL_HANDLE)
     {
+        SourceTex->SetTexID(EncodeImGuiTextureId(Entry.Descriptor));
+        SourceTex->SetStatus(ImTextureStatus_OK);
         return Entry.Descriptor;
     }
 
@@ -705,7 +811,9 @@ VkDescriptorSet ImGuiOverlayRasterization::EnsureTextureUploaded(const ImTexture
         }
     }
 
-    if (Entry.Image.ImageHandle == VK_NULL_HANDLE || Entry.Image.WidthPx != W || Entry.Image.HeightPx != H)
+    const bool ReusesResidentImage =
+        Entry.Image.ImageHandle != VK_NULL_HANDLE && Entry.Image.WidthPx == W && Entry.Image.HeightPx == H;
+    if (!ReusesResidentImage)
     {
         BoundDevice->ReleaseImage2D(Entry.Image);
         Entry.Image = BoundDevice->AllocateImage2D(
@@ -721,16 +829,33 @@ VkDescriptorSet ImGuiOverlayRasterization::EnsureTextureUploaded(const ImTexture
     }
 
     VkCommandBuffer Cmd = BoundDevice->BeginSingleTimeCommands();
+    if (Cmd == VK_NULL_HANDLE)
+    {
+        return FallbackDescriptor;
+    }
     VkImageMemoryBarrier ToDst {};
     ToDst.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    ToDst.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+    ToDst.oldLayout           = ReusesResidentImage ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
     ToDst.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     ToDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     ToDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     ToDst.image               = Entry.Image.ImageHandle;
     ToDst.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
+    ToDst.srcAccessMask       = ReusesResidentImage
+        ? static_cast<VkAccessFlags>(VK_ACCESS_SHADER_READ_BIT)
+        : static_cast<VkAccessFlags>(0u);
     ToDst.dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vkCmdPipelineBarrier(Cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, 0u, nullptr, 0u, nullptr, 1u, &ToDst);
+    vkCmdPipelineBarrier(
+        Cmd,
+        ReusesResidentImage ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0u,
+        0u,
+        nullptr,
+        0u,
+        nullptr,
+        1u,
+        &ToDst);
 
     VkBufferImageCopy CopyRegion {};
     CopyRegion.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
@@ -745,7 +870,10 @@ VkDescriptorSet ImGuiOverlayRasterization::EnsureTextureUploaded(const ImTexture
     vkCmdPipelineBarrier(Cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0u, 0u, nullptr, 0u, nullptr, 1u, &ToRead);
 
     const uint64_t SyncPoint = BoundDevice->DispatchCommandBufferAsync(Cmd);
-    (void)BoundDevice->AwaitTimelineTick(SyncPoint);
+    if (!BoundDevice->AwaitTimelineTick(SyncPoint))
+    {
+        return FallbackDescriptor;
+    }
 
     if (Entry.Descriptor == VK_NULL_HANDLE)
     {
@@ -780,6 +908,10 @@ VkDescriptorSet ImGuiOverlayRasterization::EnsureTextureUploaded(const ImTexture
 
     vkUpdateDescriptorSets(LogicalVk, 2u, Writes, 0u, nullptr);
     Entry.ContentHash = Hash;
+    SourceTex->SetTexID(EncodeImGuiTextureId(Entry.Descriptor));
+    SourceTex->SetStatus(ImTextureStatus_OK);
+    Stats.ResidentTextureCount = static_cast<uint32_t>(TextureCache.size());
+    ++Stats.TextureUploadCount;
     return Entry.Descriptor;
 }
 
@@ -788,152 +920,99 @@ bool ImGuiOverlayRasterization::PresentImGuiBatches(
     uint32_t          TargetWidthPx,
     uint32_t          TargetHeightPx)
 {
-    if (BoundDevice == nullptr || !BoundDevice->Ready() || OverlayRasterUnit == VK_NULL_HANDLE)
+    const auto ReportPresentationFailure = [this](std::string DiagnosticText)
     {
+        LastPresentationDiagnostic = std::move(DiagnosticText);
         return false;
+    };
+
+    if (BoundDevice == nullptr || !BoundDevice->Ready() || OverlayRenderUnit == VK_NULL_HANDLE ||
+        !UpstreamImGuiBackendReady)
+    {
+        return ReportPresentationFailure("The ImGui Vulkan presentation backend is not initialized.");
     }
 
-    ++TexturePresentSerial;
-    if (TexturePresentSerial == 0ull)
-    {
-        TexturePresentSerial = 1ull;
-        for (auto& [TextureKey, TextureEntry] : TextureCache)
-        {
-            (void)TextureKey;
-            TextureEntry.LastPresentSerial = 0ull;
-        }
-    }
     TargetWidthPx  = std::max(16u, TargetWidthPx);
     TargetHeightPx = std::max(16u, TargetHeightPx);
     if (TargetWidthPx != Stats.WidthPx || TargetHeightPx != Stats.HeightPx || TargetAttachments.empty())
     {
         if (!RebuildSwapchainOrOffscreenTarget(TargetWidthPx, TargetHeightPx))
         {
-            return false;
+            return ReportPresentationFailure("Unable to rebuild the Vulkan presentation attachments.");
         }
     }
 
-    struct PreparedBatchSlice
+    // Texture uploads submit their own short-lived transfer command buffer.  Complete those
+    // requests before acquiring an image or beginning the render pass: doing it inside the
+    // old custom command decoder allowed a texture upload to race the frame being presented.
+    uint32_t TextureRequests = 0u;
+    if (OverlayGeometry != nullptr && OverlayGeometry->Textures != nullptr)
     {
-        uint32_t        FirstVertex = 0u;
-        uint32_t        VertexCount = 0u;
-        VkRect2D        Scissor     {};
-        VkDescriptorSet SetHandle   = VK_NULL_HANDLE;
-    };
-    std::vector<PreparedBatchSlice> Batches {};
-
-    const ImFontAtlas*   FontAtlas = (ImGui::GetCurrentContext() != nullptr) ? ImGui::GetIO().Fonts : nullptr;
-    const ImTextureData* FontTex   = (FontAtlas != nullptr) ? FontAtlas->TexData : nullptr;
-
-    const uint64_t RequiredVertexCount = (OverlayGeometry != nullptr && OverlayGeometry->TotalVtxCount > 0)
-        ? static_cast<uint64_t>(OverlayGeometry->TotalVtxCount)
-        : 0ull;
-    const uint64_t RequiredVertexBytes = RequiredVertexCount * sizeof(ImGuiShaderVertex);
-    if (RequiredVertexBytes > VertexStreamBuffer.ByteCapacity)
-    {
-        const uint64_t NewCapacity = std::max<uint64_t>(RequiredVertexBytes, VertexStreamBuffer.ByteCapacity * 2ull);
-        if (NewCapacity > static_cast<uint64_t>(std::numeric_limits<VkDeviceSize>::max()))
+        for (ImTextureData* RequestedTexture : *OverlayGeometry->Textures)
         {
-            return false;
-        }
-        (void)vkDeviceWaitIdle(BoundDevice->AccessDevice());
-        BoundDevice->ReleaseBuffer(VertexStreamBuffer);
-        VertexStreamBuffer = BoundDevice->AllocateBuffer(
-            NewCapacity,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        if (VertexStreamBuffer.BufferHandle == VK_NULL_HANDLE || VertexStreamBuffer.HostAddress == nullptr)
-        {
-            return false;
-        }
-        VkDescriptorBufferInfo BufferInfo { VertexStreamBuffer.BufferHandle, 0ull, VK_WHOLE_SIZE };
-        auto RefreshVertexStreamDescriptor = [&](VkDescriptorSet Set)
-        {
-            if (Set != VK_NULL_HANDLE)
+            if (RequestedTexture != nullptr && RequestedTexture->Status != ImTextureStatus_OK)
             {
-                VkWriteDescriptorSet BufferWrite {};
-                BufferWrite.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                BufferWrite.dstSet          = Set;
-                BufferWrite.dstBinding      = 0u;
-                BufferWrite.descriptorCount = 1u;
-                BufferWrite.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                BufferWrite.pBufferInfo     = &BufferInfo;
-                vkUpdateDescriptorSets(BoundDevice->AccessDevice(), 1u, &BufferWrite, 0u, nullptr);
+                const bool IsUploadRequest =
+                    RequestedTexture->Status == ImTextureStatus_WantCreate ||
+                    RequestedTexture->Status == ImTextureStatus_WantUpdates;
+                ImGui_ImplVulkan_UpdateTexture(RequestedTexture);
+                TextureRequests += IsUploadRequest ? 1u : 0u;
             }
-        };
-        RefreshVertexStreamDescriptor(FallbackDescriptor);
-        for (auto& [TextureKey, TextureEntry] : TextureCache)
-        {
-            (void)TextureKey;
-            RefreshVertexStreamDescriptor(TextureEntry.Descriptor);
         }
     }
 
-    uint32_t       WrittenVertices = 0u;
-    const uint32_t MaxVertices     = static_cast<uint32_t>(std::min<uint64_t>(
-        VertexStreamBuffer.ByteCapacity / sizeof(ImGuiShaderVertex), std::numeric_limits<uint32_t>::max()));
-    auto*          OutVerts        = static_cast<ImGuiShaderVertex*>(VertexStreamBuffer.HostAddress);
-
-    if (OverlayGeometry != nullptr && OutVerts != nullptr)
+    // Frontier also uses ImTextureData for viewport and thumbnail textures. Unlike
+    // font-atlas textures, these application-owned records are not automatically in
+    // ImDrawData::Textures, so explicitly service those referenced by draw commands.
+    if (OverlayGeometry != nullptr)
     {
-        const float OffX = OverlayGeometry->DisplayPos.x;
-        const float OffY = OverlayGeometry->DisplayPos.y;
-
-        for (int ListIdx = 0; ListIdx < OverlayGeometry->CmdListsCount; ++ListIdx)
+        for (int ListIndex = 0; ListIndex < OverlayGeometry->CmdListsCount; ++ListIndex)
         {
-            const ImDrawList* CmdList = OverlayGeometry->CmdLists[ListIdx];
-            const ImDrawVert* VtxArr  = CmdList->VtxBuffer.Data;
-            const ImDrawIdx*  IdxArr  = CmdList->IdxBuffer.Data;
-
-            for (int CmdIdx = 0; CmdIdx < CmdList->CmdBuffer.Size; ++CmdIdx)
+            const ImDrawList* DrawList = OverlayGeometry->CmdLists[ListIndex];
+            for (int CommandIndex = 0; CommandIndex < DrawList->CmdBuffer.Size; ++CommandIndex)
             {
-                const ImDrawCmd& Cmd = CmdList->CmdBuffer[CmdIdx];
-                if (Cmd.UserCallback != nullptr)
-                {
-                    Cmd.UserCallback(CmdList, &Cmd);
-                    continue;
-                }
-
-                const int32_t ClipX0 = std::max(0, static_cast<int32_t>(std::floor(Cmd.ClipRect.x - OffX)));
-                const int32_t ClipY0 = std::max(0, static_cast<int32_t>(std::floor(Cmd.ClipRect.y - OffY)));
-                const int32_t ClipX1 = std::min(static_cast<int32_t>(Stats.WidthPx), static_cast<int32_t>(std::ceil(Cmd.ClipRect.z - OffX)));
-                const int32_t ClipY1 = std::min(static_cast<int32_t>(Stats.HeightPx), static_cast<int32_t>(std::ceil(Cmd.ClipRect.w - OffY)));
-                if (ClipX0 >= ClipX1 || ClipY0 >= ClipY1 || Cmd.ElemCount == 0u)
+                ImTextureData* Texture = DrawList->CmdBuffer[CommandIndex].TexRef._TexData;
+                if (Texture == nullptr)
                 {
                     continue;
                 }
-
-                const ImTextureData* TexSource = Cmd.TexRef._TexData != nullptr ? Cmd.TexRef._TexData : FontTex;
-                const VkDescriptorSet BoundSet = EnsureTextureUploaded(TexSource, TexSource == FontTex);
-
-                const uint32_t StartVert = WrittenVertices;
-                for (uint32_t Elem = 0u; Elem < Cmd.ElemCount && WrittenVertices < MaxVertices; ++Elem)
+                if (Texture->Status == ImTextureStatus_OK && Texture->GetTexID() == ImTextureID_Invalid &&
+                    Texture->BackendUserData == nullptr)
                 {
-                    const ImDrawVert& Src = VtxArr[Cmd.VtxOffset + IdxArr[Cmd.IdxOffset + Elem]];
-                    const uint32_t    Col = Src.col;
-                    OutVerts[WrittenVertices++] = ImGuiShaderVertex{
-                        Src.pos.x - OffX,
-                        Src.pos.y - OffY,
-                        Src.uv.x,
-                        Src.uv.y,
-                        static_cast<float>((Col >> IM_COL32_R_SHIFT) & 0xFFu) / 255.0f,
-                        static_cast<float>((Col >> IM_COL32_G_SHIFT) & 0xFFu) / 255.0f,
-                        static_cast<float>((Col >> IM_COL32_B_SHIFT) & 0xFFu) / 255.0f,
-                        static_cast<float>((Col >> IM_COL32_A_SHIFT) & 0xFFu) / 255.0f,
-                    };
+                    // Recover older Frontier producers that marked CPU pixels as uploaded
+                    // without ever giving the renderer a GPU texture handle.
+                    Texture->SetStatus(ImTextureStatus_WantCreate);
                 }
-
-                if (WrittenVertices > StartVert)
+                if (Texture->Status == ImTextureStatus_WantCreate || Texture->Status == ImTextureStatus_WantUpdates ||
+                    Texture->Status == ImTextureStatus_WantDestroy)
                 {
-                    PreparedBatchSlice Batch {};
-                    Batch.FirstVertex = StartVert;
-                    Batch.VertexCount = WrittenVertices - StartVert;
-                    Batch.Scissor     = {
-                        { ClipX0, ClipY0 },
-                        { static_cast<uint32_t>(ClipX1 - ClipX0), static_cast<uint32_t>(ClipY1 - ClipY0) },
-                    };
-                    Batch.SetHandle   = BoundSet;
-                    Batches.push_back(Batch);
+                    const bool IsUploadRequest =
+                        Texture->Status == ImTextureStatus_WantCreate || Texture->Status == ImTextureStatus_WantUpdates;
+                    ImGui_ImplVulkan_UpdateTexture(Texture);
+                    TextureRequests += IsUploadRequest ? 1u : 0u;
+                }
+                if (Texture->GetTexID() == ImTextureID_Invalid)
+                {
+                    return ReportPresentationFailure("An ImGui draw command references a texture that the Vulkan backend did not create.");
+                }
+            }
+        }
+    }
+
+    uint32_t DecodedCommandCount = 0u;
+    uint32_t DecodedIndexCount   = 0u;
+    if (OverlayGeometry != nullptr)
+    {
+        for (int ListIndex = 0; ListIndex < OverlayGeometry->CmdListsCount; ++ListIndex)
+        {
+            const ImDrawList* DrawList = OverlayGeometry->CmdLists[ListIndex];
+            for (int CommandIndex = 0; CommandIndex < DrawList->CmdBuffer.Size; ++CommandIndex)
+            {
+                const ImDrawCmd& Command = DrawList->CmdBuffer[CommandIndex];
+                if (Command.UserCallback == nullptr && Command.ElemCount > 0u)
+                {
+                    ++DecodedCommandCount;
+                    DecodedIndexCount += Command.ElemCount;
                 }
             }
         }
@@ -942,107 +1021,131 @@ bool ImGuiOverlayRasterization::PresentImGuiBatches(
     uint32_t ImageIndex = 0u;
     if (Stats.LiveWindowSwapchain)
     {
-        const VkResult Acq = vkAcquireNextImageKHR(
+        const VkResult AcquireResult = vkAcquireNextImageKHR(
             BoundDevice->AccessDevice(),
             SwapchainHandle,
             1000000000ull,
             ImageAcquireSemaphore,
             VK_NULL_HANDLE,
             &ImageIndex);
-        if (Acq == VK_ERROR_OUT_OF_DATE_KHR)
+        if (AcquireResult == VK_ERROR_OUT_OF_DATE_KHR)
         {
-            (void)RebuildSwapchainOrOffscreenTarget(TargetWidthPx, TargetHeightPx);
+            if (!RebuildSwapchainOrOffscreenTarget(TargetWidthPx, TargetHeightPx))
+            {
+                return ReportPresentationFailure("The window swapchain became out of date and could not be rebuilt.");
+            }
+            LastPresentationDiagnostic.clear();
             return true;
         }
-        if (Acq != VK_SUCCESS && Acq != VK_SUBOPTIMAL_KHR)
+        if (AcquireResult != VK_SUCCESS && AcquireResult != VK_SUBOPTIMAL_KHR)
         {
-            return false;
+            return ReportPresentationFailure(
+                "vkAcquireNextImageKHR failed with VkResult " + std::to_string(static_cast<int32_t>(AcquireResult)) + ".");
         }
     }
 
-    VkCommandBuffer Cmd = BoundDevice->BeginSingleTimeCommands();
-    VkClearValue    ClearColor {};
-    ClearColor.color = { { 0.055f, 0.055f, 0.063f, 1.0f } };
-
-    VkRenderPassBeginInfo RpBegin {};
-    RpBegin.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    RpBegin.renderPass      = OverlayRenderUnit;
-    RpBegin.framebuffer     = TargetAttachments[ImageIndex];
-    RpBegin.renderArea      = { { 0, 0 }, { Stats.WidthPx, Stats.HeightPx } };
-    RpBegin.clearValueCount = 1u;
-    RpBegin.pClearValues    = &ClearColor;
-
-    vkCmdBeginRenderPass(Cmd, &RpBegin, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindPipeline(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, OverlayRasterUnit);
-
-    VkViewport Vp {};
-    Vp.x        = 0.0f;
-    Vp.y        = 0.0f;
-    Vp.width    = static_cast<float>(Stats.WidthPx);
-    Vp.height   = static_cast<float>(Stats.HeightPx);
-    Vp.minDepth = 0.0f;
-    Vp.maxDepth = 1.0f;
-    vkCmdSetViewport(Cmd, 0u, 1u, &Vp);
-
-    const ImGuiPushConstants Push {
-        2.0f / static_cast<float>(Stats.WidthPx),
-        2.0f / static_cast<float>(Stats.HeightPx),
-        -1.0f,
-        -1.0f,
-    };
-    vkCmdPushConstants(Cmd, RasterLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(Push), &Push);
-
-    for (const auto& Batch : Batches)
+    VkCommandBuffer CommandBuffer = BoundDevice->BeginSingleTimeCommands();
+    if (CommandBuffer == VK_NULL_HANDLE)
     {
-        vkCmdSetScissor(Cmd, 0u, 1u, &Batch.Scissor);
-        vkCmdBindDescriptorSets(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, RasterLayout, 0u, 1u, &Batch.SetHandle, 0u, nullptr);
-        vkCmdDraw(Cmd, Batch.VertexCount, 1u, Batch.FirstVertex, 0u);
+        return ReportPresentationFailure("Unable to allocate a Vulkan command buffer for the ImGui frame.");
     }
 
-    vkCmdEndRenderPass(Cmd);
+    VkClearValue ClearColor {};
+    ClearColor.color = { { 0.055f, 0.055f, 0.063f, 1.0f } };
+    VkRenderPassBeginInfo RenderPassBegin {};
+    RenderPassBegin.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    RenderPassBegin.renderPass      = OverlayRenderUnit;
+    RenderPassBegin.framebuffer     = TargetAttachments[ImageIndex];
+    RenderPassBegin.renderArea      = { { 0, 0 }, { Stats.WidthPx, Stats.HeightPx } };
+    RenderPassBegin.clearValueCount = 1u;
+    RenderPassBegin.pClearValues    = &ClearColor;
+
+    vkCmdBeginRenderPass(CommandBuffer, &RenderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
+    if (OverlayGeometry != nullptr)
+    {
+        // This is the exact supported draw path used by the older, physically proven
+        // Frontier presenter.  It owns indexed command offsets, clip rectangles, render
+        // state resets, font atlas descriptors, and texture update semantics.
+        ImGui_ImplVulkan_RenderDrawData(const_cast<ImDrawData*>(OverlayGeometry), CommandBuffer);
+    }
+    vkCmdEndRenderPass(CommandBuffer);
 
     if (Stats.LiveWindowSwapchain)
     {
-        vkEndCommandBuffer(Cmd);
-        const VkPipelineStageFlags WaitMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        VkSubmitInfo               Sub {};
-        Sub.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        Sub.waitSemaphoreCount   = 1u;
-        Sub.pWaitSemaphores      = &ImageAcquireSemaphore;
-        Sub.pWaitDstStageMask    = &WaitMask;
-        Sub.commandBufferCount   = 1u;
-        Sub.pCommandBuffers      = &Cmd;
-        Sub.signalSemaphoreCount = 1u;
-        Sub.pSignalSemaphores    = &RenderDoneSemaphore;
-
-        if (vkQueueSubmit(BoundDevice->AccessQueue(), 1u, &Sub, VK_NULL_HANDLE) != VK_SUCCESS)
+        const VkResult EndResult = vkEndCommandBuffer(CommandBuffer);
+        if (EndResult != VK_SUCCESS)
         {
-            return false;
+            vkFreeCommandBuffers(BoundDevice->AccessDevice(), BoundDevice->AccessCommandAllocator(), 1u, &CommandBuffer);
+            return ReportPresentationFailure(
+                "vkEndCommandBuffer failed with VkResult " + std::to_string(static_cast<int32_t>(EndResult)) + ".");
         }
 
-        VkPresentInfoKHR Pres {};
-        Pres.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-        Pres.waitSemaphoreCount = 1u;
-        Pres.pWaitSemaphores    = &RenderDoneSemaphore;
-        Pres.swapchainCount     = 1u;
-        Pres.pSwapchains        = &SwapchainHandle;
-        Pres.pImageIndices      = &ImageIndex;
-
-        const VkResult PresRes = vkQueuePresentKHR(BoundDevice->AccessQueue(), &Pres);
-        vkQueueWaitIdle(BoundDevice->AccessQueue());
-        vkFreeCommandBuffers(BoundDevice->AccessDevice(), BoundDevice->AccessCommandAllocator(), 1u, &Cmd);
-
-        if (PresRes == VK_ERROR_OUT_OF_DATE_KHR || PresRes == VK_SUBOPTIMAL_KHR)
+        const VkPipelineStageFlags WaitMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        VkSubmitInfo SubmitInfo {};
+        SubmitInfo.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        SubmitInfo.waitSemaphoreCount   = 1u;
+        SubmitInfo.pWaitSemaphores      = &ImageAcquireSemaphore;
+        SubmitInfo.pWaitDstStageMask    = &WaitMask;
+        SubmitInfo.commandBufferCount   = 1u;
+        SubmitInfo.pCommandBuffers      = &CommandBuffer;
+        SubmitInfo.signalSemaphoreCount = 1u;
+        SubmitInfo.pSignalSemaphores    = &RenderDoneSemaphore;
+        const VkResult SubmitResult = vkQueueSubmit(BoundDevice->AccessQueue(), 1u, &SubmitInfo, VK_NULL_HANDLE);
+        if (SubmitResult != VK_SUCCESS)
         {
-            (void)RebuildSwapchainOrOffscreenTarget(TargetWidthPx, TargetHeightPx);
+            vkFreeCommandBuffers(BoundDevice->AccessDevice(), BoundDevice->AccessCommandAllocator(), 1u, &CommandBuffer);
+            return ReportPresentationFailure(
+                "vkQueueSubmit failed with VkResult " + std::to_string(static_cast<int32_t>(SubmitResult)) + ".");
+        }
+
+        VkPresentInfoKHR PresentInfo {};
+        PresentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        PresentInfo.waitSemaphoreCount = 1u;
+        PresentInfo.pWaitSemaphores    = &RenderDoneSemaphore;
+        PresentInfo.swapchainCount     = 1u;
+        PresentInfo.pSwapchains        = &SwapchainHandle;
+        PresentInfo.pImageIndices      = &ImageIndex;
+        const VkResult PresentResult = vkQueuePresentKHR(BoundDevice->AccessQueue(), &PresentInfo);
+
+        // The presenter intentionally serializes its single reusable command allocator.
+        // This mirrors the old working frame lifetime and prevents an in-flight command
+        // buffer from being freed/reused before the next acquire.
+        const VkResult IdleResult = vkQueueWaitIdle(BoundDevice->AccessQueue());
+        vkFreeCommandBuffers(BoundDevice->AccessDevice(), BoundDevice->AccessCommandAllocator(), 1u, &CommandBuffer);
+        if (IdleResult != VK_SUCCESS)
+        {
+            return ReportPresentationFailure(
+                "vkQueueWaitIdle failed with VkResult " + std::to_string(static_cast<int32_t>(IdleResult)) + ".");
+        }
+        if (PresentResult == VK_ERROR_OUT_OF_DATE_KHR || PresentResult == VK_SUBOPTIMAL_KHR)
+        {
+            if (!RebuildSwapchainOrOffscreenTarget(TargetWidthPx, TargetHeightPx))
+            {
+                return ReportPresentationFailure("The window swapchain became unavailable after presentation and could not be rebuilt.");
+            }
+        }
+        else if (PresentResult != VK_SUCCESS)
+        {
+            return ReportPresentationFailure(
+                "vkQueuePresentKHR failed with VkResult " + std::to_string(static_cast<int32_t>(PresentResult)) + ".");
         }
     }
     else
     {
-        const uint64_t SyncPoint = BoundDevice->DispatchCommandBufferAsync(Cmd);
-        (void)BoundDevice->AwaitTimelineTick(SyncPoint);
+        const uint64_t SyncPoint = BoundDevice->DispatchCommandBufferAsync(CommandBuffer);
+        if (!BoundDevice->AwaitTimelineTick(SyncPoint))
+        {
+            return ReportPresentationFailure("The offscreen Vulkan frame did not reach its timeline synchronization point.");
+        }
     }
 
+    Stats.LastDrawCommandCount = DecodedCommandCount;
+    Stats.LastDrawVertexCount  = DecodedIndexCount;
+    Stats.ResidentTextureCount = OverlayGeometry != nullptr && OverlayGeometry->Textures != nullptr
+        ? static_cast<uint32_t>(OverlayGeometry->Textures->Size)
+        : 0u;
+    Stats.TextureUploadCount += TextureRequests;
+    LastPresentationDiagnostic.clear();
     ++Stats.PresentedBatchCount;
     return true;
 }
@@ -1126,10 +1229,12 @@ void ImGuiOverlayRasterization::TeardownOverlay() noexcept
 {
     if (BoundDevice == nullptr || !BoundDevice->Ready())
     {
+        UpstreamImGuiBackendReady = false;
         BoundDevice = nullptr;
         return;
     }
 
+    TeardownUpstreamImGuiBackend();
     DestroyTargetAttachments();
     const VkDevice LogicalVk = BoundDevice->AccessDevice();
 

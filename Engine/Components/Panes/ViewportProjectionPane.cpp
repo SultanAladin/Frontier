@@ -77,16 +77,25 @@ void ViewportProjectionPane::UploadTexturePixels(ImTextureData& TargetTex, const
     {
         return;
     }
-    if (TargetTex.Width != static_cast<int>(Source.WidthPx) ||
+    const bool NeedsCreate =
+        TargetTex.Width != static_cast<int>(Source.WidthPx) ||
         TargetTex.Height != static_cast<int>(Source.HeightPx) ||
-        TargetTex.Pixels == nullptr)
+        TargetTex.Pixels == nullptr;
+    if (NeedsCreate)
     {
         TargetTex.DestroyPixels();
         TargetTex.SetStatus(ImTextureStatus_Destroyed);
         TargetTex.Create(ImTextureFormat_RGBA32, static_cast<int>(Source.WidthPx), static_cast<int>(Source.HeightPx));
     }
     std::memcpy(TargetTex.Pixels, Source.RgbaPixels, static_cast<std::size_t>(Source.WidthPx) * Source.HeightPx * 4u);
-    TargetTex.SetStatus(ImTextureStatus_OK);
+
+    // Dear ImGui's Vulkan backend owns the GPU copy. Signal a full-region update for
+    // an existing texture; a newly-created texture remains in WantCreate state.
+    if (!NeedsCreate && TargetTex.Status == ImTextureStatus_OK)
+    {
+        TargetTex.UpdateRect = { 0u, 0u, static_cast<unsigned short>(Source.WidthPx), static_cast<unsigned short>(Source.HeightPx) };
+        TargetTex.SetStatus(ImTextureStatus_WantUpdates);
+    }
 }
 
 void ViewportProjectionPane::Render(

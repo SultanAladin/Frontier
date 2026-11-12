@@ -9,7 +9,11 @@
 
 #include "Engine/Workspaces/UV/UVInspectorPanel.h"
 
+#include "Engine/Components/Controls/ControlTooltip.h"
+#include "Engine/Components/Controls/DropdownSelector.h"
+#include "Engine/Components/Controls/TextInputField.h"
 #include "Engine/Workspaces/UV/UVPaneAppearance.h"
+#include "Engine/Workspaces/UV/Solvers/SeamCutGenerator.h"
 
 #include <imgui.h>
 
@@ -68,6 +72,34 @@ void ConstructMetricTrio(
     }
 }
 
+void ConstructPackingMetricCards(
+    PixelSpace& Surface,
+    Rectangle2D Bounds,
+    const std::array<std::array<std::string_view, 3u>, 3u>& Cards,
+    const UVAppearance::UVThemeColors& Theme)
+{
+    Surface.FillRectangle(Bounds, Theme.SectionBg, 16.0f);
+    Surface.StrokeRectangle(Bounds, Theme.BorderSubtle, 16.0f, 1.0f);
+    const float Gap = 7.0f;
+    const float CardW = (Bounds.Width - Gap * 2.0f) / 3.0f;
+    for (uint32_t Index = 0u; Index < 3u; ++Index)
+    {
+        const float X = Bounds.X + static_cast<float>(Index) * (CardW + Gap);
+        const Rectangle2D Card{ X, Bounds.Y, CardW, Bounds.Height };
+        Surface.FillRectangle(Card, Theme.WellBg, 12.0f);
+        Surface.StrokeRectangle(Card, Theme.BorderSubtle, 12.0f, 1.0f);
+        WorkspaceAppearance::ConstructTruncatedText(
+            Surface, FontWeightClass::Regular, { X + 9.0f, Bounds.Y + 7.0f }, CardW - 18.0f, 8.2f,
+            Theme.TextMuted, Cards[Index][0]);
+        WorkspaceAppearance::ConstructTruncatedText(
+            Surface, FontWeightClass::Medium, { X + 9.0f, Bounds.Y + 20.0f }, CardW - 18.0f, 13.0f,
+            Index == 0u ? Theme.AccentFill : Theme.TextPrimary, Cards[Index][1]);
+        WorkspaceAppearance::ConstructTruncatedText(
+            Surface, FontWeightClass::Regular, { X + 9.0f, Bounds.Y + 42.0f }, CardW - 18.0f, 7.8f,
+            Theme.TextMuted, Cards[Index][2]);
+    }
+}
+
 [[nodiscard]] float EvaluateUDIMFillPercent(const GeometrySpace::PolygonNetwork& Net, uint32_t TargetUDIM) noexcept
 {
     double AreaSum = 0.0;
@@ -96,6 +128,11 @@ void UVInspectorPanel::AttachSession(UVWorkspaceSession* TargetSession) noexcept
 {
     Session       = TargetSession;
     ScrollOffsetY = 0.0f;
+    LayerNameEditor = {};
+    EditingLayerOrdinal = 0u;
+    ActiveLayerDropdownOpen = false;
+    TargetUdimDropdownOpen = false;
+    PackingScopeDropdownOpen = false;
 }
 
 float UVInspectorPanel::RenderPackingTab(
@@ -103,7 +140,8 @@ float UVInspectorPanel::RenderPackingTab(
     float                   LeftX,
     float                   StartY,
     float                   InnerW,
-    const PaneInputReading& Input)
+    const PaneInputReading& Input,
+    double                  Δt)
 {
     using namespace UVAppearance;
     const UVThemeColors Theme   = QueryThemeColors();
@@ -113,80 +151,144 @@ float UVInspectorPanel::RenderPackingTab(
 
     float CurY = StartY;
 
-    const auto* ActiveLayer = Session->Asset.Layers.InspectLayer(Session->SelectedLayerOrdinal);
-    const float ActiveShare = (ActiveLayer != nullptr) ? ActiveLayer->TargetSharePercent : Session->Asset.Layers.DeriveRemainderSharePercent();
     const float FillPct     = EvaluateUDIMFillPercent(Session->Asset.Network, Session->ActiveUDIMNumber);
     const float RemPct      = Session->Asset.Layers.DeriveRemainderSharePercent();
-
-    char ShareStr[24]{}, FillStr[24]{}, RemStr[24]{}, UdimFillCap[32]{};
-    std::snprintf(ShareStr, sizeof(ShareStr), "%.0f%%", ActiveShare);
-    std::snprintf(FillStr, sizeof(FillStr), "%.1f%%", FillPct);
-    std::snprintf(RemStr, sizeof(RemStr), "%.0f%%", RemPct);
-    std::snprintf(UdimFillCap, sizeof(UdimFillCap), "UDIM %u Fill", Session->ActiveUDIMNumber);
-
-    ConstructMetricTrio(
-        Surface,
-        { LeftX, CurY, InnerW, 56.0f },
-        ShareStr, "Layer Budget",
-        FillStr,  UdimFillCap,
-        RemStr,   "Auto Remainder",
-        Theme);
-    CurY += 66.0f;
-
-    // Section 1: Importance Space Allocation (.pz-section)
+    const auto  TileCfg     = Session->QueryUDIMTileSetting(Session->ActiveUDIMNumber);
+    const auto  Islands     = SeamCutGenerator::PartitionConnectedUVIslands(Session->Asset.Network);
+    const auto  SelectedFaces = Session->SelectionMask.CollectSelectedFaces();
+    std::vector<uint8_t> FaceSelected(Session->Asset.Network.Faces.size(), 0u);
+    for (const uint32_t FaceIndex : SelectedFaces)
     {
-        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 204.0f };
+        if (FaceIndex < FaceSelected.size())
+        {
+            FaceSelected[FaceIndex] = 1u;
+        }
+    }
+
+    uint32_t TotalIslandsInTile = 0u;
+    uint32_t SelectedIslandsInTile = 0u;
+    uint32_t SelectedFacesInTile = 0u;
+    for (const UVIslandPartition& Island : Islands)
+    {
+        if (Island.AssignedUDIMNumber != Session->ActiveUDIMNumber)
+        {
+            continue;
+        }
+        ++TotalIslandsInTile;
+        bool IslandSelected = false;
+        for (const uint32_t FaceIndex : Island.FaceIndices)
+        {
+            if (FaceIndex < FaceSelected.size() && FaceSelected[FaceIndex] != 0u)
+            {
+                ++SelectedFacesInTile;
+                IslandSelected = true;
+            }
+        }
+        SelectedIslandsInTile += IslandSelected ? 1u : 0u;
+    }
+
+    char SelectedCount[32]{}, SelectedSub[48]{}, FillStr[24]{}, FillSub[48]{}, RemStr[24]{}, RemSub[32]{};
+    std::snprintf(SelectedCount, sizeof(SelectedCount), "%u / %u", SelectedIslandsInTile, TotalIslandsInTile);
+    if (SelectedFacesInTile > 0u)
+    {
+        std::snprintf(SelectedSub, sizeof(SelectedSub), "%u faces selected", SelectedFacesInTile);
+    }
+    else
+    {
+        std::snprintf(SelectedSub, sizeof(SelectedSub), "Objects in UDIM %u", Session->ActiveUDIMNumber);
+    }
+    std::snprintf(FillStr, sizeof(FillStr), "%.1f%%", FillPct);
+    std::snprintf(FillSub, sizeof(FillSub), "%u charts · %u px", TotalIslandsInTile, TileCfg.ResolutionPx);
+    std::snprintf(RemStr, sizeof(RemStr), "%.0f%%", RemPct);
+    std::snprintf(RemSub, sizeof(RemSub), "%zu layers active", Session->Asset.Layers.InspectLayers().size());
+
+    ConstructPackingMetricCards(
+        Surface,
+            { LeftX, CurY, InnerW, 72.0f },
+        {{{ std::string("Selected · UDIM ") + std::to_string(Session->ActiveUDIMNumber), SelectedCount, SelectedSub },
+          { std::string("UDIM ") + std::to_string(Session->ActiveUDIMNumber) + " Fill", FillStr, FillSub },
+          { "Auto Remainder", RemStr, RemSub }}},
+        Theme);
+    CurY += 100.0f;
+
+    // Section 1: Importance Space Allocation, matching the HTML inspector's controls.
+    {
+        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 410.0f };
         Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
         Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
 
         const float SX = SecRect.X + 16.0f;
         const float SW = SecRect.Width - 32.0f;
         float       SY = SecRect.Y + 14.0f;
-
         ConstructSectionHeading(Surface, SX, SY, SW, "Importance Space Allocation", Theme);
-        SY += 24.0f;
+        SY += 45.0f;
 
-        // Active Layer selector capsules row
-        const std::string LayerLabel = (ActiveLayer != nullptr) ? ActiveLayer->LayerTitle : std::string("Unassigned Remainder");
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { SX, SY + 6.0f }, 9.8f, Theme.TextMuted, "Active Layer");
-        const Rectangle2D LayerCycleBtn{ SX + 88.0f, SY, SW - 88.0f, 26.0f };
-        if (ConstructCapsuleButton(Surface, LayerCycleBtn, LayerLabel, Theme, Cursor, Pressed, false, false, 9.8f, 10.0f))
+        const auto Layers = Session->Asset.Layers.InspectLayers();
+        const auto* CurrentLayer = Session->Asset.Layers.InspectLayer(Session->SelectedLayerOrdinal);
+        const std::string ActiveLabel = CurrentLayer != nullptr
+            ? CurrentLayer->LayerTitle + " (" + std::to_string(static_cast<uint32_t>(std::round(CurrentLayer->TargetSharePercent))) + "%)"
+            : std::string("Unassigned Remainder");
+        std::vector<std::string> ActiveOptionsStorage{};
+        ActiveOptionsStorage.reserve(Layers.size() + 1u);
+        ActiveOptionsStorage.emplace_back("Unassigned Remainder");
+        for (const auto& Layer : Layers)
         {
-            const auto Layers = Session->Asset.Layers.InspectLayers();
-            if (!Layers.empty())
+            ActiveOptionsStorage.emplace_back(
+                Layer.LayerTitle + " (" + std::to_string(static_cast<uint32_t>(std::round(Layer.TargetSharePercent))) + "%)");
+        }
+        std::vector<const char*> ActiveOptions{};
+        ActiveOptions.reserve(ActiveOptionsStorage.size());
+        for (const std::string& Label : ActiveOptionsStorage)
+        {
+            ActiveOptions.push_back(Label.c_str());
+        }
+        uint32_t ActiveIndex = 0u;
+        for (uint32_t Index = 0u; Index < Layers.size(); ++Index)
+        {
+            if (Layers[Index].LayerOrdinal == Session->SelectedLayerOrdinal)
             {
-                std::size_t NextIdx = 0u;
-                for (std::size_t Idx = 0u; Idx < Layers.size(); ++Idx)
-                {
-                    if (Layers[Idx].LayerOrdinal == Session->SelectedLayerOrdinal)
-                    {
-                        NextIdx = (Idx + 1u) % (Layers.size() + 1u);
-                        break;
-                    }
-                }
-                const uint16_t NextOrd = (NextIdx < Layers.size()) ? Layers[NextIdx].LayerOrdinal : 0u;
-                Session->SelectPriorityLayer(NextOrd);
+                ActiveIndex = Index + 1u;
+                break;
             }
         }
-        SY += 34.0f;
-
-        // Space Share Slider (0..100%)
-        if (ActiveLayer != nullptr)
+        WorkspaceAppearance::ConstructWeightedText(
+            Surface, FontWeightClass::Regular, { SX, SY + 6.0f }, 9.8f, Theme.TextMuted, "Active Layer");
+        const Rectangle2D ActiveLayerBounds{ SX + 88.0f, SY, SW - 88.0f, 26.0f };
+        const OptionalTooltip ActiveLayerTip = OptionalTooltip::FromTitled(
+            "Active Layer", "Choose which priority allocation layer is active and select its faces in the workspace.");
+        const ControlContact ActiveLayerButton = DropdownSelector::ConstructButton(
+            Surface, ActiveLayerBounds, ActiveLabel.c_str(), ActiveLayerDropdownOpen, Input.PrimaryPointer, 1.0f,
+            ControlIcon::LayersSlabs, ActiveLayerTip);
+        if (ActiveLayerButton.Clicked)
         {
-            float NormShare = ActiveLayer->TargetSharePercent * 0.01f;
-            char  ShareVal[24]{};
-            std::snprintf(ShareVal, sizeof(ShareVal), "%.0f%%", ActiveLayer->TargetSharePercent);
+            ActiveLayerDropdownOpen = !ActiveLayerDropdownOpen;
+            TargetUdimDropdownOpen = false;
+        }
+        if (ActiveLayerDropdownOpen)
+        {
+            uint32_t Chosen = ActiveIndex;
+            (void)DropdownSelector::ConstructOptionSheet(
+                Surface, ActiveLayerBounds, ActiveOptions.data(), static_cast<uint32_t>(ActiveOptions.size()),
+                ActiveIndex, Input.PrimaryPointer, Chosen);
+            if (Chosen != ActiveIndex)
+            {
+                Session->SelectPriorityLayer(Chosen == 0u ? 0u : Layers[Chosen - 1u].LayerOrdinal);
+                ActiveLayerDropdownOpen = false;
+            }
+        }
+        SY += 52.0f;
+
+        CurrentLayer = Session->Asset.Layers.InspectLayer(Session->SelectedLayerOrdinal);
+        if (CurrentLayer != nullptr)
+        {
+            float NormShare = CurrentLayer->TargetSharePercent * 0.01f;
+            char ShareVal[24]{};
+            std::snprintf(ShareVal, sizeof(ShareVal), "%.0f%%", CurrentLayer->TargetSharePercent);
+            const OptionalTooltip ShareTip = OptionalTooltip::FromTitled(
+                "Space Share", "Set the active layer's target share of the UV packing area. Other explicit layer shares limit the available range.");
             if (ConstructSliderControl(
-                    Surface,
-                    { SX, SY, SW, 28.0f },
-                    "Space Share",
-                    ShareVal,
-                    NormShare,
-                    Theme,
-                    Cursor,
-                    Down,
-                    Pressed,
-                    LinearTintToRgba(ActiveLayer->LinearTintRGB)))
+                    Surface, { SX, SY, SW, 28.0f }, "Space Share", ShareVal, NormShare, Theme, Cursor, Down, Pressed,
+                    LinearTintToRgba(CurrentLayer->LinearTintRGB), ShareTip))
             {
                 Session->AdjustSelectedLayerShare(NormShare * 100.0f);
             }
@@ -194,46 +296,179 @@ float UVInspectorPanel::RenderPackingTab(
         else
         {
             float FixedNorm = RemPct * 0.01f;
-            ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Remainder Share (Auto)", RemStr, FixedNorm, Theme, Cursor, false, false);
+            ConstructSliderControl(
+                Surface, { SX, SY, SW, 28.0f }, "Remainder Share (Auto)", RemStr, FixedNorm,
+                Theme, Cursor, false, false,
+                ColorRgba{ 0u, 0u, 0u, 0u },
+                OptionalTooltip::FromText("Unassigned faces automatically receive the remaining allocation budget."));
         }
-        SY += 36.0f;
+        SY += 54.0f;
 
-        // Layer Colour Swatch Strip
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { SX, SY + 4.0f }, 9.8f, Theme.TextMuted, "Layer Colour");
-        constexpr std::array<Mathematics::Scalar3D, 6u> Swatches {{
-            { 0.937f, 0.957f, 0.812f }, // #eff4cf Ivory
-            { 0.620f, 0.812f, 1.000f }, // #9ecfff Sky
-            { 0.608f, 0.890f, 0.769f }, // #9be3c4 Mint
-            { 0.949f, 0.757f, 0.490f }, // #f2c17d Amber
-            { 0.898f, 0.596f, 0.608f }, // #e5989b Coral
-            { 0.769f, 0.655f, 0.906f }, // #c4a7e7 Lavender
-        }};
-        float SwX = SX + SW - static_cast<float>(Swatches.size()) * 24.0f;
-        for (const auto& Tint : Swatches)
+        const Rectangle2D NameBounds{ SX + 88.0f, SY, SW - 88.0f, 28.0f };
+        WorkspaceAppearance::ConstructWeightedText(
+            Surface, FontWeightClass::Regular, { SX, SY + 8.0f }, 9.8f, Theme.TextMuted, "Layer Name");
+        CurrentLayer = Session->Asset.Layers.InspectLayer(Session->SelectedLayerOrdinal);
+        if (CurrentLayer != nullptr && EditingLayerOrdinal != Session->SelectedLayerOrdinal && !LayerNameEditor.Active)
         {
-            const ColorRgba   Col    = LinearTintToRgba(Tint);
-            const Point2D     Center { SwX + 10.0f, SY + 11.0f };
-            const Rectangle2D Hit    { SwX, SY + 1.0f, 20.0f, 20.0f };
+            LayerNameEditor.Begin(CurrentLayer->LayerTitle.c_str());
+            LayerNameEditor.Active = false;
+            EditingLayerOrdinal = Session->SelectedLayerOrdinal;
+        }
+        const OptionalTooltip NameTip = OptionalTooltip::FromTitled(
+            "Layer Name", "Rename the active priority layer. The updated name is shared with the UV outliner.");
+        const ControlContact NameContact = TextInputField::Construct(
+            Surface, NameBounds, LayerNameEditor, Input.PrimaryPointer, 9.8f, 1.0f, NameTip);
+        if (NameContact.Clicked && CurrentLayer != nullptr)
+        {
+            LayerNameEditor.Begin(CurrentLayer->LayerTitle.c_str());
+            EditingLayerOrdinal = Session->SelectedLayerOrdinal;
+        }
+        if (LayerNameEditor.Active)
+        {
+            WorkspaceAppearance::ForwardInputToTextBuffer(LayerNameEditor, Input, Δt);
+            if (Input.EscapePressed)
+            {
+                LayerNameEditor.Cancel();
+            }
+            else if (Input.EnterPressed || (Input.PrimaryPointer.Pressed && !NameBounds.Contains(Cursor)))
+            {
+                LayerNameEditor.Finalize();
+            }
+            if (LayerNameEditor.Active && CurrentLayer != nullptr && LayerNameEditor.Length > 0u &&
+                CurrentLayer->LayerTitle != LayerNameEditor.Text)
+            {
+                Session->RenameSelectedLayer(LayerNameEditor.Text);
+            }
+            if (LayerNameEditor.Finalized && CurrentLayer != nullptr)
+            {
+                Session->RenameSelectedLayer(LayerNameEditor.Text);
+                LayerNameEditor.Finalized = false;
+            }
+        }
+        SY += 62.0f;
+
+        WorkspaceAppearance::ConstructWeightedText(
+            Surface, FontWeightClass::Regular, { SX, SY + 4.0f }, 9.8f, Theme.TextMuted, "Layer Colour");
+        constexpr std::array<Mathematics::Scalar3D, 6u> Swatches {{
+            { 0.937f, 0.957f, 0.812f }, { 0.620f, 0.812f, 1.000f }, { 0.608f, 0.890f, 0.769f },
+            { 0.949f, 0.757f, 0.490f }, { 0.898f, 0.596f, 0.608f }, { 0.769f, 0.655f, 0.906f },
+        }};
+        constexpr std::array<const char*, 6u> SwatchNames {{ "Studio Ivory", "Sky", "Mint", "Amber", "Coral", "Lavender" }};
+        constexpr std::array<const char*, 6u> SwatchHex {{ "#EFF4CF", "#9ECFFF", "#9BE3C4", "#F2C17D", "#E5989B", "#C4A7E7" }};
+        uint32_t ActiveSwatch = 0u;
+        if (CurrentLayer != nullptr)
+        {
+            for (uint32_t Slot = 0u; Slot < Swatches.size(); ++Slot)
+            {
+                const auto& Tint = CurrentLayer->LinearTintRGB;
+                if (std::abs(Tint.X - Swatches[Slot].X) < 0.015f &&
+                    std::abs(Tint.Y - Swatches[Slot].Y) < 0.015f &&
+                    std::abs(Tint.Z - Swatches[Slot].Z) < 0.015f)
+                {
+                    ActiveSwatch = Slot;
+                    break;
+                }
+            }
+        }
+        WorkspaceAppearance::ConstructTruncatedText(
+            Surface, FontWeightClass::Regular, { SX + 67.0f, SY + 7.0f },
+            std::max(12.0f, SW - 67.0f - static_cast<float>(Swatches.size()) * 24.0f),
+            8.0f, Theme.TextMuted, SwatchNames[ActiveSwatch]);
+        float SwX = SX + SW - static_cast<float>(Swatches.size()) * 24.0f;
+        for (uint32_t Slot = 0u; Slot < Swatches.size(); ++Slot)
+        {
+            const ColorRgba Col = LinearTintToRgba(Swatches[Slot]);
+            const Point2D Center{ SwX + 10.0f, SY + 11.0f };
+            const Rectangle2D Hit{ SwX, SY + 1.0f, 20.0f, 20.0f };
             Surface.FillCircle(Center, 8.0f, Col);
             Surface.StrokeCircle(Center, 8.5f, ColorRgba{ 255, 255, 255, 48 }, 1.0f);
-            if (Hit.Contains(Cursor) && Pressed && ActiveLayer != nullptr)
+            if (Hit.Contains(Cursor))
             {
-                Session->AssignSelectedLayerTint(Tint);
+                ControlAppearance::RecordHoveredTooltip(
+                    Hit, OptionalTooltip::FromTitled(SwatchNames[Slot], SwatchHex[Slot]));
+                if (Pressed && CurrentLayer != nullptr)
+                {
+                    Session->AssignSelectedLayerTint(Swatches[Slot]);
+                }
             }
             SwX += 24.0f;
         }
-        SY += 30.0f;
+        SY += 68.0f;
 
-        // Bind Selected Faces | Unassign Selected
+        WorkspaceAppearance::ConstructWeightedText(
+            Surface, FontWeightClass::Regular, { SX, SY + 8.0f }, 9.8f, Theme.TextMuted, "Target UDIM");
+        CurrentLayer = Session->Asset.Layers.InspectLayer(Session->SelectedLayerOrdinal);
+        std::vector<uint32_t> UdimOptions{ 0u };
+        for (const uint32_t Tile : Session->Asset.UDIMTiles)
+        {
+            if (std::find(UdimOptions.begin(), UdimOptions.end(), Tile) == UdimOptions.end())
+            {
+                UdimOptions.push_back(Tile);
+            }
+        }
+        std::sort(UdimOptions.begin() + 1, UdimOptions.end());
+        std::vector<std::string> UdimLabelStorage{};
+        std::vector<const char*> UdimLabels{};
+        UdimLabelStorage.reserve(UdimOptions.size());
+        UdimLabels.reserve(UdimOptions.size());
+        for (const uint32_t Udim : UdimOptions)
+        {
+            UdimLabelStorage.emplace_back(Udim == 0u ? "Auto UDIM" : "UDIM " + std::to_string(Udim));
+        }
+        for (const std::string& Label : UdimLabelStorage)
+        {
+            UdimLabels.push_back(Label.c_str());
+        }
+        uint32_t TargetIndex = 0u;
+        if (CurrentLayer != nullptr && CurrentLayer->TargetUDIMNumber != 0u)
+        {
+            const auto It = std::find(UdimOptions.begin(), UdimOptions.end(), CurrentLayer->TargetUDIMNumber);
+            if (It != UdimOptions.end())
+            {
+                TargetIndex = static_cast<uint32_t>(std::distance(UdimOptions.begin(), It));
+            }
+        }
+        const Rectangle2D TargetBounds{ SX + 88.0f, SY, SW - 88.0f, 28.0f };
+        const std::string TargetLabel = UdimLabelStorage[TargetIndex];
+        const OptionalTooltip TargetTip = OptionalTooltip::FromTitled(
+            "Target UDIM", "Pin the active layer's UV islands to a tile. Choosing an explicit UDIM translates its islands into that tile.");
+        const ControlContact TargetButton = DropdownSelector::ConstructButton(
+            Surface, TargetBounds, TargetLabel.c_str(), TargetUdimDropdownOpen, Input.PrimaryPointer, 1.0f,
+            ControlIcon::LayoutGrid, TargetTip);
+        if (TargetButton.Clicked)
+        {
+            TargetUdimDropdownOpen = !TargetUdimDropdownOpen;
+            ActiveLayerDropdownOpen = false;
+        }
+        if (TargetUdimDropdownOpen)
+        {
+            uint32_t Chosen = TargetIndex;
+            (void)DropdownSelector::ConstructOptionSheet(
+                Surface, TargetBounds, UdimLabels.data(), static_cast<uint32_t>(UdimLabels.size()),
+                TargetIndex, Input.PrimaryPointer, Chosen);
+            if (Chosen != TargetIndex && CurrentLayer != nullptr && Chosen < UdimOptions.size())
+            {
+                (void)Session->MoveSelectedLayerToUDIM(UdimOptions[Chosen]);
+                TargetUdimDropdownOpen = false;
+            }
+        }
+        SY += 47.0f;
+
         const float HalfW = (SW - 8.0f) * 0.5f;
-        if (ConstructCapsuleButton(Surface, { SX, SY, HalfW, 28.0f }, "Bind Selected Faces", Theme, Cursor, Pressed, false, false, 9.6f))
+        if (ConstructCapsuleButton(
+                Surface, { SX, SY, HalfW, 28.0f }, "Bind Selected Faces", Theme, Cursor, Pressed,
+                false, false, 9.6f, -1.0f,
+                OptionalTooltip::FromText("Assign selected faces to the active priority allocation layer.")))
         {
             if (Session->SelectedLayerOrdinal != 0u)
             {
                 Session->BindSelectionToPriorityLayer(Session->SelectedLayerOrdinal);
             }
         }
-        if (ConstructCapsuleButton(Surface, { SX + HalfW + 8.0f, SY, HalfW, 28.0f }, "Unassign Selected", Theme, Cursor, Pressed, false, false, 9.6f))
+        if (ConstructCapsuleButton(
+                Surface, { SX + HalfW + 8.0f, SY, HalfW, 28.0f }, "Unassign Selected", Theme, Cursor, Pressed,
+                false, false, 9.6f, -1.0f,
+                OptionalTooltip::FromText("Move selected faces back to the automatically budgeted remainder.")))
         {
             Session->BindSelectionToPriorityLayer(0u);
         }
@@ -243,7 +478,7 @@ float UVInspectorPanel::RenderPackingTab(
 
     // Section 2: Concave Packing Engine (.pz-section)
     {
-        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 238.0f };
+        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 282.0f };
         Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
         Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
 
@@ -259,23 +494,61 @@ float UVInspectorPanel::RenderPackingTab(
         // Strict Ratio | Fill Pockets 2-way toggle
         const float HalfW = (SW - 6.0f) * 0.5f;
         const bool  StrictOn = (Prefs.BudgetMode == Configuration::UVBudgetEnforcementMode::StrictRatio);
-        if (ConstructCapsuleButton(Surface, { SX, SY, HalfW, 26.0f }, "Strict Ratio", Theme, Cursor, Pressed, StrictOn, false, 9.6f, 9.0f))
+        if (ConstructCapsuleButton(
+                Surface, { SX, SY, HalfW, 26.0f }, "Strict Ratio", Theme, Cursor, Pressed, StrictOn, false, 9.6f, 9.0f,
+                OptionalTooltip::FromText("Keep each layer within its explicit packing-space share.")))
         {
             Prefs.BudgetMode            = Configuration::UVBudgetEnforcementMode::StrictRatio;
             Session->FillPocketsEnabled = false;
         }
-        if (ConstructCapsuleButton(Surface, { SX + HalfW + 6.0f, SY, HalfW, 26.0f }, "Fill Pockets", Theme, Cursor, Pressed, !StrictOn, false, 9.6f, 9.0f))
+        if (ConstructCapsuleButton(
+                Surface, { SX + HalfW + 6.0f, SY, HalfW, 26.0f }, "Fill Pockets", Theme, Cursor, Pressed, !StrictOn, false, 9.6f, 9.0f,
+                OptionalTooltip::FromText("Allow suitable islands to expand into unused pockets after packing.")))
         {
             Prefs.BudgetMode            = Configuration::UVBudgetEnforcementMode::FillRemainderPockets;
             Session->FillPocketsEnabled = true;
         }
         SY += 34.0f;
 
+        WorkspaceAppearance::ConstructWeightedText(
+            Surface, FontWeightClass::Regular, { SX, SY + 7.0f }, 9.8f, Theme.TextMuted, "UDIM Packing Scope");
+        constexpr std::array<const char*, 4u> ScopeOptions {{
+            "Pack into Active UDIM Tile", "Pack per Assigned UDIM", "Auto Spill Overflow UDIMs", "Selected Islands Only" }};
+        const uint32_t ScopeIndex = static_cast<uint32_t>(Prefs.PackingScope);
+        uint32_t ChosenScope = ScopeIndex;
+        const Rectangle2D ScopeBounds{ SX + 122.0f, SY, SW - 122.0f, 26.0f };
+        const OptionalTooltip ScopeTip = OptionalTooltip::FromTitled(
+            "UDIM Packing Scope", "Choose which UDIM tiles are affected by the next pack operation.");
+        const ControlContact ScopeButton = DropdownSelector::ConstructButton(
+            Surface, ScopeBounds, ScopeOptions[std::min<uint32_t>(ScopeIndex, 3u)],
+            PackingScopeDropdownOpen, Input.PrimaryPointer, 0.92f, ControlIcon::LayoutGrid, ScopeTip);
+        if (ScopeButton.Clicked)
+        {
+            PackingScopeDropdownOpen = !PackingScopeDropdownOpen;
+            ActiveLayerDropdownOpen = false;
+            TargetUdimDropdownOpen = false;
+        }
+        if (PackingScopeDropdownOpen)
+        {
+            (void)DropdownSelector::ConstructOptionSheet(
+                Surface, ScopeBounds, ScopeOptions.data(), static_cast<uint32_t>(ScopeOptions.size()),
+                ScopeIndex, Input.PrimaryPointer, ChosenScope);
+            if (ChosenScope != ScopeIndex && ChosenScope < ScopeOptions.size())
+            {
+                Prefs.PackingScope = static_cast<Configuration::UVPackingScopeMode>(ChosenScope);
+                PackingScopeDropdownOpen = false;
+            }
+        }
+        SY += 36.0f;
+
         // Island Margin Padding (0..64 px)
         float MarginNorm = static_cast<float>(Prefs.IslandMarginPixels) / 64.0f;
         char  MarginTxt[24]{};
         std::snprintf(MarginTxt, sizeof(MarginTxt), "%u px", Prefs.IslandMarginPixels);
-        if (ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Island Margin Padding", MarginTxt, MarginNorm, Theme, Cursor, Down, Pressed))
+        if (ConstructSliderControl(
+                Surface, { SX, SY, SW, 28.0f }, "Island Margin Padding", MarginTxt, MarginNorm, Theme, Cursor, Down, Pressed,
+                ColorRgba{ 0u, 0u, 0u, 0u },
+                OptionalTooltip::FromTitled("Island Margin Padding", "Set the edge gutter between packed islands in pixels.")))
         {
             Prefs.IslandMarginPixels = static_cast<uint32_t>(std::round(MarginNorm * 64.0f));
         }
@@ -303,7 +576,8 @@ float UVInspectorPanel::RenderPackingTab(
                     Prefs.RotationStepDegrees == RotSteps[Idx].second,
                     false,
                     9.2f,
-                    7.0f))
+                    7.0f,
+                    OptionalTooltip::FromText("Set the rotation increments considered by the island packer.")))
             {
                 Prefs.RotationStepDegrees = RotSteps[Idx].second;
             }
@@ -311,7 +585,9 @@ float UVInspectorPanel::RenderPackingTab(
         SY += 32.0f;
 
         // Equalize Intra-Group Scale switch
-        (void)ConstructToggleRow(Surface, { SX, SY, SW, 24.0f }, "Equalize Intra-Group Scale", Prefs.EqualizeIntraLayerScale, Theme, Cursor, Pressed);
+        (void)ConstructToggleRow(
+            Surface, { SX, SY, SW, 24.0f }, "Equalize Intra-Group Scale", Prefs.EqualizeIntraLayerScale, Theme, Cursor, Pressed,
+            OptionalTooltip::FromText("Normalize island scale within each priority layer before packing."));
         SY += 32.0f;
 
         // Primary CTA: Pack with Importance Budgets (Shift+P)
@@ -325,7 +601,8 @@ float UVInspectorPanel::RenderPackingTab(
                 false,
                 true,
                 10.5f,
-                17.0f))
+                17.0f,
+                OptionalTooltip::FromTitled("Pack with Importance Budgets", "Arrange UV islands using the active allocation shares and selected packing scope.")))
         {
             (void)Session->ExecuteDirective(UVCommandDirective::PackUVsConcaveSkyline, nullptr);
         }
@@ -896,7 +1173,7 @@ void UVInspectorPanel::Render(
     const float PadX   = 18.0f;
     const float LeftX  = Bounds.X + PadX;
     const float InnerW = std::max(150.0f, Bounds.Width - PadX * 2.0f);
-    float       CurY   = Bounds.Y + 14.0f;
+    float       CurY   = Bounds.Y + 36.0f;
 
     // 1. Breadcrumb + "+ Export OBJ" + "Reset"
     WorkspaceAppearance::ConstructTruncatedText(
@@ -906,7 +1183,7 @@ void UVInspectorPanel::Render(
         InnerW - 140.0f,
         9.0f,
         Theme.TextMuted,
-        "Inspector / Surface & MatCap");
+        "Inspector / Importance Packing");
 
     const Rectangle2D ResetBtn  { LeftX + InnerW - 48.0f, CurY, 48.0f, 22.0f };
     const Rectangle2D ExportBtn { ResetBtn.X - 84.0f, CurY, 78.0f, 22.0f };
@@ -949,7 +1226,7 @@ void UVInspectorPanel::Render(
         9.8f,
         Theme.TextMuted,
         SubMeta);
-    CurY += 22.0f;
+    CurY += 42.0f;
 
     // 3. 5-Tab Segmented Bar (.inspector-tabs: Pack | Unwrap | UDIM | Shading | Check)
     {
@@ -1014,7 +1291,7 @@ void UVInspectorPanel::Render(
 
     switch (Session->ActiveInspectorTab)
     {
-        case UVInspectorTab::Packing: ContentH = RenderPackingTab(Surface, LeftX, BodyStartY, InnerW, Input); break;
+        case UVInspectorTab::Packing: ContentH = RenderPackingTab(Surface, LeftX, BodyStartY, InnerW, Input, Δt); break;
         case UVInspectorTab::Unwrap:  ContentH = RenderUnwrapTab(Surface, LeftX, BodyStartY, InnerW, Input);  break;
         case UVInspectorTab::UDIM:    ContentH = RenderUDIMTab(Surface, LeftX, BodyStartY, InnerW, Input);    break;
         case UVInspectorTab::Shading: ContentH = RenderShadingTab(Surface, LeftX, BodyStartY, InnerW, Input); break;
@@ -1054,6 +1331,8 @@ void UVInspectorPanel::Render(
         FootRight);
 
     Surface.PopClip();
+    (void)ControlTooltip::PresentHoveredControlTooltip(
+        Surface, { 0.0f, 0.0f, Bounds.Width, Bounds.Height }, Input.PrimaryPointer);
 }
 
 void UVInspectorPanel::PresentInImGuiPane(double Δt, float ScaleFactor)
