@@ -1143,6 +1143,8 @@ bool UVWorkspaceRasterizer::Rasterize3DViewport(
     ComputeEncoder.UploadSpanToBuffer<GPUViewport3DUniforms>(Viewport3DUniformBuffer, UniSpan);
 
     uint32_t GizmoVertCount = 0u;
+    // Keep the existing object-transform gizmo path intact; RenderGizmo defaults to false
+    // until the 3D object-transform workflow is ready to be exposed again.
     if (Options.RenderGizmo && OptionalGizmo3D != nullptr)
     {
         const std::vector<Editor::GizmoGPUVertex> GizmoVerts = OptionalGizmo3D->BuildTriangleStream(Right, Up, Fwd);

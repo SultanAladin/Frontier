@@ -57,7 +57,10 @@ void UVViewportInteractor::ProcessViewportInput(const ViewportInteractionReading
             }
             else
             {
-                Proj.DollySpatialCamera(1.0f - Input.WheelDeltaY * 0.12f);
+                // Scale wheel motion exponentially: the previous linear factor became negative on
+                // high-resolution wheel events and collapsed the camera to its minimum distance.
+                const float ZoomExponent = std::clamp(-Input.WheelDeltaY * 0.12f, -0.69314718f, 0.69314718f);
+                Proj.DollySpatialCamera(std::exp(ZoomExponent));
                 Session->FramebuffersDirty = true;
             }
         }
