@@ -225,6 +225,8 @@ public:
     uint32_t                                 Framebuffer2DWidth   = 0u;
     uint32_t                                 Framebuffer2DHeight  = 0u;
     bool                                     FramebuffersDirty    = true;
+    bool                                     SpatialNavigationActive = false;
+    bool                                     DeferredPlanarRefresh = false;
 
 private:
     void InitializeLoadedAssetLayout();

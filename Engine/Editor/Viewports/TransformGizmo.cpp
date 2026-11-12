@@ -386,8 +386,9 @@ bool TransformGizmo::BeginDragInteraction(
         return false;
     }
 
-    ActiveDragHandle   = PickedHandle;
-    DragStartTransform = BaselineTransform;
+    ActiveDragHandle        = PickedHandle;
+    DragStartTransform      = BaselineTransform;
+    DragStartPivotPosition  = PivotPosition;
 
     switch (PickedHandle)
     {
@@ -476,7 +477,7 @@ GizmoInteractionDelta TransformGizmo::EvaluateDragInteraction(
         ActiveDragHandle == GizmoHandleOrdinal::TranslateY ||
         ActiveDragHandle == GizmoHandleOrdinal::TranslateZ)
     {
-        float RawDelta = EvaluateAxisRayParameter(PivotPosition, DragAxisPrimary, CurrentRay) - DragInitialAxisParam;
+        float RawDelta = EvaluateAxisRayParameter(DragStartPivotPosition, DragAxisPrimary, CurrentRay) - DragInitialAxisParam;
         if (SnapModifierActive)
         {
             RawDelta = SnapIncrement(RawDelta, MoveStep);
@@ -501,7 +502,7 @@ GizmoInteractionDelta TransformGizmo::EvaluateDragInteraction(
         ActiveDragHandle == GizmoHandleOrdinal::ScaleY ||
         ActiveDragHandle == GizmoHandleOrdinal::ScaleZ)
     {
-        const float RawDelta = (EvaluateAxisRayParameter(PivotPosition, DragAxisPrimary, CurrentRay) - DragInitialAxisParam) / std::max(WorldRadius, 0.01f);
+        const float RawDelta = (EvaluateAxisRayParameter(DragStartPivotPosition, DragAxisPrimary, CurrentRay) - DragInitialAxisParam) / std::max(WorldRadius, 0.01f);
         float       Factor   = std::max(0.05f, 1.0f + RawDelta);
         if (SnapModifierActive)
         {
@@ -528,7 +529,7 @@ GizmoInteractionDelta TransformGizmo::EvaluateDragInteraction(
     }
 
     Mathematics::Axis3D CurrentHit {};
-    if (!EvaluatePlaneRayIntersection(PivotPosition, DragPlaneNormal, CurrentRay, CurrentHit))
+    if (!EvaluatePlaneRayIntersection(DragStartPivotPosition, DragPlaneNormal, CurrentRay, CurrentHit))
     {
         return Out;
     }
@@ -560,7 +561,7 @@ GizmoInteractionDelta TransformGizmo::EvaluateDragInteraction(
     }
 
     // Rotation Arc Bar drag (atan2 around PivotPosition)
-    const Mathematics::Axis3D LocalVec = CurrentHit - PivotPosition;
+    const Mathematics::Axis3D LocalVec = CurrentHit - DragStartPivotPosition;
     const float CurrentAngleRad = std::atan2(
         Mathematics::EvaluateDot(LocalVec, DragAxisSecondary),
         Mathematics::EvaluateDot(LocalVec, DragAxisPrimary));

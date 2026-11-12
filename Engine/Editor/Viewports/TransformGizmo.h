@@ -129,6 +129,7 @@ private:
     GizmoHandleOrdinal            HoveredHandle       = GizmoHandleOrdinal::None;
     GizmoHandleOrdinal            ActiveDragHandle    = GizmoHandleOrdinal::None;
     Mathematics::SpatialTransform DragStartTransform  {};
+    Mathematics::Axis3D           DragStartPivotPosition {};
     Mathematics::Axis3D           DragAxisPrimary     { 1.0f, 0.0f, 0.0f };
     Mathematics::Axis3D           DragAxisSecondary   { 0.0f, 1.0f, 0.0f };
     Mathematics::Axis3D           DragPlaneNormal     { 0.0f, 0.0f, 1.0f };

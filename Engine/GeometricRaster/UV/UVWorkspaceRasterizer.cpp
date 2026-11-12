@@ -754,10 +754,12 @@ bool UVWorkspaceRasterizer::UploadPolygonNetwork(
     }
 
     const uint32_t BitmaskWordCount = (UploadedFaceCount + 31u) / 32u;
-    DeviceInterchange->ReleaseBuffer(FacePackedAttrBuffer);
-    FacePackedAttrBuffer = ComputeEncoder.AllocateHostWritableBuffer(
-        PackedFaceAttrs.size() * sizeof(uint32_t),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    const uint64_t FaceAttrBytes = PackedFaceAttrs.size() * sizeof(uint32_t);
+    if (FacePackedAttrBuffer.ByteCapacity < FaceAttrBytes)
+    {
+        DeviceInterchange->ReleaseBuffer(FacePackedAttrBuffer);
+        FacePackedAttrBuffer = ComputeEncoder.AllocateHostWritableBuffer(FaceAttrBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    }
     ComputeEncoder.UploadSpanToBuffer<uint32_t>(FacePackedAttrBuffer, PackedFaceAttrs);
 
     if (SelectionBitmaskBuffer.ByteCapacity < BitmaskWordCount * sizeof(uint32_t))
@@ -918,16 +920,20 @@ bool UVWorkspaceRasterizer::UploadPolygonNetwork(
     SurfaceVertexCount  = static_cast<uint32_t>(Verts3D.size());
     UVCanvasVertexCount = static_cast<uint32_t>(Verts2D.size());
 
-    DeviceInterchange->ReleaseBuffer(SurfaceVertexBuffer);
-    SurfaceVertexBuffer = ComputeEncoder.AllocateHostWritableBuffer(
-        Verts3D.size() * sizeof(GPUSurfaceVertex),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    const uint64_t SurfaceBytes = Verts3D.size() * sizeof(GPUSurfaceVertex);
+    if (SurfaceVertexBuffer.ByteCapacity < SurfaceBytes)
+    {
+        DeviceInterchange->ReleaseBuffer(SurfaceVertexBuffer);
+        SurfaceVertexBuffer = ComputeEncoder.AllocateHostWritableBuffer(SurfaceBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    }
     ComputeEncoder.UploadSpanToBuffer<GPUSurfaceVertex>(SurfaceVertexBuffer, Verts3D);
 
-    DeviceInterchange->ReleaseBuffer(UVCanvasVertexBuffer);
-    UVCanvasVertexBuffer = ComputeEncoder.AllocateHostWritableBuffer(
-        Verts2D.size() * sizeof(GPUUVCanvasVertex),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    const uint64_t CanvasBytes = Verts2D.size() * sizeof(GPUUVCanvasVertex);
+    if (UVCanvasVertexBuffer.ByteCapacity < CanvasBytes)
+    {
+        DeviceInterchange->ReleaseBuffer(UVCanvasVertexBuffer);
+        UVCanvasVertexBuffer = ComputeEncoder.AllocateHostWritableBuffer(CanvasBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    }
     ComputeEncoder.UploadSpanToBuffer<GPUUVCanvasVertex>(UVCanvasVertexBuffer, Verts2D);
 
     return true;
@@ -1143,8 +1149,6 @@ bool UVWorkspaceRasterizer::Rasterize3DViewport(
     ComputeEncoder.UploadSpanToBuffer<GPUViewport3DUniforms>(Viewport3DUniformBuffer, UniSpan);
 
     uint32_t GizmoVertCount = 0u;
-    // Keep the existing object-transform gizmo path intact; RenderGizmo defaults to false
-    // until the 3D object-transform workflow is ready to be exposed again.
     if (Options.RenderGizmo && OptionalGizmo3D != nullptr)
     {
         const std::vector<Editor::GizmoGPUVertex> GizmoVerts = OptionalGizmo3D->BuildTriangleStream(Right, Up, Fwd);

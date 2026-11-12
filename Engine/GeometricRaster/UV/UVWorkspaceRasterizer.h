@@ -77,7 +77,7 @@ struct Viewport3DRenderOptions
     bool                WireframeEnabled    = true;
     bool                SeamOverlayEnabled  = false; // Default OFF per workspace policy!
     bool                GroundGridEnabled   = true;
-    bool                RenderGizmo         = false; // Temporarily hidden in 3D; render logic remains available.
+    bool                RenderGizmo         = true;
     uint16_t            ActiveLayerOrdinal  = 0u;
     uint32_t            HoveredFaceIndex    = GeometrySpace::InvalidNetworkIndex;
 };

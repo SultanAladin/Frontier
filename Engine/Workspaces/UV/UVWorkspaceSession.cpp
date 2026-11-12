@@ -532,22 +532,31 @@ void UVWorkspaceSession::SynchronizeSelectionToGPU()
 
 void UVWorkspaceSession::RefreshGizmoAnchorsFromSelection() noexcept
 {
+    // The spatial manipulator belongs to the object as a whole, not the current face selection.
+    if (!Asset.Network.Vertices.empty())
+    {
+        Mathematics::Axis3D Min { 1.0e9f, 1.0e9f, 1.0e9f };
+        Mathematics::Axis3D Max { -1.0e9f, -1.0e9f, -1.0e9f };
+        for (const auto& Vertex : Asset.Network.Vertices)
+        {
+            Min = { std::min(Min.X, Vertex.Axes.X), std::min(Min.Y, Vertex.Axes.Y), std::min(Min.Z, Vertex.Axes.Z) };
+            Max = { std::max(Max.X, Vertex.Axes.X), std::max(Max.Y, Vertex.Axes.Y), std::max(Max.Z, Vertex.Axes.Z) };
+        }
+        Gizmo3D.ConfigureAnchor({ 0.5f * (Min.X + Max.X), 0.5f * (Min.Y + Max.Y), 0.5f * (Min.Z + Max.Z) }, 1.12f);
+    }
+
     const auto Selected = SelectionMask.CollectSelectedFaces();
     if (Selected.empty())
     {
         return;
     }
-    Mathematics::Axis3D Sum3D {};
     Mathematics::UVAxes SumUV {};
     for (const uint32_t FIdx : Selected)
     {
-        const auto C3 = Asset.Network.EvaluateFaceCentroid3D(FIdx);
         const auto CU = Asset.Network.EvaluateFaceCentroidUV(FIdx);
-        Sum3D = { Sum3D.X + C3.X, Sum3D.Y + C3.Y, Sum3D.Z + C3.Z };
         SumUV = { SumUV.U + CU.U, SumUV.V + CU.V };
     }
     const float Inv = 1.0f / static_cast<float>(Selected.size());
-    Gizmo3D.ConfigureAnchor({ Sum3D.X * Inv, Sum3D.Y * Inv, Sum3D.Z * Inv }, 1.12f);
     Gizmo2D.ConfigureAnchor({ SumUV.U * Inv, SumUV.V * Inv, 0.0f }, 0.30f);
 }
 
@@ -1147,11 +1156,17 @@ void UVWorkspaceSession::RefreshViewportFramebuffers(
         return;
     }
 
-    const bool SizeChanged =
-        (Viewport3DW != Framebuffer3DWidth) || (Viewport3DH != Framebuffer3DHeight) ||
-        (Canvas2DW != Framebuffer2DWidth) || (Canvas2DH != Framebuffer2DHeight);
+    // While orbiting/panning, render the interactive 3D preview at half resolution and defer
+    // the unchanged UV canvas. This avoids stalling camera input on two full GPU readbacks.
+    const uint32_t Render3DW = SpatialNavigationActive ? std::max(16u, (Viewport3DW + 1u) / 2u) : Viewport3DW;
+    const uint32_t Render3DH = SpatialNavigationActive ? std::max(16u, (Viewport3DH + 1u) / 2u) : Viewport3DH;
+    const bool SpatialViewportValid = Viewport3DW >= 16u && Viewport3DH >= 16u;
+    const bool PlanarViewportValid  = Canvas2DW >= 16u && Canvas2DH >= 16u;
+    const bool SizeChanged3D = SpatialViewportValid && ((Render3DW != Framebuffer3DWidth) || (Render3DH != Framebuffer3DHeight));
+    const bool SizeChanged2D = PlanarViewportValid && ((Canvas2DW != Framebuffer2DWidth) || (Canvas2DH != Framebuffer2DHeight));
 
-    if (!FramebuffersDirty && !SizeChanged)
+    if (!FramebuffersDirty && !SizeChanged3D && !SizeChanged2D &&
+        !(DeferredPlanarRefresh && !SpatialNavigationActive))
     {
         return;
     }
@@ -1172,31 +1187,37 @@ void UVWorkspaceSession::RefreshViewportFramebuffers(
     RenderOptions2D.SeamOverlayEnabled    = WorkspaceConfig.InspectUVPreferences().SeamOverlayEnabled;
     RenderOptions2D.BackdropPreset        = TileCfg.BackdropPreset;
 
-    const bool ShowGizmos =
-        (SelectionMask.CountSelectedFaces() > 0u) ||
-        Gizmo3D.QueryDragging() ||
-        Gizmo2D.QueryDragging();
+    const bool ShowGizmo2D = (SelectionMask.CountSelectedFaces() > 0u) || Gizmo2D.QueryDragging();
 
     if (Viewport3DW >= 16u && Viewport3DH >= 16u)
     {
-        if (Rasterizer->Rasterize3DViewport(Viewport3DW, Viewport3DH, RenderOptions3D, ShowGizmos ? &Gizmo3D : nullptr, &Framebuffer3DRGBA))
+        if (Rasterizer->Rasterize3DViewport(Render3DW, Render3DH, RenderOptions3D, &Gizmo3D, &Framebuffer3DRGBA))
         {
-            Framebuffer3DWidth  = Viewport3DW;
-            Framebuffer3DHeight = Viewport3DH;
+            Framebuffer3DWidth  = Render3DW;
+            Framebuffer3DHeight = Render3DH;
         }
     }
 
-    if (Canvas2DW >= 16u && Canvas2DH >= 16u)
+    if (SpatialNavigationActive)
+    {
+        DeferredPlanarRefresh = true;
+    }
+    else if (Canvas2DW >= 16u && Canvas2DH >= 16u)
     {
         const float TileSpanU = static_cast<float>(std::max<std::size_t>(1u, Asset.UDIMTiles.size()));
         Projection.ConfigurePlanarDomainSpan(TileSpanU, 1.0f);
         Projection.EvaluateAspectLockedPlanarBounds(Canvas2DW, Canvas2DH, RenderOptions2D.VisibleMinUV, RenderOptions2D.VisibleMaxUV);
 
-        if (Rasterizer->Rasterize2DUVCanvas(Canvas2DW, Canvas2DH, RenderOptions2D, ShowGizmos ? &Gizmo2D : nullptr, &Framebuffer2DRGBA))
+        if (Rasterizer->Rasterize2DUVCanvas(Canvas2DW, Canvas2DH, RenderOptions2D, ShowGizmo2D ? &Gizmo2D : nullptr, &Framebuffer2DRGBA))
         {
             Framebuffer2DWidth  = Canvas2DW;
             Framebuffer2DHeight = Canvas2DH;
+            DeferredPlanarRefresh = false;
         }
+    }
+    else if (!SpatialNavigationActive)
+    {
+        DeferredPlanarRefresh = false;
     }
 
     FramebuffersDirty = false;

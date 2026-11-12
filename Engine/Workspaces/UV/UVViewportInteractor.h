@@ -70,10 +70,13 @@ private:
     UVWorkspaceSession*   Session              = nullptr;
     bool                  DraggingGizmo2D      = false;
     bool                  DraggingGizmo3D      = false;
-    std::vector<float>    DragBaselineUVStream {};
-    std::vector<uint32_t> DragTargetFaces      {};
-    Mathematics::UVAxes           DragPivotUV          { 0.5f, 0.5f };
-    Mathematics::SpatialTransform ActiveGizmoTransform {};
+    std::vector<float>                 DragBaselineUVStream       {};
+    std::vector<uint32_t>              DragTargetFaces             {};
+    std::vector<Mathematics::Axis3D>   DragBaselineObjectVertices {};
+    Mathematics::UVAxes                DragPivotUV                 { 0.5f, 0.5f };
+    Mathematics::Axis3D                DragPivot3D                 {};
+    Mathematics::SpatialTransform      LastAppliedObjectTransform  {};
+    Mathematics::SpatialTransform      ActiveGizmoTransform        {};
 
     ModalUVTransformMode  ModalMode            = ModalUVTransformMode::Inactive;
     ModalAxisConstraint   ModalConstraint      = ModalAxisConstraint::Unconstrained;

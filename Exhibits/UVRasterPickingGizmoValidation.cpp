@@ -83,9 +83,11 @@ namespace
         return false;
     }
     const GizmoInteractionDelta MoveDelta = Gizmo3D.EvaluateDragInteraction(DragRayX, true, SnapCfg, TargetXform);
+    const GizmoInteractionDelta StableMoveDelta = Gizmo3D.EvaluateDragInteraction(DragRayX, true, SnapCfg, TargetXform);
     Gizmo3D.EndDragInteraction();
     OutMoveHud = MoveDelta.HudReadout;
-    if (!VerifyCondition(MoveDelta.TransformChanged && std::abs(TargetXform.Position.X - 0.50f) < 1.0e-4f, "+X Ctrl-snap translation == +0.50 m"))
+    if (!VerifyCondition(MoveDelta.TransformChanged && std::abs(TargetXform.Position.X - 0.50f) < 1.0e-4f, "+X Ctrl-snap translation == +0.50 m") ||
+        !VerifyCondition(StableMoveDelta.TransformChanged && std::abs(TargetXform.Position.X - 0.50f) < 1.0e-4f, "Repeated unchanged drag sample does not jitter the gizmo back to its start position"))
     {
         return false;
     }
@@ -208,7 +210,7 @@ int main()
     Opts3D.Camera.YawRadians     = 0.64f;
     Opts3D.Camera.PitchRadians   = 0.36f;
     Opts3D.Camera.DistanceMeters = 4.35f;
-    Opts3D.DisplayMode           = SurfaceDisplayMode::StudioLitAndMatCap;
+    Opts3D.DisplayMode           = SurfaceDisplayMode::SurfaceMaterial;
     Opts3D.WireframeEnabled      = true;
     Opts3D.SeamOverlayEnabled    = false;
     Opts3D.ActiveLayerOrdinal    = 1u;

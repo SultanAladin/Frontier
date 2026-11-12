@@ -9,6 +9,8 @@
 
 #include "Engine/Workspaces/UV/UVViewportInteractor.h"
 
+#include "Engine/Constants/MathConstants.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -18,11 +20,56 @@
 namespace Frontier::Workspaces
 {
 
+namespace
+{
+
+[[nodiscard]] Mathematics::Axis3D TransformObjectPoint(
+    Mathematics::Axis3D Point,
+    Mathematics::Axis3D Pivot,
+    const Mathematics::SpatialTransform& Transform) noexcept
+{
+    Mathematics::Axis3D P = Point - Pivot;
+    P.X *= Transform.Scale.X;
+    P.Y *= Transform.Scale.Y;
+    P.Z *= Transform.Scale.Z;
+
+    const float Rx = Transform.Rotation.X * Constants::DegToRadFloat;
+    const float Ry = Transform.Rotation.Y * Constants::DegToRadFloat;
+    const float Rz = Transform.Rotation.Z * Constants::DegToRadFloat;
+
+    const float CosX = std::cos(Rx), SinX = std::sin(Rx);
+    P = { P.X, P.Y * CosX - P.Z * SinX, P.Y * SinX + P.Z * CosX };
+    const float CosY = std::cos(Ry), SinY = std::sin(Ry);
+    P = { P.X * CosY + P.Z * SinY, P.Y, -P.X * SinY + P.Z * CosY };
+    const float CosZ = std::cos(Rz), SinZ = std::sin(Rz);
+    P = { P.X * CosZ - P.Y * SinZ, P.X * SinZ + P.Y * CosZ, P.Z };
+    return Transform.Position + P;
+}
+
+[[nodiscard]] bool SpatialTransformChanged(
+    const Mathematics::SpatialTransform& A,
+    const Mathematics::SpatialTransform& B) noexcept
+{
+    constexpr float Epsilon = 1.0e-5f;
+    return std::abs(A.Position.X - B.Position.X) > Epsilon ||
+        std::abs(A.Position.Y - B.Position.Y) > Epsilon ||
+        std::abs(A.Position.Z - B.Position.Z) > Epsilon ||
+        std::abs(A.Rotation.X - B.Rotation.X) > Epsilon ||
+        std::abs(A.Rotation.Y - B.Rotation.Y) > Epsilon ||
+        std::abs(A.Rotation.Z - B.Rotation.Z) > Epsilon ||
+        std::abs(A.Scale.X - B.Scale.X) > Epsilon ||
+        std::abs(A.Scale.Y - B.Scale.Y) > Epsilon ||
+        std::abs(A.Scale.Z - B.Scale.Z) > Epsilon;
+}
+
+} // namespace
+
 void UVViewportInteractor::AttachSession(UVWorkspaceSession* TargetSession) noexcept
 {
     Session            = TargetSession;
     DraggingGizmo2D    = false;
     DraggingGizmo3D    = false;
+    DragBaselineObjectVertices.clear();
     ModalMode          = ModalUVTransformMode::Inactive;
     ActiveRegionTool   = RegionSelectTool::Inactive;
     RegionStrokeActive = false;
@@ -43,6 +90,7 @@ void UVViewportInteractor::ProcessViewportInput(const ViewportInteractionReading
     const bool    InsideSpatial = (Interaction.SpatialBounds.Width > 1.0f) && Interaction.SpatialBounds.Contains(Cursor);
 
     auto& Proj = Session->AccessViewportProjection();
+    Session->SpatialNavigationActive = false;
 
     //--------------------------------------------------------------------------------------------------------------------
     // 1. Camera Orbit, Pan & Cursor-Centered Zoom (MMB / Alt+LMB / Mouse Wheel)
@@ -55,27 +103,39 @@ void UVViewportInteractor::ProcessViewportInput(const ViewportInteractionReading
             {
                 BrushRadiusPixels = std::clamp(BrushRadiusPixels + Input.WheelDeltaY * 3.0f, 4.0f, 128.0f);
             }
+            else if (Input.ShiftHeld)
+            {
+                Session->SpatialNavigationActive = true;
+                const float PanScale = Proj.InspectSpatialCamera().DistanceMeters * 0.08f;
+                Proj.PanSpatialCamera(0.0f, Input.WheelDeltaY * PanScale);
+                Session->FramebuffersDirty = true;
+            }
             else
             {
-                // Scale wheel motion exponentially: the previous linear factor became negative on
-                // high-resolution wheel events and collapsed the camera to its minimum distance.
-                const float ZoomExponent = std::clamp(-Input.WheelDeltaY * 0.12f, -0.69314718f, 0.69314718f);
+                Session->SpatialNavigationActive = true;
+                // Treat one wheel notch as a clear dolly step, while bounding high-resolution
+                // wheel events so they cannot flip the multiplier or jump to a distance limit.
+                const float ZoomExponent = std::clamp(-Input.WheelDeltaY * 0.20f, -1.38629436f, 1.38629436f);
                 Proj.DollySpatialCamera(std::exp(ZoomExponent));
                 Session->FramebuffersDirty = true;
             }
         }
         if (Input.MiddleDown || (Input.AltHeld && Input.PrimaryPointer.Down && !Input.PrimaryPointer.Pressed))
         {
-            if (Input.ShiftHeld)
+            Session->SpatialNavigationActive = true;
+            if (std::abs(Input.PointerDeltaX) > 1.0e-4f || std::abs(Input.PointerDeltaY) > 1.0e-4f)
             {
-                const float DistScale = Proj.InspectSpatialCamera().DistanceMeters * 0.0018f;
-                Proj.PanSpatialCamera(Input.PointerDeltaX * DistScale, Input.PointerDeltaY * DistScale);
+                if (Input.ShiftHeld)
+                {
+                    const float DistScale = Proj.InspectSpatialCamera().DistanceMeters * 0.0018f;
+                    Proj.PanSpatialCamera(Input.PointerDeltaX * DistScale, Input.PointerDeltaY * DistScale);
+                }
+                else
+                {
+                    Proj.OrbitSpatialCamera(-Input.PointerDeltaX * 0.0065f, -Input.PointerDeltaY * 0.0065f);
+                }
+                Session->FramebuffersDirty = true;
             }
-            else
-            {
-                Proj.OrbitSpatialCamera(-Input.PointerDeltaX * 0.0065f, -Input.PointerDeltaY * 0.0065f);
-            }
-            Session->FramebuffersDirty = true;
             return;
         }
     }
@@ -496,6 +556,7 @@ void UVViewportInteractor::HandleGizmoOrSurfaceInteraction(
     //--------------------------------------------------------------------------------------------------------------------
     if (DraggingGizmo3D)
     {
+        Session->SpatialNavigationActive = Input.PrimaryPointer.Down;
         const uint32_t W   = static_cast<uint32_t>(std::max(16.0f, Interaction.SpatialBounds.Width));
         const uint32_t H   = static_cast<uint32_t>(std::max(16.0f, Interaction.SpatialBounds.Height));
         const auto     Ray = Proj.BuildSpatialRay(
@@ -510,8 +571,21 @@ void UVViewportInteractor::HandleGizmoOrSurfaceInteraction(
             Input.ControlHeld,
             Snap,
             ActiveGizmoTransform);
-        if (Res.TransformChanged)
+        if (Res.TransformChanged && SpatialTransformChanged(ActiveGizmoTransform, LastAppliedObjectTransform))
         {
+            auto& Network = Session->Asset.Network;
+            const std::size_t VertexCount = std::min(Network.Vertices.size(), DragBaselineObjectVertices.size());
+            for (std::size_t Index = 0u; Index < VertexCount; ++Index)
+            {
+                Network.Vertices[Index].Axes = TransformObjectPoint(
+                    DragBaselineObjectVertices[Index],
+                    DragPivot3D,
+                    ActiveGizmoTransform);
+            }
+            Network.RecomputeNormals();
+            ++Network.NetworkRevision;
+            (void)Rast->UploadPolygonNetwork(Network, Session->RootInstanceToken.SlotIndex);
+            LastAppliedObjectTransform = ActiveGizmoTransform;
             Session->StatusBannerText  = Res.HudReadout;
             Session->FramebuffersDirty = true;
         }
@@ -519,6 +593,8 @@ void UVViewportInteractor::HandleGizmoOrSurfaceInteraction(
         {
             Session->Gizmo3D.EndDragInteraction();
             DraggingGizmo3D = false;
+            DragBaselineObjectVertices.clear();
+            Session->FramebuffersDirty = true;
         }
         return;
     }
@@ -674,7 +750,15 @@ void UVViewportInteractor::HandleGizmoOrSurfaceInteraction(
             Mathematics::Axis3D CamR {}, CamU {}, CamF {};
             Proj.EvaluateCameraBasis(CamR, CamU, CamF);
             const auto Pivot3D   = Session->Gizmo3D.QueryPivotOrigin();
+            DragPivot3D          = Pivot3D;
             ActiveGizmoTransform = Mathematics::SpatialTransform{ Pivot3D, {}, { 1.0f, 1.0f, 1.0f } };
+            LastAppliedObjectTransform = ActiveGizmoTransform;
+            DragBaselineObjectVertices.clear();
+            DragBaselineObjectVertices.reserve(Session->Asset.Network.Vertices.size());
+            for (const auto& Vertex : Session->Asset.Network.Vertices)
+            {
+                DragBaselineObjectVertices.push_back(Vertex.Axes);
+            }
 
             const auto Ray = Proj.BuildSpatialRay(
                 static_cast<uint32_t>(std::max(16.0f, Interaction.SpatialBounds.Width)),
@@ -687,6 +771,10 @@ void UVViewportInteractor::HandleGizmoOrSurfaceInteraction(
                 ActiveGizmoTransform,
                 CamR,
                 CamU);
+            if (!DraggingGizmo3D)
+            {
+                DragBaselineObjectVertices.clear();
+            }
         }
         return;
     }
