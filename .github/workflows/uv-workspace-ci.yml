@@ -34,9 +34,11 @@ jobs:
             libxcursor-dev libxi-dev libwayland-dev wayland-protocols \
             libxkbcommon-dev libgl1-mesa-dev
 
-      - name: Recover pinned dependencies and verified shader tools
+      - name: Recover pinned dependencies, fonts and shader tools
         run: |
+          python3 -m pip install --requirement Automation/FontRequirements.txt
           python3 Automation/PrepareDependencies.py
+          python3 Automation/PrepareFonts.py
           python3 Automation/PrepareShaderToolchain.py
 
       - name: Build and run all checks across supported profiles
@@ -53,7 +55,19 @@ jobs:
             echo "===== Build ${profile} ====="
             cmake --build "$build_dir" --parallel 4
             echo "===== CTest ${profile} ====="
-            xvfb-run -a ctest --test-dir "$build_dir" --output-on-failure
+            if ! xvfb-run -a ctest --test-dir "$build_dir" --output-on-failure; then
+              python3 - "$build_dir/Testing/Temporary/LastTest.log" "$profile" <<'PY'
+          from pathlib import Path
+          import sys
+
+          log_path = Path(sys.argv[1])
+          profile = sys.argv[2]
+          text = log_path.read_text(errors='replace') if log_path.exists() else 'CTest log was not produced.'
+          tail = text[-7000:].replace('%', '%25').replace('\\r', '%0D').replace('\\n', '%0A')
+          print(f'::error title=CTest-{profile}::{tail}')
+          PY
+              exit 1
+            fi
           done
 
       - name: Upload CTest diagnostics on failure
