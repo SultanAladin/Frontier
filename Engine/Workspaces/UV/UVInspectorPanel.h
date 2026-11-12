@@ -55,6 +55,7 @@ private:
     bool                ActiveLayerDropdownOpen = false;
     bool                TargetUdimDropdownOpen = false;
     bool                PackingScopeDropdownOpen = false;
+    bool                LayerColorPickerOpen = false;
 };
 
 } // namespace Frontier::Workspaces

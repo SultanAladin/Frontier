@@ -33,6 +33,10 @@
 
 The UV Inspector and Outliner have content-aware scrolling, reusable control tooltips, layer tint choices, UDIM-filtered face counts and remainder rows, Escape dismissal, and selection-aware Inspector headings. Inspector dropdown sheets use their live rendered button bounds. The Outliner UDIM filter now uses the shared `DropdownSelector`; the viewport projection selector uses it as well and applies the chosen `SpatialProjectionPreset`. The viewport split continues to use the shared `ViewportProjectionPane`. Duplicate cube and pack-grid drawings were removed in favor of existing `VectorIconRepository` icons. The configured pack rotation steps, including 15 degrees, are honored. The Auto-Spill scope is routed through the session's common Pack directive so Inspector and viewport Pack actions share behavior.
 
+**Inspector parity correction:** the packing KPIs are three independent cards (no enclosing background card); the Importance and Concave Packing sections now follow the reference card sizing and use the existing vector icon repository. Allocation and packing controls use the HTML layout: full-width stacked selectors, full-width layer-name input, the layer-colour pill/palette, value/unit pills and 26px slider tracks, a single segmented budget track, the exact HTML UDIM scope labels, full-width rotation segments, and the HTML-style 44×25 equalization switch. This corrects the earlier undersized sliders and custom-looking control arrangements.
+
+**Latest rendered exhibit:** `Exhibits/Images/UV/07-InspectorPackParity.png` (1840×980), captured from the built `FrontierUV` executable using SwiftShader.
+
 **Rendered exhibit:** `Exhibits/Images/UV/06-SharedControls_InspectorOutlinerViewport.png` (1840×980). Captured from the built `FrontierUV` executable with SwiftShader; it shows the Outliner filter dropdown, split UV/3D viewport, shared projection dropdown, and Inspector. SwiftShader prints unsupported-capability 4427 warnings, but rendering exits successfully.
 
 ## Remaining phases

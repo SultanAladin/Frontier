@@ -209,13 +209,23 @@ inline bool ConstructSectionHeading(
     float                Width,
     std::string_view     Title,
     const UVThemeColors& Theme,
-    std::string_view     RightTag = {})
+    std::string_view     RightTag = {},
+    ControlIcon         Icon = ControlIcon::Count)
 {
-    Surface.FillRectangle({ LeftX, TopY + 2.0f, 3.0f, 14.0f }, Theme.AccentFill, 1.5f);
+    const bool HasIcon = Icon != ControlIcon::Count;
+    if (HasIcon)
+    {
+        VectorIconRepository::ConstructControl(
+            Surface, Icon, VectorIconPlacement{ LeftX, TopY + 1.0f, 14.0f, Theme.CautionInk, 1.8f });
+    }
+    else
+    {
+        Surface.FillRectangle({ LeftX, TopY + 2.0f, 3.0f, 14.0f }, Theme.AccentFill, 1.5f);
+    }
     WorkspaceAppearance::ConstructWeightedText(
         Surface,
         FontWeightClass::Regular,
-        { LeftX + 10.0f, TopY },
+        { LeftX + (HasIcon ? 21.0f : 10.0f), TopY },
         12.0f,
         Theme.TextPrimary,
         Title);
@@ -250,55 +260,81 @@ inline bool ConstructSliderControl(
     ColorRgba            FillTintOverride = ColorRgba{ 0, 0, 0, 0 },
     const OptionalTooltip& Tooltip = {})
 {
+    // Match StudioControls.SliderRow: label above, 88x28 numeric/unit pill, and a 26px range track.
     WorkspaceAppearance::ConstructWeightedText(
-        Surface,
-        FontWeightClass::Regular,
-        { RowRect.X, RowRect.Y + 1.0f },
-        10.0f,
-        Theme.TextMuted,
-        Label);
+        Surface, FontWeightClass::Regular, { RowRect.X, RowRect.Y }, 11.5f, Theme.TextMuted, Label);
 
-    const float ValW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 10.0f, FormattedReading);
-    WorkspaceAppearance::ConstructWeightedText(
-        Surface,
-        FontWeightClass::Regular,
-        { RowRect.Right() - ValW, RowRect.Y + 1.0f },
-        10.0f,
-        Theme.TextPrimary,
-        FormattedReading);
-
-    const Rectangle2D Track{ RowRect.X, RowRect.Y + 18.0f, RowRect.Width, 8.0f };
-    const Rectangle2D HitBox{ Track.X - 4.0f, Track.Y - 5.0f, Track.Width + 8.0f, 18.0f };
-    const bool        Hovered = HitBox.Contains(Cursor);
-    if (Hovered)
+    std::string_view Number = FormattedReading;
+    std::string_view Unit{};
+    const std::size_t Space = FormattedReading.find(' ');
+    if (Space != std::string_view::npos)
     {
-        RecordControlTooltip(RowRect, Label, Tooltip, "Drag the slider to adjust this UV workspace setting.");
+        Number = FormattedReading.substr(0u, Space);
+        Unit = FormattedReading.substr(Space + 1u);
+    }
+    else if (!FormattedReading.empty() && FormattedReading.back() == '%')
+    {
+        Number = FormattedReading.substr(0u, FormattedReading.size() - 1u);
+        Unit = "%";
     }
 
-    Surface.FillRectangle(Track, Theme.WellBg, 4.0f);
-    Surface.StrokeRectangle(Track, Theme.BorderSubtle, 4.0f, 1.0f);
+    constexpr float ControlY = 18.0f;
+    constexpr float ValueW = 88.0f;
+    constexpr float ValueH = 28.0f;
+    const Rectangle2D ValuePill{ RowRect.X, RowRect.Y + ControlY, ValueW, ValueH };
+    Surface.FillRectangle(ValuePill, ColorRgba{ 17, 17, 17, 255 }, 14.0f);
+    Surface.StrokeRectangle(ValuePill, ColorRgba{ 255, 255, 255, 23 }, 14.0f, 1.0f);
+    Surface.FillRectangle(
+        { ValuePill.Right() - 32.0f, ValuePill.Y + 1.0f, 31.0f, ValuePill.Height - 2.0f },
+        ColorRgba{ 23, 23, 23, 255 }, 0.0f);
+    Surface.StrokeLine(
+        { ValuePill.Right() - 32.0f, ValuePill.Y + 4.0f },
+        { ValuePill.Right() - 32.0f, ValuePill.Bottom() - 4.0f },
+        ColorRgba{ 255, 255, 255, 20 }, 1.0f);
+    const float NumberW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 11.5f, Number);
+    WorkspaceAppearance::ConstructWeightedText(
+        Surface, FontWeightClass::Regular,
+        { ValuePill.X + (ValueW - 32.0f - NumberW) * 0.5f, ValuePill.Y + 8.0f },
+        11.5f, Theme.TextPrimary, Number);
+    const float UnitW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.5f, Unit);
+    WorkspaceAppearance::ConstructWeightedText(
+        Surface, FontWeightClass::Regular,
+        { ValuePill.Right() - 16.0f - UnitW * 0.5f, ValuePill.Y + 9.0f },
+        9.5f, Theme.TextMuted, Unit);
+
+    const float TrackX = ValuePill.Right() + 9.0f;
+    const float TrackW = std::max(36.0f, RowRect.Right() - TrackX);
+    const Rectangle2D Track{ TrackX, RowRect.Y + ControlY + 1.0f, TrackW, 26.0f };
+    const Rectangle2D HitBox{ Track.X, Track.Y - 4.0f, Track.Width, Track.Height + 8.0f };
+    const bool Hovered = HitBox.Contains(Cursor);
+    if (Hovered)
+    {
+        RecordControlTooltip({ RowRect.X, RowRect.Y, RowRect.Width, ControlY + ValueH }, Label, Tooltip,
+            "Drag the slider to adjust this UV workspace setting.");
+    }
+
+    constexpr float ThumbRadius = 12.0f;
+    const float InnerTrackW = std::max(1.0f, Track.Width - ThumbRadius * 2.0f);
+    const float Clamped = std::clamp(InOutNormalized, 0.0f, 1.0f);
+    const float ThumbX = Track.X + ThumbRadius + InnerTrackW * Clamped;
+    const float CenterY = Track.Y + Track.Height * 0.5f;
+    Surface.FillRectangle(Track, ColorRgba{ 35, 35, 35, 255 }, 13.0f);
+    const ColorRgba Fill = (FillTintOverride.Alpha > 0u) ? FillTintOverride : ColorRgba{ 78, 78, 78, 255 };
+    Surface.FillRectangle(
+        { Track.X, Track.Y, std::max(0.0f, ThumbX - Track.X), Track.Height }, Fill, 13.0f);
+    Surface.FillCircle({ ThumbX, CenterY }, ThumbRadius, ColorRgba{ 230, 230, 230, 255 });
+    Surface.StrokeCircle({ ThumbX, CenterY }, ThumbRadius, ColorRgba{ 0, 0, 0, 92 }, 1.0f);
 
     bool Changed = false;
     if (Hovered && (PointerPressed || PointerDown))
     {
-        const float NextNorm = std::clamp((Cursor.X - Track.X) / std::max(1.0f, Track.Width), 0.0f, 1.0f);
+        const float NextNorm = std::clamp((Cursor.X - (Track.X + ThumbRadius)) / InnerTrackW, 0.0f, 1.0f);
         if (std::abs(NextNorm - InOutNormalized) > 1.0e-4f)
         {
             InOutNormalized = NextNorm;
-            Changed         = true;
+            Changed = true;
         }
     }
-
-    const float     Clamped = std::clamp(InOutNormalized, 0.0f, 1.0f);
-    const ColorRgba BarFill = (FillTintOverride.Alpha > 0u) ? FillTintOverride : Theme.AccentFill;
-    if (Clamped > 0.005f)
-    {
-        Surface.FillRectangle({ Track.X, Track.Y, std::max(6.0f, Track.Width * Clamped), Track.Height }, BarFill, 4.0f);
-    }
-
-    const float KnobX = Track.X + Track.Width * Clamped;
-    Surface.FillCircle({ KnobX, Track.Y + 4.0f }, Hovered ? 5.8f : 5.0f, Theme.PrimaryFill);
-    Surface.StrokeCircle({ KnobX, Track.Y + 4.0f }, Hovered ? 5.8f : 5.0f, ColorRgba{ 0, 0, 0, 120 }, 1.0f);
     return Changed;
 }
 
@@ -310,27 +346,40 @@ inline bool ConstructToggleRow(
     const UVThemeColors& Theme,
     Point2D              Cursor,
     bool                 Pressed,
-    const OptionalTooltip& Tooltip = {})
+    const OptionalTooltip& Tooltip = {},
+    std::string_view     DetailFirstLine = {},
+    std::string_view     DetailSecondLine = {})
 {
     WorkspaceAppearance::ConstructWeightedText(
-        Surface,
-        FontWeightClass::Regular,
-        { RowRect.X, RowRect.Y + 4.0f },
-        10.5f,
-        Theme.TextPrimary,
-        Label);
+        Surface, FontWeightClass::Regular, { RowRect.X, RowRect.Y }, 11.5f, Theme.TextPrimary, Label);
+    if (!DetailFirstLine.empty())
+    {
+        WorkspaceAppearance::ConstructTruncatedText(
+            Surface, FontWeightClass::Regular, { RowRect.X, RowRect.Y + 16.0f }, RowRect.Width - 54.0f,
+            9.5f, Theme.TextMuted, DetailFirstLine);
+        if (!DetailSecondLine.empty())
+        {
+            WorkspaceAppearance::ConstructTruncatedText(
+                Surface, FontWeightClass::Regular, { RowRect.X, RowRect.Y + 27.0f }, RowRect.Width - 54.0f,
+                9.5f, Theme.TextMuted, DetailSecondLine);
+        }
+    }
 
-    const Rectangle2D TrackCapsule{ RowRect.Right() - 34.0f, RowRect.Y + 2.0f, 34.0f, 18.0f };
-    const bool        Hovered = RowRect.Contains(Cursor);
+    const Rectangle2D TrackCapsule{ RowRect.Right() - 44.0f, RowRect.Y + 3.0f, 44.0f, 25.0f };
+    const bool Hovered = RowRect.Contains(Cursor);
     if (Hovered)
     {
         RecordControlTooltip(RowRect, Label, Tooltip, "Toggle this UV workspace setting.");
     }
 
-    Surface.FillRectangle(TrackCapsule, InOutEnabled ? Theme.AccentFill : Theme.WellBg, 9.0f);
-    Surface.StrokeRectangle(TrackCapsule, InOutEnabled ? Theme.AccentFill : Theme.BorderStrong, 9.0f, 1.0f);
-    const float KnobX = InOutEnabled ? (TrackCapsule.Right() - 9.0f) : (TrackCapsule.X + 9.0f);
-    Surface.FillCircle({ KnobX, TrackCapsule.Y + 9.0f }, 6.5f, InOutEnabled ? Theme.AccentInk : Theme.TextMuted);
+    Surface.FillRectangle(
+        TrackCapsule, InOutEnabled ? ColorRgba{ 255, 255, 255, 255 } : ColorRgba{ 35, 35, 35, 255 }, 13.0f);
+    Surface.StrokeRectangle(
+        TrackCapsule, InOutEnabled ? ColorRgba{ 255, 255, 255, 255 } : ColorRgba{ 255, 255, 255, 26 }, 13.0f, 1.0f);
+    const float KnobX = InOutEnabled ? (TrackCapsule.Right() - 13.0f) : (TrackCapsule.X + 13.0f);
+    Surface.FillCircle(
+        { KnobX, TrackCapsule.Y + 12.5f }, 9.5f,
+        InOutEnabled ? ColorRgba{ 17, 17, 17, 255 } : ColorRgba{ 188, 188, 188, 255 });
 
     if (Hovered && Pressed)
     {

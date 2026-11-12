@@ -78,24 +78,23 @@ void ConstructPackingMetricCards(
     const std::array<std::array<std::string_view, 3u>, 3u>& Cards,
     const UVAppearance::UVThemeColors& Theme)
 {
-    Surface.FillRectangle(Bounds, Theme.SectionBg, 16.0f);
-    Surface.StrokeRectangle(Bounds, Theme.BorderSubtle, 16.0f, 1.0f);
-    const float Gap = 7.0f;
+    // Match the HTML .kpi-trio: three standalone cards with no enclosing card/background.
+    constexpr float Gap = 8.0f;
     const float CardW = (Bounds.Width - Gap * 2.0f) / 3.0f;
     for (uint32_t Index = 0u; Index < 3u; ++Index)
     {
         const float X = Bounds.X + static_cast<float>(Index) * (CardW + Gap);
         const Rectangle2D Card{ X, Bounds.Y, CardW, Bounds.Height };
-        Surface.FillRectangle(Card, Theme.WellBg, 12.0f);
-        Surface.StrokeRectangle(Card, Theme.BorderSubtle, 12.0f, 1.0f);
+        Surface.FillRectangle(Card, ColorRgba{ 26, 26, 26, 255 }, 16.0f);
+        Surface.StrokeRectangle(Card, ColorRgba{ 255, 255, 255, 15 }, 16.0f, 1.0f);
         WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { X + 9.0f, Bounds.Y + 7.0f }, CardW - 18.0f, 8.2f,
+            Surface, FontWeightClass::Regular, { X + 11.0f, Bounds.Y + 9.0f }, CardW - 22.0f, 9.5f,
             Theme.TextMuted, Cards[Index][0]);
         WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Medium, { X + 9.0f, Bounds.Y + 20.0f }, CardW - 18.0f, 13.0f,
+            Surface, FontWeightClass::Regular, { X + 11.0f, Bounds.Y + 24.0f }, CardW - 22.0f, 18.0f,
             Index == 0u ? Theme.AccentFill : Theme.TextPrimary, Cards[Index][1]);
         WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { X + 9.0f, Bounds.Y + 42.0f }, CardW - 18.0f, 7.8f,
+            Surface, FontWeightClass::Regular, { X + 11.0f, Bounds.Y + 48.0f }, CardW - 22.0f, 9.0f,
             Theme.TextMuted, Cards[Index][2]);
     }
 }
@@ -137,6 +136,7 @@ void UVInspectorPanel::AttachSession(UVWorkspaceSession* TargetSession) noexcept
     ActiveLayerDropdownOpen = false;
     TargetUdimDropdownOpen = false;
     PackingScopeDropdownOpen = false;
+    LayerColorPickerOpen = false;
 }
 
 float UVInspectorPanel::RenderPackingTab(
@@ -158,6 +158,7 @@ float UVInspectorPanel::RenderPackingTab(
         ActiveLayerDropdownOpen = false;
         TargetUdimDropdownOpen = false;
         PackingScopeDropdownOpen = false;
+        LayerColorPickerOpen = false;
     }
 
     float CurY = StartY;
@@ -218,23 +219,23 @@ float UVInspectorPanel::RenderPackingTab(
 
     ConstructPackingMetricCards(
         Surface,
-            { LeftX, CurY, InnerW, 72.0f },
+        { LeftX, CurY, InnerW, 66.0f },
         {{{ std::string("Selected · UDIM ") + std::to_string(Session->ActiveUDIMNumber), SelectedCount, SelectedSub },
           { std::string("UDIM ") + std::to_string(Session->ActiveUDIMNumber) + " Fill", FillStr, FillSub },
           { "Auto Remainder", RemStr, RemSub }}},
         Theme);
-    CurY += 100.0f;
+    CurY += 82.0f;
 
     // Section 1: Importance Space Allocation, matching the HTML inspector's controls.
     {
-        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 410.0f };
-        Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
-        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
+        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 392.0f };
+        Surface.FillRectangle(SecRect, Theme.SectionBg, 22.0f);
+        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 22.0f, 1.0f);
 
         const float SX = SecRect.X + 16.0f;
         const float SW = SecRect.Width - 32.0f;
         float       SY = SecRect.Y + 14.0f;
-        ConstructSectionHeading(Surface, SX, SY, SW, "Importance Space Allocation", Theme);
+        ConstructSectionHeading(Surface, SX, SY, SW, "Importance Space Allocation", Theme, {}, ControlIcon::LayersSlabs);
         SY += 45.0f;
 
         const auto Layers = Session->Asset.Layers.InspectLayers();
@@ -243,8 +244,8 @@ float UVInspectorPanel::RenderPackingTab(
             ? CurrentLayer->LayerTitle + " (" + std::to_string(static_cast<uint32_t>(std::round(CurrentLayer->TargetSharePercent))) + "%)"
             : std::string("Unassigned Remainder");
         WorkspaceAppearance::ConstructWeightedText(
-            Surface, FontWeightClass::Regular, { SX, SY + 6.0f }, 9.8f, Theme.TextMuted, "Active Layer");
-        ActiveLayerDropdownBounds = { SX + 88.0f, SY, SW - 88.0f, 26.0f };
+            Surface, FontWeightClass::Regular, { SX, SY }, 11.5f, Theme.TextMuted, "Active Layer");
+        ActiveLayerDropdownBounds = { SX, SY + 17.0f, SW, 28.0f };
         const OptionalTooltip ActiveLayerTip = OptionalTooltip::FromTitled(
             "Active Layer", "Choose which priority allocation layer is active and select its faces in the workspace.");
         const ControlContact ActiveLayerButton = DropdownSelector::ConstructButton(
@@ -267,7 +268,7 @@ float UVInspectorPanel::RenderPackingTab(
                 "Space Share", "Set the active layer's target share of the UV packing area. Other explicit layer shares limit the available range.");
             if (ConstructSliderControl(
                     Surface, { SX, SY, SW, 28.0f }, "Space Share", ShareVal, NormShare, Theme, Cursor, Down, Pressed,
-                    LinearTintToRgba(CurrentLayer->LinearTintRGB), ShareTip))
+                    ColorRgba{ 0u, 0u, 0u, 0u }, ShareTip))
             {
                 Session->AdjustSelectedLayerShare(NormShare * 100.0f);
             }
@@ -283,15 +284,16 @@ float UVInspectorPanel::RenderPackingTab(
         }
         SY += 54.0f;
 
-        const Rectangle2D NameBounds{ SX + 88.0f, SY, SW - 88.0f, 28.0f };
+        const Rectangle2D NameBounds{ SX, SY + 17.0f, SW, 28.0f };
         WorkspaceAppearance::ConstructWeightedText(
-            Surface, FontWeightClass::Regular, { SX, SY + 8.0f }, 9.8f, Theme.TextMuted, "Layer Name");
+            Surface, FontWeightClass::Regular, { SX, SY }, 11.5f, Theme.TextMuted, "Layer Name");
         CurrentLayer = Session->Asset.Layers.InspectLayer(Session->SelectedLayerOrdinal);
         if (EditingLayerOrdinal != Session->SelectedLayerOrdinal)
         {
             ActiveLayerDropdownOpen = false;
             TargetUdimDropdownOpen = false;
             PackingScopeDropdownOpen = false;
+            LayerColorPickerOpen = false;
             LayerNameEditor = {};
             EditingLayerOrdinal = Session->SelectedLayerOrdinal;
             if (CurrentLayer != nullptr)
@@ -303,7 +305,7 @@ float UVInspectorPanel::RenderPackingTab(
         const OptionalTooltip NameTip = OptionalTooltip::FromTitled(
             "Layer Name", "Rename the active priority layer. The updated name is shared with the UV outliner.");
         const ControlContact NameContact = TextInputField::Construct(
-            Surface, NameBounds, LayerNameEditor, Input.PrimaryPointer, 9.8f, 1.0f, NameTip);
+            Surface, NameBounds, LayerNameEditor, Input.PrimaryPointer, 11.5f, 1.0f, NameTip);
         if (NameContact.Clicked && CurrentLayer != nullptr)
         {
             LayerNameEditor.Begin(CurrentLayer->LayerTitle.c_str());
@@ -338,7 +340,7 @@ float UVInspectorPanel::RenderPackingTab(
         SY += 62.0f;
 
         WorkspaceAppearance::ConstructWeightedText(
-            Surface, FontWeightClass::Regular, { SX, SY + 4.0f }, 9.8f, Theme.TextMuted, "Layer Colour");
+            Surface, FontWeightClass::Regular, { SX, SY + 9.0f }, 11.5f, Theme.TextMuted, "Layer Colour");
         constexpr std::array<Mathematics::Scalar3D, 6u> Swatches {{
             { 0.937f, 0.957f, 0.812f }, { 0.620f, 0.812f, 1.000f }, { 0.608f, 0.890f, 0.769f },
             { 0.949f, 0.757f, 0.490f }, { 0.898f, 0.596f, 0.608f }, { 0.769f, 0.655f, 0.906f },
@@ -360,41 +362,75 @@ float UVInspectorPanel::RenderPackingTab(
                 }
             }
         }
+        const float ColorPillW = std::min(210.0f, SW);
+        const Rectangle2D ColorPill{ SX + SW - ColorPillW, SY, ColorPillW, 30.0f };
+        Surface.FillRectangle(ColorPill, ColorRgba{ 20, 20, 20, 255 }, 15.0f);
+        Surface.StrokeRectangle(ColorPill, ColorRgba{ 48, 48, 48, 255 }, 15.0f, 1.0f);
+        const ColorRgba CurrentTint = CurrentLayer != nullptr
+            ? LinearTintToRgba(CurrentLayer->LinearTintRGB)
+            : ColorRgba{ 128, 128, 128, 255 };
+        Surface.FillCircle({ ColorPill.X + 16.0f, ColorPill.Y + 15.0f }, 8.0f, CurrentTint);
+        Surface.StrokeCircle({ ColorPill.X + 16.0f, ColorPill.Y + 15.0f }, 8.0f, ColorRgba{ 255, 255, 255, 70 }, 1.0f);
+        const std::string_view ColorName = CurrentLayer == nullptr
+            ? std::string_view("No Layer")
+            : (ActiveSwatch < Swatches.size() ? std::string_view(SwatchNames[ActiveSwatch]) : std::string_view("Custom"));
+        const std::string_view HexCode = ActiveSwatch < Swatches.size() ? std::string_view(SwatchHex[ActiveSwatch]) : std::string_view("CUSTOM");
+        const float HexWidth = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.8f, HexCode);
         WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { SX + 67.0f, SY + 7.0f },
-            std::max(12.0f, SW - 67.0f - static_cast<float>(Swatches.size()) * 24.0f),
-            8.0f, Theme.TextMuted,
-            CurrentLayer == nullptr ? "No Layer" : (ActiveSwatch < Swatches.size() ? SwatchNames[ActiveSwatch] : "Custom"));
-        float SwX = SX + SW - static_cast<float>(Swatches.size()) * 24.0f;
-        for (uint32_t Slot = 0u; Slot < Swatches.size(); ++Slot)
+            Surface, FontWeightClass::Regular, { ColorPill.X + 31.0f, ColorPill.Y + 9.0f },
+            ColorPill.Width - HexWidth - 49.0f, 10.5f, Theme.TextPrimary, ColorName);
+        WorkspaceAppearance::ConstructWeightedText(
+            Surface, FontWeightClass::Regular, { ColorPill.Right() - HexWidth - 9.0f, ColorPill.Y + 10.0f },
+            8.8f, Theme.TextMuted, HexCode);
+        const bool ColorPillHovered = ColorPill.Contains(Cursor);
+        if (ColorPillHovered)
         {
-            const ColorRgba Col = LinearTintToRgba(Swatches[Slot]);
-            const Point2D Center{ SwX + 10.0f, SY + 11.0f };
-            const Rectangle2D Hit{ SwX, SY + 1.0f, 20.0f, 20.0f };
-            Surface.FillCircle(Center, 8.0f, Col);
-            Surface.StrokeCircle(
-                Center, ActiveSwatch == Slot ? 9.2f : 8.5f,
-                ActiveSwatch == Slot ? Theme.AccentBorder : ColorRgba{ 255, 255, 255, 48 },
-                ActiveSwatch == Slot ? 1.5f : 1.0f);
-            if (Hit.Contains(Cursor))
+            RecordControlTooltip(ColorPill, "Layer Colour", OptionalTooltip::FromTitled(
+                "Layer Colour", "Choose a layer tint from the shared studio palette."), "Open the layer colour palette.");
+        }
+        if (ColorPillHovered && Pressed)
+        {
+            LayerColorPickerOpen = !LayerColorPickerOpen;
+        }
+        const Rectangle2D ColorPaletteBounds{ ColorPill.Right() - 152.0f, SY + 32.0f, 152.0f, 30.0f };
+        if (LayerColorPickerOpen)
+        {
+            Surface.FillRectangle(ColorPaletteBounds, ColorRgba{ 20, 20, 20, 255 }, 12.0f);
+            Surface.StrokeRectangle(ColorPaletteBounds, ColorRgba{ 48, 48, 48, 255 }, 12.0f, 1.0f);
+            for (uint32_t Slot = 0u; Slot < Swatches.size(); ++Slot)
             {
-                ControlAppearance::RecordHoveredTooltip(
-                    Hit, OptionalTooltip::FromTitled(SwatchNames[Slot], SwatchHex[Slot]));
-                if (Pressed && CurrentLayer != nullptr)
+                const Rectangle2D SwatchHit{ ColorPaletteBounds.X + 7.0f + static_cast<float>(Slot) * 23.0f,
+                    ColorPaletteBounds.Y + 7.0f, 18.0f, 16.0f };
+                const ColorRgba SwatchColor = LinearTintToRgba(Swatches[Slot]);
+                Surface.FillRectangle(SwatchHit, SwatchColor, 8.0f);
+                if (Slot == ActiveSwatch)
                 {
-                    Session->AssignSelectedLayerTint(Swatches[Slot]);
+                    Surface.StrokeRectangle(SwatchHit, Theme.PrimaryFill, 8.0f, 1.5f);
+                }
+                if (SwatchHit.Contains(Cursor))
+                {
+                    ControlAppearance::RecordHoveredTooltip(
+                        SwatchHit, OptionalTooltip::FromTitled(SwatchNames[Slot], SwatchHex[Slot]));
+                    if (Pressed && CurrentLayer != nullptr)
+                    {
+                        Session->AssignSelectedLayerTint(Swatches[Slot]);
+                        LayerColorPickerOpen = false;
+                    }
                 }
             }
-            SwX += 24.0f;
+            if (Pressed && !ColorPaletteBounds.Contains(Cursor) && !ColorPill.Contains(Cursor))
+            {
+                LayerColorPickerOpen = false;
+            }
         }
         SY += 68.0f;
 
         WorkspaceAppearance::ConstructWeightedText(
-            Surface, FontWeightClass::Regular, { SX, SY + 8.0f }, 9.8f, Theme.TextMuted, "Target UDIM");
+            Surface, FontWeightClass::Regular, { SX, SY }, 11.5f, Theme.TextMuted, "Target UDIM");
         CurrentLayer = Session->Asset.Layers.InspectLayer(Session->SelectedLayerOrdinal);
         const uint32_t TargetUDIM = CurrentLayer != nullptr ? CurrentLayer->TargetUDIMNumber : 0u;
         const std::string TargetLabel = TargetUDIM == 0u ? "Auto UDIM" : "UDIM " + std::to_string(TargetUDIM);
-        TargetUdimDropdownBounds = { SX + 88.0f, SY, SW - 88.0f, 28.0f };
+        TargetUdimDropdownBounds = { SX, SY + 17.0f, SW, 28.0f };
         const OptionalTooltip TargetTip = OptionalTooltip::FromTitled(
             "Target UDIM", "Pin the active layer's UV islands to a tile. Choosing an explicit UDIM translates its islands into that tile.");
         if (CurrentLayer != nullptr)
@@ -427,7 +463,7 @@ float UVInspectorPanel::RenderPackingTab(
 
         const float HalfW = (SW - 8.0f) * 0.5f;
         if (ConstructCapsuleButton(
-                Surface, { SX, SY, HalfW, 28.0f }, "Bind Selected Faces", Theme, Cursor, Pressed,
+                Surface, { SX, SY, HalfW, 33.0f }, "Bind Selected Faces", Theme, Cursor, Pressed,
                 false, false, 9.6f, -1.0f,
                 OptionalTooltip::FromText("Assign selected faces to the active priority allocation layer.")))
         {
@@ -437,7 +473,7 @@ float UVInspectorPanel::RenderPackingTab(
             }
         }
         if (ConstructCapsuleButton(
-                Surface, { SX + HalfW + 8.0f, SY, HalfW, 28.0f }, "Unassign Selected", Theme, Cursor, Pressed,
+                Surface, { SX + HalfW + 8.0f, SY, HalfW, 33.0f }, "Unassign Selected", Theme, Cursor, Pressed,
                 false, false, 9.6f, -1.0f,
                 OptionalTooltip::FromText("Move selected faces back to the automatically budgeted remainder.")))
         {
@@ -449,44 +485,73 @@ float UVInspectorPanel::RenderPackingTab(
 
     // Section 2: Concave Packing Engine (.pz-section)
     {
-        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 282.0f };
-        Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
-        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
+        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 338.0f };
+        Surface.FillRectangle(SecRect, Theme.SectionBg, 22.0f);
+        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 22.0f, 1.0f);
 
         const float SX = SecRect.X + 16.0f;
         const float SW = SecRect.Width - 32.0f;
         float       SY = SecRect.Y + 14.0f;
 
-        ConstructSectionHeading(Surface, SX, SY, SW, "Concave Packing Engine", Theme, "EXACT SHAPE");
+        ConstructSectionHeading(Surface, SX, SY, SW, "Concave Packing Engine", Theme, "EXACT SHAPE", ControlIcon::LayoutGrid);
         SY += 24.0f;
 
         auto& Prefs = Session->WorkspaceConfig.AccessUVPreferences();
 
-        // Strict Ratio | Fill Pockets 2-way toggle
-        const float HalfW = (SW - 6.0f) * 0.5f;
-        const bool  StrictOn = (Prefs.BudgetMode == Configuration::UVBudgetEnforcementMode::StrictRatio);
-        if (ConstructCapsuleButton(
-                Surface, { SX, SY, HalfW, 26.0f }, "Strict Ratio", Theme, Cursor, Pressed, StrictOn, false, 9.6f, 9.0f,
-                OptionalTooltip::FromText("Keep each layer within its explicit packing-space share.")))
+        // Match StudioControls.SegmentedRow: two options inside one recessed capsule track.
+        const Rectangle2D BudgetTrack{ SX, SY, SW, 34.0f };
+        Surface.FillRectangle(BudgetTrack, ColorRgba{ 11, 11, 11, 255 }, 17.0f);
+        Surface.StrokeRectangle(BudgetTrack, ColorRgba{ 255, 255, 255, 22 }, 17.0f, 1.0f);
+        const float BudgetGap = 4.0f;
+        const float BudgetInnerW = (SW - 12.0f) * 0.5f;
+        const bool StrictOn = Prefs.BudgetMode == Configuration::UVBudgetEnforcementMode::StrictRatio;
+        const std::array<std::string_view, 2u> BudgetLabels {{ "Strict Ratio", "Fill Pockets" }};
+        for (uint32_t Index = 0u; Index < BudgetLabels.size(); ++Index)
         {
-            Prefs.BudgetMode            = Configuration::UVBudgetEnforcementMode::StrictRatio;
-            Session->FillPocketsEnabled = false;
+            const bool Active = (Index == 0u) == StrictOn;
+            const Rectangle2D Option{
+                SX + 4.0f + static_cast<float>(Index) * (BudgetInnerW + BudgetGap), SY + 4.0f,
+                BudgetInnerW, 26.0f };
+            const bool Hovered = Option.Contains(Cursor);
+            if (Active || Hovered)
+            {
+                Surface.FillRectangle(Option, Active ? ColorRgba{ 41, 41, 41, 255 } : ColorRgba{ 33, 33, 33, 255 }, 13.0f);
+            }
+            const float TextW = WorkspaceAppearance::MeasureWeightedTextWidth(
+                Surface, FontWeightClass::Regular, 10.5f, BudgetLabels[Index]);
+            WorkspaceAppearance::ConstructTruncatedText(
+                Surface, FontWeightClass::Regular,
+                { Option.X + (Option.Width - TextW) * 0.5f, Option.Y + 7.0f },
+                Option.Width - 12.0f, 10.5f, Active || Hovered ? Theme.TextPrimary : Theme.TextMuted, BudgetLabels[Index]);
+            if (Hovered)
+            {
+                const auto Tip = Index == 0u
+                    ? OptionalTooltip::FromText("Keep each layer within its explicit packing-space share.")
+                    : OptionalTooltip::FromText("Allow suitable islands to expand into unused pockets after packing.");
+                RecordControlTooltip(Option, BudgetLabels[Index], Tip, "Choose the packing budget enforcement mode.");
+            }
+            if (Hovered && Pressed)
+            {
+                if (Index == 0u)
+                {
+                    Prefs.BudgetMode = Configuration::UVBudgetEnforcementMode::StrictRatio;
+                    Session->FillPocketsEnabled = false;
+                }
+                else
+                {
+                    Prefs.BudgetMode = Configuration::UVBudgetEnforcementMode::FillRemainderPockets;
+                    Session->FillPocketsEnabled = true;
+                }
+            }
         }
-        if (ConstructCapsuleButton(
-                Surface, { SX + HalfW + 6.0f, SY, HalfW, 26.0f }, "Fill Pockets", Theme, Cursor, Pressed, !StrictOn, false, 9.6f, 9.0f,
-                OptionalTooltip::FromText("Allow suitable islands to expand into unused pockets after packing.")))
-        {
-            Prefs.BudgetMode            = Configuration::UVBudgetEnforcementMode::FillRemainderPockets;
-            Session->FillPocketsEnabled = true;
-        }
-        SY += 34.0f;
+        SY += 42.0f;
 
         WorkspaceAppearance::ConstructWeightedText(
-            Surface, FontWeightClass::Regular, { SX, SY + 7.0f }, 9.8f, Theme.TextMuted, "UDIM Packing Scope");
+            Surface, FontWeightClass::Regular, { SX, SY }, 11.5f, Theme.TextMuted, "UDIM Packing Scope");
         constexpr std::array<const char*, 4u> ScopeOptions {{
-            "Pack into Active UDIM Tile", "Pack per Assigned UDIM", "Auto Spill Overflow UDIMs", "Selected Islands Only" }};
+            "Pack into Active UDIM Tile", "Pack Per Assigned UDIM Tile", "Auto-Spill Overflow to New UDIMs", "Pack Selected Islands Only" }};
         const uint32_t ScopeIndex = static_cast<uint32_t>(Prefs.PackingScope);
-        PackingScopeDropdownBounds = { SX + 122.0f, SY, SW - 122.0f, 26.0f };
+        PackingScopeDropdownBounds = { SX, SY + 17.0f, SW, 28.0f };
         const OptionalTooltip ScopeTip = OptionalTooltip::FromTitled(
             "UDIM Packing Scope", "Choose which UDIM tiles are affected by the next pack operation.");
         const ControlContact ScopeButton = DropdownSelector::ConstructButton(
@@ -498,7 +563,7 @@ float UVInspectorPanel::RenderPackingTab(
             ActiveLayerDropdownOpen = false;
             TargetUdimDropdownOpen = false;
         }
-        SY += 36.0f;
+        SY += 52.0f;
 
         // Island Margin Padding (0..64 px)
         float MarginNorm = static_cast<float>(Prefs.IslandMarginPixels) / 64.0f;
@@ -511,43 +576,53 @@ float UVInspectorPanel::RenderPackingTab(
         {
             Prefs.IslandMarginPixels = static_cast<uint32_t>(std::round(MarginNorm * 64.0f));
         }
-        SY += 36.0f;
+        SY += 54.0f;
 
-        // Rotation Steps: 0° | 90° | 45° | 15°
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { SX, SY + 5.0f }, 9.8f, Theme.TextMuted, "Rotation Steps");
+        // Match StudioControls.SegmentedRow: full-width segmented rotation choices.
+        WorkspaceAppearance::ConstructWeightedText(
+            Surface, FontWeightClass::Regular, { SX, SY }, 11.5f, Theme.TextMuted, "Rotation Steps");
         constexpr std::array<std::pair<const char*, uint32_t>, 4u> RotSteps {{
-            { "0°",  0u  },
-            { "90°", 90u },
-            { "45°", 45u },
-            { "15°", 15u },
+            { "0° Locked", 0u }, { "90° Ortho", 90u }, { "45° Oct", 45u }, { "15° Fine", 15u },
         }};
-        const float StepW = (SW - 96.0f - 9.0f) / 4.0f;
-        for (uint32_t Idx = 0u; Idx < 4u; ++Idx)
+        const Rectangle2D RotationTrack{ SX, SY + 17.0f, SW, 34.0f };
+        Surface.FillRectangle(RotationTrack, ColorRgba{ 11, 11, 11, 255 }, 17.0f);
+        Surface.StrokeRectangle(RotationTrack, ColorRgba{ 255, 255, 255, 22 }, 17.0f, 1.0f);
+        constexpr float RotationGap = 4.0f;
+        const float RotationSegmentW = (SW - 12.0f) / 4.0f;
+        for (uint32_t Idx = 0u; Idx < RotSteps.size(); ++Idx)
         {
-            const Rectangle2D StepBtn{ SX + 96.0f + static_cast<float>(Idx) * (StepW + 3.0f), SY, StepW, 24.0f };
-            if (ConstructCapsuleButton(
-                    Surface,
-                    StepBtn,
-                    RotSteps[Idx].first,
-                    Theme,
-                    Cursor,
-                    Pressed,
-                    Prefs.RotationStepDegrees == RotSteps[Idx].second,
-                    false,
-                    9.2f,
-                    7.0f,
-                    OptionalTooltip::FromText("Set the rotation increments considered by the island packer.")))
+            const Rectangle2D Segment{
+                SX + 4.0f + static_cast<float>(Idx) * (RotationSegmentW + RotationGap), SY + 21.0f,
+                RotationSegmentW, 26.0f };
+            const bool Active = Prefs.RotationStepDegrees == RotSteps[Idx].second;
+            const bool Hovered = Segment.Contains(Cursor);
+            if (Active || Hovered)
+            {
+                Surface.FillRectangle(Segment, Active ? ColorRgba{ 41, 41, 41, 255 } : ColorRgba{ 33, 33, 33, 255 }, 13.0f);
+            }
+            WorkspaceAppearance::ConstructTruncatedText(
+                Surface, FontWeightClass::Regular, { Segment.X + 5.0f, Segment.Y + 8.0f },
+                Segment.Width - 10.0f, 9.8f, Active || Hovered ? Theme.TextPrimary : Theme.TextMuted, RotSteps[Idx].first);
+            if (Hovered)
+            {
+                RecordControlTooltip(
+                    Segment, RotSteps[Idx].first,
+                    OptionalTooltip::FromText("Set the rotation increments considered by the island packer."),
+                    "Choose a pack rotation step.");
+            }
+            if (Hovered && Pressed)
             {
                 Prefs.RotationStepDegrees = RotSteps[Idx].second;
             }
         }
-        SY += 32.0f;
+        SY += 59.0f;
 
         // Equalize Intra-Group Scale switch
         (void)ConstructToggleRow(
-            Surface, { SX, SY, SW, 24.0f }, "Equalize Intra-Group Scale", Prefs.EqualizeIntraLayerScale, Theme, Cursor, Pressed,
-            OptionalTooltip::FromText("Normalize island scale within each priority layer before packing."));
-        SY += 32.0f;
+            Surface, { SX, SY, SW, 46.0f }, "Equalize Intra-Group Scale", Prefs.EqualizeIntraLayerScale, Theme, Cursor, Pressed,
+            OptionalTooltip::FromText("Normalize texel density inside each priority layer before scaling."),
+            "Normalize texel density inside each priority layer", "before scaling");
+        SY += 53.0f;
 
         // Auto-spill scope routes through the multi-UDIM pack directive; other scopes use the single-tile pack path.
         const bool AutoSpillScope = Prefs.PackingScope == Configuration::UVPackingScopeMode::AutoSpillOverflowUDIMs;
@@ -698,7 +773,7 @@ float UVInspectorPanel::RenderPackingTab(
         });
 
     constexpr std::array<const char*, 4u> ScopePopupOptions {{
-        "Pack into Active UDIM Tile", "Pack per Assigned UDIM", "Auto Spill Overflow UDIMs", "Selected Islands Only" }};
+        "Pack into Active UDIM Tile", "Pack Per Assigned UDIM Tile", "Auto-Spill Overflow to New UDIMs", "Pack Selected Islands Only" }};
     const uint32_t ScopePopupIndex = static_cast<uint32_t>(Session->WorkspaceConfig.InspectUVPreferences().PackingScope);
     DrawFittedOptionSheet(
         PackingScopeDropdownBounds, ScopePopupOptions.data(), static_cast<uint32_t>(ScopePopupOptions.size()),
