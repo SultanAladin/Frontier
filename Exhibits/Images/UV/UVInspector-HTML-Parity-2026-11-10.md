@@ -14,6 +14,12 @@
 
 `cmake --build build/Development --target FrontierUV -j2` succeeds. Each of the four native tab states was separately selected, built, and captured; the session header was restored to its default Packing tab afterward. `git diff --check` is clean. No GitHub Actions were run.
 
+## Layout polish follow-up
+
+- Standardized the UV workspace dropdowns on the Perspective control: shared icon/caret button, option sheet, 31px control height, and consistent spacing (Inspector, Outliner, and Shading selector).
+- Fixed slider rows to reserve the full label + value/track height, spaced each row consistently, and adjusted the metric-card gutters/type size to prevent label clipping and crowding.
+- Refreshed native Packing, Shading, and Check captures: `UVInspector-{Packing,Shading,Check}-native.png`.
+
 ## MatCap parity follow-up
 
 - Baked the exact 16-slot pixel maps from `Experimental/UVEditor/Engine/EngineeringMatcaps.js` into `EngineContent/MatCaps/MatCapStudioAtlas.png` (reviewable atlas) and `MatCapStudioAtlas.rgba` (runtime upload data), with a slot-name catalog JSON.

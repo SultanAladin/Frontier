@@ -55,6 +55,7 @@ private:
     bool                ActiveLayerDropdownOpen = false;
     bool                TargetUdimDropdownOpen = false;
     bool                PackingScopeDropdownOpen = false;
+    bool                ShadingModeDropdownOpen = false;
     bool                LayerColorPickerOpen = false;
     bool                LiveUnwrapEnabled = false;
 };

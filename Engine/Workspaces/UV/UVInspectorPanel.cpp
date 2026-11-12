@@ -102,12 +102,12 @@ void ConstructMetricTrio(
         Surface.StrokeRectangle(Card, Highlight ? ColorRgba{ 239, 244, 207, 255 } : ColorRgba{ 255, 255, 255, 15 }, 16.0f, 1.0f);
         const ColorRgba SubInk = Highlight ? ColorRgba{ 23, 25, 14, 166 } : Theme.TextMuted;
         WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { X + 11.0f, Box.Y + 9.0f }, CardW - 22.0f, 9.5f, SubInk, Cols[Idx][1]);
+            Surface, FontWeightClass::Regular, { X + 7.0f, Box.Y + 9.0f }, CardW - 14.0f, 8.5f, SubInk, Cols[Idx][1]);
         WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { X + 11.0f, Box.Y + 24.0f }, CardW - 22.0f, 18.0f,
+            Surface, FontWeightClass::Regular, { X + 7.0f, Box.Y + 24.0f }, CardW - 14.0f, 18.0f,
             Highlight ? ColorRgba{ 23, 25, 14, 255 } : Theme.TextPrimary, Cols[Idx][0]);
         WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { X + 11.0f, Box.Y + 47.0f }, CardW - 22.0f, 9.0f, SubInk, Cols[Idx][2]);
+            Surface, FontWeightClass::Regular, { X + 7.0f, Box.Y + 47.0f }, CardW - 14.0f, 8.0f, SubInk, Cols[Idx][2]);
     }
 }
 
@@ -127,13 +127,13 @@ void ConstructPackingMetricCards(
         Surface.FillRectangle(Card, ColorRgba{ 26, 26, 26, 255 }, 16.0f);
         Surface.StrokeRectangle(Card, ColorRgba{ 255, 255, 255, 15 }, 16.0f, 1.0f);
         WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { X + 11.0f, Bounds.Y + 9.0f }, CardW - 22.0f, 9.5f,
+            Surface, FontWeightClass::Regular, { X + 7.0f, Bounds.Y + 9.0f }, CardW - 14.0f, 8.5f,
             Theme.TextMuted, Cards[Index][0]);
         WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { X + 11.0f, Bounds.Y + 24.0f }, CardW - 22.0f, 18.0f,
+            Surface, FontWeightClass::Regular, { X + 7.0f, Bounds.Y + 24.0f }, CardW - 14.0f, 18.0f,
             Index == 0u ? Theme.AccentFill : Theme.TextPrimary, Cards[Index][1]);
         WorkspaceAppearance::ConstructTruncatedText(
-            Surface, FontWeightClass::Regular, { X + 11.0f, Bounds.Y + 48.0f }, CardW - 22.0f, 9.0f,
+            Surface, FontWeightClass::Regular, { X + 7.0f, Bounds.Y + 48.0f }, CardW - 14.0f, 8.0f,
             Theme.TextMuted, Cards[Index][2]);
     }
 }
@@ -175,6 +175,7 @@ void UVInspectorPanel::AttachSession(UVWorkspaceSession* TargetSession) noexcept
     ActiveLayerDropdownOpen = false;
     TargetUdimDropdownOpen = false;
     PackingScopeDropdownOpen = false;
+    ShadingModeDropdownOpen = false;
     LayerColorPickerOpen = false;
     LiveUnwrapEnabled = false;
 }
@@ -260,9 +261,9 @@ float UVInspectorPanel::RenderPackingTab(
     ConstructPackingMetricCards(
         Surface,
         { LeftX, CurY, InnerW, 66.0f },
-        {{{ std::string("Selected · UDIM ") + std::to_string(Session->ActiveUDIMNumber), SelectedCount, SelectedSub },
-          { std::string("UDIM ") + std::to_string(Session->ActiveUDIMNumber) + " Fill", FillStr, FillSub },
-          { "Auto Remainder", RemStr, RemSub }}},
+        {{{ "Selected Islands", SelectedCount, SelectedSub },
+          { "Tile Fill", FillStr, FillSub },
+          { "Remainder", RemStr, RemSub }}},
         Theme);
     CurY += 82.0f;
 
@@ -285,7 +286,7 @@ float UVInspectorPanel::RenderPackingTab(
             : std::string("Unassigned Remainder");
         WorkspaceAppearance::ConstructWeightedText(
             Surface, FontWeightClass::Regular, { SX, SY }, 11.5f, Theme.TextMuted, "Active Layer");
-        ActiveLayerDropdownBounds = { SX, SY + 17.0f, SW, 28.0f };
+        ActiveLayerDropdownBounds = { SX, SY + 17.0f, SW, 31.0f };
         const OptionalTooltip ActiveLayerTip = OptionalTooltip::FromTitled(
             "Active Layer", "Choose which priority allocation layer is active and select its faces in the workspace.");
         const ControlContact ActiveLayerButton = DropdownSelector::ConstructButton(
@@ -296,7 +297,7 @@ float UVInspectorPanel::RenderPackingTab(
             ActiveLayerDropdownOpen = !ActiveLayerDropdownOpen;
             TargetUdimDropdownOpen = false;
         }
-        SY += 52.0f;
+        SY += 55.0f;
 
         CurrentLayer = Session->Asset.Layers.InspectLayer(Session->SelectedLayerOrdinal);
         if (CurrentLayer != nullptr)
@@ -307,7 +308,7 @@ float UVInspectorPanel::RenderPackingTab(
             const OptionalTooltip ShareTip = OptionalTooltip::FromTitled(
                 "Space Share", "Set the active layer's target share of the UV packing area. Other explicit layer shares limit the available range.");
             if (ConstructSliderControl(
-                    Surface, { SX, SY, SW, 28.0f }, "Space Share", ShareVal, NormShare, Theme, Cursor, Down, Pressed,
+                    Surface, { SX, SY, SW, 46.0f }, "Space Share", ShareVal, NormShare, Theme, Cursor, Down, Pressed,
                     ColorRgba{ 0u, 0u, 0u, 0u }, ShareTip))
             {
                 Session->AdjustSelectedLayerShare(NormShare * 100.0f);
@@ -317,7 +318,7 @@ float UVInspectorPanel::RenderPackingTab(
         {
             float FixedNorm = RemPct * 0.01f;
             ConstructSliderControl(
-                Surface, { SX, SY, SW, 28.0f }, "Remainder Share (Auto)", RemStr, FixedNorm,
+                Surface, { SX, SY, SW, 46.0f }, "Remainder Share (Auto)", RemStr, FixedNorm,
                 Theme, Cursor, false, false,
                 ColorRgba{ 0u, 0u, 0u, 0u },
                 OptionalTooltip::FromText("Unassigned faces automatically receive the remaining allocation budget."));
@@ -470,7 +471,7 @@ float UVInspectorPanel::RenderPackingTab(
         CurrentLayer = Session->Asset.Layers.InspectLayer(Session->SelectedLayerOrdinal);
         const uint32_t TargetUDIM = CurrentLayer != nullptr ? CurrentLayer->TargetUDIMNumber : 0u;
         const std::string TargetLabel = TargetUDIM == 0u ? "Auto UDIM" : "UDIM " + std::to_string(TargetUDIM);
-        TargetUdimDropdownBounds = { SX, SY + 17.0f, SW, 28.0f };
+        TargetUdimDropdownBounds = { SX, SY + 17.0f, SW, 31.0f };
         const OptionalTooltip TargetTip = OptionalTooltip::FromTitled(
             "Target UDIM", "Pin the active layer's UV islands to a tile. Choosing an explicit UDIM translates its islands into that tile.");
         if (CurrentLayer != nullptr)
@@ -499,7 +500,7 @@ float UVInspectorPanel::RenderPackingTab(
             }
             TargetUdimDropdownOpen = false;
         }
-        SY += 47.0f;
+        SY += 52.0f;
 
         const float HalfW = (SW - 8.0f) * 0.5f;
         if (ConstructCapsuleButton(
@@ -591,26 +592,26 @@ float UVInspectorPanel::RenderPackingTab(
         constexpr std::array<const char*, 4u> ScopeOptions {{
             "Pack into Active UDIM Tile", "Pack Per Assigned UDIM Tile", "Auto-Spill Overflow to New UDIMs", "Pack Selected Islands Only" }};
         const uint32_t ScopeIndex = static_cast<uint32_t>(Prefs.PackingScope);
-        PackingScopeDropdownBounds = { SX, SY + 17.0f, SW, 28.0f };
+        PackingScopeDropdownBounds = { SX, SY + 17.0f, SW, 31.0f };
         const OptionalTooltip ScopeTip = OptionalTooltip::FromTitled(
             "UDIM Packing Scope", "Choose which UDIM tiles are affected by the next pack operation.");
         const ControlContact ScopeButton = DropdownSelector::ConstructButton(
             Surface, PackingScopeDropdownBounds, ScopeOptions[std::min<uint32_t>(ScopeIndex, 3u)],
-            PackingScopeDropdownOpen, Input.PrimaryPointer, 0.92f, ControlIcon::LayoutGrid, ScopeTip);
+            PackingScopeDropdownOpen, Input.PrimaryPointer, 1.0f, ControlIcon::LayoutGrid, ScopeTip);
         if (ScopeButton.Clicked)
         {
             PackingScopeDropdownOpen = !PackingScopeDropdownOpen;
             ActiveLayerDropdownOpen = false;
             TargetUdimDropdownOpen = false;
         }
-        SY += 52.0f;
+        SY += 55.0f;
 
         // Island Margin Padding (0..64 px)
         float MarginNorm = static_cast<float>(Prefs.IslandMarginPixels) / 64.0f;
         char  MarginTxt[24]{};
         std::snprintf(MarginTxt, sizeof(MarginTxt), "%u px", Prefs.IslandMarginPixels);
         if (ConstructSliderControl(
-                Surface, { SX, SY, SW, 28.0f }, "Island Margin Padding", MarginTxt, MarginNorm, Theme, Cursor, Down, Pressed,
+                Surface, { SX, SY, SW, 46.0f }, "Island Margin Padding", MarginTxt, MarginNorm, Theme, Cursor, Down, Pressed,
                 ColorRgba{ 0u, 0u, 0u, 0u },
                 OptionalTooltip::FromTitled("Island Margin Padding", "Set the edge gutter between packed islands in pixels.")))
         {
@@ -1037,7 +1038,7 @@ float UVInspectorPanel::RenderUnwrapTab(
         float AngleNorm = std::clamp((Session->SharpAngleThreshold - 10.0f) / 79.0f, 0.0f, 1.0f);
         char AngleTxt[24]{};
         std::snprintf(AngleTxt, sizeof(AngleTxt), "%.0f°", Session->SharpAngleThreshold);
-        if (ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Smart Angle Limit", AngleTxt, AngleNorm, Theme, Cursor, Down, Pressed))
+        if (ConstructSliderControl(Surface, { SX, SY, SW, 46.0f }, "Smart Angle Limit", AngleTxt, AngleNorm, Theme, Cursor, Down, Pressed))
             Session->SharpAngleThreshold = 10.0f + AngleNorm * 79.0f;
         SY += 52.0f;
         (void)ConstructToggleRow(Surface, { SX, SY, SW, 42.0f }, "Live Unwrap", LiveUnwrapEnabled,
@@ -1106,11 +1107,11 @@ float UVInspectorPanel::RenderUnwrapTab(
         float IterNorm = static_cast<float>(Session->RelaxIterations) / 64.0f;
         char  IterTxt[24]{};
         std::snprintf(IterTxt, sizeof(IterTxt), "%u passes", Session->RelaxIterations);
-        if (ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Relax Passes", IterTxt, IterNorm, Theme, Cursor, Down, Pressed))
+        if (ConstructSliderControl(Surface, { SX, SY, SW, 46.0f }, "Relax Passes", IterTxt, IterNorm, Theme, Cursor, Down, Pressed))
         {
             Session->RelaxIterations = std::max(1u, static_cast<uint32_t>(std::round(IterNorm * 64.0f)));
         }
-        SY += 36.0f;
+        SY += 50.0f;
 
         const float HalfW = (SW - 6.0f) * 0.5f;
         if (ConstructCapsuleButton(Surface, { SX, SY, HalfW, 28.0f }, "Relax Stretch GPU", Theme, Cursor, Pressed, false, true, 9.8f))
@@ -1415,6 +1416,7 @@ float UVInspectorPanel::RenderShadingTab(
     const Point2D Cursor{ Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
     const bool Pressed = Input.PrimaryPointer.Pressed;
     const bool Down = Input.PrimaryPointer.Down;
+    if (Input.EscapePressed) ShadingModeDropdownOpen = false;
     const auto& Network = Session->Asset.Network;
     float CurY = StartY;
 
@@ -1508,24 +1510,25 @@ float UVInspectorPanel::RenderShadingTab(
         SY += 30.0f;
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular,
             { SX, SY + 7.0f }, 8.8f, Theme.TextMuted, "Shader");
-        const auto CurrentShader = Session->RenderOptions3D.DisplayMode;
-        const Rectangle2D ShaderButton{ SX + 58.0f, SY, SW - 58.0f, 24.0f };
-        const char* ShaderButtonLabel = "Surface Material";
-        if (CurrentShader == GeometricRaster::SurfaceDisplayMode::MatCapPreview) ShaderButtonLabel = "MatCap (Per-Face)";
-        else if (CurrentShader == GeometricRaster::SurfaceDisplayMode::MaterialAndMatCap) ShaderButtonLabel = "Material + MatCap";
-        if (ConstructCapsuleButton(Surface, ShaderButton, ShaderButtonLabel, Theme, Cursor, Pressed,
-                false, false, 8.8f, -1.0f,
-                OptionalTooltip::FromText("Cycle between surface material, per-face MatCap, and Material + MatCap shading.")))
+        constexpr std::array<const char*, 3u> ShaderOptions {{
+            "Surface Material", "MatCap (Per-Face)", "Material + MatCap"
+        }};
+        uint32_t ShaderIndex = 0u;
+        if (Session->RenderOptions3D.DisplayMode == GeometricRaster::SurfaceDisplayMode::MatCapPreview) ShaderIndex = 1u;
+        else if (Session->RenderOptions3D.DisplayMode == GeometricRaster::SurfaceDisplayMode::MaterialAndMatCap) ShaderIndex = 2u;
+        Rectangle2D ShaderDropdownBounds{ SX + 58.0f, SY, SW - 58.0f, 31.0f };
+        const ControlContact ShaderDropdown = DropdownSelector::ConstructButton(
+            Surface, ShaderDropdownBounds, ShaderOptions[ShaderIndex], ShadingModeDropdownOpen,
+            Input.PrimaryPointer, 1.0f, ControlIcon::DisplayMonitor,
+            OptionalTooltip::FromText("Choose the viewport shader mode."));
+        if (ShaderDropdown.Clicked)
         {
-            if (CurrentShader == GeometricRaster::SurfaceDisplayMode::SurfaceMaterial)
-                Session->RenderOptions3D.DisplayMode = GeometricRaster::SurfaceDisplayMode::MatCapPreview;
-            else if (CurrentShader == GeometricRaster::SurfaceDisplayMode::MatCapPreview)
-                Session->RenderOptions3D.DisplayMode = GeometricRaster::SurfaceDisplayMode::MaterialAndMatCap;
-            else
-                Session->RenderOptions3D.DisplayMode = GeometricRaster::SurfaceDisplayMode::SurfaceMaterial;
-            Session->FramebuffersDirty = true;
+            ShadingModeDropdownOpen = !ShadingModeDropdownOpen;
+            ActiveLayerDropdownOpen = false;
+            TargetUdimDropdownOpen = false;
+            PackingScopeDropdownOpen = false;
         }
-        SY += 31.0f;
+        SY += 33.0f;
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular,
             { SX, SY + 3.0f }, 8.8f, Theme.TextMuted, "MatCap Library · 16");
         SY += 19.0f;
@@ -1552,12 +1555,43 @@ float UVInspectorPanel::RenderShadingTab(
         std::snprintf(RghTxt, sizeof(RghTxt), "%.2f", SurfaceRoughness);
         std::snprintf(BldTxt, sizeof(BldTxt), "%.0f%%", SurfaceMatBlend * 100.0f);
         bool Dirty = false;
-        Dirty |= ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Metallic", MetTxt, SurfaceMetallic, Theme, Cursor, Down, Pressed);
-        SY += 34.0f;
-        Dirty |= ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Roughness", RghTxt, SurfaceRoughness, Theme, Cursor, Down, Pressed);
-        SY += 34.0f;
-        Dirty |= ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "MatCap Blend", BldTxt, SurfaceMatBlend, Theme, Cursor, Down, Pressed);
+        Dirty |= ConstructSliderControl(Surface, { SX, SY, SW, 46.0f }, "Metallic", MetTxt, SurfaceMetallic, Theme, Cursor, Down, Pressed);
+        SY += 50.0f;
+        Dirty |= ConstructSliderControl(Surface, { SX, SY, SW, 46.0f }, "Roughness", RghTxt, SurfaceRoughness, Theme, Cursor, Down, Pressed);
+        SY += 50.0f;
+        Dirty |= ConstructSliderControl(Surface, { SX, SY, SW, 46.0f }, "MatCap Blend", BldTxt, SurfaceMatBlend, Theme, Cursor, Down, Pressed);
         if (Dirty) Session->ApplySurfaceRoughnessMetallic(SurfaceRoughness, SurfaceMetallic, SurfaceMatBlend);
+
+        if (ShadingModeDropdownOpen)
+        {
+            Rectangle2D SheetBounds = DropdownSelector::QuerySheetBounds(ShaderDropdownBounds,
+                static_cast<uint32_t>(ShaderOptions.size()));
+            if (SheetBounds.Bottom() > Card.Bottom())
+            {
+                ShaderDropdownBounds.Y -= SheetBounds.Height + 2.0f * ControlMetrics::DropdownPaddingY + ShaderDropdownBounds.Height;
+                SheetBounds = DropdownSelector::QuerySheetBounds(ShaderDropdownBounds,
+                    static_cast<uint32_t>(ShaderOptions.size()));
+            }
+            uint32_t ChosenShader = ShaderIndex;
+            const ControlContact Choice = DropdownSelector::ConstructOptionSheet(
+                Surface, ShaderDropdownBounds, ShaderOptions.data(), static_cast<uint32_t>(ShaderOptions.size()),
+                ShaderIndex, Input.PrimaryPointer, ChosenShader);
+            if (Choice.Clicked && ChosenShader < ShaderOptions.size())
+            {
+                constexpr std::array<GeometricRaster::SurfaceDisplayMode, 3u> Modes {{
+                    GeometricRaster::SurfaceDisplayMode::SurfaceMaterial,
+                    GeometricRaster::SurfaceDisplayMode::MatCapPreview,
+                    GeometricRaster::SurfaceDisplayMode::MaterialAndMatCap
+                }};
+                Session->RenderOptions3D.DisplayMode = Modes[ChosenShader];
+                Session->FramebuffersDirty = true;
+                ShadingModeDropdownOpen = false;
+            }
+            else if (Input.PrimaryPointer.Released && !ShaderDropdownBounds.Contains(Cursor) && !SheetBounds.Contains(Cursor))
+            {
+                ShadingModeDropdownOpen = false;
+            }
+        }
         CurY += Card.Height + 12.0f;
     }
     return CurY - StartY;
@@ -1582,17 +1616,17 @@ float UVInspectorPanel::RenderCheckTab(
     std::snprintf(OverlapValue, sizeof(OverlapValue), "%u", Metrics.OverlapFaceCount);
     std::snprintf(FlippedValue, sizeof(FlippedValue), "%u", Metrics.FlippedFaceCount);
     std::snprintf(StretchValue, sizeof(StretchValue), "%.2f", Metrics.MeanL2Stretch);
-    std::snprintf(OverlapSub, sizeof(OverlapSub), "%s", Metrics.OverlapFaceCount == 0u ? "Clean non-overlapping" : "Review overlaps");
-    std::snprintf(FlippedSub, sizeof(FlippedSub), "%s", Metrics.FlippedFaceCount == 0u ? "All positive facing" : "Inverted UV normals");
+    std::snprintf(OverlapSub, sizeof(OverlapSub), "%s", Metrics.OverlapFaceCount == 0u ? "No overlap" : "Review overlaps");
+    std::snprintf(FlippedSub, sizeof(FlippedSub), "%s", Metrics.FlippedFaceCount == 0u ? "All positive" : "Inverted UV");
     float MaxStretch = 0.0f;
     for (const float Stretch : Metrics.PerFaceStretch) MaxStretch = std::max(MaxStretch, Stretch);
     std::snprintf(StretchSub, sizeof(StretchSub), "Max %.2f", MaxStretch);
 
     ConstructMetricTrio(
         Surface, { LeftX, CurY, InnerW, 60.0f },
-        OverlapValue, "Overlapping Faces", OverlapSub,
+        OverlapValue, "Overlaps", OverlapSub,
         FlippedValue, "Flipped Winding", FlippedSub,
-        StretchValue, "Mean L2 Stretch", StretchSub,
+        StretchValue, "Mean Stretch", StretchSub,
         Theme, Metrics.OverlapFaceCount == 0u);
     CurY += 70.0f;
 
@@ -1829,6 +1863,7 @@ void UVInspectorPanel::Render(
                 ActiveLayerDropdownOpen = false;
                 TargetUdimDropdownOpen = false;
                 PackingScopeDropdownOpen = false;
+                ShadingModeDropdownOpen = false;
             }
         }
         CurY += 54.0f;

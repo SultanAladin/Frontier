@@ -388,7 +388,7 @@ void UVOutlinerPanel::Render(
     {
         UDIMFilterCode = 0u;
     }
-    UDIMFilterDropdownBounds = { LeftX, CurY, InnerW, 28.0f };
+    UDIMFilterDropdownBounds = { LeftX, CurY, InnerW, 31.0f };
     const ControlContact FilterContact = DropdownSelector::ConstructButton(
         Surface,
         UDIMFilterDropdownBounds,
@@ -402,7 +402,7 @@ void UVOutlinerPanel::Render(
     {
         UDIMFilterDropdownOpen = !UDIMFilterDropdownOpen;
     }
-    CurY += 36.0f;
+    CurY += 39.0f;
 
     const auto LayerSpan = Session->Asset.Layers.InspectLayers();
     const std::string_view FilterQuery(SearchEditBuffer.Text, SearchEditBuffer.Length);
