@@ -142,6 +142,15 @@ StretchRelaxReport ProgressiveStretchRelaxer::RelaxStretch(
 
         for (const uint32_t EdgeIdx : Island.CornerEdgeIndices)
         {
+            const auto& Edge = Network.Edges[EdgeIdx];
+            if (GeometrySpace::QueryEdgeAttributeEnabled(Edge.AttributeMask, GeometrySpace::EdgeAttributeMask::EnablePinLock))
+            {
+                Nodes[VertToNode[Edge.OriginVertexIndex]].PinnedOrSeamFlag = 1u;
+            }
+        }
+
+        for (const uint32_t EdgeIdx : Island.CornerEdgeIndices)
+        {
             const auto&    Edge  = Network.Edges[EdgeIdx];
             const uint32_t V0    = Edge.OriginVertexIndex;
             const uint32_t V1    = Network.Edges[Edge.NextEdgeIndex].OriginVertexIndex;

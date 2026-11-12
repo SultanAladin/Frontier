@@ -125,6 +125,8 @@ PaneInputReading CaptureImGuiPaneInput(Rectangle2D ScreenBounds, float ScaleFact
     {
         Reading.PrimaryPointer.X = (Io.MousePos.x - ScreenBounds.X) / SafeScale;
         Reading.PrimaryPointer.Y = (Io.MousePos.y - ScreenBounds.Y) / SafeScale;
+        Reading.PointerDeltaX    = Io.MouseDelta.x / SafeScale;
+        Reading.PointerDeltaY    = Io.MouseDelta.y / SafeScale;
     }
 
     const bool HoveredWindow = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
@@ -139,11 +141,15 @@ PaneInputReading CaptureImGuiPaneInput(Rectangle2D ScreenBounds, float ScaleFact
     Reading.SecondaryDown     = ImGui::IsMouseDown(ImGuiMouseButton_Right);
     Reading.SecondaryPressed  = ImGui::IsMouseClicked(ImGuiMouseButton_Right);
     Reading.SecondaryReleased = ImGui::IsMouseReleased(ImGuiMouseButton_Right);
+    Reading.MiddleDown        = ImGui::IsMouseDown(ImGuiMouseButton_Middle);
+    Reading.MiddlePressed     = ImGui::IsMouseClicked(ImGuiMouseButton_Middle);
+    Reading.MiddleReleased    = ImGui::IsMouseReleased(ImGuiMouseButton_Middle);
     Reading.DoubleClicked     = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
     Reading.WheelDeltaY       = (HoveredWindow || InsideBounds) ? Io.MouseWheel : 0.0f;
 
     Reading.ShiftHeld         = Io.KeyShift;
     Reading.ControlHeld       = Io.KeyCtrl;
+    Reading.AltHeld           = Io.KeyAlt;
     Reading.EnterPressed      = ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
     Reading.EscapePressed     = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
     Reading.DeletePressed     = ImGui::IsKeyPressed(ImGuiKey_Delete, false);

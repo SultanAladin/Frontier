@@ -49,6 +49,13 @@ struct DualViewportFramebuffers
     ViewportFramebufferSlice Planar2D  {}; // [-] - 2D planar/tile framebuffer slice
 };
 
+struct ViewportInteractionFrame
+{
+    Rectangle2D             PlanarBounds  {}; // [px] - Logical rectangle of 2D planar canvas (0 width when hidden)
+    Rectangle2D             SpatialBounds {}; // [px] - Logical rectangle of 3D spatial viewport (0 width when hidden)
+    const PaneInputReading& Input;            // [-]  - Current frame pointer, wheel, modifier & keyboard reading
+};
+
 class ViewportProjectionPane
 {
 public:
@@ -58,7 +65,8 @@ public:
         uint32_t PlanarWidthPx,
         uint32_t PlanarHeightPx)>;
 
-    using SplitModeChangedCallback = std::function<void(Editor::ViewportSplitMode NewMode)>;
+    using SplitModeChangedCallback    = std::function<void(Editor::ViewportSplitMode NewMode)>;
+    using ViewportInteractionCallback = std::function<void(const ViewportInteractionFrame& Frame)>;
 
     ViewportProjectionPane();
     ~ViewportProjectionPane();
@@ -72,6 +80,7 @@ public:
     void ConfigureStatusBanner(std::string_view BannerText);
     void AssignFramebufferProvider(FramebufferSyncCallback Provider);
     void AssignSplitModeCallback(SplitModeChangedCallback Callback);
+    void AssignInteractionCallback(ViewportInteractionCallback Callback);
 
     [[nodiscard]] Editor::ViewportProjection&       AccessProjection() noexcept;
     [[nodiscard]] const Editor::ViewportProjection& InspectProjection() const noexcept;
@@ -95,6 +104,7 @@ private:
     std::vector<ViewportToolbarChip> DomainChips          {};
     FramebufferSyncCallback          FramebufferProvider  {};
     SplitModeChangedCallback         SplitChangedNotifier {};
+    ViewportInteractionCallback      InteractionCallback  {};
     ImTextureData                    PlanarTexture        {};
     ImTextureData                    SpatialTexture       {};
 };

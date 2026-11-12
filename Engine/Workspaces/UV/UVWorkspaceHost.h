@@ -21,6 +21,9 @@
 #include "Engine/Editor/Explorer/ContentBrowser.h"
 #endif
 
+#include <filesystem>
+#include <string>
+
 namespace Frontier::Workspaces
 {
 
@@ -35,6 +38,10 @@ public:
 #if FRONTIER_EDITOR_ENABLED
     void AttachContentBrowser(Editor::Explorer::ContentBrowser* TargetBrowser);
 #endif
+
+    [[nodiscard]] bool IntakeExternalFileDrop(
+        const std::filesystem::path& DroppedPath,
+        std::string&                 OutDiagnostic);
 
     void RegisterDockPanes(Components::HeadlessWorkspaceDockContainer& DockContainer);
 

@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                            UVVIEWPORTHOST.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of UVViewportHost delegating 2D UDIM + 3D Projection GPU views to reusable ViewportProjectionPane
+// 🧩 Implementation of UVViewportHost delegating 2D UDIM + 3D Projection GPU views and live interaction to ViewportProjectionPane
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
@@ -24,10 +24,13 @@ UVViewportHost::~UVViewportHost() = default;
 void UVViewportHost::AttachSession(UVWorkspaceSession* TargetSession) noexcept
 {
     Session = TargetSession;
+    Interactor.AttachSession(Session);
+
     if (Session == nullptr)
     {
         ProjectionPane.AttachDocument(nullptr);
         ProjectionPane.ConfigureToolbarChips({});
+        ProjectionPane.AssignInteractionCallback({});
         ProjectionPane.AssignFramebufferProvider({});
         ProjectionPane.AssignSplitModeCallback({});
         return;
@@ -36,6 +39,29 @@ void UVViewportHost::AttachSession(UVWorkspaceSession* TargetSession) noexcept
     ProjectionPane.AttachDocument(&Session->AccessDocument());
 
     ProjectionPane.ConfigureToolbarChips({
+        ViewportToolbarChip{
+            "Frame",
+            false,
+            [this]()
+            {
+                if (Session != nullptr)
+                {
+                    Session->FrameSelectionOrNetwork();
+                }
+            },
+        },
+        ViewportToolbarChip{
+            "Seam [K]",
+            false,
+            [this]()
+            {
+                if (Session != nullptr)
+                {
+                    Session->SeamBrushActive  = !Session->SeamBrushActive;
+                    Session->FramebuffersDirty = true;
+                }
+            },
+        },
         ViewportToolbarChip{
             "Unwrap",
             false,
@@ -70,6 +96,12 @@ void UVViewportHost::AttachSession(UVWorkspaceSession* TargetSession) noexcept
             },
         },
     });
+
+    ProjectionPane.AssignInteractionCallback(
+        [this](const ViewportInteractionFrame& Frame)
+        {
+            Interactor.ProcessViewportInput(Frame);
+        });
 
     ProjectionPane.AssignSplitModeCallback(
         [this](Editor::ViewportSplitMode NewMode)

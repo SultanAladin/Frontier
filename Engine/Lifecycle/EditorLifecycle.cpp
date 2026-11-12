@@ -98,49 +98,57 @@ bool EditorLifecycle::Initialize(const EditorStartupConfiguration& Configuration
         });
     DockContainer.ConfigureDetachedWindowsAllowed(ControlCentre.QueryDetachedWindowsAllowed());
 
-    const char* LeftPaneTitle = (StartupConfig.OutlinerHeading == OutlinerTitleVariant::LayerStack) ? "LayerStack" : "Outliner";
-
-    Components::WorkspaceDockPaneDescriptor LeftDesc{};
-    LeftDesc.PaneTitle         = LeftPaneTitle;
-    LeftDesc.InitialDirection  = Components::DockPlacementDirection::SplitLeft;
-    LeftDesc.InitialSplitRatio = 0.21f;
-    LeftDesc.Directives        = Components::PaneDirectiveMask::StandardPaneDirectives;
-    LeftDesc.ContentPresenter  = [this]()
+    if (MountedUVHost != nullptr)
     {
-        if (WorkspaceSessionPanes* Panes = Workspaces.AccessActivePanes())
-        {
-            Panes->Outliner.PresentInImGuiPane(CurrentStepSeconds, ControlCentre.QueryInterfaceScaleFactor());
-        }
-    };
-    OutlinerPaneToken = DockContainer.RegisterPane(LeftDesc);
-
-    Components::WorkspaceDockPaneDescriptor CenterDesc{};
-    CenterDesc.PaneTitle         = "Viewport";
-    CenterDesc.InitialDirection  = Components::DockPlacementDirection::CenterTabGroup;
-    CenterDesc.InitialSplitRatio = 0.58f;
-    CenterDesc.Directives        = Components::PaneDirectiveMask::CentralViewportDirectives;
-    CenterDesc.ContentPresenter  = [this]()
+        MountedUVHost->AttachContentBrowser(&ContentBrowserDrawer);
+        MountedUVHost->RegisterDockPanes(DockContainer);
+    }
+    else
     {
-        if (WorkspaceSessionPanes* Panes = Workspaces.AccessActivePanes())
-        {
-            Panes->Viewport.PresentInImGuiPane(CurrentStepSeconds, ControlCentre.QueryInterfaceScaleFactor());
-        }
-    };
-    ViewportPaneToken = DockContainer.RegisterPane(CenterDesc);
+        const char* LeftPaneTitle = (StartupConfig.OutlinerHeading == OutlinerTitleVariant::LayerStack) ? "LayerStack" : "Outliner";
 
-    Components::WorkspaceDockPaneDescriptor RightDesc{};
-    RightDesc.PaneTitle         = "Inspector";
-    RightDesc.InitialDirection  = Components::DockPlacementDirection::SplitRight;
-    RightDesc.InitialSplitRatio = 0.21f;
-    RightDesc.Directives        = Components::PaneDirectiveMask::StandardPaneDirectives;
-    RightDesc.ContentPresenter  = [this]()
-    {
-        if (WorkspaceSessionPanes* Panes = Workspaces.AccessActivePanes())
+        Components::WorkspaceDockPaneDescriptor LeftDesc{};
+        LeftDesc.PaneTitle         = LeftPaneTitle;
+        LeftDesc.InitialDirection  = Components::DockPlacementDirection::SplitLeft;
+        LeftDesc.InitialSplitRatio = 0.21f;
+        LeftDesc.Directives        = Components::PaneDirectiveMask::StandardPaneDirectives;
+        LeftDesc.ContentPresenter  = [this]()
         {
-            Panes->Inspector.PresentInImGuiPane(CurrentStepSeconds, ControlCentre.QueryInterfaceScaleFactor());
-        }
-    };
-    InspectorPaneToken = DockContainer.RegisterPane(RightDesc);
+            if (WorkspaceSessionPanes* Panes = Workspaces.AccessActivePanes())
+            {
+                Panes->Outliner.PresentInImGuiPane(CurrentStepSeconds, ControlCentre.QueryInterfaceScaleFactor());
+            }
+        };
+        OutlinerPaneToken = DockContainer.RegisterPane(LeftDesc);
+
+        Components::WorkspaceDockPaneDescriptor CenterDesc{};
+        CenterDesc.PaneTitle         = "Viewport";
+        CenterDesc.InitialDirection  = Components::DockPlacementDirection::CenterTabGroup;
+        CenterDesc.InitialSplitRatio = 0.58f;
+        CenterDesc.Directives        = Components::PaneDirectiveMask::CentralViewportDirectives;
+        CenterDesc.ContentPresenter  = [this]()
+        {
+            if (WorkspaceSessionPanes* Panes = Workspaces.AccessActivePanes())
+            {
+                Panes->Viewport.PresentInImGuiPane(CurrentStepSeconds, ControlCentre.QueryInterfaceScaleFactor());
+            }
+        };
+        ViewportPaneToken = DockContainer.RegisterPane(CenterDesc);
+
+        Components::WorkspaceDockPaneDescriptor RightDesc{};
+        RightDesc.PaneTitle         = "Inspector";
+        RightDesc.InitialDirection  = Components::DockPlacementDirection::SplitRight;
+        RightDesc.InitialSplitRatio = 0.21f;
+        RightDesc.Directives        = Components::PaneDirectiveMask::StandardPaneDirectives;
+        RightDesc.ContentPresenter  = [this]()
+        {
+            if (WorkspaceSessionPanes* Panes = Workspaces.AccessActivePanes())
+            {
+                Panes->Inspector.PresentInImGuiPane(CurrentStepSeconds, ControlCentre.QueryInterfaceScaleFactor());
+            }
+        };
+        InspectorPaneToken = DockContainer.RegisterPane(RightDesc);
+    }
 
     if (!EditorSequence.Initialize())
     {

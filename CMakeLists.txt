@@ -174,12 +174,17 @@ set(FRONTIER_UI_COMPONENT_SOURCES
     Engine/Components/ContentBrowser/ContentBrowserPanel.cpp
     Engine/Workspaces/UV/UVOutlinerPanel.cpp
     Engine/Workspaces/UV/UVInspectorPanel.cpp
+    Engine/Workspaces/UV/UVViewportInteractor.cpp
     Engine/Workspaces/UV/UVViewportHost.cpp
     Engine/Workspaces/UV/UVWorkspaceHost.cpp
+    Engine/GeometricRaster/Backend/VulkanSwapchainPresenter.cpp
     Engine/Configuration/InputSettings.cpp
     Engine/Configuration/ProjectSpaceRepository.cpp
     Engine/Lifecycle/WorkspaceLifecycle.cpp
 )
+if(NOT ANDROID)
+    list(APPEND FRONTIER_UI_COMPONENT_SOURCES Engine/Host/DesktopWorkspaceRunner.cpp)
+endif()
 
 #------------------------------------------------------------------------------------------------------------------------
 #                                      SLANG -> SPIR-V SHADER COMPILATION PIPELINE
@@ -228,8 +233,10 @@ frontier_compile_slang_stage(SurfaceShading.slang           VertexEntry   vertex
 frontier_compile_slang_stage(SurfaceShading.slang           FragmentEntry fragment SurfaceShading.frag.spv)
 frontier_compile_slang_stage(UVTileRasterization.slang      VertexEntry   vertex   UVTileRasterization.vert.spv)
 frontier_compile_slang_stage(UVTileRasterization.slang      FragmentEntry fragment UVTileRasterization.frag.spv)
-frontier_compile_slang_stage(GizmoRasterization.slang       VertexEntry   vertex   GizmoRasterization.vert.spv)
-frontier_compile_slang_stage(GizmoRasterization.slang       FragmentEntry fragment GizmoRasterization.frag.spv)
+frontier_compile_slang_stage(GizmoRasterization.slang        VertexEntry   vertex   GizmoRasterization.vert.spv)
+frontier_compile_slang_stage(GizmoRasterization.slang        FragmentEntry fragment GizmoRasterization.frag.spv)
+frontier_compile_slang_stage(ImGuiOverlayRasterization.slang VertexEntry   vertex   ImGuiOverlayRasterization.vert.spv)
+frontier_compile_slang_stage(ImGuiOverlayRasterization.slang FragmentEntry fragment ImGuiOverlayRasterization.frag.spv)
 frontier_compile_slang_stage(SelectionMaskCompute.slang     ComputeEntry  compute  SelectionMaskCompute.comp.spv)
 frontier_compile_slang_stage(ViewportPickReduction.slang    ComputeEntry  compute  ViewportPickReduction.comp.spv)
 frontier_compile_slang_stage(UVDistortionInspection.slang   ComputeEntry  compute  UVDistortionInspection.comp.spv)
@@ -245,6 +252,9 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/GeometrySpace/Network/GeometryInstance.cpp
     Engine/GeometrySpace/Network/FacePartitionRegister.cpp
     Engine/GeometrySpace/Primitives/AnalyticPrimitives.cpp
+    Engine/GeometrySpace/Selection/ComponentSelectionMask.cpp
+    Engine/GeometrySpace/Selection/GeometrySelection.cpp
+    Engine/Interchange/GeometryInterchange.cpp
     Engine/Editor/Viewports/TransformGizmo.cpp
     Engine/Editor/Viewports/ViewportProjection.cpp
     Engine/GeometricRaster/Backend/VulkanDeviceContext.cpp
@@ -282,11 +292,14 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/Workspaces/WorkspaceRegistry.cpp
     Engine/Workspaces/WorkspaceExchange.cpp
     Engine/Workspaces/WorkspaceExtension.cpp
+    Engine/Workspaces/UV/Operations/UVAuthoringOperations.cpp
     Engine/Workspaces/UV/Solvers/SeamCutGenerator.cpp
     Engine/Workspaces/UV/Solvers/ConformalUnwrapSolver.cpp
     Engine/Workspaces/UV/Solvers/ProgressiveStretchRelaxer.cpp
     Engine/Workspaces/UV/Solvers/ConcaveHorizonPacker.cpp
     Engine/Workspaces/UV/Solvers/TexelDensityEqualizer.cpp
+    Engine/Workspaces/UV/Solvers/UVProjectionSolvers.cpp
+    Engine/Workspaces/UV/Solvers/UVIslandLayoutOperations.cpp
     Engine/Workspaces/UV/UVWorkspaceSession.cpp
 )
 if(NOT ANDROID)
@@ -324,6 +337,20 @@ if(NOT ANDROID)
 endif()
 
 #------------------------------------------------------------------------------------------------------------------------
+#                                    DESKTOP APPLICATION EXECUTABLES (FRONTIERUV & FRONTIEREDITOR)
+#------------------------------------------------------------------------------------------------------------------------
+
+if(NOT ANDROID AND NOT FRONTIER_PROFILE STREQUAL "Shipping")
+    add_executable(FrontierUV Engine/Host/FrontierUVMain.cpp)
+    target_compile_definitions(FrontierUV PRIVATE "FRONTIER_REPO_ROOT_DIR=\"${CMAKE_SOURCE_DIR}\"")
+    target_link_libraries(FrontierUV PRIVATE FrontierEngine FrontierImGui)
+
+    add_executable(FrontierEditor Engine/Host/FrontierEditorMain.cpp)
+    target_compile_definitions(FrontierEditor PRIVATE "FRONTIER_REPO_ROOT_DIR=\"${CMAKE_SOURCE_DIR}\"")
+    target_link_libraries(FrontierEditor PRIVATE FrontierEngine FrontierImGui)
+endif()
+
+#------------------------------------------------------------------------------------------------------------------------
 #                                         VALIDATION EXHIBITS (CTEST TARGETS)
 #------------------------------------------------------------------------------------------------------------------------
 
@@ -332,6 +359,9 @@ if(BUILD_TESTING)
         add_library(FrontierShippingExhibitUi STATIC EXCLUDE_FROM_ALL ${FRONTIER_UI_COMPONENT_SOURCES})
         target_include_directories(FrontierShippingExhibitUi PUBLIC "${CMAKE_SOURCE_DIR}")
         target_link_libraries(FrontierShippingExhibitUi PUBLIC FrontierEngine FrontierImGui)
+        if(NOT ANDROID)
+            target_link_libraries(FrontierShippingExhibitUi PRIVATE glfw)
+        endif()
     endif()
 
     function(frontier_register_exhibit EXHIBIT_NAME EXHIBIT_SOURCE)
@@ -355,7 +385,19 @@ if(BUILD_TESTING)
     frontier_register_exhibit(WorkspaceRevisionValidation    Exhibits/WorkspaceRevisionValidation.cpp)
     frontier_register_exhibit(ContentBrowserValidation       Exhibits/ContentBrowserValidation.cpp)
     frontier_register_exhibit(GeometryNetworkValidation      Exhibits/GeometryNetworkValidation.cpp)
-    frontier_register_exhibit(UVRasterPickingGizmoValidation Exhibits/UVRasterPickingGizmoValidation.cpp)
-    frontier_register_exhibit(UVWorkspaceUIValidation        Exhibits/UVWorkspaceUIValidation.cpp)
-    frontier_register_exhibit(UVParameterizationValidation   Exhibits/UVParameterizationValidation.cpp)
+    frontier_register_exhibit(UVRasterPickingGizmoValidation    Exhibits/UVRasterPickingGizmoValidation.cpp)
+    frontier_register_exhibit(UVWorkspaceUIValidation           Exhibits/UVWorkspaceUIValidation.cpp)
+    frontier_register_exhibit(UVParameterizationValidation      Exhibits/UVParameterizationValidation.cpp)
+    frontier_register_exhibit(UVInteractiveAuthoringValidation  Exhibits/UVInteractiveAuthoringValidation.cpp)
+
+    if(NOT ANDROID AND NOT FRONTIER_PROFILE STREQUAL "Shipping")
+        add_test(
+            NAME FrontierUVExecutableSmoke
+            COMMAND FrontierUV --frames=3 "--capture-png=${CMAKE_SOURCE_DIR}/Exhibits/Images/UV/FrontierUV_DesktopExecutable.png"
+        )
+        add_test(
+            NAME FrontierEditorExecutableSmoke
+            COMMAND FrontierEditor --frames=3 --open-browser "--capture-png=${CMAKE_SOURCE_DIR}/Exhibits/Images/UV/FrontierEditor_DesktopExecutable.png"
+        )
+    endif()
 endif()

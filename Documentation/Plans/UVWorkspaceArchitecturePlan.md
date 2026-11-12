@@ -261,4 +261,18 @@ public:
 1. `GeometrySpace/Selection/{ComponentSelectionMask,GeometrySelection,SelectionTraversal,IslandFloodSelection}.{h,cpp}` (Edge Loops, Rings, Geodesic Shortest Path, Sharp/Boundary, Face Loops, Flat/Coplanar, Similar, Checker & Random).
 2. `GeometrySpace/UV/{UDIMTileAddressing,TileLayout,TexelLayout,TileSegmentation,SeamRouter,ConformalFlattening,StretchRelaxer,IslandLayoutPacker}.{h,cpp}` + `StretchRelaxCompute.slang` & `ConcaveHorizonCompute.slang` (LSCM/ABF++, Projections, `FollowActiveQuads`, Importance `%` Concave Packing, `StackSimilarUVTiles` / `UnstackOverlappingUVTiles`, Auto-UDIM Spillover).
 3. `Workspaces/UV/{UVWorkspaceDocument,UVWorkspaceLifecycle}.{h,cpp}` & `Operations/*` (`WorkspaceThread` + `ExecutionCluster`, `OperationRecorder` `215/750 MiB` `RedoPurge → PrefixFold`, `.UVSpace` `UVCodec`, `.OBJ` `GeometryInterchange`, `WorkspaceExchange`).
-4. `Exhibits/UVOperationsValidation.cpp` → CTest + `.png` visual proofs in `Exhibits/Images/UV/`.
+4. `Exhibits/UVParameterizationValidation.cpp` & `Exhibits/UVInteractiveAuthoringValidation.cpp` → CTest + `.png` visual proofs in `Exhibits/Images/UV/`.
+
+---
+
+## 8. 6-Pillar Completion Ledger (🟢 All Pillars Complete & Verified)
+
+| Pillar | Status | Implemented Modules & Targets |
+| :--- | :---: | :--- |
+| **1. Runnable Desktop Executables & Vulkan Swapchain** | 🟢 Complete | `FrontierUV`, `FrontierEditor`, `Engine/Host/{DesktopWorkspaceRunner,FrontierUVMain,FrontierEditorMain}`, `VulkanSwapchainPresenter`, `ImGuiOverlayRasterization.slang`, `EditorLifecycle::AttachUVWorkspaceHost` |
+| **2. Interactive 2D & 3D Viewport Navigation, GPU Picking & Gizmo Drag** | 🟢 Complete | `UVViewportInteractor`, `ViewportProjection`, `ViewportProjectionPane` (orbit/pan/cursor-zoom/frame, `R32G32B32A32_UINT` hover/click/marquee/brush, 2D/3D `TransformGizmo` drag, modal `G`/`R`/`S` + numeric input) |
+| **3. Direct Seam, Pin, Stitch, Split, Selection Traversal & Rectify** | 🟢 Complete | `ComponentSelectionMask`, `GeometrySelection`, `UVAuthoringOperations`, `UVTileRasterization.slang` (GPU pin beacons & coral seams), pin-locked `ConformalUnwrapSolver` & `ProgressiveStretchRelaxer` |
+| **4. Full Unwrap, Projection & Island Layout Suite** | 🟢 Complete | `UVProjectionSolvers` (ABF++, Smart UV, Box, Cylindrical, Spherical, CameraView, Follow Active Quads) & `UVIslandLayoutOperations` (Stack Similar, Unstack Overlaps, Fill Empty Pockets) |
+| **5. External `.obj` & `.gltf` Interchange & Drag-Drop Intake** | 🟢 Complete | `Engine/Interchange/GeometryInterchange.{h,cpp}` (Wavefront `.obj` & Khronos glTF 2.0 `.gltf` multi-UDIM import/export), `UVWorkspaceHost::IntakeExternalFileDrop` |
+| **6. Complete Outliner & 5-Tab Inspector Parity** | 🟢 Complete | `UVOutlinerPanel` (Face/Edge/Island/Layer modes, search, create/rename/duplicate/delete layers, `+ UDIM`) & `UVInspectorPanel` (`Pack`, `Unwrap`, `UDIM` resolution/backdrops/IO, `Shade`, `Check`) |
+

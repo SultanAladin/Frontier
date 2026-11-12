@@ -1,19 +1,19 @@
 //============================================================================================================================================
 //                                                          UVTILERASTERIZATION.SLANG
 //============================================================================================================================================
-// 2D UDIM UVTile parameter canvas shader rendering checker tiles, anti-aliased UV faces, VRAM selection bits & 2D GPU Pick IDs
+// 2D UDIM UVTile parameter canvas shader rendering checker/custom backdrops, anti-aliased UV faces, GPU seam/pin beacons & 2D Pick IDs
 
 struct UVCanvasVertexRecord
 {
     float4 UVAndBaryXY;   // xy = ParameterUV (U, V), zw = Barycentric.xy
     float4 BaryZAndStats; // x = Barycentric.z, y = StretchMetric, z = SignedAreaSign, w = OverlapFlag
-    uint4  NetworkPickIDs;// x = InstanceSlot, y = FaceIndex, z = DirectedEdgeIndex, w = PriorityLayerOrdinal
+    uint4  NetworkPickIDs;// x = InstanceSlot, y = FaceIndex, z = DirectedEdgeIndex, w = LayerOrd | (Pins<<16) | (Seams<<19)
 };
 
 struct UVCanvasUniformBlock
 {
     float4 CanvasMinMaxUV;    // xy = VisibleMinUV, zw = VisibleMaxUV
-    uint4  OverlayAndPick;    // x = DisplayMode (0=Layer, 1=Stretch, 2=Overlap/Flip), y = CheckerEnabled, z = ActiveLayerOrd, w = HoveredFaceIdx
+    uint4  OverlayAndPick;    // x = DisplayMode, y = Checker|(Seam<<1)|(Pin<<2)|(Backdrop<<8), z = ActiveLayerOrd, w = HoveredFaceIdx
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<UVCanvasUniformBlock>  CanvasUniforms;
@@ -44,6 +44,40 @@ float3 ResolveUVLayerColor(uint LayerOrdinal)
     return float3(0.52, 0.56, 0.64);
 }
 
+float3 EvaluateBackdropTexture(uint BackdropPreset, float2 LocalUV)
+{
+    if (BackdropPreset == 1u) // ColorChecker Chart
+    {
+        int2 Patch = int2(floor(LocalUV * float2(6.0, 4.0)));
+        uint Idx   = uint((Patch.y * 6 + Patch.x) & 7);
+        float3 Swatch = float3(0.24, 0.26, 0.30);
+        if (Idx == 0u) Swatch = float3(0.45, 0.32, 0.27);
+        if (Idx == 1u) Swatch = float3(0.76, 0.58, 0.51);
+        if (Idx == 2u) Swatch = float3(0.36, 0.48, 0.62);
+        if (Idx == 3u) Swatch = float3(0.35, 0.43, 0.26);
+        if (Idx == 4u) Swatch = float3(0.51, 0.50, 0.69);
+        if (Idx == 5u) Swatch = float3(0.40, 0.74, 0.67);
+        if (Idx == 6u) Swatch = float3(0.84, 0.49, 0.18);
+        if (Idx == 7u) Swatch = float3(0.78, 0.22, 0.24);
+        float2 Inner = frac(LocalUV * float2(6.0, 4.0));
+        float  Frame = step(0.06, Inner.x) * step(Inner.x, 0.94) * step(0.08, Inner.y) * step(Inner.y, 0.92);
+        return lerp(float3(0.09, 0.09, 0.11), Swatch * 0.55, Frame);
+    }
+    if (BackdropPreset == 2u) // TrimSheet Atlas
+    {
+        float Band = floor(LocalUV.y * 6.0);
+        float Groove = smoothstep(0.0, 0.06, frac(LocalUV.y * 6.0)) * smoothstep(1.0, 0.94, frac(LocalUV.y * 6.0));
+        float3 Tint = ((uint(Band) & 1u) != 0u) ? float3(0.20, 0.26, 0.34) : float3(0.28, 0.25, 0.19);
+        return Tint * (0.55 + 0.45 * Groove);
+    }
+    if (BackdropPreset == 3u) // Brushed Aniso Pack
+    {
+        float Brush = 0.5 + 0.5 * sin(LocalUV.x * 180.0 + sin(LocalUV.y * 24.0) * 1.5);
+        return lerp(float3(0.14, 0.16, 0.20), float3(0.28, 0.31, 0.38), Brush * 0.65);
+    }
+    return float3(0.072, 0.076, 0.088);
+}
+
 [shader("vertex")]
 UVVertexOutput VertexEntry(uint VertexID : SV_VertexID)
 {
@@ -53,7 +87,6 @@ UVVertexOutput VertexEntry(uint VertexID : SV_VertexID)
     float2 Norm  = (Rec.UVAndBaryXY.xy - MinUV) / max(MaxUV - MinUV, float2(1.0e-5, 1.0e-5));
 
     UVVertexOutput Out;
-    // Vulkan NDC: Y=-1 is top, Y=+1 is bottom; map V=Max to top (-1) and V=Min to bottom (+1)
     Out.ClipPosition = float4(Norm.x * 2.0 - 1.0, 1.0 - Norm.y * 2.0, 0.5, 1.0);
     Out.ParameterUV  = Rec.UVAndBaryXY.xy;
     Out.Barycentric  = float3(Rec.UVAndBaryXY.zw, Rec.BaryZAndStats.x);
@@ -66,15 +99,24 @@ UVVertexOutput VertexEntry(uint VertexID : SV_VertexID)
 UVFragmentOutput FragmentEntry(UVVertexOutput In)
 {
     UVFragmentOutput Out;
+    uint OverlayFlags   = CanvasUniforms.OverlayAndPick.y;
+    bool CheckerOn      = (OverlayFlags & 1u) != 0u;
+    bool SeamOverlayOn  = (OverlayFlags & 2u) != 0u;
+    bool PinOverlayOn   = (OverlayFlags & 4u) != 0u;
+    uint BackdropPreset = (OverlayFlags >> 8u) & 0xFFu;
 
-    // Background UDIM Checker & Grid Pass (NetworkPickIDs.x == 0u)
+    // Background UDIM Checker / Backdrop & Grid Pass (NetworkPickIDs.x == 0u)
     if (In.IDs.x == 0u)
     {
-        float2 UV       = In.ParameterUV;
-        bool   InTile   = (UV.x >= 0.0 && UV.y >= 0.0);
-        float3 BgBase   = InTile ? float3(0.072, 0.076, 0.088) : float3(0.050, 0.052, 0.060);
+        float2 UV     = In.ParameterUV;
+        bool   InTile = (UV.x >= 0.0 && UV.y >= 0.0);
+        float3 BgBase = InTile ? float3(0.072, 0.076, 0.088) : float3(0.050, 0.052, 0.060);
 
-        if (CanvasUniforms.OverlayAndPick.y != 0u && InTile)
+        if (InTile && BackdropPreset != 0u)
+        {
+            BgBase = EvaluateBackdropTexture(BackdropPreset, frac(UV));
+        }
+        else if (InTile && CheckerOn)
         {
             int2  Cell   = int2(floor(UV * 16.0));
             float Parity = float((Cell.x + Cell.y) & 1);
@@ -96,11 +138,15 @@ UVFragmentOutput FragmentEntry(UVVertexOutput In)
         return Out;
     }
 
+    uint PackedMeta   = In.IDs.w;
     uint FaceIdx      = In.IDs.y;
-    uint LayerOrdinal = In.IDs.w;
-    bool Selected     = (FaceSelectionBitmask[FaceIdx >> 5u] & (1u << (FaceIdx & 31u))) != 0u;
-    bool LayerActive  = (CanvasUniforms.OverlayAndPick.z > 0u) && (LayerOrdinal == CanvasUniforms.OverlayAndPick.z);
-    bool Hovered      = (CanvasUniforms.OverlayAndPick.w == FaceIdx);
+    uint LayerOrdinal = PackedMeta & 0xFFFFu;
+    uint PinMask      = (PackedMeta >> 16u) & 0x7u;
+    uint SeamMask     = (PackedMeta >> 19u) & 0x7u;
+
+    bool Selected    = (FaceSelectionBitmask[FaceIdx >> 5u] & (1u << (FaceIdx & 31u))) != 0u;
+    bool LayerActive = (CanvasUniforms.OverlayAndPick.z > 0u) && (LayerOrdinal == CanvasUniforms.OverlayAndPick.z);
+    bool Hovered     = (CanvasUniforms.OverlayAndPick.w == FaceIdx);
 
     uint   DisplayMode = CanvasUniforms.OverlayAndPick.x;
     float3 FillColor   = ResolveUVLayerColor(LayerOrdinal) * 0.52;
@@ -112,8 +158,8 @@ UVFragmentOutput FragmentEntry(UVVertexOutput In)
     }
     else if (DisplayMode == 2u) // Winding Flip / Overlap Check
     {
-        bool Flipped   = In.Diagnostics.y <= 0.0;
-        bool Overlaps  = In.Diagnostics.z > 0.5;
+        bool Flipped  = In.Diagnostics.y <= 0.0;
+        bool Overlaps = In.Diagnostics.z > 0.5;
         if (Flipped)       FillColor = float3(0.92, 0.18, 0.32);
         else if (Overlaps) FillColor = float3(0.96, 0.58, 0.16);
         else               FillColor = float3(0.18, 0.62, 0.42);
@@ -135,7 +181,33 @@ UVFragmentOutput FragmentEntry(UVVertexOutput In)
     float3 EdgeColor = (Selected || LayerActive) ? float3(0.98, 0.99, 0.88) : ResolveUVLayerColor(LayerOrdinal);
 
     float3 FinalRGB = lerp(FillColor, EdgeColor, EdgeMask * 0.92);
-    Out.ColorRGBA   = float4(FinalRGB, 1.0);
-    Out.PickIDs     = uint4(In.IDs.x, In.IDs.y, In.IDs.z, 0u);
+
+    // GPU Seam Highlight (coral-orange border on marked seam edges when SeamOverlayOn == true)
+    if (SeamOverlayOn && SeamMask != 0u)
+    {
+        float SeamDist = 1.0e5;
+        if ((SeamMask & 1u) != 0u) SeamDist = min(SeamDist, EdgeDists.x);
+        if ((SeamMask & 2u) != 0u) SeamDist = min(SeamDist, EdgeDists.y);
+        if ((SeamMask & 4u) != 0u) SeamDist = min(SeamDist, EdgeDists.z);
+        float SeamStroke = 1.0 - smoothstep(0.6, 2.2, SeamDist);
+        FinalRGB = lerp(FinalRGB, float3(1.00, 0.46, 0.18), SeamStroke);
+    }
+
+    // GPU Pin Beacon (crimson-gold marker at EnablePinLock corners when PinOverlayOn == true)
+    if (PinOverlayOn && PinMask != 0u)
+    {
+        float3 CornerPx = (float3(1.0, 1.0, 1.0) - In.Barycentric) / BaryDeriv;
+        float  PinDist  = 1.0e5;
+        if ((PinMask & 1u) != 0u) PinDist = min(PinDist, CornerPx.x);
+        if ((PinMask & 2u) != 0u) PinDist = min(PinDist, CornerPx.y);
+        if ((PinMask & 4u) != 0u) PinDist = min(PinDist, CornerPx.z);
+        float PinDisc = 1.0 - smoothstep(3.2, 4.8, PinDist);
+        float PinCore = 1.0 - smoothstep(1.4, 2.5, PinDist);
+        FinalRGB = lerp(FinalRGB, float3(0.98, 0.24, 0.30), PinDisc);
+        FinalRGB = lerp(FinalRGB, float3(1.00, 0.92, 0.56), PinCore);
+    }
+
+    Out.ColorRGBA = float4(FinalRGB, 1.0);
+    Out.PickIDs   = uint4(In.IDs.x, In.IDs.y, In.IDs.z, 0u);
     return Out;
 }

@@ -99,6 +99,7 @@ SolvedIslandUVs SolveSingleIslandConformal(
     const std::size_t VCount = IslandVertices.size();
     std::vector<Mathematics::UVAxes> LocalUV(VCount);
     std::vector<uint8_t>             BoundaryPinned(VCount, 0u);
+    uint32_t                         ExplicitPinCount = 0u;
 
     for (std::size_t LocalIdx = 0u; LocalIdx < VCount; ++LocalIdx)
     {
@@ -110,12 +111,39 @@ SolvedIslandUVs SolveSingleIslandConformal(
         };
     }
 
-    for (const uint32_t BVert : Island.OrderedBoundaryVertices)
+    for (const uint32_t EdgeIdx : Island.CornerEdgeIndices)
     {
-        const auto It = LocalVertexMap.find(BVert);
-        if (It != LocalVertexMap.end())
+        const auto& Edge = Network.Edges[EdgeIdx];
+        if (GeometrySpace::QueryEdgeAttributeEnabled(Edge.AttributeMask, GeometrySpace::EdgeAttributeMask::EnablePinLock))
         {
-            BoundaryPinned[It->second] = 1u;
+            const uint32_t LocalIdx = LocalVertexMap[Edge.OriginVertexIndex];
+            if (BoundaryPinned[LocalIdx] == 0u)
+            {
+                BoundaryPinned[LocalIdx] = 1u;
+                ++ExplicitPinCount;
+            }
+            LocalUV[LocalIdx] = Edge.ParameterUV;
+        }
+    }
+
+    if (ExplicitPinCount >= 2u)
+    {
+        for (const uint32_t EdgeIdx : Island.CornerEdgeIndices)
+        {
+            const auto&    Edge     = Network.Edges[EdgeIdx];
+            const uint32_t LocalIdx = LocalVertexMap[Edge.OriginVertexIndex];
+            LocalUV[LocalIdx]       = Edge.ParameterUV;
+        }
+    }
+    else
+    {
+        for (const uint32_t BVert : Island.OrderedBoundaryVertices)
+        {
+            const auto It = LocalVertexMap.find(BVert);
+            if (It != LocalVertexMap.end())
+            {
+                BoundaryPinned[It->second] = 1u;
+            }
         }
     }
 
@@ -261,6 +289,17 @@ SolvedIslandUVs SolveSingleIslandConformal(
         MinSolved.V = std::min(MinSolved.V, UV.V);
         MaxSolved.U = std::max(MaxSolved.U, UV.U);
         MaxSolved.V = std::max(MaxSolved.V, UV.V);
+    }
+
+    if (ExplicitPinCount >= 2u)
+    {
+        for (std::size_t CornerIdx = 0u; CornerIdx < Island.CornerEdgeIndices.size(); ++CornerIdx)
+        {
+            const uint32_t EdgeIdx  = Island.CornerEdgeIndices[CornerIdx];
+            const uint32_t LocalIdx = LocalVertexMap[Network.Edges[EdgeIdx].OriginVertexIndex];
+            Result.CornerUVs[CornerIdx] = LocalUV[LocalIdx];
+        }
+        return Result;
     }
 
     const float SolvedSpan  = std::max({ 1.0e-5f, MaxSolved.U - MinSolved.U, MaxSolved.V - MinSolved.V });

@@ -65,9 +65,11 @@ public:
         return LogicalDevice != VK_NULL_HANDLE;
     }
 
+    [[nodiscard]] VkInstance       AccessInstance() const noexcept       { return InstanceHandle; }
     [[nodiscard]] VkDevice         AccessDevice() const noexcept         { return LogicalDevice; }
     [[nodiscard]] VkPhysicalDevice AccessPhysicalDevice() const noexcept { return PhysicalAdapter; }
     [[nodiscard]] VkQueue          AccessQueue() const noexcept          { return PrimaryQueue; }
+    [[nodiscard]] uint32_t         QueryQueueFamilyOrdinal() const noexcept { return QueueFamilyOrdinal; }
     [[nodiscard]] VkCommandPool    AccessCommandPool() const noexcept    { return PrimaryCommandPool; }
     [[nodiscard]] VkSemaphore      AccessTimelineSemaphore() const noexcept { return TimelineSyncHandle; }
     [[nodiscard]] std::string_view QueryAdapterName() const noexcept     { return AdapterName; }

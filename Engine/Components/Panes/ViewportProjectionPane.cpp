@@ -56,6 +56,11 @@ void ViewportProjectionPane::AssignSplitModeCallback(SplitModeChangedCallback Ca
     SplitChangedNotifier = std::move(Callback);
 }
 
+void ViewportProjectionPane::AssignInteractionCallback(ViewportInteractionCallback Callback)
+{
+    InteractionCallback = std::move(Callback);
+}
+
 Editor::ViewportProjection& ViewportProjectionPane::AccessProjection() noexcept
 {
     return BoundDocument != nullptr ? BoundDocument->AccessViewportProjection() : FallbackProjection;
@@ -103,9 +108,10 @@ void ViewportProjectionPane::Render(
     Surface.PushClip(Bounds);
     Surface.FillRectangle(Bounds, HostBg);
 
-    auto&         Projection = AccessProjection();
-    const bool    Clicked    = Input.PrimaryPointer.Pressed;
-    const Point2D Cursor     { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+    auto&         Projection    = AccessProjection();
+    const bool    Clicked       = Input.PrimaryPointer.Pressed;
+    const Point2D Cursor        { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+    bool          ToolbarCaught = false;
 
     // 1. Reusable Top Projection & Domain Action Strip
     const Rectangle2D ToolbarRect { Bounds.X + 8.0f, Bounds.Y + 8.0f, std::max(80.0f, Bounds.Width - 16.0f), 36.0f };
@@ -126,6 +132,7 @@ void ViewportProjectionPane::Render(
         Surface.TextCentered(LRect, 11.0f, Active ? IvoryText : CrispText, SplitLabels[Idx]);
         if (Clicked && LRect.Contains(Cursor))
         {
+            ToolbarCaught = true;
             Projection.ConfigureSplitMode(Mode);
             if (SplitChangedNotifier)
             {
@@ -144,21 +151,16 @@ void ViewportProjectionPane::Render(
             Surface.FillRectangle(QRect, Action.PrimaryStyle ? ChipActive : ChipBg, 13.0f);
             Surface.StrokeRectangle(QRect, BorderCol, 13.0f, 1.0f);
             Surface.TextCentered(QRect, 11.0f, IvoryText, Action.Caption.c_str());
-            if (Clicked && QRect.Contains(Cursor) && Action.OnActivated)
+            if (Clicked && QRect.Contains(Cursor))
             {
-                Action.OnActivated();
+                ToolbarCaught = true;
+                if (Action.OnActivated)
+                {
+                    Action.OnActivated();
+                }
             }
             CursorX += 84.0f;
         }
-    }
-
-    if (!StatusBanner.empty() && ToolbarRect.Right() - CursorX > 140.0f)
-    {
-        Surface.TextRightAligned(
-            { CursorX, ToolbarRect.Y + 9.0f, ToolbarRect.Right() - CursorX - 12.0f, 18.0f },
-            11.0f,
-            EmeraldOk,
-            StatusBanner.c_str());
     }
 
     // 2. Partition Single or Dual Viewport Regions
@@ -187,6 +189,21 @@ void ViewportProjectionPane::Render(
             break;
     }
 
+    // 3. Dispatch Interactive Camera, GPU Pick & TransformGizmo Input Before Framebuffer Refresh
+    if (!ToolbarCaught && InteractionCallback)
+    {
+        InteractionCallback(ViewportInteractionFrame{ Rect2D, Rect3D, Input });
+    }
+
+    if (!StatusBanner.empty() && ToolbarRect.Right() - CursorX > 140.0f)
+    {
+        Surface.TextRightAligned(
+            { CursorX, ToolbarRect.Y + 9.0f, ToolbarRect.Right() - CursorX - 12.0f, 18.0f },
+            11.0f,
+            EmeraldOk,
+            StatusBanner.c_str());
+    }
+
     DualViewportFramebuffers Slices {};
     if (FramebufferProvider)
     {
@@ -197,7 +214,7 @@ void ViewportProjectionPane::Render(
             static_cast<uint32_t>(std::max(0.0f, Rect2D.Height)));
     }
 
-    // 3. Present GPU Framebuffers via upstream PixelSpace::FillTexturedRectangle
+    // 4. Present GPU Framebuffers via upstream PixelSpace::FillTexturedRectangle
     if (Rect2D.Width >= 16.0f && Rect2D.Height >= 16.0f && Slices.Planar2D.RgbaPixels != nullptr)
     {
         SyncTextureData(PlanarTexture, Slices.Planar2D);

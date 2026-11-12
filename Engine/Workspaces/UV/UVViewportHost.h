@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                             UVVIEWPORTHOST.H
 ============================================================================================================================================*/
-// 🧩 UV Workspace viewport host binding UVWorkspaceSession's WorkspaceDocument onto reusable ViewportProjectionPane
+// 🧩 UV Workspace viewport host binding UVWorkspaceSession and UVViewportInteractor onto reusable ViewportProjectionPane
 
 #pragma once
 
@@ -10,6 +10,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/Components/Panes/ViewportProjectionPane.h"
+#include "Engine/Workspaces/UV/UVViewportInteractor.h"
 #include "Engine/Workspaces/UV/UVWorkspaceSession.h"
 
 namespace Frontier::Workspaces
@@ -28,6 +29,7 @@ public:
 
     [[nodiscard]] ViewportProjectionPane&       AccessProjectionPane() noexcept { return ProjectionPane; }
     [[nodiscard]] const ViewportProjectionPane& InspectProjectionPane() const noexcept { return ProjectionPane; }
+    [[nodiscard]] UVViewportInteractor&         AccessInteractor() noexcept { return Interactor; }
 
     void Render(
         PixelSpace&             Surface,
@@ -41,6 +43,7 @@ private:
     void SynchronizeProjectionPolicy() noexcept;
 
     UVWorkspaceSession*    Session        = nullptr;
+    UVViewportInteractor   Interactor     {};
     ViewportProjectionPane ProjectionPane {};
 };
 

@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                            UVWORKSPACEHOST.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of UVWorkspaceHost registering StandaloneWorkspace / FeatureSet docked tabs and ContentBrowser WorkspaceCategory::UV
+// 🧩 Implementation of UVWorkspaceHost registering StandaloneWorkspace / FeatureSet docked tabs, external drops & ContentBrowser integration
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
@@ -9,11 +9,25 @@
 
 #include "Engine/Workspaces/UV/UVWorkspaceHost.h"
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <imgui.h>
 
 namespace Frontier::Workspaces
 {
+
+namespace
+{
+
+[[nodiscard]] std::string NormalizeLowerExt(const std::filesystem::path& FilePath)
+{
+    std::string Ext = FilePath.extension().string();
+    std::transform(Ext.begin(), Ext.end(), Ext.begin(), [](unsigned char Ch) { return static_cast<char>(std::tolower(Ch)); });
+    return Ext;
+}
+
+} // namespace
 
 UVWorkspaceHost::UVWorkspaceHost()
 {
@@ -61,6 +75,47 @@ void UVWorkspaceHost::AttachContentBrowser(Editor::Explorer::ContentBrowser* Tar
     BoundBrowser->AccessPanel().FocusColourSlot("uv.priority_layer.tint");
 }
 #endif
+
+bool UVWorkspaceHost::IntakeExternalFileDrop(
+    const std::filesystem::path& DroppedPath,
+    std::string&                 OutDiagnostic)
+{
+    const std::string Ext = NormalizeLowerExt(DroppedPath);
+    if (Ext == ".obj" || Ext == ".gltf")
+    {
+#if FRONTIER_EDITOR_ENABLED
+        if (BoundBrowser != nullptr)
+        {
+            (void)BoundBrowser->IntakeExternalAssetDrop(DroppedPath);
+        }
+#endif
+        return Session.ImportExternalGeometry(DroppedPath, OutDiagnostic);
+    }
+
+    if (Ext == ".uvspace")
+    {
+        return Session.LoadUVSpaceDocument(DroppedPath, OutDiagnostic);
+    }
+
+    if (Ext == ".png" || Ext == ".jpg" || Ext == ".jpeg" || Ext == ".tga" || Ext == ".hdr")
+    {
+#if FRONTIER_EDITOR_ENABLED
+        if (BoundBrowser != nullptr)
+        {
+            (void)BoundBrowser->IntakeExternalAssetDrop(DroppedPath);
+        }
+#endif
+        auto& TileCfg          = Session.AccessUDIMTileSetting(Session.ActiveUDIMNumber);
+        TileCfg.BackdropPreset = GeometricRaster::UVBackdropPreset::TrimSheetAtlas;
+        Session.FramebuffersDirty = true;
+        Session.StatusBannerText  = "Applied Texture Backdrop Preview on Active UDIM";
+        OutDiagnostic.clear();
+        return true;
+    }
+
+    OutDiagnostic = "Unsupported UV Workspace drop extension: " + Ext;
+    return false;
+}
 
 void UVWorkspaceHost::RegisterDockPanes(Components::HeadlessWorkspaceDockContainer& DockContainer)
 {

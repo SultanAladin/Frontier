@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                            UVINSPECTORPANEL.H
 ============================================================================================================================================*/
-// 🧩 5-tab Frontier UV Inspector pane (Packing, Unwrap, UDIM, Shading, Check) using ScalarSlider, ExclusiveSelector & 16-MatCap grid
+// 🧩 5-tab Frontier UV Inspector pane (Packing, Unwrap, UDIM, Shading, Check) with full solvers, per-UDIM res/backdrop & GPU KPI badges
 
 #pragma once
 
@@ -37,8 +37,11 @@ private:
     void RenderShadingSection(PixelSpace& Surface, Rectangle2D Area, const PaneInputReading& Input);
     void RenderCheckSection(PixelSpace& Surface, Rectangle2D Area, const PaneInputReading& Input);
 
-    UVWorkspaceSession* Session       = nullptr;
-    uint32_t            DraggingField = 0u;
+    UVWorkspaceSession* Session          = nullptr;
+    uint32_t            DraggingField    = 0u;
+    float               SurfaceRoughness = 0.32f;
+    float               SurfaceMetallic  = 0.08f;
+    float               SurfaceMatBlend  = 0.85f;
 };
 
 } // namespace Frontier::Workspaces

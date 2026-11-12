@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                            VIEWPORTPROJECTION.H
 ============================================================================================================================================*/
-// 🧩 Reusable 3D spatial orbit camera & 2D aspect-locked planar projection state shared across WorkspaceDocument sessions
+// 🧩 Reusable 3D spatial orbit/pan/frame camera & 2D aspect-locked planar projection state shared across WorkspaceDocument sessions
 
 #pragma once
 
@@ -9,6 +9,7 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
+#include "Engine/Editor/Viewports/TransformGizmo.h"
 #include "Engine/Mathematics/AxisCoordinates.h"
 
 #include <cstdint>
@@ -70,10 +71,21 @@ public:
     void ConfigurePlanarWindow(const PlanarWindowRig& Rig) noexcept;
     void ConfigurePlanarDomainSpan(float SpanU, float SpanV = 1.0f) noexcept;
 
+    void ApplySpatialPreset(SpatialProjectionPreset Preset) noexcept;
     void OrbitSpatialCamera(float DeltaYawRad, float DeltaPitchRad) noexcept;
+    void PanSpatialCamera(float DeltaRightMeters, float DeltaUpMeters) noexcept;
     void DollySpatialCamera(float DistanceMultiplier) noexcept;
+    void FrameSpatialExtents(Mathematics::Axis3D MinBounds, Mathematics::Axis3D MaxBounds) noexcept;
+
     void PanPlanarWindow(Mathematics::UVAxes DeltaUV) noexcept;
     void ZoomPlanarWindow(float ZoomMultiplier) noexcept;
+    void ZoomPlanarAroundPoint(
+        uint32_t            CanvasWidthPx,
+        uint32_t            CanvasHeightPx,
+        float               LocalPixelX,
+        float               LocalPixelY,
+        float               ZoomMultiplier) noexcept;
+    void FramePlanarExtents(Mathematics::UVAxes MinBounds, Mathematics::UVAxes MaxBounds) noexcept;
 
     [[nodiscard]] ViewportSplitMode       QuerySplitMode() const noexcept { return SplitMode; }
     [[nodiscard]] float                   QuerySplitRatio() const noexcept { return SplitRatio; }
@@ -83,6 +95,16 @@ public:
     [[nodiscard]] const PlanarWindowRig&  InspectPlanarWindow() const noexcept { return PlanarWindow; }
 
     [[nodiscard]] Mathematics::Axis3D EvaluateCameraEyePosition() const noexcept;
+    void EvaluateCameraBasis(
+        Mathematics::Axis3D& OutRight,
+        Mathematics::Axis3D& OutUp,
+        Mathematics::Axis3D& OutForward) const noexcept;
+
+    [[nodiscard]] ViewportRay3D BuildSpatialRay(
+        uint32_t ViewportWidthPx,
+        uint32_t ViewportHeightPx,
+        float    LocalPixelX,
+        float    LocalPixelY) const noexcept;
 
     // Computes aspect-ratio-preserving [OutMinUV .. OutMaxUV] so 1x1 UDIM tiles & 2D gizmo rings remain geometrically square.
     void EvaluateAspectLockedPlanarBounds(
@@ -90,6 +112,18 @@ public:
         uint32_t             CanvasHeightPx,
         Mathematics::UVAxes& OutMinUV,
         Mathematics::UVAxes& OutMaxUV) const noexcept;
+
+    [[nodiscard]] Mathematics::UVAxes MapPixelToPlanarUV(
+        uint32_t CanvasWidthPx,
+        uint32_t CanvasHeightPx,
+        float    LocalPixelX,
+        float    LocalPixelY) const noexcept;
+
+    [[nodiscard]] ViewportRay3D BuildPlanarRay(
+        uint32_t CanvasWidthPx,
+        uint32_t CanvasHeightPx,
+        float    LocalPixelX,
+        float    LocalPixelY) const noexcept;
 
 private:
     ViewportSplitMode SplitMode     = ViewportSplitMode::SplitPlanarAndSpatial; // [-]   - Single vs 2D+3D split mode

@@ -88,9 +88,39 @@ bool VulkanDeviceContext::InitializeContext(
     AppInfo.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
     AppInfo.apiVersion         = VK_API_VERSION_1_2;
 
+    uint32_t InstExtCount = 0u;
+    vkEnumerateInstanceExtensionProperties(nullptr, &InstExtCount, nullptr);
+    std::vector<VkExtensionProperties> InstExts(InstExtCount);
+    if (InstExtCount > 0u)
+    {
+        vkEnumerateInstanceExtensionProperties(nullptr, &InstExtCount, InstExts.data());
+    }
+
+    const char* DesiredInstanceExts[] = {
+        "VK_KHR_surface",
+        "VK_KHR_xcb_surface",
+        "VK_KHR_xlib_surface",
+        "VK_KHR_wayland_surface",
+        "VK_KHR_win32_surface",
+    };
+    std::vector<const char*> EnabledInstanceExtensions {};
+    for (const char* Desired : DesiredInstanceExts)
+    {
+        for (const auto& Available : InstExts)
+        {
+            if (std::strcmp(Available.extensionName, Desired) == 0)
+            {
+                EnabledInstanceExtensions.push_back(Desired);
+                break;
+            }
+        }
+    }
+
     VkInstanceCreateInfo InstanceInfo {};
-    InstanceInfo.sType            = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    InstanceInfo.pApplicationInfo = &AppInfo;
+    InstanceInfo.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    InstanceInfo.pApplicationInfo        = &AppInfo;
+    InstanceInfo.enabledExtensionCount   = static_cast<uint32_t>(EnabledInstanceExtensions.size());
+    InstanceInfo.ppEnabledExtensionNames = EnabledInstanceExtensions.data();
 
     if (vkCreateInstance(&InstanceInfo, nullptr, &InstanceHandle) != VK_SUCCESS)
     {
@@ -168,13 +198,17 @@ bool VulkanDeviceContext::InitializeContext(
     std::vector<VkExtensionProperties> DevExts(DevExtCount);
     vkEnumerateDeviceExtensionProperties(PhysicalAdapter, nullptr, &DevExtCount, DevExts.data());
 
-    bool SupportsTimelineExt = false;
+    bool SupportsTimelineExt  = false;
+    bool SupportsSwapchainExt = false;
     for (const VkExtensionProperties& Ext : DevExts)
     {
         if (std::strcmp(Ext.extensionName, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME) == 0)
         {
             SupportsTimelineExt = true;
-            break;
+        }
+        else if (std::strcmp(Ext.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0)
+        {
+            SupportsSwapchainExt = true;
         }
     }
 
@@ -182,6 +216,10 @@ bool VulkanDeviceContext::InitializeContext(
     if (SupportsTimelineExt)
     {
         EnabledDeviceExtensions.push_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
+    }
+    if (SupportsSwapchainExt)
+    {
+        EnabledDeviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     }
 
     VkPhysicalDeviceTimelineSemaphoreFeatures TimelineFeatures {};

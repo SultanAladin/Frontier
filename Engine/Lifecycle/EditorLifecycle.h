@@ -21,6 +21,7 @@
 #include "Engine/Lifecycle/LifecycleSequence.h"
 #include "Engine/Lifecycle/WorkspaceLifecycle.h"
 #include "Engine/Windowing/PlatformWindow.h"
+#include "Engine/Workspaces/UV/UVWorkspaceHost.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -78,6 +79,7 @@ public:
     }
 
     [[nodiscard]] bool Initialize(const EditorStartupConfiguration& Configuration = {}) noexcept;
+    void               AttachUVWorkspaceHost(Workspaces::UVWorkspaceHost* TargetHost) noexcept { MountedUVHost = TargetHost; }
     [[nodiscard]] bool ExecuteAuthoringTick(double Δt);
     [[nodiscard]] bool Suspend() noexcept;
     [[nodiscard]] bool Resume() noexcept;
@@ -107,6 +109,7 @@ private:
     WorkspaceLifecycle                         Workspaces             {};     // [-]     - Multi-document workspace session loop
     Input::InputExtension                      InputCoordinator       {};     // [-]     - Hardware input & OS feedback coordinator
     LifecycleSequence                          EditorSequence         {};     // [-]     - Registered GPU .slang overlay & editor hooks
+    Workspaces::UVWorkspaceHost*               MountedUVHost          = nullptr; // [-]  - Optional live UVWorkspaceHost
     Components::WorkspaceDockPaneToken         OutlinerPaneToken      {};     // [idx]   - Registered left Outliner/LayerStack pane
     Components::WorkspaceDockPaneToken         ViewportPaneToken      {};     // [idx]   - Registered central Viewport pane
     Components::WorkspaceDockPaneToken         InspectorPaneToken     {};     // [idx]   - Registered right Inspector pane

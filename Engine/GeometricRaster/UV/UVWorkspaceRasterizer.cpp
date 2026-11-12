@@ -727,6 +727,24 @@ bool UVWorkspaceRasterizer::UploadPolygonNetwork(
                 {{ 0.0f, 0.0f, 1.0f }},
             }};
 
+            const bool Pin0  = GeometrySpace::QueryEdgeAttributeEnabled(Network.Edges[TriEdges[0u]].AttributeMask, GeometrySpace::EdgeAttributeMask::EnablePinLock);
+            const bool Pin1  = GeometrySpace::QueryEdgeAttributeEnabled(Network.Edges[TriEdges[1u]].AttributeMask, GeometrySpace::EdgeAttributeMask::EnablePinLock);
+            const bool Pin2  = GeometrySpace::QueryEdgeAttributeEnabled(Network.Edges[TriEdges[2u]].AttributeMask, GeometrySpace::EdgeAttributeMask::EnablePinLock);
+            const bool Seam0 = GeometrySpace::QueryEdgeAttributeEnabled(Network.Edges[TriEdges[1u]].AttributeMask, GeometrySpace::EdgeAttributeMask::EnableSeamCut);
+            const bool Seam1 = (Tri + 2u == LoopEdges.size()) &&
+                               GeometrySpace::QueryEdgeAttributeEnabled(Network.Edges[TriEdges[2u]].AttributeMask, GeometrySpace::EdgeAttributeMask::EnableSeamCut);
+            const bool Seam2 = (Tri == 1u) &&
+                               GeometrySpace::QueryEdgeAttributeEnabled(Network.Edges[TriEdges[0u]].AttributeMask, GeometrySpace::EdgeAttributeMask::EnableSeamCut);
+
+            const uint32_t Packed2DFlags =
+                (static_cast<uint32_t>(CurrentFace.PriorityLayerOrdinal) & 0xFFFFu) |
+                (Pin0  ? (1u << 16u) : 0u) |
+                (Pin1  ? (1u << 17u) : 0u) |
+                (Pin2  ? (1u << 18u) : 0u) |
+                (Seam0 ? (1u << 19u) : 0u) |
+                (Seam1 ? (1u << 20u) : 0u) |
+                (Seam2 ? (1u << 21u) : 0u);
+
             for (std::size_t Corner = 0u; Corner < 3u; ++Corner)
             {
                 const GeometrySpace::DirectedEdge& DE = Network.Edges[TriEdges[Corner]];
@@ -776,7 +794,7 @@ bool UVWorkspaceRasterizer::UploadPolygonNetwork(
                 UVV.NetworkPickIDs[0] = std::max(1u, InstanceSlot);
                 UVV.NetworkPickIDs[1] = FaceIdx;
                 UVV.NetworkPickIDs[2] = TriEdges[Corner];
-                UVV.NetworkPickIDs[3] = CurrentFace.PriorityLayerOrdinal;
+                UVV.NetworkPickIDs[3] = Packed2DFlags;
                 Verts2D.push_back(UVV);
             }
         }
@@ -833,6 +851,17 @@ bool UVWorkspaceRasterizer::DispatchGPUSelection(
     (void)Context->AwaitTimelineValue(Signal);
     vkFreeCommandBuffers(Context->AccessDevice(), Context->AccessCommandPool(), 1u, &Cmd);
     return true;
+}
+
+void UVWorkspaceRasterizer::UploadSelectionBitmaskWords(std::span<const uint32_t> PackedWords)
+{
+    if (Context == nullptr || SelectionBitmaskBuffer.BufferHandle == VK_NULL_HANDLE || PackedWords.empty())
+    {
+        return;
+    }
+    const std::size_t MaxWords = static_cast<std::size_t>(SelectionBitmaskBuffer.ByteCapacity / sizeof(uint32_t));
+    const std::size_t Count    = std::min(PackedWords.size(), MaxWords);
+    ComputeEncoder.UploadSpanToBuffer<uint32_t>(SelectionBitmaskBuffer, PackedWords.subspan(0u, Count));
 }
 
 std::vector<uint32_t> UVWorkspaceRasterizer::ReadbackSelectionBitmaskWords()
@@ -1158,8 +1187,14 @@ bool UVWorkspaceRasterizer::Rasterize2DUVCanvas(
     Uniforms.CanvasMinMaxUV[1] = Options.VisibleMinUV.V;
     Uniforms.CanvasMinMaxUV[2] = Options.VisibleMaxUV.U;
     Uniforms.CanvasMinMaxUV[3] = Options.VisibleMaxUV.V;
+    const uint32_t OverlayBits =
+        (Options.CheckerEnabled     ? 1u : 0u) |
+        (Options.SeamOverlayEnabled ? (1u << 1u) : 0u) |
+        (Options.PinOverlayEnabled  ? (1u << 2u) : 0u) |
+        (static_cast<uint32_t>(Options.BackdropPreset) << 8u);
+
     Uniforms.OverlayAndPick[0] = static_cast<uint32_t>(Options.DisplayMode);
-    Uniforms.OverlayAndPick[1] = Options.CheckerEnabled ? 1u : 0u;
+    Uniforms.OverlayAndPick[1] = OverlayBits;
     Uniforms.OverlayAndPick[2] = Options.ActiveLayerOrdinal;
     Uniforms.OverlayAndPick[3] = Options.HoveredFaceIndex;
 

@@ -80,12 +80,23 @@ struct Viewport3DRenderOptions
     uint32_t            HoveredFaceIndex    = GeometrySpace::InvalidNetworkIndex;
 };
 
+enum class UVBackdropPreset : uint8_t
+{
+    None             = 0u, // [-] - Standard checker / dark UDIM tile
+    ColorChecker     = 1u, // [-] - 24-patch Studio ColorChecker calibration chart
+    TrimSheetAtlas   = 2u, // [-] - Horizontal trim-sheet band atlas preview
+    BrushedAnisoPack = 3u, // [-] - Directional brushed metal anisotropic reference
+};
+
 struct Canvas2DRenderOptions
 {
     Mathematics::UVAxes VisibleMinUV        { -0.06f, -0.06f };
     Mathematics::UVAxes VisibleMaxUV        { 2.06f, 1.06f };
     UVCanvasDisplayMode DisplayMode         = UVCanvasDisplayMode::PriorityLayerFill;
+    UVBackdropPreset    BackdropPreset      = UVBackdropPreset::None;
     bool                CheckerEnabled      = true;
+    bool                SeamOverlayEnabled  = false; // Default OFF per workspace policy!
+    bool                PinOverlayEnabled   = true;  // GPU pin beacons for EnablePinLock corners
     bool                RenderGizmo         = true;
     uint16_t            ActiveLayerOrdinal  = 0u;
     uint32_t            HoveredFaceIndex    = GeometrySpace::InvalidNetworkIndex;
@@ -123,6 +134,7 @@ public:
         uint32_t              TargetValue  = 0u,
         bool                  AdditiveMask = false);
 
+    void UploadSelectionBitmaskWords(std::span<const uint32_t> PackedWords);
     [[nodiscard]] std::vector<uint32_t> ReadbackSelectionBitmaskWords();
 
     [[nodiscard]] GPUUVDistortionSummary EvaluateUVDistortionInspection(
