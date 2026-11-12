@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                             UVVIEWPORTHOST.H
 ============================================================================================================================================*/
-// 🧩 UV Workspace center viewport canvas matching Experimental/UVEditor (2-row header, tool rail, UV transform readout & Sample Assets drawer)
+// 🧩 UV Workspace center viewport canvas matching Experimental/UVEditor (2-row header, tool rail, UV transform readout & native browser shelf)
 
 #pragma once
 
@@ -47,7 +47,6 @@ private:
     UVViewportInteractor   Interactor            {};
     ViewportProjectionPane ProjectionPane        {};
     bool                   MoreShelfExpanded     = false;
-    bool                   AssetDrawerExpanded   = false;
     uint32_t               ActiveRailSlot        = 0u;
     uint64_t               CachedUVRevision      = UINT64_MAX;
     uint32_t               CachedChartCount      = 0u;

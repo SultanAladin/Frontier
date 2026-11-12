@@ -1057,7 +1057,10 @@ bool UVWorkspaceRasterizer::Rasterize3DViewport(
     // Allocate descriptor sets
     VkDescriptorSet SurfaceSet = VK_NULL_HANDLE;
     VkDescriptorSetAllocateInfo SurfAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorAllocator, 1u, &SurfaceProgram.SlotLayout };
-    vkAllocateDescriptorSets(DeviceHandle, &SurfAlloc, &SurfaceSet);
+    if (vkAllocateDescriptorSets(DeviceHandle, &SurfAlloc, &SurfaceSet) != VK_SUCCESS || SurfaceSet == VK_NULL_HANDLE)
+    {
+        return false;
+    }
 
     const std::array<VkDescriptorBufferInfo, 3u> SurfBufs {{
         { Viewport3DUniformBuffer.BufferHandle, 0u, sizeof(GPUViewport3DUniforms) },
@@ -1080,7 +1083,10 @@ bool UVWorkspaceRasterizer::Rasterize3DViewport(
     if (GizmoVertCount > 0u)
     {
         VkDescriptorSetAllocateInfo GizAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorAllocator, 1u, &GizmoDepthOffProgram.SlotLayout };
-        vkAllocateDescriptorSets(DeviceHandle, &GizAlloc, &GizmoSet);
+        if (vkAllocateDescriptorSets(DeviceHandle, &GizAlloc, &GizmoSet) != VK_SUCCESS || GizmoSet == VK_NULL_HANDLE)
+        {
+            return false;
+        }
         const std::array<VkDescriptorBufferInfo, 2u> GizBufs {{
             { Gizmo3DUniformBuffer.BufferHandle, 0u, sizeof(GPUGizmoUniforms) },
             { Gizmo3DVertexBuffer.BufferHandle, 0u, VK_WHOLE_SIZE },
@@ -1230,7 +1236,10 @@ bool UVWorkspaceRasterizer::Rasterize2DUVCanvas(
 
     VkDescriptorSet CanvasSet = VK_NULL_HANDLE;
     VkDescriptorSetAllocateInfo CanvAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorAllocator, 1u, &UVCanvasProgram.SlotLayout };
-    vkAllocateDescriptorSets(DeviceHandle, &CanvAlloc, &CanvasSet);
+    if (vkAllocateDescriptorSets(DeviceHandle, &CanvAlloc, &CanvasSet) != VK_SUCCESS || CanvasSet == VK_NULL_HANDLE)
+    {
+        return false;
+    }
 
     const std::array<VkDescriptorBufferInfo, 3u> CanvBufs {{
         { Canvas2DUniformBuffer.BufferHandle, 0u, sizeof(GPUCanvas2DUniforms) },
@@ -1253,7 +1262,10 @@ bool UVWorkspaceRasterizer::Rasterize2DUVCanvas(
     if (GizmoVertCount > 0u)
     {
         VkDescriptorSetAllocateInfo GizAlloc { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, GraphicsDescriptorAllocator, 1u, &GizmoDepthOffProgram.SlotLayout };
-        vkAllocateDescriptorSets(DeviceHandle, &GizAlloc, &GizmoSet);
+        if (vkAllocateDescriptorSets(DeviceHandle, &GizAlloc, &GizmoSet) != VK_SUCCESS || GizmoSet == VK_NULL_HANDLE)
+        {
+            return false;
+        }
         const std::array<VkDescriptorBufferInfo, 2u> GizBufs {{
             { Gizmo2DUniformBuffer.BufferHandle, 0u, sizeof(GPUGizmoUniforms) },
             { Gizmo2DVertexBuffer.BufferHandle, 0u, VK_WHOLE_SIZE },

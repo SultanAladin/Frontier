@@ -218,6 +218,32 @@ int main()
     {
         return 1;
     }
+    bool RepeatedSurfaceIterationsOkay = true;
+    for (uint32_t IterationIdx = 0u; IterationIdx < 192u; ++IterationIdx)
+    {
+        if (!Rasterizer.Rasterize3DViewport(ViewW, ViewH, Opts3D, nullptr, nullptr))
+        {
+            RepeatedSurfaceIterationsOkay = false;
+            break;
+        }
+    }
+    bool ResizeIterationsOkay = true;
+    for (uint32_t ResizeIdx = 0u; ResizeIdx < 12u; ++ResizeIdx)
+    {
+        const uint32_t ResizeW = 400u + ResizeIdx * 7u;
+        const uint32_t ResizeH = 300u + ResizeIdx * 5u;
+        if (!Rasterizer.Rasterize3DViewport(ResizeW, ResizeH, Opts3D, nullptr, nullptr))
+        {
+            ResizeIterationsOkay = false;
+            break;
+        }
+    }
+    if (!VerifyCondition(RepeatedSurfaceIterationsOkay, "192 consecutive 3D-only Vulkan iterations retain valid descriptors") ||
+        !VerifyCondition(ResizeIterationsOkay, "repeated 3D target size changes recreate attachments safely") ||
+        !VerifyCondition(Rasterizer.Rasterize3DViewport(ViewW, ViewH, Opts3D, &Gizmo3D, &Pixels3D), "Restored 3D surface and gizmo after descriptor churn"))
+    {
+        return 1;
+    }
 
     // Scan a sparse grid to verify both 3D Surface Face Pick AND 3D Gizmo Handle Pick in R32G32B32A32_UINT attachment!
     ViewportPickHit SampleSurfaceHit3D {};

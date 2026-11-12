@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                          CONCAVEHORIZONPACKER.H
+                                                          CONCAVESKYLINEPACKER.H
 ============================================================================================================================================*/
 // 🧩 Priority-Layer-Weighted Concave Skyline Horizon Packer accelerated by ConcaveSkylineCompute.comp.spv & ExecutionChannels
 

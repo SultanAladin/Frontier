@@ -779,7 +779,7 @@ void ThumbnailSheetRepository::PopulateDefaultEngineAndProjectEntries()
         ColorRgba           Tint;
     };
 
-    constexpr std::array<SeedEntry, 24> StockEntries = {{
+    constexpr std::array<SeedEntry, 29> StockEntries = {{
         // Materials (EngineContent/Materials/)
         { "Standard Preset",      ContentCategory::Materials,   ContentOriginFilter::Engine,  { 199u, 173u, 160u, 255u } },
         { "Dielectric Glass",     ContentCategory::Materials,   ContentOriginFilter::Engine,  { 176u, 222u, 242u, 255u } },
@@ -788,6 +788,11 @@ void ThumbnailSheetRepository::PopulateDefaultEngineAndProjectEntries()
         { "Subsurface Wax",       ContentCategory::Materials,   ContentOriginFilter::Project, { 228u, 188u, 146u, 255u } },
         // Geometry (EngineContent/Worlds/ & Project)
         { "Calibration BevelBox", ContentCategory::Geometry,    ContentOriginFilter::Engine,  { 184u, 196u, 214u, 255u } },
+        { "Controlled Integrator", ContentCategory::Geometry,   ContentOriginFilter::Engine,  { 196u, 209u, 181u, 255u } },
+        { "Aero Coupe GT",         ContentCategory::Geometry,   ContentOriginFilter::Engine,  { 158u, 188u, 204u, 255u } },
+        { "Tactical Crate",        ContentCategory::Geometry,   ContentOriginFilter::Engine,  { 194u, 171u, 137u, 255u } },
+        { "Armored Bust",          ContentCategory::Geometry,   ContentOriginFilter::Engine,  { 177u, 153u, 145u, 255u } },
+        { "UDIM Arch Kit",         ContentCategory::Geometry,   ContentOriginFilter::Engine,  { 193u, 190u, 161u, 255u } },
         { "Shader Ball Solid",    ContentCategory::Geometry,    ContentOriginFilter::Engine,  { 212u, 192u, 166u, 255u } },
         { "Modular Hull Assembly",ContentCategory::Geometry,    ContentOriginFilter::Project, { 152u, 198u, 178u, 255u } },
         // UV Layouts (.UVSpace)

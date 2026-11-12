@@ -67,7 +67,7 @@ struct UVThemeColors
     const ControlColorSet& C = ControlAppearance::Colors();
     UVThemeColors Out {};
     Out.LightSurface = C.LightSurface;
-    Out.PanelBg      = MixColors(C.Panel, C.SectionSurface, C.LightSurface ? 0.35f : 0.45f);
+    Out.PanelBg      = WorkspaceAppearance::QueryDockedPaneBackground();
     Out.SectionBg    = C.SectionSurface.ToRgba8();
     Out.WellBg       = MixColors(C.Field, C.Panel, 0.35f);
     Out.RaisedBg     = C.Selected.ToRgba8();

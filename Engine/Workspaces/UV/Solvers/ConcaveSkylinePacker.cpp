@@ -1,5 +1,5 @@
 /*============================================================================================================================================
-                                                         CONCAVEHORIZONPACKER.CPP
+                                                         CONCAVESKYLINEPACKER.CPP
 ============================================================================================================================================*/
 // 🧩 Implementation of ConcaveSkylinePacker using ConcaveSkylineCompute.comp.spv + ExecutionChannels parallel island profiles
 
@@ -245,12 +245,10 @@ ConcavePackReport ConcaveSkylinePacker::PackConcaveSkyline(
         return RemainderPct * 0.01f;
     };
 
-    const uint32_t GutterCols = std::clamp(
-        static_cast<uint32_t>(std::ceil(
-            (static_cast<float>(Preferences.IslandMarginPixels) / static_cast<float>(std::max(256u, Preferences.DefaultTileResolutionPx))) *
-            static_cast<float>(SkylineGridColumns) * 0.5f)),
-        1u,
-        6u);
+    const float RequestedGutterCols = std::ceil(
+        (static_cast<float>(Preferences.IslandMarginPixels) / static_cast<float>(std::max(256u, Preferences.DefaultTileResolutionPx))) *
+        static_cast<float>(SkylineGridColumns) * 0.5f);
+    const uint32_t GutterCols = static_cast<uint32_t>(std::clamp(RequestedGutterCols, 1.0f, 6.0f));
 
     std::vector<float> CandidateAngles { 0.0f };
     if (Preferences.RotationStepDegrees == 90u)
@@ -488,7 +486,7 @@ ConcavePackReport ConcaveSkylinePacker::PackConcaveSkyline(
 
     // Place every island; if single-UDIM overflows ceiling, uniformly downscale by 0.88 and retry cleanly!
     bool AllFit = false;
-    for (uint32_t Attempt = 0u; Attempt < 6u && !AllFit; ++Attempt)
+    for (uint32_t Attempt = 0u; Attempt < 16u && !AllFit; ++Attempt)
     {
         Tiles.clear();
         Tiles.emplace_back(0, GutterCols);
@@ -544,6 +542,16 @@ ConcavePackReport ConcaveSkylinePacker::PackConcaveSkyline(
         DeviceInterchange->ReleaseBuffer(SpanBuf);
         DeviceInterchange->ReleaseBuffer(QueryBuf);
         DeviceInterchange->ReleaseBuffer(ScoreBuf);
+    }
+
+    if (!AllFit)
+    {
+        Report.IslandsPacked = 0u;
+        Report.UDIMTilesOccupied = 0u;
+        Report.EvaluatedOnVulkanGPU = UseGPU;
+        Report.ElapsedMilliseconds = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - StartClock).count();
+        return Report;
     }
 
     // 4. Finalize placed island transforms into PolygonNetwork::Edges[e].ParameterUV

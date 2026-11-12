@@ -26,6 +26,7 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -316,6 +317,29 @@ int main()
         return 1;
     }
     if (!VerifyCheck(Session.UndoParameterization() && Session.RedoParameterization(), "Undo/Redo Modal UV Transform"))
+    {
+        return 1;
+    }
+
+    PaneInputReading StartBoundedModal {};
+    StartBoundedModal.PrimaryPointer.X = 320.0f;
+    StartBoundedModal.PrimaryPointer.Y = 320.0f;
+    StartBoundedModal.TypedUtf8 = "g";
+    Interactor.ProcessViewportInput(ViewportInteractionReading{ PlanarBounds, SpatialBounds, StartBoundedModal });
+    PaneInputReading HugeNumeric {};
+    HugeNumeric.PrimaryPointer.X = 320.0f;
+    HugeNumeric.PrimaryPointer.Y = 320.0f;
+    HugeNumeric.TypedUtf8 = "999999999999999999999999999999999999999999";
+    Interactor.ProcessViewportInput(ViewportInteractionReading{ PlanarBounds, SpatialBounds, HugeNumeric });
+    const bool AllUVsFinite = std::all_of(Session.Asset.Network.Edges.begin(), Session.Asset.Network.Edges.end(), [](const GeometrySpace::DirectedEdge& Edge)
+    {
+        return std::isfinite(Edge.ParameterUV.U) && std::isfinite(Edge.ParameterUV.V);
+    });
+    PaneInputReading CancelBoundedModal {};
+    CancelBoundedModal.EscapePressed = true;
+    Interactor.ProcessViewportInput(ViewportInteractionReading{ PlanarBounds, SpatialBounds, CancelBoundedModal });
+    if (!VerifyCheck(AllUVsFinite && Interactor.QueryModalTransformMode() == ModalUVTransformMode::Inactive,
+            "oversized modal numeric input stays finite and cancels cleanly"))
     {
         return 1;
     }

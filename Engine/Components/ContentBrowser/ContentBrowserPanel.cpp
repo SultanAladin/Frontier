@@ -457,6 +457,27 @@ void ContentBrowserPanel::AttachOutlinerFallback(OutlinerPanel* TargetOutliner) 
     FallbackOutliner = TargetOutliner;
 }
 
+void ContentBrowserPanel::AssignContentActivationCallback(std::function<void(const ContentRepositoryEntry&)> Callback)
+{
+    ContentActivationCallback = std::move(Callback);
+}
+
+bool ContentBrowserPanel::ActivateContentEntryAt(std::size_t EntryIndex)
+{
+    const ContentRepositoryEntry* Entry = ThumbnailRepository.QueryEntryAt(EntryIndex);
+    if (Entry == nullptr)
+    {
+        return false;
+    }
+    SelectedContentIndex = EntryIndex;
+    StatusMessage        = "Opened " + Entry->DisplayTitle + " (" + Entry->ContainerFormat + ")";
+    if (ContentActivationCallback)
+    {
+        ContentActivationCallback(*Entry);
+    }
+    return true;
+}
+
 void ContentBrowserPanel::AttachThemeRepository(const ThemeRepository* SourceTheme) noexcept
 {
     AttachedTheme = SourceTheme;
@@ -1052,7 +1073,11 @@ void ContentBrowserPanel::RenderNonColoursRepository(
             Canvas.Text({ RowRect.X + 54.0f, RowRect.Y + 10.0f }, 11.5f, TitleInk, Entry->DisplayTitle.c_str());
             Canvas.Text({ RowRect.X + 54.0f, RowRect.Y + 27.0f }, 9.2f, SubInk, MetaLine.c_str());
 
-            if (Hovered && PointerInput.Pressed)
+            if (Hovered && PointerInput.DoubleClicked)
+            {
+                (void)ActivateContentEntryAt(EntryIdx);
+            }
+            else if (Hovered && PointerInput.Pressed)
             {
                 SelectedContentIndex = EntryIdx;
             }
@@ -1109,7 +1134,11 @@ void ContentBrowserPanel::RenderNonColoursRepository(
             const std::string Sub  = std::string(ThumbnailSheetRepository::QueryCategoryTitle(EntryCat)) + " · " + OriginTag;
             Canvas.TextCentered({ CellRect.X + 5.0f, CellRect.Y + 102.0f, CellRect.Width - 10.0f, 14.0f }, 8.8f, SubInk, Sub.c_str());
 
-            if (Hovered && PointerInput.Pressed)
+            if (Hovered && PointerInput.DoubleClicked)
+            {
+                (void)ActivateContentEntryAt(EntryIdx);
+            }
+            else if (Hovered && PointerInput.Pressed)
             {
                 SelectedContentIndex = EntryIdx;
             }
@@ -1236,6 +1265,20 @@ void ContentBrowserPanel::RenderContentDetailsSidebar(
             Canvas.Text({ Inner.X, PreviewBox.Bottom() + 14.0f }, 10.0f, BlendRgba(AppearanceColors.Text, AppearanceColors.Accent, 0.25f), FormatLine.c_str());
             Canvas.Text({ Inner.X, PreviewBox.Bottom() + 32.0f }, 9.5f, AppearanceColors.TextDim.ToRgba8(), OriginLine.c_str());
             Canvas.Text({ Inner.X, PreviewBox.Bottom() + 49.0f }, 9.2f, AppearanceColors.TextFaint.ToRgba8(), SheetLine.c_str());
+
+            if (ContentActivationCallback &&
+                ConstructCapsuleControl(
+                    Canvas,
+                    { Inner.X, PreviewBox.Bottom() + 72.0f, Inner.Width, 30.0f },
+                    "Open in Workspace",
+                    false,
+                    PointerInput,
+                    AppearanceColors,
+                    10.5f,
+                    true))
+            {
+                (void)ActivateContentEntryAt(SelectedContentIndex);
+            }
         }
     }
 

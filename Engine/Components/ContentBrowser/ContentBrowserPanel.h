@@ -126,9 +126,11 @@ public:
     void FocusColourSlot(std::string_view SlotIdentifier) noexcept;
     void AttachOutlinerFallback(OutlinerPanel* TargetOutliner) noexcept;
     void AttachThemeRepository(const ThemeRepository* SourceTheme) noexcept;
+    void AssignContentActivationCallback(std::function<void(const ContentRepositoryEntry&)> ActivationCallback);
 
     bool ApplySelectedColourToActiveSlot();
     bool ApplyColourIndexToSlot(std::size_t ColourIndex, std::string_view TargetSlotIdentifier = {});
+    bool ActivateContentEntryAt(std::size_t EntryIndex);
 
     void RenderWithInput(
         PixelSpace&                       Canvas,
@@ -208,6 +210,7 @@ private:
     std::string                         FocusedSlotId         {};                                       // [-]   - Active target slot key
     OutlinerPanel*                      FallbackOutliner      = nullptr;                                // [-]   - Optional Outliner fallback
     const ThemeRepository*              AttachedTheme         = nullptr;                                // [-]   - Optional live ThemeRepository source
+    std::function<void(const ContentRepositoryEntry&)> ContentActivationCallback {};                    // [-]   - Optional asset open callback
     std::vector<RecordedCellHitbox>     LastColourHitboxes    {};                                       // [-]   - Hitboxes for testing & drag
 
     bool                                PotentialColourDrag   = false;                                  // [-]   - Pointer pressed on colour swatch

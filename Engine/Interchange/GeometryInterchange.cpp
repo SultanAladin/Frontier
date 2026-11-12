@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <set>
 #include <sstream>
 #include <unordered_map>
@@ -146,8 +147,23 @@ void FinalizeConstructedAssetUDIMs(GeometrySpace::ConstructedSampleAsset& Asset)
     return Out;
 }
 
+[[nodiscard]] bool ParseObjIndex(std::string_view Token, int& OutIndex) noexcept
+{
+    if (Token.empty())
+    {
+        OutIndex = 0;
+        return true;
+    }
+    const auto Parsed = std::from_chars(Token.data(), Token.data() + Token.size(), OutIndex);
+    return Parsed.ec == std::errc{} && Parsed.ptr == Token.data() + Token.size();
+}
+
 [[nodiscard]] int ResolveObjIndex(int RawOneBased, std::size_t TotalCount) noexcept
 {
+    if (TotalCount > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+    {
+        return -1;
+    }
     if (RawOneBased > 0)
     {
         return RawOneBased - 1;
@@ -287,7 +303,9 @@ bool GeometryInterchange::ImportWavefrontObjText(
             float X = 0.0f;
             float Y = 0.0f;
             float Z = 0.0f;
-            if (std::sscanf(std::string(RawLine.substr(2u)).c_str(), "%f %f %f", &X, &Y, &Z) == 3)
+            if (std::sscanf(std::string(RawLine.substr(2u)).c_str(), "%f %f %f", &X, &Y, &Z) == 3 &&
+                std::isfinite(X) && std::isfinite(Y) && std::isfinite(Z) &&
+                std::abs(X) <= 20000.0f && std::abs(Y) <= 20000.0f && std::abs(Z) <= 20000.0f)
             {
                 TempPositions.push_back({ X, Y, Z });
                 (void)OutAsset.Network.AppendVertex({ X, Y, Z });
@@ -297,7 +315,8 @@ bool GeometryInterchange::ImportWavefrontObjText(
         {
             float U = 0.0f;
             float V = 0.0f;
-            if (std::sscanf(std::string(RawLine.substr(3u)).c_str(), "%f %f", &U, &V) >= 2)
+            if (std::sscanf(std::string(RawLine.substr(3u)).c_str(), "%f %f", &U, &V) >= 2 &&
+                std::isfinite(U) && std::isfinite(V) && std::abs(U) <= 100000.0f && std::abs(V) <= 100000.0f)
             {
                 TempUVs.push_back({ U, V });
             }
@@ -356,21 +375,28 @@ bool GeometryInterchange::ImportWavefrontObjText(
                 int VIdx  = 0;
                 int VtIdx = 0;
                 const std::size_t Slash1 = Token.find('/');
+                bool ValidIndices = true;
                 if (Slash1 == std::string::npos)
                 {
-                    VIdx = std::atoi(Token.c_str());
+                    ValidIndices = ParseObjIndex(Token, VIdx);
                 }
                 else
                 {
-                    VIdx = std::atoi(Token.substr(0u, Slash1).c_str());
+                    ValidIndices = ParseObjIndex(std::string_view(Token).substr(0u, Slash1), VIdx);
                     const std::size_t Slash2 = Token.find('/', Slash1 + 1u);
                     const std::string VtSub  = (Slash2 == std::string::npos)
                         ? Token.substr(Slash1 + 1u)
                         : Token.substr(Slash1 + 1u, Slash2 - Slash1 - 1u);
                     if (!VtSub.empty())
                     {
-                        VtIdx = std::atoi(VtSub.c_str());
+                        ValidIndices = ValidIndices && ParseObjIndex(VtSub, VtIdx);
                     }
+                }
+                if (!ValidIndices)
+                {
+                    FaceVerts.clear();
+                    FaceUVs.clear();
+                    break;
                 }
 
                 const int ResolvedV  = ResolveObjIndex(VIdx, TempPositions.size());
@@ -393,6 +419,11 @@ bool GeometryInterchange::ImportWavefrontObjText(
 
             if (FaceVerts.size() >= 3u)
             {
+                const std::set<uint32_t> UniqueFaceVertices(FaceVerts.begin(), FaceVerts.end());
+                if (UniqueFaceVertices.size() != FaceVerts.size())
+                {
+                    continue;
+                }
                 GeometrySpace::FaceShadingAssignment Shading {};
                 Shading.MatCapSlot = static_cast<uint8_t>((ActiveLayerOrdinal * 2u + 3u) % 16u);
                 (void)OutAsset.Network.AppendFace(FaceVerts, FaceUVs, Shading, ActiveLayerOrdinal, ActivePartOrdinal);
@@ -637,7 +668,7 @@ bool GeometryInterchange::ImportGltf2JsonText(
         return false;
     }
 
-    auto ResolveAccessorBytes = [&](int AccessorIdx, int& OutCount, int& OutCompType) -> const uint8_t*
+    auto ResolveAccessorBytes = [&](int AccessorIdx, int& OutCount, int& OutCompType, uint64_t AccessorValueByteCount) -> const uint8_t*
     {
         if (AccessorIdx < 0 || static_cast<std::size_t>(AccessorIdx) >= Accessors.size())
         {
@@ -652,9 +683,26 @@ bool GeometryInterchange::ImportGltf2JsonText(
         {
             return nullptr;
         }
-        const int ViewOffset = ExtractJsonIntField(BufferViews[static_cast<std::size_t>(ViewIdx)], "byteOffset", 0);
-        const std::size_t TotalOffset = static_cast<std::size_t>(std::max(0, ViewOffset + AccOffset));
-        return (TotalOffset < BinaryBlob.size()) ? (BinaryBlob.data() + TotalOffset) : nullptr;
+        const auto View = BufferViews[static_cast<std::size_t>(ViewIdx)];
+        const int ViewOffset = ExtractJsonIntField(View, "byteOffset", 0);
+        const int ViewLength = ExtractJsonIntField(View, "byteLength", -1);
+        const int ViewBuffer = ExtractJsonIntField(View, "buffer", 0);
+        const int ByteStride = ExtractJsonIntField(View, "byteStride", 0);
+        if (ViewBuffer != 0 || ViewOffset < 0 || AccOffset < 0 || ViewLength < 0 ||
+            (ByteStride != 0 && static_cast<uint64_t>(ByteStride) != AccessorValueByteCount))
+        {
+            return nullptr;
+        }
+        const uint64_t BaseOffset = static_cast<uint64_t>(ViewOffset) + static_cast<uint64_t>(AccOffset);
+        const uint64_t SpanBytes = static_cast<uint64_t>(OutCount) * AccessorValueByteCount;
+        const uint64_t ViewEnd = static_cast<uint64_t>(ViewOffset) + static_cast<uint64_t>(ViewLength);
+        const uint64_t SpanEnd = BaseOffset + SpanBytes;
+        if (BaseOffset % std::max<uint64_t>(1u, AccessorValueByteCount == 12u || AccessorValueByteCount == 8u ? sizeof(float) : AccessorValueByteCount) != 0u ||
+            BaseOffset > BinaryBlob.size() || SpanEnd < BaseOffset || SpanEnd > ViewEnd || ViewEnd > BinaryBlob.size())
+        {
+            return nullptr;
+        }
+        return BinaryBlob.data() + static_cast<std::size_t>(BaseOffset);
     };
 
     const int PosAccIdx = ExtractJsonIntField(GltfJsonText, "POSITION", -1);
@@ -663,7 +711,7 @@ bool GeometryInterchange::ImportGltf2JsonText(
 
     int PosCount = 0;
     int PosType  = 0;
-    const uint8_t* PosBytes = ResolveAccessorBytes(PosAccIdx, PosCount, PosType);
+    const uint8_t* PosBytes = ResolveAccessorBytes(PosAccIdx, PosCount, PosType, sizeof(float) * 3u);
     if (PosBytes == nullptr || PosCount < 3 || PosType != 5126)
     {
         OutDiagnostic = "glTF 2.0 primitive missing FLOAT POSITION accessor.";
@@ -672,7 +720,7 @@ bool GeometryInterchange::ImportGltf2JsonText(
 
     int UVCount = 0;
     int UVType  = 0;
-    const uint8_t* UVBytes = ResolveAccessorBytes(UVAccIdx, UVCount, UVType);
+    const uint8_t* UVBytes = ResolveAccessorBytes(UVAccIdx, UVCount, UVType, sizeof(float) * 2u);
 
     // Weld identical 3D positions so UV-split glTF vertices reconstruct a connected half-edge PolygonNetwork
     struct QuantizedPos
@@ -702,6 +750,12 @@ bool GeometryInterchange::ImportGltf2JsonText(
     for (int Idx = 0; Idx < PosCount; ++Idx)
     {
         const Mathematics::Axis3D P { PosFloats[Idx * 3 + 0], PosFloats[Idx * 3 + 1], PosFloats[Idx * 3 + 2] };
+        if (!std::isfinite(P.X) || !std::isfinite(P.Y) || !std::isfinite(P.Z) ||
+            std::abs(P.X) > 20000.0f || std::abs(P.Y) > 20000.0f || std::abs(P.Z) > 20000.0f)
+        {
+            OutDiagnostic = "glTF 2.0 POSITION contains non-finite or out-of-range coordinates.";
+            return false;
+        }
         const QuantizedPos Key {
             static_cast<int32_t>(std::llround(P.X * 100000.0)),
             static_cast<int32_t>(std::llround(P.Y * 100000.0)),
@@ -717,7 +771,14 @@ bool GeometryInterchange::ImportGltf2JsonText(
         if (UVFloats != nullptr && Idx < UVCount)
         {
             // glTF 2.0 stores V top-down (1.0 - V relative to OpenGL/UDIM bottom-left convention)
-            RawUVs[static_cast<std::size_t>(Idx)] = { UVFloats[Idx * 2 + 0], 1.0f - UVFloats[Idx * 2 + 1] };
+            const float U = UVFloats[Idx * 2 + 0];
+            const float V = UVFloats[Idx * 2 + 1];
+            if (!std::isfinite(U) || !std::isfinite(V) || std::abs(U) > 100000.0f || std::abs(V) > 100000.0f)
+            {
+                OutDiagnostic = "glTF 2.0 TEXCOORD_0 contains non-finite or out-of-range coordinates.";
+                return false;
+            }
+            RawUVs[static_cast<std::size_t>(Idx)] = { U, 1.0f - V };
         }
         else
         {
@@ -729,8 +790,29 @@ bool GeometryInterchange::ImportGltf2JsonText(
 
     int IndCount = 0;
     int IndType  = 0;
-    const uint8_t* IndBytes = ResolveAccessorBytes(IndAccIdx, IndCount, IndType);
-    const int TriCount = (IndBytes != nullptr) ? (IndCount / 3) : (PosCount / 3);
+    uint64_t IndexByteSize = 1u;
+    if (IndAccIdx >= 0 && static_cast<std::size_t>(IndAccIdx) < Accessors.size())
+    {
+        const int IndexComponentType = ExtractJsonIntField(Accessors[static_cast<std::size_t>(IndAccIdx)], "componentType", 0);
+        IndexByteSize = (IndexComponentType == 5123) ? 2u : ((IndexComponentType == 5125) ? 4u : 1u);
+    }
+    const uint8_t* IndBytes = ResolveAccessorBytes(IndAccIdx, IndCount, IndType, IndexByteSize);
+    if (IndAccIdx >= 0 && IndBytes == nullptr)
+    {
+        OutDiagnostic = "glTF 2.0 indices accessor exceeds its buffer view or binary buffer.";
+        return false;
+    }
+    if (IndBytes != nullptr && IndType != 5121 && IndType != 5123 && IndType != 5125)
+    {
+        OutDiagnostic = "glTF 2.0 indices accessor uses an unsupported component type.";
+        return false;
+    }
+    if (IndBytes != nullptr && (IndCount % 3) != 0)
+    {
+        OutDiagnostic = "glTF 2.0 triangle indices count is not divisible by three.";
+        return false;
+    }
+    const int TriCount = (IndAccIdx >= 0) ? (IndCount / 3) : (PosCount / 3);
 
     for (int Tri = 0; Tri < TriCount; ++Tri)
     {
@@ -801,10 +883,26 @@ std::string GeometryInterchange::ExportGltf2JsonText(const GeometrySpace::Polygo
         std::vector<uint32_t> FaceEdges {};
         FaceEdges.reserve(Face.CornerCount);
         uint32_t Cur = Face.BoundaryLoopEdgeIndex;
-        for (uint16_t C = 0u; C < Face.CornerCount && Cur != GeometrySpace::InvalidNetworkIndex; ++C)
+        bool FaceValid = true;
+        for (uint16_t C = 0u; C < Face.CornerCount; ++C)
         {
+            if (Cur >= Network.Edges.size())
+            {
+                FaceValid = false;
+                break;
+            }
+            const auto& Edge = Network.Edges[Cur];
+            if (Edge.OriginVertexIndex >= Network.Vertices.size())
+            {
+                FaceValid = false;
+                break;
+            }
             FaceEdges.push_back(Cur);
-            Cur = Network.Edges[Cur].NextEdgeIndex;
+            Cur = Edge.NextEdgeIndex;
+        }
+        if (!FaceValid || FaceEdges.size() < 3u)
+        {
+            continue;
         }
         const uint32_t RootOut = static_cast<uint32_t>(Positions.size() / 3u);
         for (const uint32_t EIdx : FaceEdges)
@@ -828,6 +926,11 @@ std::string GeometryInterchange::ExportGltf2JsonText(const GeometrySpace::Polygo
             Indices.push_back(RootOut + static_cast<uint32_t>(Tri));
             Indices.push_back(RootOut + static_cast<uint32_t>(Tri + 1u));
         }
+    }
+
+    if (Positions.empty() || Indices.empty())
+    {
+        return {};
     }
 
     const std::size_t PosBytes = Positions.size() * sizeof(float);

@@ -458,11 +458,22 @@ int LaunchDesktopWorkspace(
         InputCoordinator.BeginTick();
         DesktopWindow.PollOperatingEvents(InputCoordinator);
         const auto Extent = DesktopWindow.InspectExtent();
-        if (Extent.SurfacePixelWidth > 0u && Extent.SurfacePixelHeight > 0u)
+        if (Extent.SurfacePixelWidth == 0u || Extent.SurfacePixelHeight == 0u)
         {
-            SurfaceW = Extent.SurfacePixelWidth;
-            SurfaceH = Extent.SurfacePixelHeight;
+            glfwWaitEventsTimeout(0.01);
+            continue;
         }
+        SurfaceW = Extent.SurfacePixelWidth;
+        SurfaceH = Extent.SurfacePixelHeight;
+#if FRONTIER_EDITOR_ENABLED
+        if (UseFullEditorLifecycle)
+        {
+            if (auto* HostSurface = EditorLoop.AccessDockContainer().AccessOperatingSurface(Components::HostWindowToken{ 0u }))
+            {
+                HostSurface->ResizeSurface(SurfaceW, SurfaceH, Extent.DpiScaleFactor);
+            }
+        }
+#endif
         if (auto* GlfwWin = static_cast<GLFWwindow*>(DesktopWindow.NativeGlfwHandle()))
         {
             SynchronizeGlfwToImGui(GlfwWin, Io, SupplementalQueue);

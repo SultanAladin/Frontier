@@ -320,9 +320,15 @@ void UVViewportInteractor::HandleModalTransformStep(
                 ? ModalAxisConstraint::Unconstrained
                 : ModalAxisConstraint::LockV;
         }
-        else if ((Ch >= '0' && Ch <= '9') || Ch == '-' || Ch == '.')
+        else if (((Ch >= '0' && Ch <= '9') || Ch == '-' || Ch == '.') && ModalNumericEntry.size() < 16u)
         {
-            ModalNumericEntry.push_back(Ch);
+            const bool IsSign = (Ch == '-');
+            const bool IsDot = (Ch == '.');
+            if ((!IsSign || ModalNumericEntry.empty()) &&
+                (!IsDot || ModalNumericEntry.find('.') == std::string::npos))
+            {
+                ModalNumericEntry.push_back(Ch);
+            }
         }
     }
     if (Input.BackspacePressed && !ModalNumericEntry.empty())
@@ -335,8 +341,9 @@ void UVViewportInteractor::HandleModalTransformStep(
 
     const float DxPx = Input.PrimaryPointer.X - ModalStartPointerX;
     const float DyPx = Input.PrimaryPointer.Y - ModalStartPointerY;
-    const bool  HasNumeric = !ModalNumericEntry.empty();
-    const float ParsedVal  = HasNumeric ? std::strtof(ModalNumericEntry.c_str(), nullptr) : 0.0f;
+    const float RawParsedVal = ModalNumericEntry.empty() ? 0.0f : std::strtof(ModalNumericEntry.c_str(), nullptr);
+    const bool  HasNumeric   = !ModalNumericEntry.empty() && std::isfinite(RawParsedVal);
+    const float ParsedVal    = HasNumeric ? std::clamp(RawParsedVal, -10000.0f, 10000.0f) : 0.0f;
 
     Mathematics::UVAxes   DeltaUV { 0.0f, 0.0f };
     Mathematics::Scalar2D ScaleUV { 1.0f, 1.0f };
@@ -363,7 +370,7 @@ void UVViewportInteractor::HandleModalTransformStep(
     }
     else if (ModalMode == ModalUVTransformMode::RotateAngle)
     {
-        float Deg = HasNumeric ? ParsedVal : (DxPx * 0.45f);
+        float Deg = std::clamp(HasNumeric ? ParsedVal : (DxPx * 0.45f), -36000.0f, 36000.0f);
         if (Input.ControlHeld && !HasNumeric)
         {
             Deg = std::round(Deg / 15.0f) * 15.0f;
@@ -372,7 +379,7 @@ void UVViewportInteractor::HandleModalTransformStep(
     }
     else if (ModalMode == ModalUVTransformMode::ScaleUniform)
     {
-        float Factor = HasNumeric ? std::max(0.01f, ParsedVal) : std::clamp(1.0f + DxPx * 0.005f, 0.05f, 10.0f);
+        float Factor = HasNumeric ? std::clamp(ParsedVal, 0.01f, 100.0f) : std::clamp(1.0f + DxPx * 0.005f, 0.05f, 10.0f);
         if (Input.ControlHeld && !HasNumeric)
         {
             Factor = std::round(Factor * 10.0f) / 10.0f;

@@ -75,6 +75,8 @@ private:
         DeviceImageResource Image       {};
         VkDescriptorSet     Descriptor  = VK_NULL_HANDLE;
         uint64_t            ContentHash = 0ull;
+        uint64_t            LastTouched = 0ull;
+        uint64_t            LastPresentSerial = 0ull;
     };
 
     [[nodiscard]] bool ConstructRasterResources(VkFormat TargetFormat, std::string* OptionalDiagnostic);
@@ -107,6 +109,8 @@ private:
     DeviceImageResource                                       FallbackWhiteTex      {};
     VkDescriptorSet                                           FallbackDescriptor    = VK_NULL_HANDLE;
     std::unordered_map<const ImTextureData*, CachedImGuiTexture> TextureCache       {};
+    uint64_t                                                      TextureUseCounter    = 0ull;
+    uint64_t                                                      TexturePresentSerial = 0ull;
     OverlayRasterizationStats                                   Stats                 {};
 };
 

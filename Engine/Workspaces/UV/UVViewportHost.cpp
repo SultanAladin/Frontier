@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                            UVVIEWPORTHOST.CPP
 ============================================================================================================================================*/
-// 🧩 Implementation of UVViewportHost matching Experimental/UVEditor viewport canvas header, command strip, tool rail & Sample Assets handle
+// 🧩 Implementation of UVViewportHost matching Experimental/UVEditor viewport canvas header, command strip, tool rail & status bar
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
@@ -480,24 +480,10 @@ void UVViewportHost::Render(
         38.0f,
         std::min(CanvasBounds.Height - 20.0f, 356.0f)
     };
-    const Rectangle2D DrawerHandleRect{
-        Bounds.X + (Bounds.Width - 192.0f) * 0.5f,
-        Bounds.Bottom() - 30.0f,
-        192.0f,
-        30.0f
-    };
-    const Rectangle2D AssetDrawerRect{
-        CanvasBounds.X + std::max(12.0f, (CanvasBounds.Width - 620.0f) * 0.5f),
-        CanvasBounds.Bottom() - 96.0f,
-        std::min(620.0f, CanvasBounds.Width - 24.0f),
-        86.0f
-    };
 
     const bool PointerOverOverlayControls =
         OverlayCapturedClick ||
-        RailBounds.Contains(Cursor) ||
-        DrawerHandleRect.Contains(Cursor) ||
-        (AssetDrawerExpanded && AssetDrawerRect.Contains(Cursor));
+        RailBounds.Contains(Cursor);
 
     Rectangle2D PlanarRect  {};
     Rectangle2D SpatialRect {};
@@ -607,69 +593,8 @@ void UVViewportHost::Render(
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium,  { ReadoutBox.X + 200.0f, ReadoutBox.Y + 5.0f }, 9.0f, ColorRgba{ 214, 184, 124, 255 }, UdimText);
     }
 
-    // 3c. overlay Sample Assets Drawer (.pz-asset-drawer) when Sample Assets handle is expanded
-    if (AssetDrawerExpanded)
-    {
-        Surface.FillRectangle(AssetDrawerRect, Theme.PanelBg, 16.0f);
-        Surface.StrokeRectangle(AssetDrawerRect, Theme.AccentBorder, 16.0f, 1.2f);
-
-        struct SampleTileEntry
-        {
-            GeometrySpace::SampleAssetPreset Preset;
-            const char*                      Title;
-            const char*                      Subtitle;
-        };
-        constexpr std::array<SampleTileEntry, 5u> SampleTiles {{
-            { GeometrySpace::SampleAssetPreset::ControlledIntegrator, "Controlled Integrator", "25,068 tris · Vehicle" },
-            { GeometrySpace::SampleAssetPreset::AeroCoupeGT,          "Aero Coupe GT",         "2 UDIM · Blockout"    },
-            { GeometrySpace::SampleAssetPreset::TacticalCrate,        "Tactical Crate",        "Hard-Surface"         },
-            { GeometrySpace::SampleAssetPreset::ArmoredBust,          "Armored Bust",          "Cylindrical + Ring"   },
-            { GeometrySpace::SampleAssetPreset::UDIMArchKit,          "UDIM Arch Kit",         "4 UDIM Trim Kit"      },
-        }};
-
-        const float Gap   = 6.0f;
-        const float TileWidth = (AssetDrawerRect.Width - 20.0f - Gap * 4.0f) / 5.0f;
-        for (uint32_t Idx = 0u; Idx < 5u; ++Idx)
-        {
-            const Rectangle2D TileBounds{
-                AssetDrawerRect.X + 10.0f + static_cast<float>(Idx) * (TileWidth + Gap),
-                AssetDrawerRect.Y + 10.0f,
-                TileWidth,
-                AssetDrawerRect.Height - 20.0f
-            };
-            const bool Selected = (Session->ActivePreset == SampleTiles[Idx].Preset);
-            const bool Hovered  = TileBounds.Contains(Cursor);
-
-            Surface.FillRectangle(TileBounds, Selected ? Theme.AccentSoft : (Hovered ? Theme.HoverBg : Theme.SectionBg), 10.0f);
-            Surface.StrokeRectangle(TileBounds, Selected ? Theme.AccentBorder : Theme.BorderSubtle, 10.0f, 1.0f);
-            ConstructSceneCubeIcon(Surface, { TileBounds.X + 9.0f, TileBounds.Y + 10.0f }, 14.0f, Selected ? Theme.AccentFill : Theme.TextMuted);
-            WorkspaceAppearance::ConstructTruncatedText(
-                Surface,
-                FontWeightClass::Medium,
-                { TileBounds.X + 9.0f, TileBounds.Y + 29.0f },
-                TileBounds.Width - 14.0f,
-                9.5f,
-                Theme.TextPrimary,
-                SampleTiles[Idx].Title);
-            WorkspaceAppearance::ConstructTruncatedText(
-                Surface,
-                FontWeightClass::Regular,
-                { TileBounds.X + 9.0f, TileBounds.Y + 45.0f },
-                TileBounds.Width - 14.0f,
-                8.2f,
-                Theme.TextMuted,
-                SampleTiles[Idx].Subtitle);
-
-            if (Hovered && Pressed)
-            {
-                Session->LoadSamplePreset(SampleTiles[Idx].Preset);
-                AssetDrawerExpanded = false;
-            }
-        }
-    }
-
     //--------------------------------------------------------------------------------------------------------------------
-    // 4. Bottom Status Bar (.pz-bottom-bar: Surface Telemetry | Centered S-Curve "Sample Assets" Handle | Ready Status)
+    // 4. Bottom Status Bar (.pz-bottom-bar: Surface Telemetry | Ready Status)
     //--------------------------------------------------------------------------------------------------------------------
     const Rectangle2D FootRect{ LeftX, Bounds.Bottom() - BottomBarH, CanvasBounds.Width, BottomBarH };
     {
@@ -690,32 +615,6 @@ void UVViewportHost::Render(
             Theme.TextMuted,
             LeftStats);
 
-        // Centered inverted S-curve / trapezoidal "Sample Assets" handle tab (.pz-drawer-handle-tab)
-        const bool HandleHover = DrawerHandleRect.Contains(Cursor);
-        const ColorRgba TabFill = AssetDrawerExpanded ? Theme.AccentSoft : (HandleHover ? Theme.HoverBg : Theme.SectionBg);
-        Surface.FillRectangle({ DrawerHandleRect.X, DrawerHandleRect.Y + 2.0f, DrawerHandleRect.Width, DrawerHandleRect.Height - 2.0f }, TabFill, 12.0f);
-        Surface.StrokeRectangle({ DrawerHandleRect.X, DrawerHandleRect.Y + 2.0f, DrawerHandleRect.Width, DrawerHandleRect.Height + 6.0f }, AssetDrawerExpanded ? Theme.AccentBorder : Theme.BorderStrong, 12.0f, 1.0f);
-        ConstructSceneCubeIcon(Surface, { DrawerHandleRect.X + 36.0f, DrawerHandleRect.Y + 9.0f }, 13.0f, Theme.TextMuted);
-        WorkspaceAppearance::ConstructWeightedText(
-            Surface,
-            FontWeightClass::Regular,
-            { DrawerHandleRect.X + 55.0f, DrawerHandleRect.Y + 8.5f },
-            10.0f,
-            Theme.TextPrimary,
-            "Sample Assets");
-        WorkspaceAppearance::ConstructWeightedText(
-            Surface,
-            FontWeightClass::Regular,
-            { DrawerHandleRect.Right() - 40.0f, DrawerHandleRect.Y + 8.5f },
-            9.5f,
-            Theme.TextMuted,
-            AssetDrawerExpanded ? "v" : "^");
-
-        if (HandleHover && Pressed)
-        {
-            AssetDrawerExpanded = !AssetDrawerExpanded;
-        }
-
         // Right-aligned live status readout
         if (FootRect.Width >= 560.0f)
         {
@@ -727,7 +626,7 @@ void UVViewportHost::Render(
                 Session->LatestMetrics.MeanL2Stretch,
                 Session->LatestMetrics.FlippedFaceCount);
             const float RW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.5f, RightStats);
-            if (FootRect.Right() - RW > DrawerHandleRect.Right() + 12.0f)
+            if (FootRect.Right() - RW > FootRect.X + 220.0f)
             {
                 WorkspaceAppearance::ConstructWeightedText(
                     Surface,

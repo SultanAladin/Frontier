@@ -84,7 +84,8 @@ public:
 
 private:
     VulkanInterchange*                  DeviceInterchange        = nullptr;        // [-] - Non-owning Vulkan device interchange
-    VkDescriptorPool                      DescriptorAllocator = VK_NULL_HANDLE; // [-] - Reusable compute descriptor pool
+    std::vector<VkDescriptorPool>          DescriptorAllocators {}; // [-] - Separate allocators retained for one recorded command buffer
+    uint32_t                              MaxDispatchesPerAllocator = 128u; // [-] - Capacity of each retained allocator
     std::vector<RegisteredComputeProgram> Programs       {};               // [-] - Registered .slang compute pipelines
 };
 

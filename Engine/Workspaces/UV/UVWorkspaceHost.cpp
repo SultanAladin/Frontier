@@ -57,6 +57,31 @@ void UVWorkspaceHost::AttachContentBrowser(Editor::Explorer::ContentBrowser* Tar
 
     // Enforce WorkspaceCategory::UV filter (exposes Geometries, Materials, Textures, Images, Colours; hides Simulations/Particles/Audio)
     BoundBrowser->ConfigureWorkspaceDomain(WorkspaceCategory::UV);
+    BoundBrowser->AccessPanel().AssignContentActivationCallback(
+        [this](const ContentRepositoryEntry& Entry)
+        {
+            using GeometrySpace::SampleAssetPreset;
+            if (Entry.DisplayTitle == "Controlled Integrator")
+            {
+                Session.LoadSamplePreset(SampleAssetPreset::ControlledIntegrator);
+            }
+            else if (Entry.DisplayTitle == "Aero Coupe GT")
+            {
+                Session.LoadSamplePreset(SampleAssetPreset::AeroCoupeGT);
+            }
+            else if (Entry.DisplayTitle == "Tactical Crate")
+            {
+                Session.LoadSamplePreset(SampleAssetPreset::TacticalCrate);
+            }
+            else if (Entry.DisplayTitle == "Armored Bust")
+            {
+                Session.LoadSamplePreset(SampleAssetPreset::ArmoredBust);
+            }
+            else if (Entry.DisplayTitle == "UDIM Arch Kit")
+            {
+                Session.LoadSamplePreset(SampleAssetPreset::UDIMArchKit);
+            }
+        });
 
     BoundBrowser->AccessPanel().RegisterColourSlot(ColourSlotRegistration{
         "uv.priority_layer.tint",

@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace Frontier::GeometricRaster
 {
@@ -53,9 +54,16 @@ struct ImGuiPushConstants
     {
         return 0ull;
     }
-    uint64_t          Hash = 14695981039346656037ull;
-    const std::size_t Step = std::max<std::size_t>(1u, TotalBytes / 4096u);
-    for (std::size_t Idx = 0u; Idx < TotalBytes; Idx += Step)
+    uint64_t Hash = 14695981039346656037ull;
+    std::size_t Idx = 0u;
+    for (; Idx + sizeof(uint64_t) <= TotalBytes; Idx += sizeof(uint64_t))
+    {
+        uint64_t Word = 0ull;
+        std::memcpy(&Word, Bytes + Idx, sizeof(Word));
+        Hash ^= Word;
+        Hash *= 1099511628211ull;
+    }
+    for (; Idx < TotalBytes; ++Idx)
     {
         Hash ^= static_cast<uint64_t>(Bytes[Idx]);
         Hash *= 1099511628211ull;
@@ -213,12 +221,13 @@ bool ImGuiOverlayRasterization::ConstructRasterResources(VkFormat TargetFormat, 
     }
 
     VkDescriptorPoolSize AllocSizes[2]{};
-    AllocSizes[0] = { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 64u };
-    AllocSizes[1] = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64u };
+    AllocSizes[0] = { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 256u };
+    AllocSizes[1] = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 256u };
 
     VkDescriptorPoolCreateInfo AllocSpec {};
     AllocSpec.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    AllocSpec.maxSets       = 64u;
+    AllocSpec.maxSets       = 256u;
+    AllocSpec.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     AllocSpec.poolSizeCount = 2u;
     AllocSpec.pPoolSizes    = AllocSizes;
     if (vkCreateDescriptorPool(LogicalVk, &AllocSpec, nullptr, &DescriptorAllocator) != VK_SUCCESS)
@@ -616,7 +625,42 @@ VkDescriptorSet ImGuiOverlayRasterization::EnsureTextureUploaded(const ImTexture
     const std::size_t ByteLen  = static_cast<std::size_t>(W) * H * (Rgba32 ? 4u : 1u);
     const auto*       RawBytes = static_cast<const uint8_t*>(SourceTex->Pixels);
 
-    auto&          Entry = TextureCache[SourceTex];
+    auto FoundEntry = TextureCache.find(SourceTex);
+    if (FoundEntry == TextureCache.end() && TextureCache.size() >= 255u)
+    {
+        auto Oldest = TextureCache.end();
+        for (auto It = TextureCache.begin(); It != TextureCache.end(); ++It)
+        {
+            if (It->second.LastPresentSerial == TexturePresentSerial)
+            {
+                continue;
+            }
+            if (Oldest == TextureCache.end() || It->second.LastTouched < Oldest->second.LastTouched)
+            {
+                Oldest = It;
+            }
+        }
+        if (Oldest == TextureCache.end())
+        {
+            return FallbackDescriptor;
+        }
+        if (Oldest != TextureCache.end())
+        {
+            if (Oldest->second.Descriptor != VK_NULL_HANDLE)
+            {
+                (void)vkFreeDescriptorSets(BoundDevice->AccessDevice(), DescriptorAllocator, 1u, &Oldest->second.Descriptor);
+            }
+            BoundDevice->ReleaseImage2D(Oldest->second.Image);
+            TextureCache.erase(Oldest);
+        }
+    }
+    if (FoundEntry == TextureCache.end())
+    {
+        FoundEntry = TextureCache.try_emplace(SourceTex).first;
+    }
+    auto& Entry = FoundEntry->second;
+    Entry.LastTouched = ++TextureUseCounter;
+    Entry.LastPresentSerial = TexturePresentSerial;
     const uint64_t Hash  = FontAtlasTexture
         ? ((Entry.ContentHash != 0ull && Entry.Image.WidthPx == W && Entry.Image.HeightPx == H) ? Entry.ContentHash : 1ull)
         : HashPixelBytesSampled(RawBytes, ByteLen);
@@ -749,6 +793,16 @@ bool ImGuiOverlayRasterization::PresentImGuiBatches(
         return false;
     }
 
+    ++TexturePresentSerial;
+    if (TexturePresentSerial == 0ull)
+    {
+        TexturePresentSerial = 1ull;
+        for (auto& [TextureKey, TextureEntry] : TextureCache)
+        {
+            (void)TextureKey;
+            TextureEntry.LastPresentSerial = 0ull;
+        }
+    }
     TargetWidthPx  = std::max(16u, TargetWidthPx);
     TargetHeightPx = std::max(16u, TargetHeightPx);
     if (TargetWidthPx != Stats.WidthPx || TargetHeightPx != Stats.HeightPx || TargetAttachments.empty())
@@ -771,8 +825,53 @@ bool ImGuiOverlayRasterization::PresentImGuiBatches(
     const ImFontAtlas*   FontAtlas = (ImGui::GetCurrentContext() != nullptr) ? ImGui::GetIO().Fonts : nullptr;
     const ImTextureData* FontTex   = (FontAtlas != nullptr) ? FontAtlas->TexData : nullptr;
 
+    const uint64_t RequiredVertexCount = (OverlayGeometry != nullptr && OverlayGeometry->TotalVtxCount > 0)
+        ? static_cast<uint64_t>(OverlayGeometry->TotalVtxCount)
+        : 0ull;
+    const uint64_t RequiredVertexBytes = RequiredVertexCount * sizeof(ImGuiShaderVertex);
+    if (RequiredVertexBytes > VertexStreamBuffer.ByteCapacity)
+    {
+        const uint64_t NewCapacity = std::max<uint64_t>(RequiredVertexBytes, VertexStreamBuffer.ByteCapacity * 2ull);
+        if (NewCapacity > static_cast<uint64_t>(std::numeric_limits<VkDeviceSize>::max()))
+        {
+            return false;
+        }
+        (void)vkDeviceWaitIdle(BoundDevice->AccessDevice());
+        BoundDevice->ReleaseBuffer(VertexStreamBuffer);
+        VertexStreamBuffer = BoundDevice->AllocateBuffer(
+            NewCapacity,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        if (VertexStreamBuffer.BufferHandle == VK_NULL_HANDLE || VertexStreamBuffer.HostAddress == nullptr)
+        {
+            return false;
+        }
+        VkDescriptorBufferInfo BufferInfo { VertexStreamBuffer.BufferHandle, 0ull, VK_WHOLE_SIZE };
+        auto RefreshVertexStreamDescriptor = [&](VkDescriptorSet Set)
+        {
+            if (Set != VK_NULL_HANDLE)
+            {
+                VkWriteDescriptorSet BufferWrite {};
+                BufferWrite.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                BufferWrite.dstSet          = Set;
+                BufferWrite.dstBinding      = 0u;
+                BufferWrite.descriptorCount = 1u;
+                BufferWrite.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                BufferWrite.pBufferInfo     = &BufferInfo;
+                vkUpdateDescriptorSets(BoundDevice->AccessDevice(), 1u, &BufferWrite, 0u, nullptr);
+            }
+        };
+        RefreshVertexStreamDescriptor(FallbackDescriptor);
+        for (auto& [TextureKey, TextureEntry] : TextureCache)
+        {
+            (void)TextureKey;
+            RefreshVertexStreamDescriptor(TextureEntry.Descriptor);
+        }
+    }
+
     uint32_t       WrittenVertices = 0u;
-    const uint32_t MaxVertices     = static_cast<uint32_t>(VertexStreamBuffer.ByteCapacity / sizeof(ImGuiShaderVertex));
+    const uint32_t MaxVertices     = static_cast<uint32_t>(std::min<uint64_t>(
+        VertexStreamBuffer.ByteCapacity / sizeof(ImGuiShaderVertex), std::numeric_limits<uint32_t>::max()));
     auto*          OutVerts        = static_cast<ImGuiShaderVertex*>(VertexStreamBuffer.HostAddress);
 
     if (OverlayGeometry != nullptr && OutVerts != nullptr)
@@ -1040,6 +1139,8 @@ void ImGuiOverlayRasterization::TeardownOverlay() noexcept
         BoundDevice->ReleaseImage2D(Entry.Image);
     }
     TextureCache.clear();
+    TextureUseCounter = 0ull;
+    TexturePresentSerial = 0ull;
 
     BoundDevice->ReleaseImage2D(FallbackWhiteTex);
     BoundDevice->ReleaseBuffer(VertexStreamBuffer);

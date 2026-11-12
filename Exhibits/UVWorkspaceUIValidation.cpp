@@ -20,6 +20,7 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -144,6 +145,20 @@ int main()
         {
             return 1;
         }
+        const auto BrowserEntries = Browser.QueryPanel().QueryThumbnailRepository().QueryAllEntries();
+        const auto AeroEntry = std::find_if(BrowserEntries.begin(), BrowserEntries.end(), [](const ContentRepositoryEntry& Entry)
+        {
+            return Entry.DisplayTitle == "Aero Coupe GT";
+        });
+        if (!VerifyCondition(AeroEntry != BrowserEntries.end(), "UV ContentBrowser registers the Aero Coupe GT sample asset") ||
+            !VerifyCondition(
+                Browser.AccessPanel().ActivateContentEntryAt(static_cast<std::size_t>(AeroEntry - BrowserEntries.begin())) &&
+                    StandaloneHost.InspectSession().ActivePreset == GeometrySpace::SampleAssetPreset::AeroCoupeGT,
+                "opening a ContentBrowser sample asset loads it into the UV workspace"))
+        {
+            return 1;
+        }
+        StandaloneHost.AccessSession().LoadSamplePreset(GeometrySpace::SampleAssetPreset::ControlledIntegrator);
         StandaloneHost.AccessSession().AssignSelectedLayerTint(SavedLayer1Tint);
 #endif
 

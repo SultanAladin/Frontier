@@ -9,6 +9,7 @@
 
 #include "Engine/GeometricRaster/Compute/ComputeDispatchEncoder.h"
 
+#include <algorithm>
 #include <array>
 
 namespace Frontier::GeometricRaster
@@ -32,6 +33,7 @@ bool ComputeDispatchEncoder::InitializeEncoder(VulkanInterchange* BoundDevice, u
     }
 
     DeviceInterchange = BoundDevice;
+    MaxDispatchesPerAllocator = std::clamp(MaxDispatchesPerAllocator, 1u, 4096u);
     const std::array<VkDescriptorPoolSize, 2u> AllocatorCapacities {{
         { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MaxDispatchesPerAllocator * 2u },
         { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MaxDispatchesPerAllocator * 6u },
@@ -43,11 +45,13 @@ bool ComputeDispatchEncoder::InitializeEncoder(VulkanInterchange* BoundDevice, u
     AllocatorSpec.poolSizeCount = static_cast<uint32_t>(AllocatorCapacities.size());
     AllocatorSpec.pPoolSizes    = AllocatorCapacities.data();
 
-    if (vkCreateDescriptorPool(DeviceInterchange->AccessDevice(), &AllocatorSpec, nullptr, &DescriptorAllocator) != VK_SUCCESS)
+    VkDescriptorPool InitialAllocator = VK_NULL_HANDLE;
+    if (vkCreateDescriptorPool(DeviceInterchange->AccessDevice(), &AllocatorSpec, nullptr, &InitialAllocator) != VK_SUCCESS)
     {
         DeviceInterchange = nullptr;
         return false;
     }
+    DescriptorAllocators.push_back(InitialAllocator);
     return true;
 }
 
@@ -78,11 +82,14 @@ void ComputeDispatchEncoder::TeardownEncoder() noexcept
         }
         Programs.clear();
 
-        if (DescriptorAllocator != VK_NULL_HANDLE)
+        for (VkDescriptorPool Allocator : DescriptorAllocators)
         {
-            vkDestroyDescriptorPool(DeviceHandle, DescriptorAllocator, nullptr);
-            DescriptorAllocator = VK_NULL_HANDLE;
+            if (Allocator != VK_NULL_HANDLE)
+            {
+                vkDestroyDescriptorPool(DeviceHandle, Allocator, nullptr);
+            }
         }
+        DescriptorAllocators.clear();
     }
     DeviceInterchange = nullptr;
 }
@@ -164,9 +171,16 @@ uint32_t ComputeDispatchEncoder::RegisterProgram(
 
 void ComputeDispatchEncoder::ResetTransientDescriptors() noexcept
 {
-    if (DeviceInterchange != nullptr && DescriptorAllocator != VK_NULL_HANDLE)
+    if (DeviceInterchange != nullptr)
     {
-        vkResetDescriptorPool(DeviceInterchange->AccessDevice(), DescriptorAllocator, 0u);
+        const VkDevice DeviceHandle = DeviceInterchange->AccessDevice();
+        for (VkDescriptorPool Allocator : DescriptorAllocators)
+        {
+            if (Allocator != VK_NULL_HANDLE)
+            {
+                vkResetDescriptorPool(DeviceHandle, Allocator, 0u);
+            }
+        }
     }
 }
 
@@ -188,18 +202,50 @@ bool ComputeDispatchEncoder::EncodeComputeDispatch(
 
     VkDescriptorSetAllocateInfo AllocSpec {};
     AllocSpec.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    AllocSpec.descriptorPool     = DescriptorAllocator;
     AllocSpec.descriptorSetCount = 1u;
     AllocSpec.pSetLayouts        = &Prog.SlotLayout;
 
     VkDescriptorSet DescSet = VK_NULL_HANDLE;
-    if (vkAllocateDescriptorSets(DeviceHandle, &AllocSpec, &DescSet) != VK_SUCCESS)
+    for (VkDescriptorPool Allocator : DescriptorAllocators)
     {
-        vkResetDescriptorPool(DeviceHandle, DescriptorAllocator, 0u);
-        if (vkAllocateDescriptorSets(DeviceHandle, &AllocSpec, &DescSet) != VK_SUCCESS)
+        AllocSpec.descriptorPool = Allocator;
+        const VkResult AllocStatus = vkAllocateDescriptorSets(DeviceHandle, &AllocSpec, &DescSet);
+        if (AllocStatus == VK_SUCCESS)
+        {
+            break;
+        }
+        if (AllocStatus != VK_ERROR_OUT_OF_POOL_MEMORY && AllocStatus != VK_ERROR_FRAGMENTED_POOL)
         {
             return false;
         }
+    }
+    if (DescSet == VK_NULL_HANDLE)
+    {
+        if (DescriptorAllocators.size() >= 64u)
+        {
+            return false;
+        }
+        const std::array<VkDescriptorPoolSize, 2u> AllocatorSizes {{
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MaxDispatchesPerAllocator * 2u },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MaxDispatchesPerAllocator * 6u },
+        }};
+        VkDescriptorPoolCreateInfo AllocatorSpecNew {};
+        AllocatorSpecNew.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        AllocatorSpecNew.maxSets       = MaxDispatchesPerAllocator;
+        AllocatorSpecNew.poolSizeCount = static_cast<uint32_t>(AllocatorSizes.size());
+        AllocatorSpecNew.pPoolSizes    = AllocatorSizes.data();
+        VkDescriptorPool NewAllocator = VK_NULL_HANDLE;
+        if (vkCreateDescriptorPool(DeviceHandle, &AllocatorSpecNew, nullptr, &NewAllocator) != VK_SUCCESS)
+        {
+            return false;
+        }
+        AllocSpec.descriptorPool = NewAllocator;
+        if (vkAllocateDescriptorSets(DeviceHandle, &AllocSpec, &DescSet) != VK_SUCCESS)
+        {
+            vkDestroyDescriptorPool(DeviceHandle, NewAllocator, nullptr);
+            return false;
+        }
+        DescriptorAllocators.push_back(NewAllocator);
     }
 
     std::vector<VkDescriptorBufferInfo> BufInfos(Slots.size());
