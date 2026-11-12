@@ -7,6 +7,7 @@ from pathlib import Path
 import hashlib
 import io
 import json
+import os
 import subprocess
 import sys
 import tarfile
@@ -19,17 +20,28 @@ ToolchainRoot  = RepositoryRoot / 'ExternalPackages/VulkanCompute'
 PinnedArtifacts = [
     {
         'Category': 'Slang',
-        'Url': 'https://files.pythonhosted.org/packages/59/db/f58a546564b8992e8e4c66b3e1b99432a87acec4317b10b1b9c7927868b9/slangtorch-1.3.22-py3-none-manylinux_2_27_x86_64.whl',
-        'Sha256': '7755f2f53509ebbd65839dcd8a104e7105aeaf3e3600aea9385c2bec9beb2eaa',
-        'Witness': 'Slang/slangtorch/bin/slangc',
-    },
-    {
-        'Category': 'SwiftShader',
-        'Url': 'https://registry.npmjs.org/@sparticuz/chromium/-/chromium-153.0.0.tgz',
-        'Sha256': '20e5656fcdcf4118ede85edfb9d6bb9cc1bbb7ffb8b75622fffbcf36a835c3c0',
-        'Witness': 'SwiftShader/vk_swiftshader_icd.json',
+        'Url': (
+            'https://files.pythonhosted.org/packages/8e/e1/9d0da9dfd5b221db931ef88f5b7d8436f9ceffbe91896f0eafd11460fd06/slangtorch-1.3.22-py3-none-win_amd64.whl'
+            if os.name == 'nt'
+            else 'https://files.pythonhosted.org/packages/59/db/f58a546564b8992e8e4c66b3e1b99432a87acec4317b10b1b9c7927868b9/slangtorch-1.3.22-py3-none-manylinux_2_27_x86_64.whl'
+        ),
+        'Sha256': (
+            '377891b2ed697b3a2bc4af53c7f2ae5b580a80251f6f672b461481137f47dff5'
+            if os.name == 'nt'
+            else '7755f2f53509ebbd65839dcd8a104e7105aeaf3e3600aea9385c2bec9beb2eaa'
+        ),
+        'Witness': 'Slang/slangtorch/bin/slangc.exe' if os.name == 'nt' else 'Slang/slangtorch/bin/slangc',
     },
 ]
+if os.name != 'nt':
+    PinnedArtifacts.append(
+        {
+            'Category': 'SwiftShader',
+            'Url': 'https://registry.npmjs.org/@sparticuz/chromium/-/chromium-153.0.0.tgz',
+            'Sha256': '20e5656fcdcf4118ede85edfb9d6bb9cc1bbb7ffb8b75622fffbcf36a835c3c0',
+            'Witness': 'SwiftShader/vk_swiftshader_icd.json',
+        }
+    )
 
 
 def Main():
@@ -66,7 +78,7 @@ def Main():
                         if not EntryName.endswith('/'):
                             Destination.parent.mkdir(parents=True, exist_ok=True)
                             Destination.write_bytes(ZipBundle.read(EntryName))
-            (ToolchainRoot / 'Slang/slangtorch/bin/slangc').chmod(0o755)
+            (ToolchainRoot / Entry['Witness']).chmod(0o755)
         elif Category == 'SwiftShader':
             with tarfile.open(fileobj=io.BytesIO(Payload), mode='r:gz') as OuterBundle:
                 BrotliBytes = OuterBundle.extractfile('package/bin/swiftshader.tar.br').read()

@@ -203,6 +203,74 @@ void SynchronizeGlfwToImGui(GLFWwindow* Win, ImGuiIO& Io, GlfwSupplementalQueue&
 
 } // namespace
 
+DesktopResourcePaths ResolveDesktopResourcePaths(
+    const std::filesystem::path& ExecutablePath,
+    const std::filesystem::path& FallbackRepositoryRoot,
+    const std::filesystem::path& FallbackShaderDirectory)
+{
+    std::vector<std::filesystem::path> SearchRoots {};
+    auto AddPathAndAncestors = [&](std::filesystem::path Path)
+    {
+        if (Path.empty())
+        {
+            return;
+        }
+        std::error_code Error {};
+        Path = std::filesystem::absolute(Path, Error).lexically_normal();
+        if (Error)
+        {
+            return;
+        }
+        if (!std::filesystem::is_directory(Path, Error))
+        {
+            Path = Path.parent_path();
+        }
+        for (uint32_t Depth = 0u; !Path.empty() && Depth < 12u; ++Depth)
+        {
+            if (std::find(SearchRoots.begin(), SearchRoots.end(), Path) == SearchRoots.end())
+            {
+                SearchRoots.push_back(Path);
+            }
+            const std::filesystem::path Parent = Path.parent_path();
+            if (Parent == Path)
+            {
+                break;
+            }
+            Path = Parent;
+        }
+    };
+
+    AddPathAndAncestors(ExecutablePath);
+    AddPathAndAncestors(std::filesystem::current_path());
+    AddPathAndAncestors(FallbackRepositoryRoot);
+    AddPathAndAncestors(FallbackShaderDirectory);
+
+    DesktopResourcePaths Resolved { FallbackRepositoryRoot, FallbackShaderDirectory };
+    for (const auto& Root : SearchRoots)
+    {
+        const bool HasGeometry = std::filesystem::exists(Root / "EngineContent/Geometry/ControlledIntegrator.GeometrySpace");
+        const bool HasFontIndex = std::filesystem::exists(Root / "EngineContent/FontsArchives/FontRepository.FontSpace");
+        if (HasGeometry || HasFontIndex)
+        {
+            Resolved.RepositoryRootPath = Root;
+        }
+
+        const std::filesystem::path ShaderFolder = Root / "CompiledShaders";
+        if (std::filesystem::exists(ShaderFolder / "SurfaceShading.vert.spv") &&
+            std::filesystem::exists(ShaderFolder / "UVTileRasterization.frag.spv"))
+        {
+            Resolved.CompiledShaderDirectory = ShaderFolder;
+        }
+        if ((HasGeometry || HasFontIndex) &&
+            std::filesystem::exists(Root / "SurfaceShading.vert.spv") &&
+            std::filesystem::exists(Root / "UVTileRasterization.frag.spv"))
+        {
+            Resolved.CompiledShaderDirectory = Root;
+        }
+    }
+    return Resolved;
+}
+
 int LaunchDesktopWorkspace(
     DesktopLaunchOptions          InitialOptions,
     std::span<const char* const>  CommandLineArgs,

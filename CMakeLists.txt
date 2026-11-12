@@ -190,7 +190,11 @@ endif()
 #                                      SLANG -> SPIR-V SHADER COMPILATION PIPELINE
 #------------------------------------------------------------------------------------------------------------------------
 
-set(FRONTIER_SLANGC_BIN "${CMAKE_SOURCE_DIR}/ExternalPackages/VulkanCompute/Slang/slangtorch/bin/slangc")
+if(WIN32)
+    set(FRONTIER_SLANGC_BIN "${CMAKE_SOURCE_DIR}/ExternalPackages/VulkanCompute/Slang/slangtorch/bin/slangc.exe")
+else()
+    set(FRONTIER_SLANGC_BIN "${CMAKE_SOURCE_DIR}/ExternalPackages/VulkanCompute/Slang/slangtorch/bin/slangc")
+endif()
 if(NOT EXISTS "${FRONTIER_SLANGC_BIN}")
     execute_process(
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Automation/PrepareShaderToolchain.py"

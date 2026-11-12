@@ -23,6 +23,17 @@ namespace Frontier::Lifecycle
 //                                                       STRUCTURES
 //------------------------------------------------------------------------------------------------------------------------
 
+struct DesktopResourcePaths
+{
+    std::filesystem::path RepositoryRootPath {};
+    std::filesystem::path CompiledShaderDirectory {};
+};
+
+[[nodiscard]] DesktopResourcePaths ResolveDesktopResourcePaths(
+    const std::filesystem::path& ExecutablePath,
+    const std::filesystem::path& FallbackRepositoryRoot,
+    const std::filesystem::path& FallbackShaderDirectory);
+
 struct DesktopLaunchOptions
 {
     Configuration::HostLaunchMode DefaultLaunchMode    = Configuration::HostLaunchMode::StandaloneWorkspace;
