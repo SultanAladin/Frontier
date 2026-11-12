@@ -37,7 +37,7 @@ UVWorkspaceSession::UVWorkspaceSession()
     Projection.ConfigureSplitRatio(WorkspaceConfig.InspectUVPreferences().SplitRatioNormalized);
 
     Gizmo3D.ConfigureDimensionMode(Editor::GizmoDimensionMode::Spatial3D);
-    Gizmo3D.ConfigureAnchor({ 0.0f, 0.54f, 0.0f }, 1.12f);
+    Gizmo3D.ConfigureAnchor({ 0.0f, 0.0f, 0.54f }, 1.12f);
 
     Gizmo2D.ConfigureDimensionMode(Editor::GizmoDimensionMode::Planar2D);
     Gizmo2D.ConfigureAnchor({ 0.50f, 0.50f, 0.0f }, 0.34f);
@@ -81,7 +81,7 @@ void UVWorkspaceSession::InitializeLoadedAssetLayout()
 {
     Instances         = GeometrySpace::GeometryInstanceRegistry{};
     RootInstanceToken = Instances.IssueInstance(Asset.Network.NetworkTitle, 0u);
-    (void)Instances.IssueInstance("Primary_Subpart", 0u, { { 0.0f, 0.45f, 0.0f }, {}, { 1.0f, 1.0f, 1.0f } });
+    (void)Instances.IssueInstance("Primary_Subpart", 0u, { { 0.0f, 0.0f, 0.45f }, {}, { 1.0f, 1.0f, 1.0f } });
 
     const auto LayerSpan = Asset.Layers.InspectLayers();
     SelectedLayerOrdinal = LayerSpan.empty() ? 0u : LayerSpan.front().LayerOrdinal;
@@ -140,7 +140,7 @@ void UVWorkspaceSession::InitializeLoadedAssetLayout()
     else
     {
         Rig.DistanceMeters = 6.20f;
-        Rig.TargetPivot    = { 0.0f, 0.42f, 0.0f };
+        Rig.TargetPivot    = { 0.0f, 0.0f, 0.42f };
     }
     Projection.ConfigureSpatialCamera(Rig);
 
@@ -1156,10 +1156,10 @@ void UVWorkspaceSession::RefreshViewportFramebuffers(
         return;
     }
 
-    // While orbiting/panning, render the interactive 3D preview at half resolution and defer
-    // the unchanged UV canvas. This avoids stalling camera input on two full GPU readbacks.
-    const uint32_t Render3DW = SpatialNavigationActive ? std::max(16u, (Viewport3DW + 1u) / 2u) : Viewport3DW;
-    const uint32_t Render3DH = SpatialNavigationActive ? std::max(16u, (Viewport3DH + 1u) / 2u) : Viewport3DH;
+    // Keep camera motion at full viewport resolution. Defer only the unchanged UV canvas while
+    // navigating, so the preview stays sharp without doing a second synchronous GPU readback.
+    const uint32_t Render3DW = Viewport3DW;
+    const uint32_t Render3DH = Viewport3DH;
     const bool SpatialViewportValid = Viewport3DW >= 16u && Viewport3DH >= 16u;
     const bool PlanarViewportValid  = Canvas2DW >= 16u && Canvas2DH >= 16u;
     const bool SizeChanged3D = SpatialViewportValid && ((Render3DW != Framebuffer3DWidth) || (Render3DH != Framebuffer3DHeight));

@@ -61,11 +61,11 @@ void ViewportProjection::ApplySpatialPreset(SpatialProjectionPreset Preset) noex
             SpatialCamera.PitchRadians = 1.48f;
             break;
         case SpatialProjectionPreset::Front:
-            SpatialCamera.YawRadians   = 0.0f;
+            SpatialCamera.YawRadians   = 0.5f * Constants::PiFloat; // +X is the vehicle's forward axis
             SpatialCamera.PitchRadians = 0.0f;
             break;
         case SpatialProjectionPreset::Right:
-            SpatialCamera.YawRadians   = 0.5f * Constants::PiFloat;
+            SpatialCamera.YawRadians   = 0.0f; // +Y is lateral with Z-up
             SpatialCamera.PitchRadians = 0.0f;
             break;
     }
@@ -159,8 +159,8 @@ Mathematics::Axis3D ViewportProjection::EvaluateCameraEyePosition() const noexce
 
     return {
         SpatialCamera.TargetPivot.X + SpatialCamera.DistanceMeters * CosPitch * SinYaw,
-        SpatialCamera.TargetPivot.Y + SpatialCamera.DistanceMeters * SinPitch,
-        SpatialCamera.TargetPivot.Z + SpatialCamera.DistanceMeters * CosPitch * CosYaw,
+        SpatialCamera.TargetPivot.Y + SpatialCamera.DistanceMeters * CosPitch * CosYaw,
+        SpatialCamera.TargetPivot.Z + SpatialCamera.DistanceMeters * SinPitch,
     };
 }
 
@@ -175,9 +175,9 @@ void ViewportProjection::EvaluateCameraBasis(
         SpatialCamera.TargetPivot.Y - Eye.Y,
         SpatialCamera.TargetPivot.Z - Eye.Z,
     });
-    const Mathematics::Axis3D WorldUp = (std::abs(OutForward.Y) < 0.96f)
-        ? Mathematics::Axis3D{ 0.0f, 1.0f, 0.0f }
-        : Mathematics::Axis3D{ 0.0f, 0.0f, -1.0f };
+    const Mathematics::Axis3D WorldUp = (std::abs(OutForward.Z) < 0.96f)
+        ? Mathematics::Axis3D{ 0.0f, 0.0f, 1.0f }
+        : Mathematics::Axis3D{ 0.0f, 1.0f, 0.0f };
     OutRight = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(OutForward, WorldUp));
     OutUp    = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(OutRight, OutForward));
 }

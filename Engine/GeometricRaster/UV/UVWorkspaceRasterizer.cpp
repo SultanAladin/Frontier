@@ -108,13 +108,13 @@ void ComputeOrbitBasis(
 
     const Mathematics::Axis3D Offset {
         Cam.DistanceMeters * CosP * SinY,
-        Cam.DistanceMeters * SinP,
         Cam.DistanceMeters * CosP * CosY,
+        Cam.DistanceMeters * SinP,
     };
     OutEye     = Cam.TargetPivot + Offset;
-    OutForward = Mathematics::NormalizeAxis(Cam.TargetPivot - OutEye, { 0.0f, 0.0f, -1.0f });
-    OutRight   = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(OutForward, { 0.0f, 1.0f, 0.0f }), { 1.0f, 0.0f, 0.0f });
-    OutUp      = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(OutRight, OutForward), { 0.0f, 1.0f, 0.0f });
+    OutForward = Mathematics::NormalizeAxis(Cam.TargetPivot - OutEye, { 0.0f, -1.0f, 0.0f });
+    OutRight   = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(OutForward, { 0.0f, 0.0f, 1.0f }), { 1.0f, 0.0f, 0.0f });
+    OutUp      = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(OutRight, OutForward), { 0.0f, 0.0f, 1.0f });
 }
 
 // Row-major Vulkan clip matrix (Y-flipped for Vulkan NDC, Z in [0, 1])
@@ -130,7 +130,7 @@ void BuildRowMajorViewProjection(
     const float ScaleX     = 1.0f / std::max(AspectRatio * TanHalfFov, 1.0e-5f);
     const float ScaleY     = -1.0f / std::max(TanHalfFov, 1.0e-5f); // Flip Y for Vulkan top-down clip space
     const float NearZ      = 0.08f;
-    const float FarZ       = 60.0f;
+    const float FarZ       = std::max(250.0f, Cam.DistanceMeters * 6.0f);
     const float ZRange     = FarZ / (NearZ - FarZ);
 
     // View matrix rows: R, U, -F
@@ -778,14 +778,14 @@ bool UVWorkspaceRasterizer::UploadPolygonNetwork(
 
     constexpr float GridHalf = 4.2f;
     const std::array<Mathematics::Axis3D, 6u> GridQuad {{
-        { -GridHalf, -0.02f, -GridHalf }, {  GridHalf, -0.02f, -GridHalf }, {  GridHalf, -0.02f,  GridHalf },
-        { -GridHalf, -0.02f, -GridHalf }, {  GridHalf, -0.02f,  GridHalf }, { -GridHalf, -0.02f,  GridHalf },
+        { -GridHalf, -GridHalf, -0.02f }, {  GridHalf, -GridHalf, -0.02f }, {  GridHalf,  GridHalf, -0.02f },
+        { -GridHalf, -GridHalf, -0.02f }, {  GridHalf,  GridHalf, -0.02f }, { -GridHalf,  GridHalf, -0.02f },
     }};
     for (const Mathematics::Axis3D& GP : GridQuad)
     {
         GPUSurfaceVertex GV {};
         GV.PosAndU[0]        = GP.X; GV.PosAndU[1] = GP.Y; GV.PosAndU[2] = GP.Z;
-        GV.NormalAndV[1]     = 1.0f;
+        GV.NormalAndV[2]     = 1.0f;
         GV.NetworkPickIDs[0] = 0u; // Ground Grid marker
         GV.NetworkPickIDs[1] = GeometrySpace::InvalidNetworkIndex;
         Verts3D.push_back(GV);

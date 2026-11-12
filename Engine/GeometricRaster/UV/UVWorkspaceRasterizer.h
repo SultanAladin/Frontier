@@ -63,7 +63,7 @@ enum class GPUSelectionOperation : uint32_t
 
 struct CameraOrbitRig3D
 {
-    Mathematics::Axis3D TargetPivot       { 0.0f, 0.35f, 0.0f }; // [m]   - Orbit target point
+    Mathematics::Axis3D TargetPivot       { 0.0f, 0.0f, 0.35f }; // [m]   - Orbit target point (Z-up)
     float               YawRadians        = 0.68f;               // [rad] - Horizontal orbit angle
     float               PitchRadians      = 0.38f;               // [rad] - Elevation angle
     float               DistanceMeters    = 4.60f;               // [m]   - Camera eye distance

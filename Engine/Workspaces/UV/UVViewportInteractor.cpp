@@ -132,7 +132,7 @@ void UVViewportInteractor::ProcessViewportInput(const ViewportInteractionReading
                 }
                 else
                 {
-                    Proj.OrbitSpatialCamera(-Input.PointerDeltaX * 0.0065f, -Input.PointerDeltaY * 0.0065f);
+                    Proj.OrbitSpatialCamera(-Input.PointerDeltaX * 0.0065f, Input.PointerDeltaY * 0.0065f);
                 }
                 Session->FramebuffersDirty = true;
             }

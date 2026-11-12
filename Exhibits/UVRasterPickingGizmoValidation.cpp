@@ -11,9 +11,11 @@
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
 #include "Engine/Configuration/WorkspaceConfiguration.h"
 #include "Engine/Editor/Viewports/TransformGizmo.h"
+#include "Engine/Editor/Viewports/ViewportProjection.h"
 #include "Engine/GeometricRaster/VulkanInterchange.h"
 #include "Engine/GeometricRaster/UV/UVWorkspaceRasterizer.h"
 #include "Engine/GeometrySpace/Primitives/AnalyticPrimitives.h"
+#include "Engine/Workspaces/UV/UVViewportInteractor.h"
 #include "Exhibits/SoftwareCanvasRasterizer.h"
 
 #include <imgui.h>
@@ -150,6 +152,43 @@ int main()
         return 1;
     }
 
+    // The spatial viewport uses a right-handed, Z-up frame: camera up, dolly and axial presets
+    // must agree so the image, picking rays, and transform axes stay aligned.
+    ViewportProjection SpatialProjection {};
+    Frontier::Mathematics::Axis3D CamRight {}, CamUp {}, CamForward {};
+    SpatialProjection.EvaluateCameraBasis(CamRight, CamUp, CamForward);
+    const float InitialDistance = SpatialProjection.InspectSpatialCamera().DistanceMeters;
+    SpatialProjection.DollySpatialCamera(0.8f);
+    if (!VerifyCondition(CamUp.Z > 0.90f, "Spatial camera is Z-up") ||
+        !VerifyCondition(SpatialProjection.InspectSpatialCamera().DistanceMeters < InitialDistance, "Spatial dolly zooms toward the pivot"))
+    {
+        return 1;
+    }
+    SpatialProjection.ApplySpatialPreset(SpatialProjectionPreset::Top);
+    if (!VerifyCondition(SpatialProjection.EvaluateCameraEyePosition().Z > SpatialProjection.InspectSpatialCamera().TargetPivot.Z, "Top view looks down the Z axis"))
+    {
+        return 1;
+    }
+
+    Frontier::Workspaces::UVWorkspaceSession CameraSession {};
+    Frontier::Workspaces::UVViewportInteractor CameraInteractor {};
+    CameraInteractor.AttachSession(&CameraSession);
+    Frontier::PaneInputReading CameraInput {};
+    CameraInput.PrimaryPointer.X = 150.0f;
+    CameraInput.PrimaryPointer.Y = 100.0f;
+    CameraInput.WheelDeltaY = 1.0f;
+    const Frontier::ViewportInteractionReading CameraReading {
+        {},
+        Frontier::Rectangle2D{ 100.0f, 0.0f, 200.0f, 200.0f },
+        CameraInput,
+    };
+    const float BeforeWheelZoom = CameraSession.AccessViewportProjection().InspectSpatialCamera().DistanceMeters;
+    CameraInteractor.ProcessViewportInput(CameraReading);
+    if (!VerifyCondition(CameraSession.AccessViewportProjection().InspectSpatialCamera().DistanceMeters < BeforeWheelZoom, "Viewport wheel input reaches the 3D camera dolly"))
+    {
+        return 1;
+    }
+
     const std::filesystem::path RepoRoot  = Frontier::Exhibits::ResolveRepositoryRootPath();
     const std::filesystem::path ShaderDir = std::filesystem::path(FRONTIER_COMPILED_SHADER_DIR);
 
@@ -202,11 +241,11 @@ int main()
 
     TransformGizmo Gizmo3D {};
     Gizmo3D.ConfigureDimensionMode(GizmoDimensionMode::Spatial3D);
-    Gizmo3D.ConfigureAnchor({ 0.0f, 0.56f, 0.0f }, 1.15f);
+    Gizmo3D.ConfigureAnchor({ 0.0f, 0.0f, 0.56f }, 1.15f);
     Gizmo3D.AssignHoveredHandle(GizmoHandleOrdinal::PlaneXY);
 
     Viewport3DRenderOptions Opts3D {};
-    Opts3D.Camera.TargetPivot    = { 0.0f, 0.36f, 0.0f };
+    Opts3D.Camera.TargetPivot    = { 0.0f, 0.0f, 0.36f };
     Opts3D.Camera.YawRadians     = 0.64f;
     Opts3D.Camera.PitchRadians   = 0.36f;
     Opts3D.Camera.DistanceMeters = 4.35f;

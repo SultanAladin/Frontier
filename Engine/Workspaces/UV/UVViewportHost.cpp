@@ -418,7 +418,10 @@ void UVViewportHost::Render(
         // Right-aligned Wire | Seams | More capsules
         const Rectangle2D MoreBtn { RightX - 58.0f, StripY, 58.0f, 31.0f };
         const Rectangle2D SeamBtn { MoreBtn.X - 6.0f - 58.0f, StripY, 58.0f, 31.0f };
-        const Rectangle2D WireBtn { SeamBtn.X - 6.0f - 52.0f, StripY, 52.0f, 31.0f };
+        const Rectangle2D WireBtn   { SeamBtn.X - 6.0f - 52.0f, StripY, 52.0f, 31.0f };
+        const Rectangle2D Fit3DBtn  { WireBtn.X - 103.0f, StripY, 40.0f, 31.0f };
+        const Rectangle2D ZoomOutBtn{ WireBtn.X - 62.0f, StripY, 28.0f, 31.0f };
+        const Rectangle2D ZoomInBtn { WireBtn.X - 31.0f, StripY, 28.0f, 31.0f };
 
         auto& Prefs = Session->WorkspaceConfig.AccessUVPreferences();
         if (ConstructCapsuleButton(
@@ -444,9 +447,45 @@ void UVViewportHost::Render(
             OverlayCapturedClick = true;
             MoreShelfExpanded    = !MoreShelfExpanded;
         }
+        if (ConstructCapsuleButton(
+                Surface, Fit3DBtn, "Fit", Theme, Cursor, Pressed, false, false, 10.0f, -1.0f,
+                OptionalTooltip::FromText("Frame the complete object in the 3D viewport.")))
+        {
+            OverlayCapturedClick = true;
+            const auto& Vertices = Session->Asset.Network.Vertices;
+            if (!Vertices.empty())
+            {
+                Mathematics::Axis3D Min { 1.0e9f, 1.0e9f, 1.0e9f };
+                Mathematics::Axis3D Max { -1.0e9f, -1.0e9f, -1.0e9f };
+                for (const auto& Vertex : Vertices)
+                {
+                    Min = { std::min(Min.X, Vertex.Axes.X), std::min(Min.Y, Vertex.Axes.Y), std::min(Min.Z, Vertex.Axes.Z) };
+                    Max = { std::max(Max.X, Vertex.Axes.X), std::max(Max.Y, Vertex.Axes.Y), std::max(Max.Z, Vertex.Axes.Z) };
+                }
+                Session->AccessViewportProjection().FitSpatialExtents(Min, Max);
+                Session->FramebuffersDirty = true;
+            }
+        }
+        if (ConstructCapsuleButton(
+                Surface, ZoomOutBtn, "-", Theme, Cursor, Pressed, false, false, 14.0f, -1.0f,
+                OptionalTooltip::FromText("Zoom the 3D camera out.")))
+        {
+            OverlayCapturedClick = true;
+            Session->AccessViewportProjection().DollySpatialCamera(1.25f);
+            Session->FramebuffersDirty = true;
+        }
+        if (ConstructCapsuleButton(
+                Surface, ZoomInBtn, "+", Theme, Cursor, Pressed, false, false, 14.0f, -1.0f,
+                OptionalTooltip::FromText("Zoom the 3D camera in.")))
+        {
+            OverlayCapturedClick = true;
+            Session->AccessViewportProjection().DollySpatialCamera(0.80f);
+            Session->FramebuffersDirty = true;
+        }
 
         // Middle display/debug/view capsules when horizontal width permits
-        if (CurX + 126.0f < WireBtn.X - 8.0f)
+        const float MiddleControlsRight = Fit3DBtn.X - 8.0f;
+        if (CurX + 126.0f < MiddleControlsRight)
         {
             const Rectangle2D SurfBtn{ CurX, StripY, 122.0f, 31.0f };
             if (ConstructCapsuleButton(
@@ -460,7 +499,7 @@ void UVViewportHost::Render(
             }
             CurX = SurfBtn.Right() + 6.0f;
         }
-        if (CurX + 112.0f < WireBtn.X - 8.0f)
+        if (CurX + 112.0f < MiddleControlsRight)
         {
             const Rectangle2D DbgBtn{ CurX, StripY, 108.0f, 31.0f };
             if (ConstructCapsuleButton(
@@ -474,7 +513,7 @@ void UVViewportHost::Render(
             }
             CurX = DbgBtn.Right() + 6.0f;
         }
-        if (CurX + 128.0f < WireBtn.X - 8.0f)
+        if (CurX + 128.0f < MiddleControlsRight)
         {
             ViewProjectionDropdownBounds = { CurX, StripY, 124.0f, 31.0f };
             const auto& Projection = Session->AccessViewportProjection();
@@ -614,6 +653,12 @@ void UVViewportHost::Render(
     const bool PointerOverOverlayControls =
         OverlayCapturedClick ||
         RailBounds.Contains(Cursor);
+    if (PointerOverOverlayControls)
+    {
+        // The interaction callback is intentionally suppressed over overlays; clear its
+        // navigation state so a deferred planar refresh cannot remain stuck indefinitely.
+        Session->SpatialNavigationActive = false;
+    }
 
     Rectangle2D PlanarRect  {};
     Rectangle2D SpatialRect {};

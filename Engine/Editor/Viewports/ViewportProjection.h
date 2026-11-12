@@ -43,7 +43,7 @@ enum class SpatialProjectionPreset : uint8_t
 
 struct SpatialCameraRig
 {
-    Mathematics::Axis3D     TargetPivot    { 0.0f, 0.42f, 0.0f };               // [m]   - Orbit target point
+    Mathematics::Axis3D     TargetPivot    { 0.0f, 0.0f, 0.42f };               // [m]   - Orbit target point (Z-up)
     float                   YawRadians     = 0.68f;                             // [rad] - Horizontal orbit angle
     float                   PitchRadians   = 0.38f;                             // [rad] - Vertical elevation angle
     float                   DistanceMeters = 6.20f;                             // [m]   - Camera distance from pivot
