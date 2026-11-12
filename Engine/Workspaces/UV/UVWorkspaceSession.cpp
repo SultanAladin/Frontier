@@ -786,21 +786,53 @@ bool UVWorkspaceSession::ExecuteDirective(
         {
             const bool AllowMultiUDIMOverflow =
                 Prefs.PackingScope == Configuration::UVPackingScopeMode::AutoSpillOverflowUDIMs;
+            const std::vector<uint32_t> ExistingUDIMTiles = Asset.UDIMTiles;
+            const std::vector<uint32_t> SelectedFaceIndices = SelectionMask.CollectSelectedFaces();
             LatestPackReport = SkylinePacker.PackConcaveSkyline(
-                Asset.Network, Asset.Layers, Prefs, AllowMultiUDIMOverflow, OptionalChannels);
-            if (FillPocketsEnabled)
+                Asset.Network,
+                Asset.Layers,
+                Prefs,
+                AllowMultiUDIMOverflow,
+                OptionalChannels,
+                ActiveUDIMNumber,
+                Prefs.PackingScope,
+                SelectedFaceIndices);
+            if (FillPocketsEnabled && Prefs.PackingScope != Configuration::UVPackingScopeMode::SelectedIslandsOnly)
             {
                 const float MarginUV = Prefs.IslandMarginPixels / static_cast<float>( std::max(256u, Prefs.DefaultTileResolutionPx));
                 (void)UVIslandLayoutOperations::ExpandIntoEmptyPockets(Asset.Network, MarginUV);
             }
-            Asset.UDIMTiles  = LatestPackReport.ActiveUDIMNumbers;
-            ActiveUDIMNumber = Asset.UDIMTiles.empty() ? 1001u : Asset.UDIMTiles.front();
+            if (Prefs.PackingScope == Configuration::UVPackingScopeMode::SelectedIslandsOnly)
+            {
+                Asset.UDIMTiles = ExistingUDIMTiles;
+                for (const uint32_t TileCode : LatestPackReport.ActiveUDIMNumbers)
+                {
+                    if (std::find(Asset.UDIMTiles.begin(), Asset.UDIMTiles.end(), TileCode) == Asset.UDIMTiles.end())
+                    {
+                        Asset.UDIMTiles.push_back(TileCode);
+                    }
+                }
+                std::sort(Asset.UDIMTiles.begin(), Asset.UDIMTiles.end());
+            }
+            else
+            {
+                Asset.UDIMTiles = LatestPackReport.ActiveUDIMNumbers;
+            }
+            if (Asset.UDIMTiles.empty())
+            {
+                Asset.UDIMTiles.push_back(1001u);
+            }
+            if (std::find(Asset.UDIMTiles.begin(), Asset.UDIMTiles.end(), ActiveUDIMNumber) == Asset.UDIMTiles.end())
+            {
+                ActiveUDIMNumber = Asset.UDIMTiles.front();
+            }
             std::snprintf(
                 Msg,
                 sizeof(Msg),
-                "Packed %u Islands (%s) | UDIM 1001 Fill %.1f%% in %.2f ms",
+                "Packed %u Islands (%s) | UDIM %u Fill %.1f%% in %.2f ms",
                 LatestPackReport.IslandsPacked,
                 LatestPackReport.EvaluatedOnVulkanGPU ? "GPU Skyline" : "CPU Skyline",
+                ActiveUDIMNumber,
                 LatestPackReport.PrimaryTileEfficiency * 100.0f,
                 LatestPackReport.ElapsedMilliseconds);
             RecordUVRevisionStep("PackConcaveSkyline");
@@ -839,7 +871,14 @@ bool UVWorkspaceSession::ExecuteDirective(
         }
         case UVCommandDirective::AutoDistributeUDIMs:
         {
-            LatestPackReport = SkylinePacker.PackConcaveSkyline(Asset.Network, Asset.Layers, Prefs, true, OptionalChannels);
+            LatestPackReport = SkylinePacker.PackConcaveSkyline(
+                Asset.Network,
+                Asset.Layers,
+                Prefs,
+                true,
+                OptionalChannels,
+                ActiveUDIMNumber,
+                Configuration::UVPackingScopeMode::AutoSpillOverflowUDIMs);
             Asset.UDIMTiles  = LatestPackReport.ActiveUDIMNumbers;
             ActiveUDIMNumber = Asset.UDIMTiles.empty() ? 1001u : Asset.UDIMTiles.front();
             std::snprintf(

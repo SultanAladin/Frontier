@@ -213,12 +213,40 @@ ConcavePackReport ConcaveSkylinePacker::PackConcaveSkyline(
     const GeometrySpace::FacePartitionRegister&  LayerRegistry,
     const Configuration::UVWorkspacePreferences& Preferences,
     bool                                         AllowMultiUDIMOverflow,
-    Threading::ExecutionChannels*                OptionalChannels)
+    Threading::ExecutionChannels*                OptionalChannels,
+    uint32_t                                     ActiveUDIMNumber,
+    Configuration::UVPackingScopeMode            PackingScope,
+    std::span<const uint32_t>                     SelectedFaceIndices)
 {
     const auto StartClock = std::chrono::steady_clock::now();
     ConcavePackReport Report {};
 
-    std::vector<UVIslandPartition> Islands = SeamCutGenerator::PartitionConnectedUVIslands(Network);
+    std::vector<UVIslandPartition> AllIslands = SeamCutGenerator::PartitionConnectedUVIslands(Network);
+    std::vector<UVIslandPartition> Islands{};
+    std::vector<uint8_t> SelectedFaceMask(Network.Faces.size(), 0u);
+    if (PackingScope == Configuration::UVPackingScopeMode::SelectedIslandsOnly && !SelectedFaceIndices.empty())
+    {
+        for (const uint32_t FaceIndex : SelectedFaceIndices)
+        {
+            if (FaceIndex < SelectedFaceMask.size())
+            {
+                SelectedFaceMask[FaceIndex] = 1u;
+            }
+        }
+        for (const auto& Island : AllIslands)
+        {
+            if (std::any_of(Island.FaceIndices.begin(), Island.FaceIndices.end(), [&](uint32_t FaceIndex)
+                { return FaceIndex < SelectedFaceMask.size() && SelectedFaceMask[FaceIndex] != 0u; }))
+            {
+                Islands.push_back(Island);
+            }
+        }
+    }
+    if (Islands.empty())
+    {
+        // Keep the tool useful with no selection, matching the HTML solver's selected-only fallback.
+        Islands = AllIslands;
+    }
     if (Islands.empty())
     {
         return Report;
@@ -346,12 +374,77 @@ ConcavePackReport ConcaveSkylinePacker::PackConcaveSkyline(
 
     struct UDIMTileSkyline
     {
-        int32_t               TileU = 0;
+        uint32_t              UDIMNumber = 1001u;
+        uint32_t              TileU      = 0u;
+        uint32_t              TileV      = 0u;
         std::vector<uint32_t> Columns;
-        UDIMTileSkyline(int32_t InU, uint32_t Margin) : TileU(InU), Columns(SkylineGridColumns, Margin) {}
+        UDIMTileSkyline(uint32_t InUDIM, uint32_t Margin)
+            : UDIMNumber(InUDIM),
+              TileU((InUDIM - 1001u) % 10u),
+              TileV((InUDIM - 1001u) / 10u),
+              Columns(SkylineGridColumns, Margin) {}
     };
-    std::vector<UDIMTileSkyline> Tiles;
-    Tiles.emplace_back(0, GutterCols);
+    auto AdvanceUDIM = [](uint32_t BaseUDIM, uint32_t Offset) noexcept
+    {
+        const uint32_t BaseIndex = std::max(1001u, BaseUDIM) - 1001u;
+        const uint32_t U = (BaseIndex % 10u) + Offset;
+        const uint32_t V = (BaseIndex / 10u) + U / 10u;
+        return 1001u + (U % 10u) + V * 10u;
+    };
+    const uint32_t SafeActiveUDIM = std::max(1001u, ActiveUDIMNumber);
+    std::vector<UDIMTileSkyline> Tiles{};
+    if (PackingScope == Configuration::UVPackingScopeMode::PerAssignedUDIMTile)
+    {
+        for (const auto& Island : Islands)
+        {
+            const auto* Layer = LayerRegistry.InspectLayer(Island.PriorityLayerOrdinal);
+            const uint32_t TargetUDIM = (Layer != nullptr && Layer->TargetUDIMNumber >= 1001u)
+                ? Layer->TargetUDIMNumber
+                : (Island.AssignedUDIMNumber >= 1001u ? Island.AssignedUDIMNumber : SafeActiveUDIM);
+            if (std::none_of(Tiles.begin(), Tiles.end(), [TargetUDIM](const UDIMTileSkyline& T) { return T.UDIMNumber == TargetUDIM; }))
+            {
+                Tiles.emplace_back(TargetUDIM, GutterCols);
+            }
+        }
+    }
+    else
+    {
+        Tiles.emplace_back(SafeActiveUDIM, GutterCols);
+    }
+
+    if (PackingScope == Configuration::UVPackingScopeMode::SelectedIslandsOnly && Islands.size() < AllIslands.size())
+    {
+        auto& TargetTile = Tiles.front();
+        const float TileOriginU = static_cast<float>(TargetTile.TileU);
+        const float TileOriginV = static_cast<float>(TargetTile.TileV);
+        for (const auto& Island : AllIslands)
+        {
+            const bool IsSelectedIsland = std::any_of(Island.FaceIndices.begin(), Island.FaceIndices.end(), [&](uint32_t FaceIndex)
+                { return FaceIndex < SelectedFaceMask.size() && SelectedFaceMask[FaceIndex] != 0u; });
+            if (IsSelectedIsland || Island.AssignedUDIMNumber != TargetTile.UDIMNumber)
+            {
+                continue;
+            }
+
+            const int32_t LeftCol = static_cast<int32_t>(std::floor((Island.BoundsMinUV.U - TileOriginU) * SkylineGridColumns)) -
+                static_cast<int32_t>(GutterCols);
+            const int32_t RightCol = static_cast<int32_t>(std::ceil((Island.BoundsMaxUV.U - TileOriginU) * SkylineGridColumns)) +
+                static_cast<int32_t>(GutterCols);
+            const int32_t TopRow = static_cast<int32_t>(std::ceil((Island.BoundsMaxUV.V - TileOriginV) * SkylineGridColumns)) +
+                static_cast<int32_t>(GutterCols);
+            const uint32_t ClampedTop = static_cast<uint32_t>(std::clamp(TopRow, static_cast<int32_t>(GutterCols),
+                static_cast<int32_t>(SkylineGridColumns - GutterCols)));
+            const int32_t ClampedLeft = std::clamp(LeftCol, static_cast<int32_t>(GutterCols),
+                static_cast<int32_t>(SkylineGridColumns - GutterCols));
+            const int32_t ClampedRight = std::clamp(RightCol, ClampedLeft, static_cast<int32_t>(SkylineGridColumns - GutterCols));
+            for (int32_t Col = ClampedLeft; Col < ClampedRight; ++Col)
+            {
+                TargetTile.Columns[static_cast<std::size_t>(Col)] = std::max(TargetTile.Columns[static_cast<std::size_t>(Col)], ClampedTop);
+            }
+        }
+    }
+
+    const std::vector<UDIMTileSkyline> InitialTiles = Tiles;
 
     struct FinalIslandPlacement
     {
@@ -486,8 +579,7 @@ ConcavePackReport ConcaveSkylinePacker::PackConcaveSkyline(
     bool AllFit = false;
     for (uint32_t Attempt = 0u; Attempt < 16u && !AllFit; ++Attempt)
     {
-        Tiles.clear();
-        Tiles.emplace_back(0, GutterCols);
+        Tiles = InitialTiles;
         Placements.clear();
         AllFit = true;
 
@@ -495,20 +587,37 @@ ConcavePackReport ConcaveSkylinePacker::PackConcaveSkyline(
         {
             uint32_t ChosenTile = 0u, ChosenRot = 0u, ChosenCol = 0u, ChosenRow = 0u;
             bool Placed = false;
-            for (uint32_t TIdx = 0u; TIdx < Tiles.size(); ++TIdx)
+            if (PackingScope == Configuration::UVPackingScopeMode::PerAssignedUDIMTile)
             {
-                if (TryPlaceOnTile(IslIdx, Tiles[TIdx], ChosenRot, ChosenCol, ChosenRow))
+                const auto& Piece = Prepared[IslIdx];
+                const auto* Layer = LayerRegistry.InspectLayer(Piece.Source.PriorityLayerOrdinal);
+                const uint32_t TargetUDIM = (Layer != nullptr && Layer->TargetUDIMNumber >= 1001u)
+                    ? Layer->TargetUDIMNumber
+                    : (Piece.Source.AssignedUDIMNumber >= 1001u ? Piece.Source.AssignedUDIMNumber : SafeActiveUDIM);
+                const auto TileIt = std::find_if(Tiles.begin(), Tiles.end(), [TargetUDIM](const UDIMTileSkyline& Tile)
+                    { return Tile.UDIMNumber == TargetUDIM; });
+                if (TileIt != Tiles.end())
                 {
-                    ChosenTile = TIdx;
-                    Placed     = true;
-                    break;
+                    ChosenTile = static_cast<uint32_t>(std::distance(Tiles.begin(), TileIt));
+                    Placed = TryPlaceOnTile(IslIdx, *TileIt, ChosenRot, ChosenCol, ChosenRow);
+                }
+            }
+            else
+            {
+                for (uint32_t TIdx = 0u; TIdx < Tiles.size(); ++TIdx)
+                {
+                    if (TryPlaceOnTile(IslIdx, Tiles[TIdx], ChosenRot, ChosenCol, ChosenRow))
+                    {
+                        ChosenTile = TIdx;
+                        Placed     = true;
+                        break;
+                    }
                 }
             }
 
             if (!Placed && AllowMultiUDIMOverflow && Tiles.size() < 10u)
             {
-                const int32_t NextTileU = static_cast<int32_t>(Tiles.size());
-                Tiles.emplace_back(NextTileU, GutterCols);
+                Tiles.emplace_back(AdvanceUDIM(SafeActiveUDIM, static_cast<uint32_t>(Tiles.size())), GutterCols);
                 ChosenTile = static_cast<uint32_t>(Tiles.size() - 1u);
                 Placed     = TryPlaceOnTile(IslIdx, Tiles.back(), ChosenRot, ChosenCol, ChosenRow);
             }
@@ -563,7 +672,7 @@ ConcavePackReport ConcaveSkylinePacker::PackConcaveSkyline(
         const float CosA = std::cos(Prof.AngleRadians);
         const float SinA = std::sin(Prof.AngleRadians);
         const float DestMinU = static_cast<float>(Tiles[P.TileIdx].TileU) + static_cast<float>(P.ColX + GutterCols) * InvGrid;
-        const float DestMinV = static_cast<float>(P.RowFloorY + GutterCols) * InvGrid;
+        const float DestMinV = static_cast<float>(Tiles[P.TileIdx].TileV) + static_cast<float>(P.RowFloorY + GutterCols) * InvGrid;
 
         for (const uint32_t EdgeIdx : Piece.Source.CornerEdgeIndices)
         {
@@ -592,7 +701,7 @@ ConcavePackReport ConcaveSkylinePacker::PackConcaveSkyline(
     Report.EvaluatedOnVulkanGPU  = UseGPU;
     for (const auto& T : Tiles)
     {
-        Report.ActiveUDIMNumbers.push_back(static_cast<uint32_t>(1001 + T.TileU));
+        Report.ActiveUDIMNumbers.push_back(T.UDIMNumber);
     }
     Report.ElapsedMilliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - StartClock).count();
     return Report;

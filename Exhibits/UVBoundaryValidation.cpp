@@ -14,8 +14,10 @@
 #include "Engine/Workspaces/UV/Solvers/ConformalUnwrapSolver.h"
 #include "Engine/Workspaces/UV/Solvers/ProgressiveStretchRelaxer.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -29,6 +31,44 @@ bool Verify(bool Condition, const char* Description)
         std::fprintf(stderr, "[UVBoundaryValidation] FAILED: %s\n", Description);
     }
     return Condition;
+}
+
+uint32_t AppendPackingTestTriangle(
+    Frontier::GeometrySpace::PolygonNetwork& Network,
+    float U,
+    float V,
+    uint16_t LayerOrdinal = 0u)
+{
+    const float X = static_cast<float>(Network.Faces.size()) * 2.0f;
+    const std::array<uint32_t, 3u> Vertices {{
+        Network.AppendVertex({ X, 0.0f, 0.0f }),
+        Network.AppendVertex({ X + 1.0f, 0.0f, 0.0f }),
+        Network.AppendVertex({ X, 1.0f, 0.0f }),
+    }};
+    const std::array<Frontier::Mathematics::UVAxes, 3u> UVs {{
+        { U, V }, { U + 0.12f, V }, { U, V + 0.12f },
+    }};
+    return Network.AppendFace(Vertices, UVs, {}, LayerOrdinal);
+}
+
+std::array<float, 4u> FaceUVBounds(const Frontier::GeometrySpace::PolygonNetwork& Network, uint32_t FaceIndex)
+{
+    const auto& Face = Network.Faces[FaceIndex];
+    float MinU = std::numeric_limits<float>::max();
+    float MinV = std::numeric_limits<float>::max();
+    float MaxU = std::numeric_limits<float>::lowest();
+    float MaxV = std::numeric_limits<float>::lowest();
+    uint32_t EdgeIndex = Face.BoundaryLoopEdgeIndex;
+    for (uint16_t Corner = 0u; Corner < Face.CornerCount; ++Corner)
+    {
+        const auto& UV = Network.Edges[EdgeIndex].ParameterUV;
+        MinU = std::min(MinU, UV.U);
+        MinV = std::min(MinV, UV.V);
+        MaxU = std::max(MaxU, UV.U);
+        MaxV = std::max(MaxV, UV.V);
+        EdgeIndex = Network.Edges[EdgeIndex].NextEdgeIndex;
+    }
+    return { MinU, MinV, MaxU, MaxV };
 }
 
 } // namespace
@@ -135,6 +175,79 @@ int main()
     Passed &= Verify(
         Pack.IslandsPacked == IslandCount,
         "2,001 independent UV charts pack without gutter arithmetic overflow or lost islands");
+
+    Configuration::UVWorkspacePreferences ScopePreferences {};
+    ScopePreferences.IslandMarginPixels = 8u;
+    ScopePreferences.RotationStepDegrees = 90u;
+
+    GeometrySpace::PolygonNetwork ActiveTileNetwork {};
+    (void)AppendPackingTestTriangle(ActiveTileNetwork, 0.10f, 0.10f);
+    (void)AppendPackingTestTriangle(ActiveTileNetwork, 0.55f, 0.55f);
+    ActiveTileNetwork.LinkOppositeEdges(true);
+    ActiveTileNetwork.RecomputeNormals();
+    GeometrySpace::FacePartitionRegister ActiveTileLayers {};
+    const auto ActiveTilePack = Packer.PackConcaveSkyline(
+        ActiveTileNetwork,
+        ActiveTileLayers,
+        ScopePreferences,
+        false,
+        nullptr,
+        1003u,
+        Configuration::UVPackingScopeMode::ActiveUDIMTile);
+    Passed &= Verify(
+        ActiveTilePack.IslandsPacked == 2u &&
+            ActiveTileNetwork.DeriveFaceUDIMNumber(0u) == 1003u &&
+            ActiveTileNetwork.DeriveFaceUDIMNumber(1u) == 1003u,
+        "Active UDIM scope relocates every packed island to the chosen tile");
+
+    GeometrySpace::PolygonNetwork AssignedTileNetwork {};
+    GeometrySpace::FacePartitionRegister AssignedTileLayers {};
+    const uint16_t Layer1001 = AssignedTileLayers.ConstructLayer("Tile One", { 0.8f, 0.7f, 0.4f }, 50.0f, 1001u);
+    const uint16_t Layer1003 = AssignedTileLayers.ConstructLayer("Tile Three", { 0.4f, 0.7f, 0.9f }, 50.0f, 1003u);
+    (void)AppendPackingTestTriangle(AssignedTileNetwork, 0.10f, 0.10f, Layer1001);
+    (void)AppendPackingTestTriangle(AssignedTileNetwork, 0.30f, 0.10f, Layer1003);
+    AssignedTileNetwork.LinkOppositeEdges(true);
+    AssignedTileNetwork.RecomputeNormals();
+    const auto PerAssignedPack = Packer.PackConcaveSkyline(
+        AssignedTileNetwork,
+        AssignedTileLayers,
+        ScopePreferences,
+        false,
+        nullptr,
+        1001u,
+        Configuration::UVPackingScopeMode::PerAssignedUDIMTile);
+    Passed &= Verify(
+        PerAssignedPack.IslandsPacked == 2u &&
+            AssignedTileNetwork.DeriveFaceUDIMNumber(0u) == 1001u &&
+            AssignedTileNetwork.DeriveFaceUDIMNumber(1u) == 1003u,
+        "Per-assigned UDIM scope routes each priority layer to its pinned tile");
+
+    GeometrySpace::PolygonNetwork SelectedOnlyNetwork {};
+    (void)AppendPackingTestTriangle(SelectedOnlyNetwork, 0.10f, 0.10f);
+    (void)AppendPackingTestTriangle(SelectedOnlyNetwork, 0.55f, 0.55f);
+    SelectedOnlyNetwork.LinkOppositeEdges(true);
+    SelectedOnlyNetwork.RecomputeNormals();
+    const auto StationaryBoundsBefore = FaceUVBounds(SelectedOnlyNetwork, 1u);
+    const std::array<uint32_t, 1u> SelectedFaceIndices {{ 0u }};
+    GeometrySpace::FacePartitionRegister SelectedOnlyLayers {};
+    const auto SelectedOnlyPack = Packer.PackConcaveSkyline(
+        SelectedOnlyNetwork,
+        SelectedOnlyLayers,
+        ScopePreferences,
+        false,
+        nullptr,
+        1001u,
+        Configuration::UVPackingScopeMode::SelectedIslandsOnly,
+        SelectedFaceIndices);
+    const auto StationaryBoundsAfter = FaceUVBounds(SelectedOnlyNetwork, 1u);
+    const auto SelectedBoundsAfter = FaceUVBounds(SelectedOnlyNetwork, 0u);
+    const bool StationaryUnchanged = StationaryBoundsBefore == StationaryBoundsAfter;
+    const bool SelectedDoesNotOverlapStationary =
+        SelectedBoundsAfter[2] <= StationaryBoundsAfter[0] || StationaryBoundsAfter[2] <= SelectedBoundsAfter[0] ||
+        SelectedBoundsAfter[3] <= StationaryBoundsAfter[1] || StationaryBoundsAfter[3] <= SelectedBoundsAfter[1];
+    Passed &= Verify(
+        SelectedOnlyPack.IslandsPacked == 1u && StationaryUnchanged && SelectedDoesNotOverlapStationary,
+        "Selected-only scope packs selected islands while preserving non-selected UVs without AABB overlap");
 
     if (Passed)
     {

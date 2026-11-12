@@ -37,10 +37,12 @@ The UV Inspector and Outliner have content-aware scrolling, reusable control too
 
 ## Remaining phases
 
-1. **Packing-scope behavior (next):** implement Active UDIM as an actual target tile, Per Assigned UDIM routing, and Selected Islands Only. Auto-Spill is wired; these other scope choices are still persisted in preferences but not honored by the Pack operation yet.
+1. **Packing-scope behavior — implemented and validated:** the concave skyline solver now targets the selected active UDIM, routes islands to their assigned UDIM (respecting layer target UDIMs), and supports selected-islands-only packing while preserving unselected UV coordinates and seeding their occupancy. Session UDIM bookkeeping preserves the prior tile set for selected-only operations and reports the active tile in the status message. Auto-Spill remains routed through the shared Pack directive. Focused boundary tests cover each of the three scopes.
 2. **Selection and menus:** finish HTML selection shortcut/feedback parity and context-menu interactions; add focused interaction validation for Outliner filtering, Inspector dropdowns, and viewport projection selection.
 3. **Shading and camera parity:** match the HTML shading-mode catalog and mode-dependent Inspector content; align camera damping and full-state undo/redo.
 4. **Resize-safe ImGui textures:** retire old application-owned GPU texture records before size-changing replacements; same-size framebuffer updates already use the update path.
-5. **Final verification:** run the complete UV validation set, inspect a current-state capture, and update exhibits only for intentional visual changes.
+5. **Final verification:** inspect a current-state capture, run `node Experimental/UVEditor/UVValidation.mjs`, rerun the complete UV validation set after the remaining UI changes, and update exhibits only for intentional visual changes.
+
+**Latest validation:** `cmake --build build/Development --target FrontierUV UVBoundaryValidation -j2` passed; `ctest --test-dir build/Development --output-on-failure` passed 16/16 tests, including the new Active UDIM, Per Assigned UDIM, and Selected Islands Only cases. `git diff --check` passed. No GitHub Actions were run.
 
 Keep comparing against `Experimental/UVEditor/` and reuse existing controls/icons wherever available; do not invent duplicate icon assets or controls.

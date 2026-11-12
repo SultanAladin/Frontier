@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <span>
 #include <vector>
 
 namespace Frontier::Workspaces
@@ -55,7 +56,10 @@ public:
         const GeometrySpace::FacePartitionRegister&  LayerRegistry,
         const Configuration::UVWorkspacePreferences& Preferences,
         bool                                         AllowMultiUDIMOverflow = false,
-        Threading::ExecutionChannels*                OptionalChannels       = nullptr);
+        Threading::ExecutionChannels*                OptionalChannels       = nullptr,
+        uint32_t                                     ActiveUDIMNumber       = 1001u,
+        Configuration::UVPackingScopeMode            PackingScope           = Configuration::UVPackingScopeMode::ActiveUDIMTile,
+        std::span<const uint32_t>                     SelectedFaceIndices    = {});
 
 private:
     GeometricRaster::VulkanInterchange*   DeviceInterchange            = nullptr;
