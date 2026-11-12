@@ -153,6 +153,12 @@ float UVInspectorPanel::RenderPackingTab(
     const Point2D       Cursor  { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
     const bool          Pressed = Input.PrimaryPointer.Pressed;
     const bool          Down    = Input.PrimaryPointer.Down;
+    if (Input.EscapePressed)
+    {
+        ActiveLayerDropdownOpen = false;
+        TargetUdimDropdownOpen = false;
+        PackingScopeDropdownOpen = false;
+    }
 
     float CurY = StartY;
     Rectangle2D ActiveLayerDropdownBounds{};
@@ -1260,6 +1266,7 @@ void UVInspectorPanel::Render(
         CachedUVRevision = Network.UVRevision;
         CachedChartCount = static_cast<uint32_t>(SeamCutGenerator::PartitionConnectedUVIslands(Network).size());
     }
+    const std::vector<uint32_t> SelectedFaces = Session->SelectionMask.CollectSelectedFaces();
 
     const float PadX   = 18.0f;
     const float LeftX  = Bounds.X + PadX;
@@ -1300,6 +1307,9 @@ void UVInspectorPanel::Render(
     CurY += 28.0f;
 
     // 2. Large 23px Light Selection / Asset Heading + Subtitle (matching InspectorPanel.cpp & Experimental/UVEditor)
+    const std::string Heading = SelectedFaces.empty()
+        ? Session->Asset.Network.NetworkTitle
+        : FormatCountWithCommas(SelectedFaces.size()) + " Faces Selected";
     WorkspaceAppearance::ConstructTruncatedText(
         Surface,
         FontWeightClass::Light,
@@ -1307,17 +1317,48 @@ void UVInspectorPanel::Render(
         InnerW,
         23.0f,
         Theme.TextPrimary,
-        Session->Asset.Network.NetworkTitle);
+        Heading);
     CurY += 29.0f;
 
     char SubMeta[112]{};
     const auto TileCfg = Session->QueryUDIMTileSetting(Session->ActiveUDIMNumber);
-    std::snprintf(
-        SubMeta,
-        sizeof(SubMeta),
-        "%u charts · %s faces · Whole Surface",
-        CachedChartCount,
-        FormatCountWithCommas(Session->Asset.Network.Faces.size()).c_str());
+    if (SelectedFaces.empty())
+    {
+        std::snprintf(
+            SubMeta,
+            sizeof(SubMeta),
+            "%u charts · %s faces · Whole Surface",
+            CachedChartCount,
+            FormatCountWithCommas(Session->Asset.Network.Faces.size()).c_str());
+    }
+    else
+    {
+        uint32_t FirstSelectedUDIM = 0u;
+        bool MultipleSelectedUDIMs = false;
+        for (const uint32_t FaceIndex : SelectedFaces)
+        {
+            if (FaceIndex >= Network.Faces.size())
+            {
+                continue;
+            }
+            const uint32_t FaceUDIM = Network.DeriveFaceUDIMNumber(FaceIndex);
+            if (FirstSelectedUDIM == 0u)
+            {
+                FirstSelectedUDIM = FaceUDIM;
+            }
+            else if (FirstSelectedUDIM != FaceUDIM)
+            {
+                MultipleSelectedUDIMs = true;
+                break;
+            }
+        }
+        std::snprintf(
+            SubMeta,
+            sizeof(SubMeta),
+            "%s · UDIM %s",
+            FormatCountWithCommas(SelectedFaces.size()).c_str(),
+            MultipleSelectedUDIMs ? "Multiple" : std::to_string(FirstSelectedUDIM).c_str());
+    }
     WorkspaceAppearance::ConstructTruncatedText(
         Surface,
         FontWeightClass::Regular,

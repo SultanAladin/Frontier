@@ -161,6 +161,10 @@ void UVOutlinerPanel::Render(
 
     const Point2D Cursor  { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
     const bool    Pressed = Input.PrimaryPointer.Pressed;
+    if (Input.EscapePressed)
+    {
+        ColorPickerLayerOrdinal = 0u;
+    }
 
     const uint32_t DisplayTile = UDIMFilterCode >= 1001u ? UDIMFilterCode : Session->ActiveUDIMNumber;
     double TileAreaUV = 0.0;
