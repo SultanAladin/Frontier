@@ -46,10 +46,10 @@ private:
     uint64_t            CachedUVRevision = UINT64_MAX;
     uint32_t            CachedChartCount = 0u;
     std::array<float, 5u> CachedTabContentHeights {};
-    float               SurfaceRoughness = 0.22f;
-    float               SurfaceMetallic  = 0.68f;
-    float               SurfaceMatBlend  = 0.55f;
-    uint8_t             SelectedMatCap   = 2u;
+    float               SurfaceRoughness = 0.24f;
+    float               SurfaceMetallic  = 0.60f;
+    float               SurfaceMatBlend  = 0.62f;
+    uint8_t             SelectedMatCap   = 5u;
     TextEditBuffer      LayerNameEditor  {};
     uint16_t            EditingLayerOrdinal = 0u;
     bool                ActiveLayerDropdownOpen = false;

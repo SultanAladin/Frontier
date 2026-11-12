@@ -486,39 +486,32 @@ inline void ConstructRailToolIcon(PixelSpace& Surface, Point2D Origin, float Siz
     }
 }
 
-inline void ConstructMatCapOrbPreview(PixelSpace& Surface, Point2D Center, float Radius, uint32_t SlotIdx, bool Selected, const UVThemeColors& Theme)
+inline void ConstructMatCapOrbPreview(
+    PixelSpace& Surface,
+    Point2D Center,
+    float Radius,
+    uint32_t SlotIdx,
+    bool Selected,
+    const UVThemeColors& Theme,
+    ImTextureData* MatCapAtlas = nullptr)
 {
-    struct OrbColors { ColorRgba Diffuse; ColorRgba Spec; };
-    constexpr std::array<OrbColors, 16u> OrbSwatches {{
-        { { 158, 160, 166, 255 }, { 242, 244, 248, 255 } }, // 0 Clay
-        { {  86,  90,  98, 255 }, { 196, 202, 214, 255 } }, // 1 Graphite
-        { { 174, 184, 198, 255 }, { 255, 255, 255, 255 } }, // 2 Chrome
-        { { 196, 152,  76, 255 }, { 255, 236, 178, 255 } }, // 3 Gold
-        { { 184,  64,  68, 255 }, { 255, 198, 198, 255 } }, // 4 Carmine Car Paint
-        { { 216, 212, 206, 255 }, { 255, 255, 252, 255 } }, // 5 Pearl Ceramic
-        { {  44,  62,  86, 255 }, { 184, 222, 255, 255 } }, // 6 Smoked Glass
-        { {  76, 138, 116, 255 }, { 196, 245, 224, 255 } }, // 7 Jade
-        { {  52,  54,  58, 255 }, { 132, 136, 144, 255 } }, // 8 Vulcanized Rubber
-        { { 166, 148, 128, 255 }, { 236, 224, 206, 255 } }, // 9 Warm Stone
-        { {  72, 112, 176, 255 }, { 206, 228, 255, 255 } }, // 10 Cobalt Clearcoat
-        { { 168, 102,  64, 255 }, { 248, 204, 172, 255 } }, // 11 Anodized Copper
-        { { 118,  88, 156, 255 }, { 226, 204, 255, 255 } }, // 12 Iridescent Violet
-        { { 126, 148,  88, 255 }, { 224, 242, 186, 255 } }, // 13 Olive Drab
-        { { 192, 118, 128, 255 }, { 255, 218, 224, 255 } }, // 14 Subsurface Skin
-        { {  94, 156, 176, 255 }, { 218, 248, 255, 255 } }, // 15 Arctic Ice
-    }};
-    const auto& C = OrbSwatches[SlotIdx % OrbSwatches.size()];
-    Surface.FillCircle(Center, Radius, ColorRgba{ 18, 18, 20, 255 });
-    Surface.FillCircle({ Center.X - Radius * 0.06f, Center.Y - Radius * 0.06f }, Radius * 0.90f, C.Diffuse);
-    Surface.FillCircle({ Center.X - Radius * 0.28f, Center.Y - Radius * 0.30f }, Radius * 0.36f, C.Spec);
-    if (Selected)
+    const uint32_t Slot = SlotIdx % 16u;
+    const uint32_t Col = Slot % 4u;
+    const uint32_t Row = Slot / 4u;
+    const Rectangle2D Bounds{ Center.X - Radius, Center.Y - Radius, Radius * 2.0f, Radius * 2.0f };
+    if (MatCapAtlas != nullptr)
     {
-        Surface.StrokeCircle(Center, Radius + 2.0f, Theme.AccentFill, 1.8f);
+        Surface.FillTexturedRectangle(
+            Bounds, MatCapAtlas,
+            { static_cast<float>(Col) * 0.25f, static_cast<float>(Row) * 0.25f },
+            { static_cast<float>(Col + 1u) * 0.25f, static_cast<float>(Row + 1u) * 0.25f },
+            Radius, { 255u, 255u, 255u, 255u });
     }
     else
     {
-        Surface.StrokeCircle(Center, Radius, Theme.BorderStrong, 1.0f);
+        Surface.FillCircle(Center, Radius, ColorRgba{ 34, 36, 42, 255 });
     }
+    Surface.StrokeCircle(Center, Radius, Selected ? Theme.AccentFill : Theme.BorderStrong, Selected ? 1.8f : 1.0f);
 }
 
 } // namespace Frontier::Workspaces::UVAppearance

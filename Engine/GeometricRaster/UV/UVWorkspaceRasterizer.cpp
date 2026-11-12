@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <fstream>
 
 namespace Frontier::GeometricRaster
 {
@@ -199,7 +200,8 @@ bool UVWorkspaceRasterizer::InitializeRasterizer(
 
     DeviceInterchange = BoundDevice;
     if (!ComputeEncoder.InitializeEncoder(DeviceInterchange, 256u) ||
-        !TransferRegister.InitializeRegister(DeviceInterchange, 16ull * 1024ull * 1024ull))
+        !TransferRegister.InitializeRegister(DeviceInterchange, 16ull * 1024ull * 1024ull) ||
+        !InitializeMatCapAtlas(CompiledShaderDirectory))
     {
         TeardownRasterizer();
         return false;
@@ -290,9 +292,11 @@ bool UVWorkspaceRasterizer::InitializeRasterizer(
         return false;
     }
 
-    const std::array<VkDescriptorPoolSize, 2u> GfxAllocatorCapacities {{
+    const std::array<VkDescriptorPoolSize, 4u> GfxAllocatorCapacities {{
         { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 128u },
         { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 256u },
+        { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 128u },
+        { VK_DESCRIPTOR_TYPE_SAMPLER, 128u },
     }};
     VkDescriptorPoolCreateInfo AllocatorSpec {};
     AllocatorSpec.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -305,7 +309,14 @@ bool UVWorkspaceRasterizer::InitializeRasterizer(
         return false;
     }
 
-    const std::array<VkDescriptorType, 3u> SurfaceSetTypes {{
+    const std::array<VkDescriptorType, 5u> SurfaceSetTypes {{
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+        VK_DESCRIPTOR_TYPE_SAMPLER,
+    }};
+    const std::array<VkDescriptorType, 3u> UVCanvasSetTypes {{
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -324,7 +335,7 @@ bool UVWorkspaceRasterizer::InitializeRasterizer(
         !ConstructGraphicsProgram(
             CompiledShaderDirectory / "UVTileRasterization.vert.spv",
             CompiledShaderDirectory / "UVTileRasterization.frag.spv",
-            SurfaceSetTypes,
+            UVCanvasSetTypes,
             false,
             UVCanvasProgram) ||
         !ConstructGraphicsProgram(
@@ -349,6 +360,104 @@ bool UVWorkspaceRasterizer::InitializeRasterizer(
     return true;
 }
 
+bool UVWorkspaceRasterizer::InitializeMatCapAtlas(const std::filesystem::path& CompiledShaderDirectory)
+{
+    constexpr uint32_t AtlasWidth = 1024u;
+    constexpr uint32_t AtlasHeight = 1024u;
+    constexpr uint64_t AtlasByteCount = static_cast<uint64_t>(AtlasWidth) * AtlasHeight * 4u;
+    std::filesystem::path AssetPath {};
+    for (std::filesystem::path Start : { CompiledShaderDirectory, std::filesystem::current_path() })
+    {
+        for (uint32_t Depth = 0u; !Start.empty() && Depth < 12u; ++Depth)
+        {
+            const auto Candidate = Start / "EngineContent/MatCaps/MatCapStudioAtlas.rgba";
+            if (std::filesystem::exists(Candidate))
+            {
+                AssetPath = Candidate;
+                break;
+            }
+            const auto Parent = Start.parent_path();
+            if (Parent == Start) break;
+            Start = Parent;
+        }
+        if (!AssetPath.empty()) break;
+    }
+    if (AssetPath.empty()) return false;
+
+    std::ifstream AtlasFile(AssetPath, std::ios::binary | std::ios::ate);
+    if (!AtlasFile || AtlasFile.tellg() != static_cast<std::streamoff>(AtlasByteCount)) return false;
+    AtlasFile.seekg(0, std::ios::beg);
+    std::vector<uint8_t> Pixels(static_cast<std::size_t>(AtlasByteCount));
+    AtlasFile.read(reinterpret_cast<char*>(Pixels.data()), static_cast<std::streamsize>(Pixels.size()));
+    if (!AtlasFile) return false;
+
+    MatCapAtlasImage = DeviceInterchange->AllocateImage2D(
+        AtlasWidth, AtlasHeight, VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT);
+    if (MatCapAtlasImage.ImageHandle == VK_NULL_HANDLE || MatCapAtlasImage.ViewHandle == VK_NULL_HANDLE) return false;
+
+    DeviceBufferResource Staging = DeviceInterchange->AllocateBuffer(
+        AtlasByteCount, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+    if (Staging.BufferHandle == VK_NULL_HANDLE || Staging.HostAddress == nullptr)
+    {
+        DeviceInterchange->ReleaseBuffer(Staging);
+        return false;
+    }
+    std::memcpy(Staging.HostAddress, Pixels.data(), Pixels.size());
+
+    VkCommandBuffer Cmd = DeviceInterchange->BeginSingleTimeCommands();
+    if (Cmd == VK_NULL_HANDLE)
+    {
+        DeviceInterchange->ReleaseBuffer(Staging);
+        return false;
+    }
+    VkImageMemoryBarrier ToTransfer {};
+    ToTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    ToTransfer.srcAccessMask = 0u;
+    ToTransfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    ToTransfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    ToTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    ToTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    ToTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    ToTransfer.image = MatCapAtlasImage.ImageHandle;
+    ToTransfer.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
+    vkCmdPipelineBarrier(Cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u,
+        0u, nullptr, 0u, nullptr, 1u, &ToTransfer);
+
+    VkBufferImageCopy Copy {};
+    Copy.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
+    Copy.imageExtent = { AtlasWidth, AtlasHeight, 1u };
+    vkCmdCopyBufferToImage(Cmd, Staging.BufferHandle, MatCapAtlasImage.ImageHandle,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &Copy);
+
+    VkImageMemoryBarrier ToShader = ToTransfer;
+    ToShader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    ToShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    ToShader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    ToShader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    vkCmdPipelineBarrier(Cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0u,
+        0u, nullptr, 0u, nullptr, 1u, &ToShader);
+    const uint64_t Tick = DeviceInterchange->DispatchCommandBufferAsync(Cmd);
+    const bool Uploaded = DeviceInterchange->AwaitTimelineTick(Tick);
+    vkFreeCommandBuffers(DeviceInterchange->AccessDevice(), DeviceInterchange->AccessCommandAllocator(), 1u, &Cmd);
+    DeviceInterchange->ReleaseBuffer(Staging);
+    if (!Uploaded) return false;
+
+    VkSamplerCreateInfo SamplerSpec {};
+    SamplerSpec.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    SamplerSpec.magFilter = VK_FILTER_LINEAR;
+    SamplerSpec.minFilter = VK_FILTER_LINEAR;
+    SamplerSpec.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    SamplerSpec.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    SamplerSpec.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    SamplerSpec.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    SamplerSpec.maxLod = 0.0f;
+    return vkCreateSampler(DeviceInterchange->AccessDevice(), &SamplerSpec, nullptr, &MatCapAtlasSampler) == VK_SUCCESS;
+}
+
 void UVWorkspaceRasterizer::TeardownRasterizer() noexcept
 {
     if (DeviceInterchange != nullptr && DeviceInterchange->Ready())
@@ -356,6 +465,12 @@ void UVWorkspaceRasterizer::TeardownRasterizer() noexcept
         VkDevice DeviceHandle = DeviceInterchange->AccessDevice();
         vkDeviceWaitIdle(DeviceHandle);
 
+        if (MatCapAtlasSampler != VK_NULL_HANDLE)
+        {
+            vkDestroySampler(DeviceHandle, MatCapAtlasSampler, nullptr);
+            MatCapAtlasSampler = VK_NULL_HANDLE;
+        }
+        DeviceInterchange->ReleaseImage2D(MatCapAtlasImage);
         ReleaseFramebufferTarget(Target3D);
         ReleaseFramebufferTarget(Target2D);
 
@@ -1067,17 +1182,32 @@ bool UVWorkspaceRasterizer::Rasterize3DViewport(
         { SurfaceVertexBuffer.BufferHandle, 0u, VK_WHOLE_SIZE },
         { SelectionBitmaskBuffer.BufferHandle, 0u, VK_WHOLE_SIZE },
     }};
-    std::array<VkWriteDescriptorSet, 3u> SurfWrites {};
-    for (uint32_t Idx = 0u; Idx < 3u; ++Idx)
+    const VkDescriptorImageInfo AtlasImageInfo{ VK_NULL_HANDLE, MatCapAtlasImage.ViewHandle, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+    const VkDescriptorImageInfo AtlasSamplerInfo{ MatCapAtlasSampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED };
+    std::array<VkWriteDescriptorSet, 5u> SurfWrites {};
+    for (uint32_t Idx = 0u; Idx < SurfWrites.size(); ++Idx)
     {
         SurfWrites[Idx].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         SurfWrites[Idx].dstSet          = SurfaceSet;
         SurfWrites[Idx].dstBinding      = Idx;
         SurfWrites[Idx].descriptorCount = 1u;
-        SurfWrites[Idx].descriptorType  = (Idx == 0u) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        SurfWrites[Idx].pBufferInfo     = &SurfBufs[Idx];
+        if (Idx < 3u)
+        {
+            SurfWrites[Idx].descriptorType = (Idx == 0u) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            SurfWrites[Idx].pBufferInfo = &SurfBufs[Idx];
+        }
+        else if (Idx == 3u)
+        {
+            SurfWrites[Idx].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            SurfWrites[Idx].pImageInfo = &AtlasImageInfo;
+        }
+        else
+        {
+            SurfWrites[Idx].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+            SurfWrites[Idx].pImageInfo = &AtlasSamplerInfo;
+        }
     }
-    vkUpdateDescriptorSets(DeviceHandle, 3u, SurfWrites.data(), 0u, nullptr);
+    vkUpdateDescriptorSets(DeviceHandle, static_cast<uint32_t>(SurfWrites.size()), SurfWrites.data(), 0u, nullptr);
 
     VkDescriptorSet GizmoSet = VK_NULL_HANDLE;
     if (GizmoVertCount > 0u)

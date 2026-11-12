@@ -18,7 +18,7 @@ struct SurfaceVertexRecord
 struct ViewportUniformBlock
 {
     float4x4 ViewProjection;
-    float4   CameraPositionAndMode;   // xyz = EyePos, w = DisplayMode (0=Lit+MatCap, 1=LayerTint, 2=StretchHeatmap, 3=CheckerUV)
+    float4   CameraPositionAndMode;   // xyz = EyePos, w = DisplayMode (0=SurfaceMaterial, 1=LayerTint, 2=Stretch, 3=CheckerUV, 4=MatCap, 5=Material+MatCap)
     float4   CameraRightAndWire;      // xyz = Right,  w = WireframeEnabled (0/1)
     float4   CameraUpAndSeam;         // xyz = Up,     w = SeamOverlayEnabled (0/1, default 0)
     float4   CameraForwardAndLayer;   // xyz = Fwd,    w = ActiveLayerOrdinal (0 = none)
@@ -114,14 +114,22 @@ FragmentAttachmentOutput FragmentEntry(VertexInterpolators In)
         In.AlbedoAndMetallic.rgb,
         In.AlbedoAndMetallic.a,
         In.ShadingParams.x,
-        In.ShadingParams.y,
-        MatCapSlot,
-        In.ShadingParams.z,
-        ViewportUniforms.CameraRightAndWire.xyz,
-        ViewportUniforms.CameraUpAndSeam.xyz,
-        ViewportUniforms.CameraForwardAndLayer.xyz);
-
-    float3 FinalColor = CompressRadiometricACESFilmic(LitLinear);
+        In.ShadingParams.y);
+    float3 PbrSrgb = CompressRadiometricACESFilmic(LitLinear);
+    float3 ViewNormal = normalize(float3(
+        dot(normalize(In.WorldNormal), ViewportUniforms.CameraRightAndWire.xyz),
+        dot(normalize(In.WorldNormal), ViewportUniforms.CameraUpAndSeam.xyz),
+        dot(normalize(In.WorldNormal), -ViewportUniforms.CameraForwardAndLayer.xyz)));
+    float3 MatCapSrgb = SampleBakedMatCap(MatCapSlot, ViewNormal);
+    float3 FinalColor = PbrSrgb;
+    if (Mode > 3.5 && Mode < 4.5)
+    {
+        FinalColor = MatCapSrgb;
+    }
+    else if (Mode >= 4.5 && Mode < 5.5)
+    {
+        FinalColor = lerp(PbrSrgb, MatCapSrgb, saturate(In.ShadingParams.z));
+    }
 
     if (Mode > 0.5 && Mode < 1.5) // Mode 1: Layer Allocation Tint
     {
@@ -134,7 +142,7 @@ FragmentAttachmentOutput FragmentEntry(VertexInterpolators In)
         float3 HeatColor  = lerp(float3(0.20, 0.78, 0.48), float3(0.94, 0.26, 0.24), StretchErr);
         FinalColor        = lerp(FinalColor, HeatColor, 0.78);
     }
-    else if (Mode >= 2.5) // Mode 3: UDIM UV Checker Preview
+    else if (Mode >= 2.5 && Mode < 3.5) // Mode 3: UDIM UV Checker Preview
     {
         int2   CheckCell = int2(floor(In.ParameterUV * 16.0));
         float  Parity    = float((CheckCell.x + CheckCell.y) & 1);

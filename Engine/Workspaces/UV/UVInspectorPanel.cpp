@@ -23,6 +23,7 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <limits>
 #include <numeric>
 
@@ -31,6 +32,52 @@ namespace Frontier::Workspaces
 
 namespace
 {
+
+ImTextureData* QueryMatCapAtlasTexture() noexcept
+{
+    static ImTextureData Texture {};
+    static bool Attempted = false;
+    if (Attempted) return Texture.Pixels != nullptr ? &Texture : nullptr;
+    Attempted = true;
+
+    constexpr std::size_t AtlasBytes = 1024u * 1024u * 4u;
+    constexpr int AtlasWidth = 1024;
+    constexpr int AtlasHeight = 1024;
+    constexpr const char* AssetRelativePath = "EngineContent/MatCaps/MatCapStudioAtlas.rgba";
+    std::array<std::filesystem::path, 2u> Starts {{
+        std::filesystem::current_path(),
+        std::filesystem::absolute(std::filesystem::path(__FILE__)).parent_path()
+    }};
+    std::filesystem::path AssetPath {};
+    for (std::filesystem::path Start : Starts)
+    {
+        for (uint32_t Depth = 0u; !Start.empty() && Depth < 12u; ++Depth)
+        {
+            const auto Candidate = Start / AssetRelativePath;
+            if (std::filesystem::exists(Candidate))
+            {
+                AssetPath = Candidate;
+                break;
+            }
+            const auto Parent = Start.parent_path();
+            if (Parent == Start) break;
+            Start = Parent;
+        }
+        if (!AssetPath.empty()) break;
+    }
+    if (AssetPath.empty()) return nullptr;
+
+    std::ifstream Input(AssetPath, std::ios::binary | std::ios::ate);
+    if (!Input || static_cast<std::size_t>(Input.tellg()) != AtlasBytes) return nullptr;
+    Input.seekg(0, std::ios::beg);
+    Texture.Create(ImTextureFormat_RGBA32, AtlasWidth, AtlasHeight);
+    if (Texture.Pixels == nullptr) return nullptr;
+    Input.read(reinterpret_cast<char*>(Texture.Pixels), static_cast<std::streamsize>(AtlasBytes));
+    if (!Input) { Texture.DestroyPixels(); return nullptr; }
+    Texture.UseColors = true;
+    Texture.SetStatus(ImTextureStatus_WantCreate);
+    return &Texture;
+}
 
 void ConstructMetricTrio(
     PixelSpace&                        Surface,
@@ -1378,8 +1425,12 @@ float UVInspectorPanel::RenderShadingTab(
         Surface.StrokeRectangle(Hero, Theme.BorderSubtle, 20.0f, 1.0f);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular,
             { Hero.X + 18.0f, Hero.Y + 16.0f }, 8.8f, Theme.TextMuted, "VIEWPORT SHADER");
+        const auto DisplayMode = Session->RenderOptions3D.DisplayMode;
+        const char* ShaderName = "Surface Material";
+        if (DisplayMode == GeometricRaster::SurfaceDisplayMode::MatCapPreview) ShaderName = "MatCap (Per-Face)";
+        else if (DisplayMode == GeometricRaster::SurfaceDisplayMode::MaterialAndMatCap) ShaderName = "Material + MatCap";
         WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Light,
-            { Hero.X + 18.0f, Hero.Y + 36.0f }, Hero.Width - 36.0f, 25.0f, Theme.TextPrimary, "Surface Material");
+            { Hero.X + 18.0f, Hero.Y + 36.0f }, Hero.Width - 36.0f, 25.0f, Theme.TextPrimary, ShaderName);
         char ChartTxt[48]{};
         std::snprintf(ChartTxt, sizeof(ChartTxt), "%u charts", CachedChartCount);
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular,
@@ -1456,15 +1507,36 @@ float UVInspectorPanel::RenderShadingTab(
         ConstructSectionHeading(Surface, SX, SY, SW, "Surface Finish", Theme, "SURFACE", ControlIcon::SparklesAntiAliasing);
         SY += 30.0f;
         WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular,
+            { SX, SY + 7.0f }, 8.8f, Theme.TextMuted, "Shader");
+        const auto CurrentShader = Session->RenderOptions3D.DisplayMode;
+        const Rectangle2D ShaderButton{ SX + 58.0f, SY, SW - 58.0f, 24.0f };
+        const char* ShaderButtonLabel = "Surface Material";
+        if (CurrentShader == GeometricRaster::SurfaceDisplayMode::MatCapPreview) ShaderButtonLabel = "MatCap (Per-Face)";
+        else if (CurrentShader == GeometricRaster::SurfaceDisplayMode::MaterialAndMatCap) ShaderButtonLabel = "Material + MatCap";
+        if (ConstructCapsuleButton(Surface, ShaderButton, ShaderButtonLabel, Theme, Cursor, Pressed,
+                false, false, 8.8f, -1.0f,
+                OptionalTooltip::FromText("Cycle between surface material, per-face MatCap, and Material + MatCap shading.")))
+        {
+            if (CurrentShader == GeometricRaster::SurfaceDisplayMode::SurfaceMaterial)
+                Session->RenderOptions3D.DisplayMode = GeometricRaster::SurfaceDisplayMode::MatCapPreview;
+            else if (CurrentShader == GeometricRaster::SurfaceDisplayMode::MatCapPreview)
+                Session->RenderOptions3D.DisplayMode = GeometricRaster::SurfaceDisplayMode::MaterialAndMatCap;
+            else
+                Session->RenderOptions3D.DisplayMode = GeometricRaster::SurfaceDisplayMode::SurfaceMaterial;
+            Session->FramebuffersDirty = true;
+        }
+        SY += 31.0f;
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular,
             { SX, SY + 3.0f }, 8.8f, Theme.TextMuted, "MatCap Library · 16");
         SY += 19.0f;
         const float ColStep = SW / 8.0f;
+        ImTextureData* MatCapAtlas = QueryMatCapAtlasTexture();
         for (uint32_t Slot = 0u; Slot < 16u; ++Slot)
         {
             const uint32_t Col = Slot % 8u;
             const uint32_t Row = Slot / 8u;
             const Point2D Center{ SX + ColStep * (static_cast<float>(Col) + 0.5f), SY + 13.0f + static_cast<float>(Row) * 31.0f };
-            ConstructMatCapOrbPreview(Surface, Center, 10.5f, Slot, SelectedMatCap == Slot, Theme);
+            ConstructMatCapOrbPreview(Surface, Center, 10.5f, Slot, SelectedMatCap == Slot, Theme, MatCapAtlas);
             const Rectangle2D Hit{ Center.X - 13.0f, Center.Y - 13.0f, 26.0f, 26.0f };
             if (Hit.Contains(Cursor) && Pressed)
             {

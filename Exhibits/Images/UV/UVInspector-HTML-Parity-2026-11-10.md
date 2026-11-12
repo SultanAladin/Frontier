@@ -14,8 +14,15 @@
 
 `cmake --build build/Development --target FrontierUV -j2` succeeds. Each of the four native tab states was separately selected, built, and captured; the session header was restored to its default Packing tab afterward. `git diff --check` is clean. No GitHub Actions were run.
 
+## MatCap parity follow-up
+
+- Baked the exact 16-slot pixel maps from `Experimental/UVEditor/Engine/EngineeringMatcaps.js` into `EngineContent/MatCaps/MatCapStudioAtlas.png` (reviewable atlas) and `MatCapStudioAtlas.rgba` (runtime upload data), with a slot-name catalog JSON.
+- The native MatCap menu now draws thumbnails from the shared atlas instead of hand-painted approximate circles.
+- The 3D viewport now samples the same atlas. Surface Material remains the default mode; the Inspector Shader control and viewport shading cycle expose Surface Material, MatCap (Per-Face), and Material + MatCap modes.
+- `UVMatCapPreview-native-2026-11-10.png` shows the MatCap viewport and Inspector menu together.
+
 ## Remaining phases
 
-1. Finish exact Shading feature parity where the native backend differs from HTML: shader-mode choices and material colour/sample/apply controls need native state/API support, rather than visual-only controls.
+1. Compare the three native material modes interactively against the equivalent HTML modes and refine lighting/tonemapping only where the raster pipelines still diverge.
 2. Align KPI metric semantics (HTML angle-stretch and texel-density values versus the native GPU summary) and do a final pixel-level spacing/type pass.
-3. Continue the remaining UV workspace parity work, then run the project's broader validation suite before release.
+3. Continue remaining UV workspace parity work, then run the project's broader validation suite before release.

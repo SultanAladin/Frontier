@@ -30,10 +30,12 @@ namespace
 {
     switch (Mode)
     {
-        case GeometricRaster::SurfaceDisplayMode::StudioLitAndMatCap: return "Surface Material";
+        case GeometricRaster::SurfaceDisplayMode::SurfaceMaterial: return "Surface Material";
         case GeometricRaster::SurfaceDisplayMode::PriorityLayerTint:  return "Priority Tint";
         case GeometricRaster::SurfaceDisplayMode::StretchHeatmap:     return "Stretch Heat";
         case GeometricRaster::SurfaceDisplayMode::UDIMCheckerPreview: return "UDIM Checker";
+        case GeometricRaster::SurfaceDisplayMode::MatCapPreview:      return "MatCap Preview";
+        case GeometricRaster::SurfaceDisplayMode::MaterialAndMatCap:  return "Material + MatCap";
     }
     return "Surface Material";
 }
@@ -452,7 +454,7 @@ void UVViewportHost::Render(
                     OptionalTooltip::FromText("Cycle 3D surface shading modes.")))
             {
                 OverlayCapturedClick = true;
-                const uint32_t Next = (static_cast<uint32_t>(Session->RenderOptions3D.DisplayMode) + 1u) % 4u;
+                const uint32_t Next = (static_cast<uint32_t>(Session->RenderOptions3D.DisplayMode) + 1u) % 6u;
                 Session->RenderOptions3D.DisplayMode = static_cast<GeometricRaster::SurfaceDisplayMode>(Next);
                 Session->FramebuffersDirty           = true;
             }

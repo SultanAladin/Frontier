@@ -32,10 +32,12 @@ namespace Frontier::GeometricRaster
 
 enum class SurfaceDisplayMode : uint32_t
 {
-    StudioLitAndMatCap = 0u, // [-] - Microfacet PBR blended with 16-slot MatCap
+    SurfaceMaterial    = 0u, // [-] - Surface material viewport mode; the MatCap atlas is opt-in
     PriorityLayerTint  = 1u, // [-] - Color-coded by PriorityAllocationLayer
     StretchHeatmap     = 2u, // [-] - Isometric L2 stretch green->red diagnostic
     UDIMCheckerPreview = 3u, // [-] - 3D projected UDIM checker pattern
+    MatCapPreview      = 4u, // [-] - Pure baked per-face engineering MatCap preview
+    MaterialAndMatCap  = 5u, // [-] - Surface material blended with the baked MatCap slot
 };
 
 enum class UVCanvasDisplayMode : uint32_t
@@ -71,7 +73,7 @@ struct CameraOrbitRig3D
 struct Viewport3DRenderOptions
 {
     CameraOrbitRig3D  Camera              {};
-    SurfaceDisplayMode  DisplayMode         = SurfaceDisplayMode::StudioLitAndMatCap;
+    SurfaceDisplayMode  DisplayMode         = SurfaceDisplayMode::SurfaceMaterial;
     bool                WireframeEnabled    = true;
     bool                SeamOverlayEnabled  = false; // Default OFF per workspace policy!
     bool                GroundGridEnabled   = true;
@@ -208,6 +210,7 @@ private:
         GraphicsProgramBundle&           OutBundle);
 
     void DestroyGraphicsProgram(GraphicsProgramBundle& Bundle) noexcept;
+    [[nodiscard]] bool InitializeMatCapAtlas(const std::filesystem::path& CompiledShaderDirectory);
     bool EnsureFramebufferTarget(MRTFramebufferTarget& Target, uint32_t WidthPx, uint32_t HeightPx);
     void ReleaseFramebufferTarget(MRTFramebufferTarget& Target) noexcept;
 
@@ -228,8 +231,10 @@ private:
     MRTFramebufferTarget    Target3D                {};
     MRTFramebufferTarget    Target2D                {};
 
-    DeviceBufferResource    SurfaceVertexBuffer     {};
-    DeviceBufferResource    UVCanvasVertexBuffer    {};
+    DeviceBufferResource   SurfaceVertexBuffer             {};
+    DeviceBufferResource   UVCanvasVertexBuffer             {};
+    DeviceImageResource    MatCapAtlasImage                 {};
+    VkSampler              MatCapAtlasSampler               = VK_NULL_HANDLE;
     DeviceBufferResource    Gizmo3DVertexBuffer     {};
     DeviceBufferResource    Gizmo2DVertexBuffer     {};
     DeviceBufferResource    FacePackedAttrBuffer    {};
