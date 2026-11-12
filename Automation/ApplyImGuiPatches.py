@@ -32,17 +32,19 @@ def WriteReport(Category, Message):
     print('{0} {1}'.format('[{0}]'.format(Category).ljust(10), Message))
 
 
-def RunGit(Arguments):
+def RunGit(Arguments, PatchBytes=None):
     Environment = dict(os.environ, GIT_CEILING_DIRECTORIES=os.path.dirname(ImGuiRoot))
     Completed = subprocess.run(
         ['git', '-c', 'core.autocrlf=false'] + Arguments,
         cwd=ImGuiRoot,
+        input=PatchBytes,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True,
+        text=PatchBytes is None,
         env=Environment,
     )
-    return Completed.returncode, Completed.stdout.strip()
+    Output = Completed.stdout.decode(errors='replace') if isinstance(Completed.stdout, bytes) else Completed.stdout
+    return Completed.returncode, Output.strip()
 
 
 def Main(Arguments):
@@ -88,7 +90,8 @@ def Main(Arguments):
             if not PatchPresent:
                 WriteReport('SKIP', '{0} was not applied'.format(PatchName))
                 continue
-            ExitCode, Output = RunGit(['apply', '--reverse', PatchPath])
+            PatchBytes = open(PatchPath, 'rb').read().replace(b'\r\n', b'\n')
+            ExitCode, Output = RunGit(['apply', '--reverse'], PatchBytes)
             if ExitCode != 0:
                 WriteReport('FAILED', 'Could not revert {0}'.format(PatchName))
                 if Output:
@@ -101,14 +104,15 @@ def Main(Arguments):
             WriteReport('SKIP', '{0} already applied'.format(PatchName))
             continue
 
-        ExitCode, Output = RunGit(['apply', '--check', PatchPath])
+        PatchBytes = open(PatchPath, 'rb').read().replace(b'\r\n', b'\n')
+        ExitCode, Output = RunGit(['apply', '--check'], PatchBytes)
         if ExitCode != 0:
             WriteReport('FAILED', '{0} rejected by standing ImGui source'.format(PatchName))
             if Output:
                 print(Output)
             return 1
 
-        ExitCode, Output = RunGit(['apply', PatchPath])
+        ExitCode, Output = RunGit(['apply'], PatchBytes)
         if ExitCode != 0:
             WriteReport('FAILED', 'Could not apply {0}'.format(PatchName))
             if Output:
