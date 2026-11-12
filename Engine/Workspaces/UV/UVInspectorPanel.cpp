@@ -128,6 +128,10 @@ void UVInspectorPanel::AttachSession(UVWorkspaceSession* TargetSession) noexcept
 {
     Session       = TargetSession;
     ScrollOffsetY = 0.0f;
+    CachedNetworkRevision = UINT64_MAX;
+    CachedUVRevision = UINT64_MAX;
+    CachedChartCount = 0u;
+    CachedTabContentHeights.fill(0.0f);
     LayerNameEditor = {};
     EditingLayerOrdinal = 0u;
     ActiveLayerDropdownOpen = false;
@@ -140,6 +144,7 @@ float UVInspectorPanel::RenderPackingTab(
     float                   LeftX,
     float                   StartY,
     float                   InnerW,
+    Rectangle2D             PopupClip,
     const PaneInputReading& Input,
     double                  Δt)
 {
@@ -228,29 +233,6 @@ float UVInspectorPanel::RenderPackingTab(
         const std::string ActiveLabel = CurrentLayer != nullptr
             ? CurrentLayer->LayerTitle + " (" + std::to_string(static_cast<uint32_t>(std::round(CurrentLayer->TargetSharePercent))) + "%)"
             : std::string("Unassigned Remainder");
-        std::vector<std::string> ActiveOptionsStorage{};
-        ActiveOptionsStorage.reserve(Layers.size() + 1u);
-        ActiveOptionsStorage.emplace_back("Unassigned Remainder");
-        for (const auto& Layer : Layers)
-        {
-            ActiveOptionsStorage.emplace_back(
-                Layer.LayerTitle + " (" + std::to_string(static_cast<uint32_t>(std::round(Layer.TargetSharePercent))) + "%)");
-        }
-        std::vector<const char*> ActiveOptions{};
-        ActiveOptions.reserve(ActiveOptionsStorage.size());
-        for (const std::string& Label : ActiveOptionsStorage)
-        {
-            ActiveOptions.push_back(Label.c_str());
-        }
-        uint32_t ActiveIndex = 0u;
-        for (uint32_t Index = 0u; Index < Layers.size(); ++Index)
-        {
-            if (Layers[Index].LayerOrdinal == Session->SelectedLayerOrdinal)
-            {
-                ActiveIndex = Index + 1u;
-                break;
-            }
-        }
         WorkspaceAppearance::ConstructWeightedText(
             Surface, FontWeightClass::Regular, { SX, SY + 6.0f }, 9.8f, Theme.TextMuted, "Active Layer");
         const Rectangle2D ActiveLayerBounds{ SX + 88.0f, SY, SW - 88.0f, 26.0f };
@@ -263,18 +245,6 @@ float UVInspectorPanel::RenderPackingTab(
         {
             ActiveLayerDropdownOpen = !ActiveLayerDropdownOpen;
             TargetUdimDropdownOpen = false;
-        }
-        if (ActiveLayerDropdownOpen)
-        {
-            uint32_t Chosen = ActiveIndex;
-            (void)DropdownSelector::ConstructOptionSheet(
-                Surface, ActiveLayerBounds, ActiveOptions.data(), static_cast<uint32_t>(ActiveOptions.size()),
-                ActiveIndex, Input.PrimaryPointer, Chosen);
-            if (Chosen != ActiveIndex)
-            {
-                Session->SelectPriorityLayer(Chosen == 0u ? 0u : Layers[Chosen - 1u].LayerOrdinal);
-                ActiveLayerDropdownOpen = false;
-            }
         }
         SY += 52.0f;
 
@@ -308,11 +278,18 @@ float UVInspectorPanel::RenderPackingTab(
         WorkspaceAppearance::ConstructWeightedText(
             Surface, FontWeightClass::Regular, { SX, SY + 8.0f }, 9.8f, Theme.TextMuted, "Layer Name");
         CurrentLayer = Session->Asset.Layers.InspectLayer(Session->SelectedLayerOrdinal);
-        if (CurrentLayer != nullptr && EditingLayerOrdinal != Session->SelectedLayerOrdinal && !LayerNameEditor.Active)
+        if (EditingLayerOrdinal != Session->SelectedLayerOrdinal)
         {
-            LayerNameEditor.Begin(CurrentLayer->LayerTitle.c_str());
-            LayerNameEditor.Active = false;
+            ActiveLayerDropdownOpen = false;
+            TargetUdimDropdownOpen = false;
+            PackingScopeDropdownOpen = false;
+            LayerNameEditor = {};
             EditingLayerOrdinal = Session->SelectedLayerOrdinal;
+            if (CurrentLayer != nullptr)
+            {
+                LayerNameEditor.Begin(CurrentLayer->LayerTitle.c_str());
+                LayerNameEditor.Active = false;
+            }
         }
         const OptionalTooltip NameTip = OptionalTooltip::FromTitled(
             "Layer Name", "Rename the active priority layer. The updated name is shared with the UV outliner.");
@@ -329,6 +306,10 @@ float UVInspectorPanel::RenderPackingTab(
             if (Input.EscapePressed)
             {
                 LayerNameEditor.Cancel();
+                if (CurrentLayer != nullptr && EditingLayerOrdinal == Session->SelectedLayerOrdinal)
+                {
+                    Session->RenameSelectedLayer(LayerNameEditor.Text);
+                }
             }
             else if (Input.EnterPressed || (Input.PrimaryPointer.Pressed && !NameBounds.Contains(Cursor)))
             {
@@ -398,59 +379,36 @@ float UVInspectorPanel::RenderPackingTab(
         WorkspaceAppearance::ConstructWeightedText(
             Surface, FontWeightClass::Regular, { SX, SY + 8.0f }, 9.8f, Theme.TextMuted, "Target UDIM");
         CurrentLayer = Session->Asset.Layers.InspectLayer(Session->SelectedLayerOrdinal);
-        std::vector<uint32_t> UdimOptions{ 0u };
-        for (const uint32_t Tile : Session->Asset.UDIMTiles)
-        {
-            if (std::find(UdimOptions.begin(), UdimOptions.end(), Tile) == UdimOptions.end())
-            {
-                UdimOptions.push_back(Tile);
-            }
-        }
-        std::sort(UdimOptions.begin() + 1, UdimOptions.end());
-        std::vector<std::string> UdimLabelStorage{};
-        std::vector<const char*> UdimLabels{};
-        UdimLabelStorage.reserve(UdimOptions.size());
-        UdimLabels.reserve(UdimOptions.size());
-        for (const uint32_t Udim : UdimOptions)
-        {
-            UdimLabelStorage.emplace_back(Udim == 0u ? "Auto UDIM" : "UDIM " + std::to_string(Udim));
-        }
-        for (const std::string& Label : UdimLabelStorage)
-        {
-            UdimLabels.push_back(Label.c_str());
-        }
-        uint32_t TargetIndex = 0u;
-        if (CurrentLayer != nullptr && CurrentLayer->TargetUDIMNumber != 0u)
-        {
-            const auto It = std::find(UdimOptions.begin(), UdimOptions.end(), CurrentLayer->TargetUDIMNumber);
-            if (It != UdimOptions.end())
-            {
-                TargetIndex = static_cast<uint32_t>(std::distance(UdimOptions.begin(), It));
-            }
-        }
+        const uint32_t TargetUDIM = CurrentLayer != nullptr ? CurrentLayer->TargetUDIMNumber : 0u;
+        const std::string TargetLabel = TargetUDIM == 0u ? "Auto UDIM" : "UDIM " + std::to_string(TargetUDIM);
         const Rectangle2D TargetBounds{ SX + 88.0f, SY, SW - 88.0f, 28.0f };
-        const std::string TargetLabel = UdimLabelStorage[TargetIndex];
         const OptionalTooltip TargetTip = OptionalTooltip::FromTitled(
             "Target UDIM", "Pin the active layer's UV islands to a tile. Choosing an explicit UDIM translates its islands into that tile.");
-        const ControlContact TargetButton = DropdownSelector::ConstructButton(
-            Surface, TargetBounds, TargetLabel.c_str(), TargetUdimDropdownOpen, Input.PrimaryPointer, 1.0f,
-            ControlIcon::LayoutGrid, TargetTip);
-        if (TargetButton.Clicked)
+        if (CurrentLayer != nullptr)
         {
-            TargetUdimDropdownOpen = !TargetUdimDropdownOpen;
-            ActiveLayerDropdownOpen = false;
-        }
-        if (TargetUdimDropdownOpen)
-        {
-            uint32_t Chosen = TargetIndex;
-            (void)DropdownSelector::ConstructOptionSheet(
-                Surface, TargetBounds, UdimLabels.data(), static_cast<uint32_t>(UdimLabels.size()),
-                TargetIndex, Input.PrimaryPointer, Chosen);
-            if (Chosen != TargetIndex && CurrentLayer != nullptr && Chosen < UdimOptions.size())
+            const ControlContact TargetButton = DropdownSelector::ConstructButton(
+                Surface, TargetBounds, TargetLabel.c_str(), TargetUdimDropdownOpen, Input.PrimaryPointer, 1.0f,
+                ControlIcon::LayoutGrid, TargetTip);
+            if (TargetButton.Clicked)
             {
-                (void)Session->MoveSelectedLayerToUDIM(UdimOptions[Chosen]);
-                TargetUdimDropdownOpen = false;
+                TargetUdimDropdownOpen = !TargetUdimDropdownOpen;
+                ActiveLayerDropdownOpen = false;
+                PackingScopeDropdownOpen = false;
             }
+        }
+        else
+        {
+            Surface.FillRectangle(TargetBounds, Theme.WellBg, 14.0f);
+            Surface.StrokeRectangle(TargetBounds, Theme.BorderSubtle, 14.0f, 1.0f);
+            WorkspaceAppearance::ConstructTruncatedText(
+                Surface, FontWeightClass::Regular, { TargetBounds.X + 12.0f, TargetBounds.Y + 8.0f },
+                TargetBounds.Width - 24.0f, 9.5f, Theme.TextMuted, "Select a priority layer first");
+            if (TargetBounds.Contains(Cursor))
+            {
+                ControlAppearance::RecordHoveredTooltip(
+                    TargetBounds, OptionalTooltip::FromText("Choose a priority layer to set or move a Target UDIM."));
+            }
+            TargetUdimDropdownOpen = false;
         }
         SY += 47.0f;
 
@@ -515,7 +473,6 @@ float UVInspectorPanel::RenderPackingTab(
         constexpr std::array<const char*, 4u> ScopeOptions {{
             "Pack into Active UDIM Tile", "Pack per Assigned UDIM", "Auto Spill Overflow UDIMs", "Selected Islands Only" }};
         const uint32_t ScopeIndex = static_cast<uint32_t>(Prefs.PackingScope);
-        uint32_t ChosenScope = ScopeIndex;
         const Rectangle2D ScopeBounds{ SX + 122.0f, SY, SW - 122.0f, 26.0f };
         const OptionalTooltip ScopeTip = OptionalTooltip::FromTitled(
             "UDIM Packing Scope", "Choose which UDIM tiles are affected by the next pack operation.");
@@ -527,17 +484,6 @@ float UVInspectorPanel::RenderPackingTab(
             PackingScopeDropdownOpen = !PackingScopeDropdownOpen;
             ActiveLayerDropdownOpen = false;
             TargetUdimDropdownOpen = false;
-        }
-        if (PackingScopeDropdownOpen)
-        {
-            (void)DropdownSelector::ConstructOptionSheet(
-                Surface, ScopeBounds, ScopeOptions.data(), static_cast<uint32_t>(ScopeOptions.size()),
-                ScopeIndex, Input.PrimaryPointer, ChosenScope);
-            if (ChosenScope != ScopeIndex && ChosenScope < ScopeOptions.size())
-            {
-                Prefs.PackingScope = static_cast<Configuration::UVPackingScopeMode>(ChosenScope);
-                PackingScopeDropdownOpen = false;
-            }
         }
         SY += 36.0f;
 
@@ -609,6 +555,148 @@ float UVInspectorPanel::RenderPackingTab(
 
         CurY += SecRect.Height + 12.0f;
     }
+
+    // Repaint open dropdowns last so their sheets sit above later controls in the panel.
+    auto DrawFittedOptionSheet = [&](
+        Rectangle2D ButtonBounds,
+        const char* const* Options,
+        uint32_t OptionCount,
+        uint32_t SelectedIndex,
+        bool& IsOpen,
+        auto&& OnChoice)
+    {
+        if (!IsOpen || OptionCount == 0u)
+        {
+            return;
+        }
+        Rectangle2D SheetBounds = DropdownSelector::QuerySheetBounds(ButtonBounds, OptionCount);
+        Rectangle2D SheetAnchor = ButtonBounds;
+        if (SheetBounds.Bottom() > PopupClip.Bottom())
+        {
+            SheetAnchor.Y = ButtonBounds.Y - SheetBounds.Height - 2.0f * ControlMetrics::DropdownPaddingY - ButtonBounds.Height;
+            const Rectangle2D AboveSheet = DropdownSelector::QuerySheetBounds(SheetAnchor, OptionCount);
+            if (AboveSheet.Y >= PopupClip.Y)
+            {
+                SheetBounds = AboveSheet;
+            }
+            else
+            {
+                SheetAnchor = ButtonBounds;
+            }
+        }
+        uint32_t ChosenIndex = SelectedIndex;
+        const ControlContact Contact = DropdownSelector::ConstructOptionSheet(
+            Surface, SheetAnchor, Options, OptionCount, SelectedIndex, Input.PrimaryPointer, ChosenIndex);
+        if (Contact.Clicked)
+        {
+            OnChoice(ChosenIndex);
+            IsOpen = false;
+        }
+        else if (Input.PrimaryPointer.Released && !ButtonBounds.Contains(Cursor) && !SheetBounds.Contains(Cursor))
+        {
+            IsOpen = false;
+        }
+    };
+
+    const auto LayersForPopup = Session->Asset.Layers.InspectLayers();
+    std::vector<std::string> ActiveLabelStorage{ "Unassigned Remainder" };
+    for (const auto& Layer : LayersForPopup)
+    {
+        ActiveLabelStorage.emplace_back(
+            Layer.LayerTitle + " (" + std::to_string(static_cast<uint32_t>(std::round(Layer.TargetSharePercent))) + "%)");
+    }
+    std::vector<const char*> ActivePopupOptions{};
+    for (const std::string& Label : ActiveLabelStorage)
+    {
+        ActivePopupOptions.push_back(Label.c_str());
+    }
+    uint32_t ActivePopupIndex = 0u;
+    for (uint32_t Index = 0u; Index < LayersForPopup.size(); ++Index)
+    {
+        if (LayersForPopup[Index].LayerOrdinal == Session->SelectedLayerOrdinal)
+        {
+            ActivePopupIndex = Index + 1u;
+            break;
+        }
+    }
+    const Rectangle2D AllocationBounds{ LeftX + 16.0f + 88.0f, StartY + 100.0f + 59.0f,
+                                        std::max(16.0f, InnerW - 32.0f - 88.0f), 26.0f };
+    DrawFittedOptionSheet(
+        AllocationBounds, ActivePopupOptions.data(), static_cast<uint32_t>(ActivePopupOptions.size()),
+        ActivePopupIndex, ActiveLayerDropdownOpen,
+        [&](uint32_t Chosen)
+        {
+            if (Chosen < ActiveLabelStorage.size())
+            {
+                Session->SelectPriorityLayer(Chosen == 0u ? 0u : LayersForPopup[Chosen - 1u].LayerOrdinal);
+            }
+        });
+
+    std::vector<uint32_t> TilePopupOptions{ 0u };
+    for (const uint32_t Tile : Session->Asset.UDIMTiles)
+    {
+        if (std::find(TilePopupOptions.begin(), TilePopupOptions.end(), Tile) == TilePopupOptions.end())
+        {
+            TilePopupOptions.push_back(Tile);
+        }
+    }
+    if (const auto* TargetLayer = Session->Asset.Layers.InspectLayer(Session->SelectedLayerOrdinal);
+        TargetLayer != nullptr && TargetLayer->TargetUDIMNumber >= 1001u &&
+        std::find(TilePopupOptions.begin(), TilePopupOptions.end(), TargetLayer->TargetUDIMNumber) == TilePopupOptions.end())
+    {
+        TilePopupOptions.push_back(TargetLayer->TargetUDIMNumber);
+    }
+    std::sort(TilePopupOptions.begin() + 1, TilePopupOptions.end());
+    std::vector<std::string> TileLabelStorage{};
+    std::vector<const char*> TilePopupLabels{};
+    for (const uint32_t Tile : TilePopupOptions)
+    {
+        TileLabelStorage.emplace_back(Tile == 0u ? "Auto UDIM" : "UDIM " + std::to_string(Tile));
+    }
+    for (const std::string& Label : TileLabelStorage)
+    {
+        TilePopupLabels.push_back(Label.c_str());
+    }
+    const auto* PopupLayer = Session->Asset.Layers.InspectLayer(Session->SelectedLayerOrdinal);
+    uint32_t TilePopupIndex = 0u;
+    if (PopupLayer != nullptr && PopupLayer->TargetUDIMNumber != 0u)
+    {
+        const auto It = std::find(TilePopupOptions.begin(), TilePopupOptions.end(), PopupLayer->TargetUDIMNumber);
+        if (It != TilePopupOptions.end())
+        {
+            TilePopupIndex = static_cast<uint32_t>(std::distance(TilePopupOptions.begin(), It));
+        }
+    }
+    const Rectangle2D TargetPopupBounds{ LeftX + 16.0f + 88.0f, StartY + 100.0f + 295.0f,
+                                         std::max(16.0f, InnerW - 32.0f - 88.0f), 28.0f };
+    DrawFittedOptionSheet(
+        TargetPopupBounds, TilePopupLabels.data(), static_cast<uint32_t>(TilePopupLabels.size()),
+        TilePopupIndex, TargetUdimDropdownOpen,
+        [&](uint32_t Chosen)
+        {
+            if (PopupLayer != nullptr && Chosen < TilePopupOptions.size())
+            {
+                (void)Session->MoveSelectedLayerToUDIM(TilePopupOptions[Chosen]);
+            }
+        });
+
+    constexpr std::array<const char*, 4u> ScopePopupOptions {{
+        "Pack into Active UDIM Tile", "Pack per Assigned UDIM", "Auto Spill Overflow UDIMs", "Selected Islands Only" }};
+    const Rectangle2D ScopePopupBounds{ LeftX + 16.0f + 122.0f, StartY + 520.0f + 72.0f,
+                                        std::max(16.0f, InnerW - 32.0f - 122.0f), 26.0f };
+    const uint32_t ScopePopupIndex = static_cast<uint32_t>(Session->WorkspaceConfig.InspectUVPreferences().PackingScope);
+    DrawFittedOptionSheet(
+        ScopePopupBounds, ScopePopupOptions.data(), static_cast<uint32_t>(ScopePopupOptions.size()),
+        std::min<uint32_t>(ScopePopupIndex, static_cast<uint32_t>(ScopePopupOptions.size() - 1u)),
+        PackingScopeDropdownOpen,
+        [&](uint32_t Chosen)
+        {
+            if (Chosen < ScopePopupOptions.size())
+            {
+                Session->WorkspaceConfig.AccessUVPreferences().PackingScope =
+                    static_cast<Configuration::UVPackingScopeMode>(Chosen);
+            }
+        });
 
     return CurY - StartY;
 }
@@ -1154,7 +1242,6 @@ void UVInspectorPanel::Render(
     const PaneInputReading& Input,
     double                  Δt)
 {
-    (void)Δt;
     using namespace UVAppearance;
     const UVThemeColors Theme = QueryThemeColors();
 
@@ -1169,6 +1256,13 @@ void UVInspectorPanel::Render(
 
     const Point2D Cursor  { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
     const bool    Pressed = Input.PrimaryPointer.Pressed;
+    const auto&   Network = Session->Asset.Network;
+    if (CachedNetworkRevision != Network.NetworkRevision || CachedUVRevision != Network.UVRevision)
+    {
+        CachedNetworkRevision = Network.NetworkRevision;
+        CachedUVRevision = Network.UVRevision;
+        CachedChartCount = static_cast<uint32_t>(SeamCutGenerator::PartitionConnectedUVIslands(Network).size());
+    }
 
     const float PadX   = 18.0f;
     const float LeftX  = Bounds.X + PadX;
@@ -1183,16 +1277,26 @@ void UVInspectorPanel::Render(
         InnerW - 140.0f,
         9.0f,
         Theme.TextMuted,
-        "Inspector / Importance Packing");
+        std::array<const char*, 5u>{
+            "Inspector / Importance Packing",
+            "Inspector / Unwrap & Tools",
+            "Inspector / Spatial UDIM Matrix",
+            "Inspector / Surface & Multi-MatCap",
+            "Inspector / Checks, Studio & Flat Debug" }[
+                std::min<std::size_t>(static_cast<std::size_t>(Session->ActiveInspectorTab), 4u)]);
 
     const Rectangle2D ResetBtn  { LeftX + InnerW - 48.0f, CurY, 48.0f, 22.0f };
     const Rectangle2D ExportBtn { ResetBtn.X - 84.0f, CurY, 78.0f, 22.0f };
-    if (ConstructCapsuleButton(Surface, ExportBtn, "+ Export OBJ", Theme, Cursor, Pressed, false, false, 8.8f))
+    if (ConstructCapsuleButton(
+            Surface, ExportBtn, "+ Export OBJ", Theme, Cursor, Pressed, false, false, 8.8f, -1.0f,
+            OptionalTooltip::FromText("Export the current polygon network and UV coordinates as an OBJ file.")))
     {
         std::string Diag {};
         (void)Session->ExportExternalGeometry(std::filesystem::temp_directory_path() / "FrontierExport.obj", Diag);
     }
-    if (ConstructCapsuleButton(Surface, ResetBtn, "Reset", Theme, Cursor, Pressed, false, false, 8.8f))
+    if (ConstructCapsuleButton(
+            Surface, ResetBtn, "Reset", Theme, Cursor, Pressed, false, false, 8.8f, -1.0f,
+            OptionalTooltip::FromText("Reload the current sample asset and reset its workspace state.")))
     {
         Session->LoadSamplePreset(Session->ActivePreset);
     }
@@ -1214,10 +1318,9 @@ void UVInspectorPanel::Render(
     std::snprintf(
         SubMeta,
         sizeof(SubMeta),
-        "UDIM %u · %s faces · %u px",
-        Session->ActiveUDIMNumber,
-        FormatCountWithCommas(Session->Asset.Network.Faces.size()).c_str(),
-        TileCfg.ResolutionPx);
+        "%u charts · %s faces · Whole Surface",
+        CachedChartCount,
+        FormatCountWithCommas(Session->Asset.Network.Faces.size()).c_str());
     WorkspaceAppearance::ConstructTruncatedText(
         Surface,
         FontWeightClass::Regular,
@@ -1235,6 +1338,12 @@ void UVInspectorPanel::Render(
         Surface.StrokeRectangle(TabBar, Theme.BorderSubtle, 11.0f, 1.0f);
 
         constexpr std::array<const char*, 5u> TabNames {{ "Pack", "Unwrap", "UDIM", "Shading", "Check" }};
+        constexpr std::array<const char*, 5u> TabTips {{
+            "Allocation layers, island packing, and packing scope.",
+            "Unwrap, projection, seam, pin, stitch, and relax tools.",
+            "Manage UDIM tiles, resolution, and viewport backdrops.",
+            "Configure MatCaps and surface material response.",
+            "Inspect UV overlaps, flips, stretch, and repair options." }};
         const float SegW = (InnerW - 6.0f) / 5.0f;
         for (uint32_t Idx = 0u; Idx < 5u; ++Idx)
         {
@@ -1242,6 +1351,11 @@ void UVInspectorPanel::Render(
             const auto        TargetTab = static_cast<UVInspectorTab>(Idx);
             const bool        Active    = (Session->ActiveInspectorTab == TargetTab);
             const bool        Hovered   = Seg.Contains(Cursor);
+            if (Hovered)
+            {
+                ControlAppearance::RecordHoveredTooltip(
+                    Seg, OptionalTooltip::FromText(TabTips[Idx]));
+            }
 
             if (Active)
             {
@@ -1266,6 +1380,9 @@ void UVInspectorPanel::Render(
             {
                 Session->ActiveInspectorTab = TargetTab;
                 ScrollOffsetY               = 0.0f;
+                ActiveLayerDropdownOpen = false;
+                TargetUdimDropdownOpen = false;
+                PackingScopeDropdownOpen = false;
             }
         }
         CurY += 44.0f;
@@ -1280,10 +1397,14 @@ void UVInspectorPanel::Render(
         std::max(40.0f, Bounds.Bottom() - FooterH - CurY)
     };
 
+    const std::size_t TabIndex = std::min<std::size_t>(
+        static_cast<std::size_t>(Session->ActiveInspectorTab), CachedTabContentHeights.size() - 1u);
+    const float PreviousMaxScroll = std::max(0.0f, CachedTabContentHeights[TabIndex] - ScrollRect.Height);
     if (ScrollRect.Contains(Cursor) && std::abs(Input.WheelDeltaY) > 1.0e-4f)
     {
-        ScrollOffsetY = std::max(0.0f, ScrollOffsetY - Input.WheelDeltaY * 28.0f);
+        ScrollOffsetY -= Input.WheelDeltaY * 28.0f;
     }
+    ScrollOffsetY = std::clamp(ScrollOffsetY, 0.0f, PreviousMaxScroll);
 
     Surface.PushClip(ScrollRect);
     const float BodyStartY = ScrollRect.Y - ScrollOffsetY;
@@ -1291,18 +1412,16 @@ void UVInspectorPanel::Render(
 
     switch (Session->ActiveInspectorTab)
     {
-        case UVInspectorTab::Packing: ContentH = RenderPackingTab(Surface, LeftX, BodyStartY, InnerW, Input, Δt); break;
+        case UVInspectorTab::Packing: ContentH = RenderPackingTab(Surface, LeftX, BodyStartY, InnerW, ScrollRect, Input, Δt); break;
         case UVInspectorTab::Unwrap:  ContentH = RenderUnwrapTab(Surface, LeftX, BodyStartY, InnerW, Input);  break;
         case UVInspectorTab::UDIM:    ContentH = RenderUDIMTab(Surface, LeftX, BodyStartY, InnerW, Input);    break;
         case UVInspectorTab::Shading: ContentH = RenderShadingTab(Surface, LeftX, BodyStartY, InnerW, Input); break;
         case UVInspectorTab::Check:   ContentH = RenderCheckTab(Surface, LeftX, BodyStartY, InnerW, Input);   break;
     }
 
+    CachedTabContentHeights[TabIndex] = ContentH;
     const float MaxScroll = std::max(0.0f, ContentH - ScrollRect.Height);
-    if (ScrollOffsetY > MaxScroll)
-    {
-        ScrollOffsetY = MaxScroll;
-    }
+    ScrollOffsetY = std::clamp(ScrollOffsetY, 0.0f, MaxScroll);
     Surface.PopClip();
 
     // 5. Sticky 40px Inspector Footer (.pz-inspector-foot)

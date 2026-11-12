@@ -13,6 +13,8 @@
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
 #include "Engine/Workspaces/UV/UVWorkspaceSession.h"
 
+#include <array>
+
 namespace Frontier::Workspaces
 {
 
@@ -32,7 +34,7 @@ public:
     void PresentInImGuiPane(double Δt, float ScaleFactor = 1.0f);
 
 private:
-    float RenderPackingTab(PixelSpace& Surface, float LeftX, float StartY, float InnerW, const PaneInputReading& Input, double Δt);
+    float RenderPackingTab(PixelSpace& Surface, float LeftX, float StartY, float InnerW, Rectangle2D PopupClip, const PaneInputReading& Input, double Δt);
     float RenderUnwrapTab(PixelSpace& Surface, float LeftX, float StartY, float InnerW, const PaneInputReading& Input);
     float RenderUDIMTab(PixelSpace& Surface, float LeftX, float StartY, float InnerW, const PaneInputReading& Input);
     float RenderShadingTab(PixelSpace& Surface, float LeftX, float StartY, float InnerW, const PaneInputReading& Input);
@@ -40,6 +42,10 @@ private:
 
     UVWorkspaceSession* Session          = nullptr;
     float               ScrollOffsetY    = 0.0f;
+    uint64_t            CachedNetworkRevision = UINT64_MAX;
+    uint64_t            CachedUVRevision = UINT64_MAX;
+    uint32_t            CachedChartCount = 0u;
+    std::array<float, 5u> CachedTabContentHeights {};
     float               SurfaceRoughness = 0.22f;
     float               SurfaceMetallic  = 0.68f;
     float               SurfaceMatBlend  = 0.55f;

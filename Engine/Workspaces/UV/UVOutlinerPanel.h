@@ -13,6 +13,8 @@
 #include "Engine/Components/Panes/WorkspaceAppearance.h"
 #include "Engine/Workspaces/UV/UVWorkspaceSession.h"
 
+#include <vector>
+
 namespace Frontier::Workspaces
 {
 
@@ -41,10 +43,16 @@ private:
     TextEditBuffer      SearchEditBuffer        {};
     TextEditBuffer      RenameEditBuffer        {};
     uint16_t            RenamingLayerOrd        = 0u;
+    uint16_t            ColorPickerLayerOrdinal = 0u;
 
     uint64_t            CachedNetworkRevision   = UINT64_MAX;
     uint64_t            CachedUVRevision        = UINT64_MAX;
+    uint64_t            CachedLayerAssignmentSignature = UINT64_MAX;
     uint32_t            CachedIslandCount       = 0u;
+    std::vector<uint32_t> CachedFaceIslandOrdinal {};
+    std::vector<uint32_t> CachedIslandUDIMNumber {};
+    std::vector<uint16_t> CachedIslandLayerOrdinal {};
+    std::vector<float>   CachedIslandUVArea {};
     float               CachedUtilizationPct    = 0.0f;
     float               CachedStretchCautionPct = 0.0f;
 };

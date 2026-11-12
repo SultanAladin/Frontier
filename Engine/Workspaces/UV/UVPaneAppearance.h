@@ -97,6 +97,24 @@ struct UVThemeColors
     };
 }
 
+inline void RecordControlTooltip(
+    Rectangle2D AnchorBounds,
+    std::string_view Label,
+    const OptionalTooltip& Tooltip,
+    std::string_view Fallback)
+{
+    std::string TitleStorage{};
+    std::string BodyStorage{};
+    OptionalTooltip Effective = Tooltip;
+    if (!Effective.Enabled)
+    {
+        TitleStorage.assign(Label);
+        BodyStorage.assign(Fallback);
+        Effective = OptionalTooltip::FromTitled(TitleStorage.c_str(), BodyStorage.c_str());
+    }
+    ControlAppearance::RecordHoveredTooltip(AnchorBounds, Effective);
+}
+
 [[nodiscard]] inline std::string FormatCountWithCommas(std::size_t Count)
 {
     const std::string Raw = std::to_string(Count);
@@ -177,9 +195,9 @@ inline bool ConstructCapsuleButton(
         Ink,
         Label);
 
-    if (Hovered && Tooltip.Enabled)
+    if (Hovered)
     {
-        ControlAppearance::RecordHoveredTooltip(Rect, Tooltip);
+        RecordControlTooltip(Rect, Label, Tooltip, "Activate this UV workspace control.");
     }
     return Hovered && Pressed;
 }
@@ -252,9 +270,9 @@ inline bool ConstructSliderControl(
     const Rectangle2D Track{ RowRect.X, RowRect.Y + 18.0f, RowRect.Width, 8.0f };
     const Rectangle2D HitBox{ Track.X - 4.0f, Track.Y - 5.0f, Track.Width + 8.0f, 18.0f };
     const bool        Hovered = HitBox.Contains(Cursor);
-    if (Hovered && Tooltip.Enabled)
+    if (Hovered)
     {
-        ControlAppearance::RecordHoveredTooltip(RowRect, Tooltip);
+        RecordControlTooltip(RowRect, Label, Tooltip, "Drag the slider to adjust this UV workspace setting.");
     }
 
     Surface.FillRectangle(Track, Theme.WellBg, 4.0f);
@@ -304,9 +322,9 @@ inline bool ConstructToggleRow(
 
     const Rectangle2D TrackCapsule{ RowRect.Right() - 34.0f, RowRect.Y + 2.0f, 34.0f, 18.0f };
     const bool        Hovered = RowRect.Contains(Cursor);
-    if (Hovered && Tooltip.Enabled)
+    if (Hovered)
     {
-        ControlAppearance::RecordHoveredTooltip(RowRect, Tooltip);
+        RecordControlTooltip(RowRect, Label, Tooltip, "Toggle this UV workspace setting.");
     }
 
     Surface.FillRectangle(TrackCapsule, InOutEnabled ? Theme.AccentFill : Theme.WellBg, 9.0f);
