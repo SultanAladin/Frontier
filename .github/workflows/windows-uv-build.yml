@@ -69,8 +69,9 @@ jobs:
           $Result = $LASTEXITCODE
           $Output | ForEach-Object { Write-Output "$_" }
           if ($Result -ne 0) {
-            $Details = ($Output | Select-Object -Last 20 | ForEach-Object { "$_" }) -join ' '
-            Write-Output "::error title=Windows build failed::$Details"
+            $Diagnostics = $Output | Select-String -Pattern '(?i)(error|fatal|failed|LNK[0-9]+|C[0-9]{4})' | Select-Object -Last 20
+            $Details = ($Diagnostics | ForEach-Object { "$_" }) -join ' '
+            Write-Output "::error title=Windows build diagnostics::$Details"
             exit $Result
           }
 
