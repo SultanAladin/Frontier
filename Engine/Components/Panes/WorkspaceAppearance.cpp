@@ -25,7 +25,7 @@ namespace
 //                                                    INTERNAL CONSTANTS
 //------------------------------------------------------------------------------------------------------------------------
 
-[[nodiscard]] constexpr ColorRgba ScaleAlpha(ColorRgba BaseColor, float Opacity) noexcept
+[[nodiscard]] ColorRgba ScaleAlpha(ColorRgba BaseColor, float Opacity) noexcept
 {
     const float Clamped = std::clamp(Opacity, 0.0f, 1.0f);
     return {

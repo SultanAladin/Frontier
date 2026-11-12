@@ -392,7 +392,7 @@ void AssetStreamThread::ProcessRotationalElevatorSweep(std::vector<StreamSliceRe
             {
                 break;
             }
-            SweepEnd = std::max(SweepEnd, CandidateEnd);
+            SweepEnd = (std::max)(SweepEnd, CandidateEnd);
             ++GroupEnd;
         }
 
