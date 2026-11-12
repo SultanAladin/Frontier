@@ -345,7 +345,7 @@ float UVInspectorPanel::RenderPackingTab(
         }};
         constexpr std::array<const char*, 6u> SwatchNames {{ "Studio Ivory", "Sky", "Mint", "Amber", "Coral", "Lavender" }};
         constexpr std::array<const char*, 6u> SwatchHex {{ "#EFF4CF", "#9ECFFF", "#9BE3C4", "#F2C17D", "#E5989B", "#C4A7E7" }};
-        uint32_t ActiveSwatch = 0u;
+        uint32_t ActiveSwatch = static_cast<uint32_t>(Swatches.size());
         if (CurrentLayer != nullptr)
         {
             for (uint32_t Slot = 0u; Slot < Swatches.size(); ++Slot)
@@ -363,7 +363,8 @@ float UVInspectorPanel::RenderPackingTab(
         WorkspaceAppearance::ConstructTruncatedText(
             Surface, FontWeightClass::Regular, { SX + 67.0f, SY + 7.0f },
             std::max(12.0f, SW - 67.0f - static_cast<float>(Swatches.size()) * 24.0f),
-            8.0f, Theme.TextMuted, SwatchNames[ActiveSwatch]);
+            8.0f, Theme.TextMuted,
+            CurrentLayer == nullptr ? "No Layer" : (ActiveSwatch < Swatches.size() ? SwatchNames[ActiveSwatch] : "Custom"));
         float SwX = SX + SW - static_cast<float>(Swatches.size()) * 24.0f;
         for (uint32_t Slot = 0u; Slot < Swatches.size(); ++Slot)
         {
@@ -371,7 +372,10 @@ float UVInspectorPanel::RenderPackingTab(
             const Point2D Center{ SwX + 10.0f, SY + 11.0f };
             const Rectangle2D Hit{ SwX, SY + 1.0f, 20.0f, 20.0f };
             Surface.FillCircle(Center, 8.0f, Col);
-            Surface.StrokeCircle(Center, 8.5f, ColorRgba{ 255, 255, 255, 48 }, 1.0f);
+            Surface.StrokeCircle(
+                Center, ActiveSwatch == Slot ? 9.2f : 8.5f,
+                ActiveSwatch == Slot ? Theme.AccentBorder : ColorRgba{ 255, 255, 255, 48 },
+                ActiveSwatch == Slot ? 1.5f : 1.0f);
             if (Hit.Contains(Cursor))
             {
                 ControlAppearance::RecordHoveredTooltip(
