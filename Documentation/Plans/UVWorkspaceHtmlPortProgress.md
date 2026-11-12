@@ -29,6 +29,10 @@
 - `ctest --test-dir build/Development --output-on-failure -R '^(UVRasterPickingGizmoValidation|UVWorkspaceUIValidation|UVParameterizationValidation|UVInteractiveAuthoringValidation|UVBoundaryValidation)$'` — 5/5 passed.
 - Headless SwiftShader run: `env -u DISPLAY -u WAYLAND_DISPLAY ./build/Development/FrontierUV --frames=3 --capture-png=Exhibits/Images/UV/05-SwiftShader_LiveWorkspace.png` — exited successfully and captured a 1840×980 live workspace with populated UV and 3D viewports, Inspector, and Outliner. SwiftShader emitted unsupported-capability 4427 warnings, but the process completed and the captured image was visibly rendered.
 
+## Inspector and Outliner parity follow-up
+
+The UV Inspector and Outliner now have content-aware scrolling, reusable control tooltips, layer tint choices, UDIM-filtered face counts and remainder rows, Escape dismissal for popups, and selection-aware Inspector headings. Inspector option sheets track their actual rendered button bounds so they stay anchored while content scrolls. Packing rotation steps now cover the configured increments, including 15-degree rotation.
+
 ## Remaining HTML-reference parity work
 
 The rendering path is no longer black, but this does not complete a 1:1 UI port. Continue comparing against `Experimental/UVEditor/` rather than inventing partial controls. The known gaps are:
@@ -36,5 +40,5 @@ The rendering path is no longer black, but this does not complete a 1:1 UI port.
 - Match the HTML shading-mode catalog and mode-dependent Inspector content; the C++ renderer currently exposes a smaller set of actual surface display modes and should not display unsupported options as if implemented.
 - Design the lifecycle for application-owned viewport texture dimension changes. Same-size pixel refreshes now use `WantUpdates`, but the upstream backend requires old GPU texture records to retire before a size-changing replacement is created; avoid resetting `TexID`/`BackendUserData` without releasing their backend resources.
 - Bring selection shortcuts and viewport selection feedback in line with the HTML selection-mode semantics.
-- Finish Inspector/Outliner scrolling, shared reusable tooltips, and the HTML context-menu interactions.
+- Finish the HTML context-menu interactions and validate Inspector/Outliner popup and selection interactions directly rather than relying only on screenshots.
 - Match camera damping and full-state undo/redo behavior, then add focused validation for interactions rather than relying only on screenshots.
