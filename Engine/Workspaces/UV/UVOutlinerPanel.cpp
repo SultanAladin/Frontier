@@ -10,6 +10,7 @@
 #include "Engine/Workspaces/UV/UVOutlinerPanel.h"
 
 #include "Engine/Components/Controls/ControlTooltip.h"
+#include "Engine/Components/Controls/DropdownSelector.h"
 #include "Engine/Workspaces/UV/Solvers/SeamCutGenerator.h"
 #include "Engine/Workspaces/UV/UVPaneAppearance.h"
 
@@ -65,6 +66,7 @@ void UVOutlinerPanel::AttachSession(UVWorkspaceSession* TargetSession) noexcept
 {
     Session               = TargetSession;
     UDIMFilterCode        = 0u;
+    UDIMFilterDropdownOpen = false;
     ScrollOffsetY         = 0.0f;
     SearchEditBuffer      = {};
     RenameEditBuffer      = {};
@@ -164,6 +166,7 @@ void UVOutlinerPanel::Render(
     if (Input.EscapePressed)
     {
         ColorPickerLayerOrdinal = 0u;
+        UDIMFilterDropdownOpen = false;
     }
 
     const uint32_t DisplayTile = UDIMFilterCode >= 1001u ? UDIMFilterCode : Session->ActiveUDIMNumber;
@@ -348,57 +351,58 @@ void UVOutlinerPanel::Render(
     }
     CurY += 46.0f;
 
-    // 3. UDIM Filter Chip Row ("All UDIMs" + per-tile chips)
+    // 3. UDIM filter uses the shared DropdownSelector control used throughout the workspace shell.
+    Rectangle2D UDIMFilterDropdownBounds{};
+    std::vector<uint32_t> UDIMFilterOptions{ 0u };
+    for (const uint32_t TileCode : Session->Asset.UDIMTiles)
     {
-        float ChipX = LeftX;
-        float ChipY = CurY;
-        auto ConstructFilterChip = [&](const char* Label, uint32_t Code)
+        if (TileCode >= 1001u && std::find(UDIMFilterOptions.begin(), UDIMFilterOptions.end(), TileCode) == UDIMFilterOptions.end())
         {
-            const float ChipW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 9.5f, Label) + 18.0f;
-            if (ChipX + ChipW > LeftX + InnerW && ChipX > LeftX + 2.0f)
-            {
-                ChipX = LeftX;
-                ChipY += 29.0f;
-            }
-            const Rectangle2D ChipRect{ ChipX, ChipY, std::min(ChipW, InnerW), 24.0f };
-            const bool        Active  = (UDIMFilterCode == Code);
-            const bool        Hovered = ChipRect.Contains(Cursor);
-            Surface.FillRectangle(ChipRect, Active ? Theme.AccentSoft : (Hovered ? Theme.HoverBg : Theme.WellBg), 12.0f);
-            Surface.StrokeRectangle(ChipRect, Active ? Theme.AccentBorder : Theme.BorderSubtle, 12.0f, 1.0f);
-            WorkspaceAppearance::ConstructTruncatedText(
-                Surface,
-                FontWeightClass::Regular,
-                { ChipRect.X + 9.0f, ChipRect.Y + 5.5f },
-                ChipRect.Width - 18.0f,
-                9.5f,
-                Active ? Theme.TextPrimary : Theme.TextMuted,
-                Label);
-            if (Hovered)
-            {
-                ControlAppearance::RecordHoveredTooltip(
-                    ChipRect, OptionalTooltip::FromText(Code == 0u ? "Show layers across all UDIM tiles." : "Filter layers and selection metrics to this UDIM tile."));
-            }
-            if (Hovered && Pressed)
-            {
-                UDIMFilterCode = Code;
-                if (Code >= 1001u)
-                {
-                    Session->ActiveUDIMNumber  = Code;
-                    Session->FramebuffersDirty = true;
-                }
-            }
-            ChipX += ChipRect.Width + 5.0f;
-        };
-
-        ConstructFilterChip("All UDIMs", 0u);
-        for (const uint32_t TileCode : Session->Asset.UDIMTiles)
-        {
-            char TileLbl[24]{};
-            std::snprintf(TileLbl, sizeof(TileLbl), "UDIM %u", TileCode);
-            ConstructFilterChip(TileLbl, TileCode);
+            UDIMFilterOptions.push_back(TileCode);
         }
-        CurY = ChipY + 32.0f;
     }
+    if (Session->ActiveUDIMNumber >= 1001u &&
+        std::find(UDIMFilterOptions.begin(), UDIMFilterOptions.end(), Session->ActiveUDIMNumber) == UDIMFilterOptions.end())
+    {
+        UDIMFilterOptions.push_back(Session->ActiveUDIMNumber);
+    }
+    std::sort(UDIMFilterOptions.begin() + 1, UDIMFilterOptions.end());
+
+    std::vector<std::string> UDIMFilterLabelStorage{};
+    std::vector<const char*> UDIMFilterLabels{};
+    UDIMFilterLabelStorage.reserve(UDIMFilterOptions.size());
+    UDIMFilterLabels.reserve(UDIMFilterOptions.size());
+    for (const uint32_t TileCode : UDIMFilterOptions)
+    {
+        UDIMFilterLabelStorage.emplace_back(TileCode == 0u ? "All UDIMs" : "UDIM " + std::to_string(TileCode));
+    }
+    for (const std::string& Label : UDIMFilterLabelStorage)
+    {
+        UDIMFilterLabels.push_back(Label.c_str());
+    }
+    const auto CurrentFilter = std::find(UDIMFilterOptions.begin(), UDIMFilterOptions.end(), UDIMFilterCode);
+    const uint32_t CurrentFilterIndex = CurrentFilter == UDIMFilterOptions.end()
+        ? 0u
+        : static_cast<uint32_t>(std::distance(UDIMFilterOptions.begin(), CurrentFilter));
+    if (CurrentFilter == UDIMFilterOptions.end())
+    {
+        UDIMFilterCode = 0u;
+    }
+    UDIMFilterDropdownBounds = { LeftX, CurY, InnerW, 28.0f };
+    const ControlContact FilterContact = DropdownSelector::ConstructButton(
+        Surface,
+        UDIMFilterDropdownBounds,
+        UDIMFilterLabels[CurrentFilterIndex],
+        UDIMFilterDropdownOpen,
+        Input.PrimaryPointer,
+        1.0f,
+        ControlIcon::LayoutGrid,
+        OptionalTooltip::FromTitled("UDIM Filter", "Filter layer rows, face counts, and allocation metrics by UDIM tile."));
+    if (FilterContact.Clicked)
+    {
+        UDIMFilterDropdownOpen = !UDIMFilterDropdownOpen;
+    }
+    CurY += 36.0f;
 
     const auto LayerSpan = Session->Asset.Layers.InspectLayers();
     const std::string_view FilterQuery(SearchEditBuffer.Text, SearchEditBuffer.Length);
@@ -935,12 +939,60 @@ void UVOutlinerPanel::Render(
 
     Surface.PopClip();
 
+    if (UDIMFilterDropdownOpen && !UDIMFilterLabels.empty())
+    {
+        Rectangle2D SheetAnchor = UDIMFilterDropdownBounds;
+        Rectangle2D SheetBounds = DropdownSelector::QuerySheetBounds(
+            SheetAnchor, static_cast<uint32_t>(UDIMFilterLabels.size()));
+        if (SheetBounds.Bottom() > Bounds.Bottom())
+        {
+            SheetAnchor.Y -= SheetBounds.Height + 2.0f * ControlMetrics::DropdownPaddingY + SheetAnchor.Height;
+            const Rectangle2D AboveSheet = DropdownSelector::QuerySheetBounds(
+                SheetAnchor, static_cast<uint32_t>(UDIMFilterLabels.size()));
+            if (AboveSheet.Y >= Bounds.Y)
+            {
+                SheetBounds = AboveSheet;
+            }
+            else
+            {
+                SheetAnchor = UDIMFilterDropdownBounds;
+            }
+        }
+
+        uint32_t ChosenIndex = CurrentFilterIndex;
+        const ControlContact Choice = DropdownSelector::ConstructOptionSheet(
+            Surface,
+            SheetAnchor,
+            UDIMFilterLabels.data(),
+            static_cast<uint32_t>(UDIMFilterLabels.size()),
+            CurrentFilterIndex,
+            Input.PrimaryPointer,
+            ChosenIndex);
+        if (Choice.Clicked && ChosenIndex < UDIMFilterOptions.size())
+        {
+            UDIMFilterCode = UDIMFilterOptions[ChosenIndex];
+            if (UDIMFilterCode >= 1001u)
+            {
+                Session->ActiveUDIMNumber = UDIMFilterCode;
+                Session->FramebuffersDirty = true;
+            }
+            UDIMFilterDropdownOpen = false;
+        }
+        else if (Input.PrimaryPointer.Released &&
+                 !UDIMFilterDropdownBounds.Contains(Cursor) && !SheetBounds.Contains(Cursor))
+        {
+            UDIMFilterDropdownOpen = false;
+        }
+    }
+
     // 5. Sticky Bottom Footer (.pz-outliner-budget-footer: UDIM 1001 Space Budget + 6px 0px-radius spectrum bar)
     const Rectangle2D FooterRect{ Bounds.X, Bounds.Bottom() - FooterH, Bounds.Width, FooterH };
     Surface.FillRectangle(FooterRect, Theme.PanelBg);
     Surface.StrokeLine({ FooterRect.X, FooterRect.Y }, { FooterRect.Right(), FooterRect.Y }, Theme.BorderSubtle, 1.0f);
 
-    ConstructPackGridIcon(Surface, { LeftX, FooterRect.Y + 11.0f }, 12.0f, Theme.TextMuted);
+    VectorIconRepository::ConstructControl(
+        Surface, ControlIcon::LayoutGrid,
+        VectorIconPlacement{ LeftX, FooterRect.Y + 11.0f, 12.0f, Theme.TextMuted, 1.6f });
     char FootLeft[48]{};
     std::snprintf(FootLeft, sizeof(FootLeft), "UDIM %u Space Budget", Session->ActiveUDIMNumber);
     WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { LeftX + 17.0f, FooterRect.Y + 10.0f }, 9.8f, Theme.TextPrimary, FootLeft);

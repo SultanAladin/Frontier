@@ -9,6 +9,8 @@
 
 #include "Engine/Workspaces/UV/UVViewportHost.h"
 
+#include "Engine/Components/Controls/ControlTooltip.h"
+#include "Engine/Components/Controls/DropdownSelector.h"
 #include "Engine/Workspaces/UV/Solvers/SeamCutGenerator.h"
 #include "Engine/Workspaces/UV/UVPaneAppearance.h"
 
@@ -47,6 +49,19 @@ namespace
     return "Debug: Priority";
 }
 
+[[nodiscard]] const char* QuerySpatialProjectionLabel(Editor::SpatialProjectionPreset Preset) noexcept
+{
+    switch (Preset)
+    {
+        case Editor::SpatialProjectionPreset::Perspective:  return "Perspective";
+        case Editor::SpatialProjectionPreset::Orthographic: return "Orthographic";
+        case Editor::SpatialProjectionPreset::Top:          return "Top";
+        case Editor::SpatialProjectionPreset::Front:        return "Front";
+        case Editor::SpatialProjectionPreset::Right:        return "Right";
+    }
+    return "Perspective";
+}
+
 } // namespace
 
 UVViewportHost::UVViewportHost()
@@ -59,6 +74,7 @@ UVViewportHost::~UVViewportHost() = default;
 void UVViewportHost::AttachSession(UVWorkspaceSession* TargetSession) noexcept
 {
     Session          = TargetSession;
+    ProjectionDropdownOpen = false;
     CachedUVRevision = UINT64_MAX;
     Interactor.AttachSession(Session);
 
@@ -168,6 +184,13 @@ void UVViewportHost::Render(
 
     const Point2D Cursor  { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
     const bool    Pressed = Input.PrimaryPointer.Pressed;
+    if (Input.EscapePressed)
+    {
+        ProjectionDropdownOpen = false;
+    }
+    Rectangle2D ViewProjectionDropdownBounds{};
+    Rectangle2D ProjectionSheetAnchor{};
+    Rectangle2D ProjectionSheetBounds{};
 
     const float LeftX  = Bounds.X + 14.0f;
     const float RightX = Bounds.Right() - 14.0f;
@@ -181,7 +204,9 @@ void UVViewportHost::Render(
         const Rectangle2D CubeIndicator{ LeftX, HeaderTopY + 3.0f, 26.0f, 26.0f };
         Surface.FillRectangle(CubeIndicator, Theme.RaisedBg, 7.0f);
         Surface.StrokeRectangle(CubeIndicator, Theme.BorderStrong, 7.0f, 1.0f);
-        ConstructSceneCubeIcon(Surface, { CubeIndicator.X + 5.0f, CubeIndicator.Y + 5.0f }, 16.0f, Theme.TextPrimary);
+        VectorIconRepository::ConstructControl(
+            Surface, ControlIcon::CubeShape,
+            VectorIconPlacement{ CubeIndicator.X + 5.0f, CubeIndicator.Y + 5.0f, 16.0f, Theme.TextPrimary, 1.5f });
 
         const std::string& DocTitle = Session->Asset.Network.NetworkTitle;
         WorkspaceAppearance::ConstructWeightedText(
@@ -228,6 +253,16 @@ void UVViewportHost::Render(
         {
             const bool Active  = (ActiveSplit == Mode);
             const bool Hovered = Seg.Contains(Cursor);
+            if (Hovered)
+            {
+                const char* Tip = Mode == Editor::ViewportSplitMode::SplitPlanarAndSpatial
+                    ? "Show the UV tile canvas and 3D surface side by side."
+                    : (Mode == Editor::ViewportSplitMode::Planar2DOnly
+                        ? "Expand the UV tile canvas to fill the viewport."
+                        : "Expand the 3D surface view to fill the viewport.");
+                ControlAppearance::RecordHoveredTooltip(
+                    Seg, OptionalTooltip::FromTitled(Label, Tip));
+            }
             if (Active)
             {
                 Surface.FillRectangle(Seg, Theme.RaisedBg, 12.5f);
@@ -283,6 +318,11 @@ void UVViewportHost::Render(
             WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { UnwrapBtn.X + 30.0f, UnwrapBtn.Y + 8.5f }, 10.5f, Theme.PrimaryInk, "Unwrap");
             Surface.StrokeLine({ UnwrapBtn.X + 86.0f, UnwrapBtn.Y + 8.0f }, { UnwrapBtn.X + 86.0f, UnwrapBtn.Bottom() - 8.0f }, ColorRgba{ 0, 0, 0, 42 }, 1.0f);
             WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { UnwrapBtn.X + 96.0f, UnwrapBtn.Y + 9.5f }, 9.2f, ColorRgba{ 98, 98, 98, 255 }, "U");
+            if (Hovered)
+            {
+                ControlAppearance::RecordHoveredTooltip(
+                    UnwrapBtn, OptionalTooltip::FromTitled("Unwrap", "Generate UV coordinates for the current selection or mesh."));
+            }
             if (Hovered && Pressed)
             {
                 OverlayCapturedClick = true;
@@ -297,9 +337,16 @@ void UVViewportHost::Render(
             const bool Hovered = PackBtn.Contains(Cursor);
             Surface.FillRectangle(PackBtn, Hovered ? Theme.HoverBg : Theme.RaisedBg, 15.5f);
             Surface.StrokeRectangle(PackBtn, Theme.BorderStrong, 15.5f, 1.0f);
-            ConstructPackGridIcon(Surface, { PackBtn.X + 11.0f, PackBtn.Y + 8.5f }, 14.0f, Theme.TextPrimary);
+            VectorIconRepository::ConstructControl(
+                Surface, ControlIcon::LayoutGrid,
+                VectorIconPlacement{ PackBtn.X + 11.0f, PackBtn.Y + 8.5f, 14.0f, Theme.TextPrimary, 1.6f });
             WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { PackBtn.X + 30.0f, PackBtn.Y + 8.5f }, 10.5f, Theme.TextPrimary, "Pack");
             WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { PackBtn.X + 66.0f, PackBtn.Y + 9.5f }, 8.8f, Theme.TextFaint, "^P");
+            if (Hovered)
+            {
+                ControlAppearance::RecordHoveredTooltip(
+                    PackBtn, OptionalTooltip::FromTitled("Pack UVs", "Pack islands using the active layer budgets and packing options."));
+            }
             if (Hovered && Pressed)
             {
                 OverlayCapturedClick = true;
@@ -321,6 +368,10 @@ void UVViewportHost::Render(
             UVSelectionMode::Islands,
             UVSelectionMode::Layers,
         }};
+        constexpr std::array<const char*, 4u> SelectionModeNames {{ "Faces", "Edges", "Islands", "Layers" }};
+        constexpr std::array<const char*, 4u> SelectionModeTips {{
+            "Select UV faces.", "Select mesh edges.", "Select complete UV islands.", "Select priority layers." }};
+        constexpr std::array<uint32_t, 3u> ComponentGlyphIndices {{ 2u, 1u, 3u }};
         for (uint32_t ModeIdx = 0u; ModeIdx < 4u; ++ModeIdx)
         {
             const Rectangle2D Cell{ CompGroup.X + 3.0f + static_cast<float>(ModeIdx) * 28.0f, CompGroup.Y + 3.0f, 26.0f, 25.0f };
@@ -336,7 +387,23 @@ void UVViewportHost::Render(
             {
                 Surface.FillRectangle(Cell, Theme.HoverBg, 11.0f);
             }
-            ConstructComponentModeIcon(Surface, { Cell.X + 6.5f, Cell.Y + 6.0f }, 13.0f, ModeIdx, Active ? Theme.TextPrimary : Theme.TextMuted);
+            if (TargetMode == UVSelectionMode::Layers)
+            {
+                VectorIconRepository::ConstructControl(
+                    Surface, ControlIcon::LayersSlabs,
+                    VectorIconPlacement{ Cell.X + 6.0f, Cell.Y + 5.5f, 14.0f, Active ? Theme.TextPrimary : Theme.TextMuted, 1.6f });
+            }
+            else
+            {
+                ConstructComponentModeIcon(
+                    Surface, { Cell.X + 6.5f, Cell.Y + 6.0f }, 13.0f,
+                    ComponentGlyphIndices[ModeIdx], Active ? Theme.TextPrimary : Theme.TextMuted);
+            }
+            if (Hovered)
+            {
+                ControlAppearance::RecordHoveredTooltip(
+                    Cell, OptionalTooltip::FromTitled(SelectionModeNames[ModeIdx], SelectionModeTips[ModeIdx]));
+            }
             if (Hovered && Pressed)
             {
                 OverlayCapturedClick       = true;
@@ -352,19 +419,25 @@ void UVViewportHost::Render(
         const Rectangle2D WireBtn { SeamBtn.X - 6.0f - 52.0f, StripY, 52.0f, 31.0f };
 
         auto& Prefs = Session->WorkspaceConfig.AccessUVPreferences();
-        if (ConstructCapsuleButton(Surface, WireBtn, "Wire", Theme, Cursor, Pressed, Prefs.WireframeOverlayEnabled, false, 9.8f))
+        if (ConstructCapsuleButton(
+                Surface, WireBtn, "Wire", Theme, Cursor, Pressed, Prefs.WireframeOverlayEnabled, false, 9.8f, -1.0f,
+                OptionalTooltip::FromText("Toggle 3D mesh wireframe overlay.")))
         {
             OverlayCapturedClick          = true;
             Prefs.WireframeOverlayEnabled = !Prefs.WireframeOverlayEnabled;
             Session->FramebuffersDirty    = true;
         }
-        if (ConstructCapsuleButton(Surface, SeamBtn, "Seams", Theme, Cursor, Pressed, Prefs.SeamOverlayEnabled, false, 9.8f))
+        if (ConstructCapsuleButton(
+                Surface, SeamBtn, "Seams", Theme, Cursor, Pressed, Prefs.SeamOverlayEnabled, false, 9.8f, -1.0f,
+                OptionalTooltip::FromText("Toggle the seam overlay in the UV canvas.")))
         {
             OverlayCapturedClick       = true;
             Prefs.SeamOverlayEnabled   = !Prefs.SeamOverlayEnabled;
             Session->FramebuffersDirty = true;
         }
-        if (ConstructCapsuleButton(Surface, MoreBtn, MoreShelfExpanded ? "More ^" : "More v", Theme, Cursor, Pressed, MoreShelfExpanded, false, 9.8f))
+        if (ConstructCapsuleButton(
+                Surface, MoreBtn, MoreShelfExpanded ? "More ^" : "More v", Theme, Cursor, Pressed, MoreShelfExpanded, false, 9.8f, -1.0f,
+                OptionalTooltip::FromText("Show additional UV workspace tools.")))
         {
             OverlayCapturedClick = true;
             MoreShelfExpanded    = !MoreShelfExpanded;
@@ -374,7 +447,9 @@ void UVViewportHost::Render(
         if (CurX + 126.0f < WireBtn.X - 8.0f)
         {
             const Rectangle2D SurfBtn{ CurX, StripY, 122.0f, 31.0f };
-            if (ConstructCapsuleButton(Surface, SurfBtn, QuerySurfaceDisplayLabel(Session->RenderOptions3D.DisplayMode), Theme, Cursor, Pressed, false, false, 9.6f))
+            if (ConstructCapsuleButton(
+                    Surface, SurfBtn, QuerySurfaceDisplayLabel(Session->RenderOptions3D.DisplayMode), Theme, Cursor, Pressed, false, false, 9.6f, -1.0f,
+                    OptionalTooltip::FromText("Cycle 3D surface shading modes.")))
             {
                 OverlayCapturedClick = true;
                 const uint32_t Next = (static_cast<uint32_t>(Session->RenderOptions3D.DisplayMode) + 1u) % 4u;
@@ -386,7 +461,9 @@ void UVViewportHost::Render(
         if (CurX + 112.0f < WireBtn.X - 8.0f)
         {
             const Rectangle2D DbgBtn{ CurX, StripY, 108.0f, 31.0f };
-            if (ConstructCapsuleButton(Surface, DbgBtn, QueryCanvasDebugLabel(Session->RenderOptions2D.DisplayMode), Theme, Cursor, Pressed, false, false, 9.6f))
+            if (ConstructCapsuleButton(
+                    Surface, DbgBtn, QueryCanvasDebugLabel(Session->RenderOptions2D.DisplayMode), Theme, Cursor, Pressed, false, false, 9.6f, -1.0f,
+                    OptionalTooltip::FromText("Cycle UV canvas debug channels.")))
             {
                 OverlayCapturedClick = true;
                 const uint32_t Next = (static_cast<uint32_t>(Session->RenderOptions2D.DisplayMode) + 1u) % 3u;
@@ -395,13 +472,24 @@ void UVViewportHost::Render(
             }
             CurX = DbgBtn.Right() + 6.0f;
         }
-        if (CurX + 98.0f < WireBtn.X - 8.0f)
+        if (CurX + 128.0f < WireBtn.X - 8.0f)
         {
-            const Rectangle2D ViewBtn{ CurX, StripY, 96.0f, 31.0f };
-            if (ConstructCapsuleButton(Surface, ViewBtn, "Perspective", Theme, Cursor, Pressed, false, false, 9.6f))
+            ViewProjectionDropdownBounds = { CurX, StripY, 124.0f, 31.0f };
+            const auto& Projection = Session->AccessViewportProjection();
+            const ControlContact ViewHit = DropdownSelector::ConstructButton(
+                Surface,
+                ViewProjectionDropdownBounds,
+                QuerySpatialProjectionLabel(Projection.InspectSpatialCamera().Preset),
+                ProjectionDropdownOpen,
+                Input.PrimaryPointer,
+                1.0f,
+                ControlIcon::DisplayMonitor,
+                OptionalTooltip::FromTitled(
+                    "3D View Projection", "Choose perspective, orthographic, or an axial camera view."));
+            if (ViewHit.Clicked)
             {
+                ProjectionDropdownOpen = !ProjectionDropdownOpen;
                 OverlayCapturedClick = true;
-                Session->FitSelectionOrNetwork();
             }
         }
     }
@@ -419,7 +507,9 @@ void UVViewportHost::Render(
         const float OpY = ShelfRect.Y + 4.0f;
         auto& Prefs = Session->WorkspaceConfig.AccessUVPreferences();
 
-        if (ConstructCapsuleButton(Surface, { OpX, OpY, 66.0f, 24.0f }, "Checker", Theme, Cursor, Pressed, Prefs.CheckerOverlayEnabled, false, 9.2f))
+        if (ConstructCapsuleButton(
+                Surface, { OpX, OpY, 66.0f, 24.0f }, "Checker", Theme, Cursor, Pressed, Prefs.CheckerOverlayEnabled, false, 9.2f, -1.0f,
+                OptionalTooltip::FromText("Toggle the UDIM checker background.")))
         {
             OverlayCapturedClick        = true;
             Prefs.CheckerOverlayEnabled = !Prefs.CheckerOverlayEnabled;
@@ -427,39 +517,77 @@ void UVViewportHost::Render(
         }
         OpX += 72.0f;
 
-        const std::array<std::pair<const char*, UVCommandDirective>, 5u> QuickOps {{
-            { "Relax GPU",   UVCommandDirective::RelaxStretchGPU       },
-            { "Avg Scale",   UVCommandDirective::EqualizeTexelDensity  },
-            { "Smart Seams", UVCommandDirective::MarkSharpSeams        },
-            { "Stack",       UVCommandDirective::StackSimilarIslands   },
-            { "Unstack",     UVCommandDirective::UnstackOverlapping    },
+        struct QuickOperation
+        {
+            const char* Label;
+            const char* Tooltip;
+            UVCommandDirective Directive;
+        };
+        constexpr std::array<QuickOperation, 5u> QuickOps {{
+            { "Relax GPU",   "Relax UV stretch using the GPU solver.", UVCommandDirective::RelaxStretchGPU },
+            { "Avg Scale",   "Equalize selected island texel density.", UVCommandDirective::EqualizeTexelDensity },
+            { "Smart Seams", "Mark seams at sharp geometric boundaries.", UVCommandDirective::MarkSharpSeams },
+            { "Stack",       "Stack similar UV islands.", UVCommandDirective::StackSimilarIslands },
+            { "Unstack",     "Separate overlapping stacked UV islands.", UVCommandDirective::UnstackOverlapping },
         }};
-        for (const auto& [Cap, Dir] : QuickOps)
+        for (const auto& Op : QuickOps)
         {
             if (OpX + 78.0f > ShelfRect.Right() - 120.0f)
             {
                 break;
             }
-            if (ConstructCapsuleButton(Surface, { OpX, OpY, 76.0f, 24.0f }, Cap, Theme, Cursor, Pressed, false, false, 9.2f))
+            if (ConstructCapsuleButton(
+                    Surface, { OpX, OpY, 76.0f, 24.0f }, Op.Label, Theme, Cursor, Pressed, false, false, 9.2f, -1.0f,
+                    OptionalTooltip::FromText(Op.Tooltip)))
             {
                 OverlayCapturedClick = true;
-                (void)Session->ExecuteDirective(Dir, nullptr);
+                (void)Session->ExecuteDirective(Op.Directive, nullptr);
             }
             OpX += 80.0f;
         }
 
-        if (ConstructCapsuleButton(Surface, { ShelfRect.Right() - 108.0f, OpY, 48.0f, 24.0f }, "Undo", Theme, Cursor, Pressed, false, false, 9.2f))
+        if (ConstructCapsuleButton(
+                Surface, { ShelfRect.Right() - 108.0f, OpY, 48.0f, 24.0f }, "Undo", Theme, Cursor, Pressed, false, false, 9.2f, -1.0f,
+                OptionalTooltip::FromText("Undo the last UV workspace edit.")))
         {
             OverlayCapturedClick = true;
             (void)Session->UndoParameterization();
         }
-        if (ConstructCapsuleButton(Surface, { ShelfRect.Right() - 54.0f, OpY, 48.0f, 24.0f }, "Redo", Theme, Cursor, Pressed, false, false, 9.2f))
+        if (ConstructCapsuleButton(
+                Surface, { ShelfRect.Right() - 54.0f, OpY, 48.0f, 24.0f }, "Redo", Theme, Cursor, Pressed, false, false, 9.2f, -1.0f,
+                OptionalTooltip::FromText("Redo the last undone UV workspace edit.")))
         {
             OverlayCapturedClick = true;
             (void)Session->RedoParameterization();
         }
 
         CanvasTopY += 38.0f;
+    }
+
+    if (ViewProjectionDropdownBounds.Width <= 0.0f)
+    {
+        ProjectionDropdownOpen = false;
+    }
+    if (ProjectionDropdownOpen)
+    {
+        ProjectionSheetAnchor = ViewProjectionDropdownBounds;
+        ProjectionSheetBounds = DropdownSelector::QuerySheetBounds(ProjectionSheetAnchor, 5u);
+        if (ProjectionSheetBounds.Bottom() > Bounds.Bottom())
+        {
+            ProjectionSheetAnchor.Y -= ProjectionSheetBounds.Height +
+                2.0f * ControlMetrics::DropdownPaddingY + ProjectionSheetAnchor.Height;
+            const Rectangle2D AboveSheet = DropdownSelector::QuerySheetBounds(ProjectionSheetAnchor, 5u);
+            if (AboveSheet.Y >= Bounds.Y)
+            {
+                ProjectionSheetBounds = AboveSheet;
+            }
+            else
+            {
+                ProjectionSheetAnchor = ViewProjectionDropdownBounds;
+            }
+        }
+        OverlayCapturedClick = OverlayCapturedClick || ViewProjectionDropdownBounds.Contains(Cursor) ||
+            ProjectionSheetBounds.Contains(Cursor) || Input.PrimaryPointer.Released;
     }
 
     //--------------------------------------------------------------------------------------------------------------------
@@ -516,6 +644,22 @@ void UVViewportHost::Render(
         Surface.FillRectangle(RailBounds, ColorRgba{ 20, 20, 22, 226 }, 15.0f);
         Surface.StrokeRectangle(RailBounds, ColorRgba{ 255, 255, 255, 28 }, 15.0f, 1.0f);
 
+        constexpr std::array<const char*, 12u> RailToolNames {{
+            "Select", "Box Select", "Circle Select", "Move", "Rotate", "Scale",
+            "Split Island", "Seam Brush", "Stitch Seams", "Pin UVs", "Relax Stretch", "Frame View" }};
+        constexpr std::array<const char*, 12u> RailToolTips {{
+            "Select UV or mesh components.",
+            "Select components inside a rectangular marquee.",
+            "Paint-select components with a circular brush.",
+            "Move the active UV or spatial selection.",
+            "Rotate the active UV or spatial selection.",
+            "Scale the active UV or spatial selection.",
+            "Split the selected UV island at selected seams.",
+            "Toggle seam edges with the seam brush.",
+            "Stitch selected seam boundaries together.",
+            "Pin selected UV corners in place.",
+            "Relax UV stretch using the available solver.",
+            "Frame the current selection or complete network." }};
         float ToolY = RailBounds.Y + 5.0f;
         for (uint32_t Slot = 0u; Slot < 12u; ++Slot)
         {
@@ -531,6 +675,11 @@ void UVViewportHost::Render(
             const Rectangle2D Btn{ RailBounds.X + 4.0f, ToolY, 30.0f, 25.0f };
             const bool        IsActive = (ActiveRailSlot == Slot);
             const bool        Hovered  = Btn.Contains(Cursor);
+            if (Hovered)
+            {
+                ControlAppearance::RecordHoveredTooltip(
+                    Btn, OptionalTooltip::FromTitled(RailToolNames[Slot], RailToolTips[Slot]));
+            }
 
             if (IsActive)
             {
@@ -639,7 +788,38 @@ void UVViewportHost::Render(
         }
     }
 
+    if (ProjectionDropdownOpen && ViewProjectionDropdownBounds.Width > 0.0f)
+    {
+        constexpr std::array<const char*, 5u> ProjectionOptions {{
+            "Perspective", "Orthographic", "Top", "Front", "Right" }};
+        const uint32_t CurrentIndex = static_cast<uint32_t>(
+            Session->AccessViewportProjection().InspectSpatialCamera().Preset);
+        uint32_t ChosenIndex = CurrentIndex;
+        const ControlContact Choice = DropdownSelector::ConstructOptionSheet(
+            Surface,
+            ProjectionSheetAnchor,
+            ProjectionOptions.data(),
+            static_cast<uint32_t>(ProjectionOptions.size()),
+            std::min<uint32_t>(CurrentIndex, static_cast<uint32_t>(ProjectionOptions.size() - 1u)),
+            Input.PrimaryPointer,
+            ChosenIndex);
+        if (Choice.Clicked && ChosenIndex < ProjectionOptions.size())
+        {
+            Session->AccessViewportProjection().ApplySpatialPreset(
+                static_cast<Editor::SpatialProjectionPreset>(ChosenIndex));
+            Session->FramebuffersDirty = true;
+            ProjectionDropdownOpen = false;
+        }
+        else if (Input.PrimaryPointer.Released &&
+                 !ViewProjectionDropdownBounds.Contains(Cursor) && !ProjectionSheetBounds.Contains(Cursor))
+        {
+            ProjectionDropdownOpen = false;
+        }
+    }
+
+
     Surface.PopClip();
+    (void)ControlTooltip::PresentHoveredControlTooltip(Surface, Bounds, Input.PrimaryPointer);
 }
 
 void UVViewportHost::PresentInImGuiPane(double Δt, float ScaleFactor)

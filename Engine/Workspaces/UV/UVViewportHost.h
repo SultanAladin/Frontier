@@ -47,6 +47,7 @@ private:
     UVViewportInteractor   Interactor            {};
     ViewportProjectionPane ProjectionPane        {};
     bool                   MoreShelfExpanded     = false;
+    bool                   ProjectionDropdownOpen = false;
     uint32_t               ActiveRailSlot        = 0u;
     uint64_t               CachedUVRevision      = UINT64_MAX;
     uint32_t               CachedChartCount      = 0u;

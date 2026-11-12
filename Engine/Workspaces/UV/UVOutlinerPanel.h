@@ -39,6 +39,7 @@ private:
     UVWorkspaceSession* Session                 = nullptr;
     uint32_t            CreatedLayerCount       = 3u;
     uint32_t            UDIMFilterCode          = 0u; // 0 = All UDIMs
+    bool                UDIMFilterDropdownOpen  = false;
     float               ScrollOffsetY           = 0.0f;
     TextEditBuffer      SearchEditBuffer        {};
     TextEditBuffer      RenameEditBuffer        {};

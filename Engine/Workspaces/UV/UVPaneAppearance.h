@@ -344,39 +344,6 @@ inline bool ConstructToggleRow(
 //                                  CRISP STUDIO VECTOR vector icons (MATCHING STUDIOCONTROLS.JS)
 //------------------------------------------------------------------------------------------------------------------------
 
-inline void ConstructSceneCubeIcon(PixelSpace& Surface, Point2D Origin, float Size, ColorRgba Ink)
-{
-    const float CX = Origin.X + Size * 0.5f;
-    const float CY = Origin.Y + Size * 0.5f;
-    const float R  = Size * 0.42f;
-    const Point2D Top  { CX, CY - R };
-    const Point2D TR   { CX + R * 0.86f, CY - R * 0.48f };
-    const Point2D BR   { CX + R * 0.86f, CY + R * 0.48f };
-    const Point2D Bot  { CX, CY + R };
-    const Point2D BL   { CX - R * 0.86f, CY + R * 0.48f };
-    const Point2D TL   { CX - R * 0.86f, CY - R * 0.48f };
-    const Point2D Mid  { CX, CY };
-
-    Surface.StrokeLine(Top, TR, Ink, 1.35f);
-    Surface.StrokeLine(TR,  BR, Ink, 1.35f);
-    Surface.StrokeLine(BR,  Bot, Ink, 1.35f);
-    Surface.StrokeLine(Bot, BL, Ink, 1.35f);
-    Surface.StrokeLine(BL,  TL, Ink, 1.35f);
-    Surface.StrokeLine(TL,  Top, Ink, 1.35f);
-    Surface.StrokeLine(TL,  Mid, Ink, 1.25f);
-    Surface.StrokeLine(TR,  Mid, Ink, 1.25f);
-    Surface.StrokeLine(Bot, Mid, Ink, 1.25f);
-}
-
-inline void ConstructPackGridIcon(PixelSpace& Surface, Point2D Origin, float Size, ColorRgba Ink)
-{
-    const float S = Size;
-    Surface.StrokeRectangle({ Origin.X + S * 0.08f, Origin.Y + S * 0.08f, S * 0.44f, S * 0.44f }, Ink, 1.5f, 1.3f);
-    Surface.StrokeRectangle({ Origin.X + S * 0.60f, Origin.Y + S * 0.08f, S * 0.32f, S * 0.32f }, Ink, 1.2f, 1.3f);
-    Surface.StrokeRectangle({ Origin.X + S * 0.08f, Origin.Y + S * 0.60f, S * 0.32f, S * 0.32f }, Ink, 1.2f, 1.3f);
-    Surface.StrokeRectangle({ Origin.X + S * 0.48f, Origin.Y + S * 0.48f, S * 0.44f, S * 0.44f }, Ink, 1.5f, 1.3f);
-}
-
 inline void ConstructComponentModeIcon(PixelSpace& Surface, Point2D Origin, float Size, uint32_t ModeIdx, ColorRgba Ink)
 {
     const float L = Origin.X + Size * 0.18f;
