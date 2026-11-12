@@ -63,7 +63,16 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Build Windows x64 applications and boundary checks
-        run: cmake --build Build/Windows --config Release --parallel 4 --target FrontierUV FrontierEditor UVBoundaryValidation
+        shell: pwsh
+        run: |
+          $Output = & cmake --build Build/Windows --config Release --parallel 4 --target FrontierUV FrontierEditor UVBoundaryValidation 2>&1
+          $Result = $LASTEXITCODE
+          $Output | ForEach-Object { Write-Output "$_" }
+          if ($Result -ne 0) {
+            $Details = ($Output | Select-Object -Last 20 | ForEach-Object { "$_" }) -join ' '
+            Write-Output "::error title=Windows build failed::$Details"
+            exit $Result
+          }
 
       - name: Run Windows hostile-input and UV chart checks
         shell: pwsh
