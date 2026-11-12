@@ -205,7 +205,7 @@ public:
     std::string                              OutlinerSearchQuery  {};
     bool                                     FillPocketsEnabled   = true;
     bool                                     SeamBrushActive      = false;
-    float                                    SharpAngleThreshold  = 52.0f;
+    float                                    SharpAngleThreshold  = 55.0f;
     uint32_t                                 RelaxIterations      = 12u;
     std::unordered_map<uint32_t, UDIMTileSetting> UDIMSettings    {};
 

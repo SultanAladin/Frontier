@@ -75,6 +75,22 @@ float3 EvaluateBackdropTexture(uint BackdropPreset, float2 LocalUV)
         float Brush = 0.5 + 0.5 * sin(LocalUV.x * 180.0 + sin(LocalUV.y * 24.0) * 1.5);
         return lerp(float3(0.14, 0.16, 0.20), float3(0.28, 0.31, 0.38), Brush * 0.65);
     }
+    if (BackdropPreset == 5u) // UV Coordinate Code
+    {
+        float2 Grid = abs(frac(LocalUV * 8.0 - 0.5) - 0.5);
+        float Line = 1.0 - smoothstep(0.44, 0.49, max(Grid.x, Grid.y));
+        float3 CodeColor = float3(LocalUV.x, LocalUV.y, 1.0 - LocalUV.x) * 0.28 + 0.08;
+        return lerp(CodeColor, float3(0.36, 0.42, 0.48), Line * 0.65);
+    }
+    if (BackdropPreset == 6u) // Neutral Checker
+    {
+        float Parity = float((int(floor(LocalUV.x * 8.0)) + int(floor(LocalUV.y * 8.0))) & 1);
+        return lerp(float3(0.10, 0.11, 0.13), float3(0.18, 0.19, 0.21), Parity);
+    }
+    if (BackdropPreset == 7u) // Slate
+    {
+        return float3(0.11, 0.12, 0.14);
+    }
     return float3(0.072, 0.076, 0.088);
 }
 

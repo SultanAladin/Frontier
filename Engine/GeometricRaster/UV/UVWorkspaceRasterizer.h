@@ -86,6 +86,9 @@ enum class UVBackdropPreset : uint8_t
     ColorChecker     = 1u, // [-] - 24-patch Studio ColorChecker calibration chart
     TrimSheetAtlas   = 2u, // [-] - Horizontal trim-sheet band atlas preview
     BrushedAnisoPack = 3u, // [-] - Directional brushed metal anisotropic reference
+    UVCode           = 5u, // [-] - Coordinate-coded UDIM backing
+    Checker          = 6u, // [-] - Neutral checker backing
+    Slate            = 7u, // [-] - Flat slate backing
 };
 
 struct Canvas2DRenderOptions

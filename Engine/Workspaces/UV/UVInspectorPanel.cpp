@@ -14,6 +14,7 @@
 #include "Engine/Components/Controls/TextInputField.h"
 #include "Engine/Workspaces/UV/UVPaneAppearance.h"
 #include "Engine/Workspaces/UV/Solvers/SeamCutGenerator.h"
+#include "Engine/Workspaces/UV/Operations/UVAuthoringOperations.h"
 
 #include <imgui.h>
 
@@ -22,6 +23,8 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <limits>
+#include <numeric>
 
 namespace Frontier::Workspaces
 {
@@ -32,43 +35,32 @@ namespace
 void ConstructMetricTrio(
     PixelSpace&                        Surface,
     Rectangle2D                        Box,
-    const char*                        Val0, const char* Cap0,
-    const char*                        Val1, const char* Cap1,
-    const char*                        Val2, const char* Cap2,
-    const UVAppearance::UVThemeColors& Theme)
+    const char*                        Val0, const char* Cap0, const char* Sub0,
+    const char*                        Val1, const char* Cap1, const char* Sub1,
+    const char*                        Val2, const char* Cap2, const char* Sub2,
+    const UVAppearance::UVThemeColors& Theme,
+    bool                               HighlightFirst = false)
 {
-    Surface.FillRectangle(Box, Theme.SectionBg, 16.0f);
-    Surface.StrokeRectangle(Box, Theme.BorderSubtle, 16.0f, 1.0f);
-
-    const float ColW = Box.Width / 3.0f;
-    Surface.StrokeLine({ Box.X + ColW, Box.Y + 10.0f }, { Box.X + ColW, Box.Bottom() - 10.0f }, Theme.BorderSubtle, 1.0f);
-    Surface.StrokeLine({ Box.X + ColW * 2.0f, Box.Y + 10.0f }, { Box.X + ColW * 2.0f, Box.Bottom() - 10.0f }, Theme.BorderSubtle, 1.0f);
-
-    const std::array<std::pair<const char*, const char*>, 3u> Cols {{
-        { Val0, Cap0 },
-        { Val1, Cap1 },
-        { Val2, Cap2 },
+    constexpr float Gap = 8.0f;
+    const float CardW = (Box.Width - Gap * 2.0f) / 3.0f;
+    const std::array<std::array<const char*, 3u>, 3u> Cols {{
+        {{ Val0, Cap0, Sub0 }}, {{ Val1, Cap1, Sub1 }}, {{ Val2, Cap2, Sub2 }}
     }};
-    for (uint32_t Idx = 0u; Idx < 3u; ++Idx)
+    for (uint32_t Idx = 0u; Idx < Cols.size(); ++Idx)
     {
-        const float CellX = Box.X + ColW * static_cast<float>(Idx);
-        const float VW    = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 13.5f, Cols[Idx].first);
-        const float CW    = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.8f, Cols[Idx].second);
-        WorkspaceAppearance::ConstructWeightedText(
-            Surface,
-            FontWeightClass::Medium,
-            { CellX + (ColW - VW) * 0.5f, Box.Y + 10.0f },
-            13.5f,
-            (Idx == 0u) ? Theme.AccentFill : Theme.TextPrimary,
-            Cols[Idx].first);
+        const float X = Box.X + static_cast<float>(Idx) * (CardW + Gap);
+        const Rectangle2D Card{ X, Box.Y, CardW, Box.Height };
+        const bool Highlight = HighlightFirst && Idx == 0u;
+        Surface.FillRectangle(Card, Highlight ? ColorRgba{ 239, 244, 207, 255 } : ColorRgba{ 26, 26, 26, 255 }, 16.0f);
+        Surface.StrokeRectangle(Card, Highlight ? ColorRgba{ 239, 244, 207, 255 } : ColorRgba{ 255, 255, 255, 15 }, 16.0f, 1.0f);
+        const ColorRgba SubInk = Highlight ? ColorRgba{ 23, 25, 14, 166 } : Theme.TextMuted;
         WorkspaceAppearance::ConstructTruncatedText(
-            Surface,
-            FontWeightClass::Regular,
-            { CellX + std::max(4.0f, (ColW - CW) * 0.5f), Box.Y + 33.0f },
-            ColW - 8.0f,
-            8.8f,
-            Theme.TextMuted,
-            Cols[Idx].second);
+            Surface, FontWeightClass::Regular, { X + 11.0f, Box.Y + 9.0f }, CardW - 22.0f, 9.5f, SubInk, Cols[Idx][1]);
+        WorkspaceAppearance::ConstructTruncatedText(
+            Surface, FontWeightClass::Regular, { X + 11.0f, Box.Y + 24.0f }, CardW - 22.0f, 18.0f,
+            Highlight ? ColorRgba{ 23, 25, 14, 255 } : Theme.TextPrimary, Cols[Idx][0]);
+        WorkspaceAppearance::ConstructTruncatedText(
+            Surface, FontWeightClass::Regular, { X + 11.0f, Box.Y + 47.0f }, CardW - 22.0f, 9.0f, SubInk, Cols[Idx][2]);
     }
 }
 
@@ -137,6 +129,7 @@ void UVInspectorPanel::AttachSession(UVWorkspaceSession* TargetSession) noexcept
     TargetUdimDropdownOpen = false;
     PackingScopeDropdownOpen = false;
     LayerColorPickerOpen = false;
+    LiveUnwrapEnabled = false;
 }
 
 float UVInspectorPanel::RenderPackingTab(
@@ -806,79 +799,203 @@ float UVInspectorPanel::RenderUnwrapTab(
 
     float CurY = StartY;
 
-    // Section 1: Unwrap, Quads & Projections
+    // Transform · 2D UV summary card (same placement and data hierarchy as the HTML inspector).
     {
-        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 198.0f };
-        Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
-        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
+        const Rectangle2D Card{ LeftX, CurY, InnerW, 228.0f };
+        Surface.FillRectangle(Card, Theme.SectionBg, 22.0f);
+        Surface.StrokeRectangle(Card, Theme.BorderSubtle, 22.0f, 1.0f);
+        const float SX = Card.X + 16.0f;
+        const float SW = Card.Width - 32.0f;
+        WorkspaceAppearance::ConstructWeightedText(
+            Surface, FontWeightClass::Regular, { SX, Card.Y + 14.0f }, 12.5f, Theme.TextPrimary, "Transform · 2D UV");
+        const char* ScopeTag = Session->SelectionMask.CollectSelectedFaces().empty() ? "UV SPACE · ALL" : "UV SPACE · SELECTED";
+        const float TagW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.3f, ScopeTag);
+        WorkspaceAppearance::ConstructWeightedText(
+            Surface, FontWeightClass::Regular, { Card.Right() - 16.0f - TagW, Card.Y + 16.0f }, 8.3f, Theme.TextMuted, ScopeTag);
 
-        const float SX = SecRect.X + 16.0f;
-        const float SW = SecRect.Width - 32.0f;
-        float       SY = SecRect.Y + 14.0f;
+        const float LabelW = 68.0f;
+        const float CellW = (SW - LabelW - 12.0f) / 3.0f;
+        const float Ux = SX + LabelW;
+        const float Vx = Ux + CellW + 6.0f;
+        const float TileX = Vx + CellW + 6.0f;
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { SX, Card.Y + 43.0f }, 8.0f, Theme.TextFaint, "COMPONENT");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Ux, Card.Y + 43.0f }, 8.0f, ColorRgba{ 202, 153, 148, 255 }, "U");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Vx, Card.Y + 43.0f }, 8.0f, ColorRgba{ 151, 187, 157, 255 }, "V");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { TileX, Card.Y + 43.0f }, 8.0f, ColorRgba{ 142, 171, 216, 255 }, "UDIM");
 
-        ConstructSectionHeading(Surface, SX, SY, SW, "Unwrap, Quads & Stacking", Theme);
-        SY += 24.0f;
-
-        const float HalfW = (SW - 6.0f) * 0.5f;
-        if (ConstructCapsuleButton(Surface, { SX, SY, HalfW, 30.0f }, "LSCM Unwrap (U)", Theme, Cursor, Pressed, false, true, 10.0f))
+        std::vector<uint32_t> TransformFaces = Session->SelectionMask.CollectSelectedFaces();
+        if (TransformFaces.empty())
         {
-            (void)Session->ExecuteDirective(UVCommandDirective::UnwrapConformal, nullptr);
+            TransformFaces.resize(Session->Asset.Network.Faces.size());
+            std::iota(TransformFaces.begin(), TransformFaces.end(), 0u);
         }
-        if (ConstructCapsuleButton(Surface, { SX + HalfW + 6.0f, SY, HalfW, 30.0f }, "Smart UV Project", Theme, Cursor, Pressed, false, false, 10.0f))
+        float MinU = std::numeric_limits<float>::max(), MinV = std::numeric_limits<float>::max();
+        float MaxU = std::numeric_limits<float>::lowest(), MaxV = std::numeric_limits<float>::lowest();
+        for (const uint32_t FaceIndex : TransformFaces)
         {
-            (void)Session->ExecuteDirective(UVCommandDirective::ProjectSmartUV, nullptr);
-        }
-        SY += 36.0f;
-
-        const float ThirdW = (SW - 8.0f) / 3.0f;
-        if (ConstructCapsuleButton(Surface, { SX, SY, ThirdW, 26.0f }, "Follow Quads", Theme, Cursor, Pressed, false, false, 9.2f, 9.0f))
-        {
-            (void)Session->ExecuteDirective(UVCommandDirective::FollowActiveQuads, nullptr);
-        }
-        if (ConstructCapsuleButton(Surface, { SX + ThirdW + 4.0f, SY, ThirdW, 26.0f }, "Stack Similar", Theme, Cursor, Pressed, false, false, 9.2f, 9.0f))
-        {
-            (void)Session->ExecuteDirective(UVCommandDirective::StackSimilarIslands, nullptr);
-        }
-        if (ConstructCapsuleButton(Surface, { SX + (ThirdW + 4.0f) * 2.0f, SY, ThirdW, 26.0f }, "Unstack", Theme, Cursor, Pressed, false, false, 9.2f, 9.0f))
-        {
-            (void)Session->ExecuteDirective(UVCommandDirective::UnstackOverlapping, nullptr);
-        }
-        SY += 32.0f;
-
-        const float FourthW = (SW - 9.0f) / 4.0f;
-        const std::array<std::pair<const char*, UVCommandDirective>, 4u> Projs {{
-            { "Cube",     UVCommandDirective::ProjectCubicBox    },
-            { "Cylinder", UVCommandDirective::ProjectCylindrical },
-            { "Sphere",   UVCommandDirective::ProjectSpherical   },
-            { "Camera",   UVCommandDirective::ProjectCameraView  },
-        }};
-        for (uint32_t Idx = 0u; Idx < 4u; ++Idx)
-        {
-            if (ConstructCapsuleButton(
-                    Surface,
-                    { SX + static_cast<float>(Idx) * (FourthW + 3.0f), SY, FourthW, 25.0f },
-                    Projs[Idx].first,
-                    Theme,
-                    Cursor,
-                    Pressed,
-                    false,
-                    false,
-                    9.0f,
-                    8.0f))
+            if (FaceIndex >= Session->Asset.Network.Faces.size()) continue;
+            const auto& Face = Session->Asset.Network.Faces[FaceIndex];
+            uint32_t Edge = Face.BoundaryLoopEdgeIndex;
+            for (uint16_t Corner = 0u; Corner < Face.CornerCount && Edge < Session->Asset.Network.Edges.size(); ++Corner)
             {
-                (void)Session->ExecuteDirective(Projs[Idx].second, nullptr);
+                const auto& UV = Session->Asset.Network.Edges[Edge].ParameterUV;
+                MinU = std::min(MinU, UV.U); MinV = std::min(MinV, UV.V);
+                MaxU = std::max(MaxU, UV.U); MaxV = std::max(MaxV, UV.V);
+                Edge = Session->Asset.Network.Edges[Edge].NextEdgeIndex;
             }
         }
-        SY += 33.0f;
-
-        float AngleNorm = (Session->SharpAngleThreshold - 15.0f) / 74.0f;
-        char  AngleTxt[24]{};
-        std::snprintf(AngleTxt, sizeof(AngleTxt), "%.0f°", Session->SharpAngleThreshold);
-        if (ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Smart Seam Angle Limit", AngleTxt, AngleNorm, Theme, Cursor, Down, Pressed))
+        if (!std::isfinite(MinU) || !std::isfinite(MinV)) { MinU = MinV = 0.0f; MaxU = MaxV = 1.0f; }
+        const float CenterU = (MinU + MaxU) * 0.5f;
+        const float CenterV = (MinV + MaxV) * 0.5f;
+        const float SpanU = MaxU - MinU, SpanV = MaxV - MinV;
+        const std::array<const char*, 3u> RowLabels {{ "Position", "Extent", "Orient" }};
+        char PositionU[24]{}, PositionV[24]{}, PositionTile[16]{};
+        char ExtentU[24]{}, ExtentV[24]{}, Aspect[24]{};
+        char OrientU[24]{}, OrientV[24]{}, OrientTile[16]{};
+        std::snprintf(PositionU, sizeof(PositionU), "%.2f", CenterU - static_cast<float>((Session->ActiveUDIMNumber - 1001u) % 10u));
+        std::snprintf(PositionV, sizeof(PositionV), "%.2f", CenterV - static_cast<float>((Session->ActiveUDIMNumber - 1001u) / 10u));
+        std::snprintf(PositionTile, sizeof(PositionTile), "%u", Session->ActiveUDIMNumber);
+        std::snprintf(ExtentU, sizeof(ExtentU), "%.2f", SpanU);
+        std::snprintf(ExtentV, sizeof(ExtentV), "%.2f", SpanV);
+        std::snprintf(Aspect, sizeof(Aspect), "%.2f", SpanV > 1.0e-5f ? SpanU / SpanV : 0.0f);
+        std::snprintf(OrientU, sizeof(OrientU), "0.0°");
+        std::snprintf(OrientV, sizeof(OrientV), "%.1f%%", std::max(0.0f, (Session->LatestMetrics.MeanL2Stretch - 1.0f) * 100.0f));
+        std::snprintf(OrientTile, sizeof(OrientTile), "0");
+        const std::array<std::array<const char*, 3u>, 3u> Values {{
+            {{ PositionU, PositionV, PositionTile }}, {{ ExtentU, ExtentV, Aspect }}, {{ OrientU, OrientV, OrientTile }}
+        }};
+        for (uint32_t Row = 0u; Row < 3u; ++Row)
         {
-            Session->SharpAngleThreshold = 15.0f + AngleNorm * 74.0f;
+            const float Y = Card.Y + 64.0f + static_cast<float>(Row) * 34.0f;
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { SX, Y + 6.0f }, 9.0f, Theme.TextMuted, RowLabels[Row]);
+            const std::array<float, 3u> Xs {{ Ux, Vx, TileX }};
+            for (uint32_t Col = 0u; Col < 3u; ++Col)
+            {
+                const Rectangle2D Cell{ Xs[Col], Y, CellW, 26.0f };
+                Surface.FillRectangle(Cell, ColorRgba{ 19, 19, 19, 255 }, 7.0f);
+                Surface.StrokeRectangle(Cell, ColorRgba{ 45, 45, 45, 255 }, 7.0f, 1.0f);
+                WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular,
+                    { Cell.X + 6.0f, Cell.Y + 7.0f }, Cell.Width - 12.0f, 9.0f,
+                    Col == 2u ? ColorRgba{ 151, 180, 219, 255 } : Theme.TextPrimary, Values[Row][Col]);
+            }
         }
+        const float ButtonGap = 7.0f;
+        const float ButtonW = (SW - ButtonGap * 2.0f) / 3.0f;
+        const float ButtonY = Card.Y + 177.0f;
+        const Rectangle2D CenterBtn{ SX, ButtonY, ButtonW, 28.0f };
+        const Rectangle2D RotateBtn{ SX + ButtonW + ButtonGap, ButtonY, ButtonW, 28.0f };
+        const Rectangle2D FrameBtn{ SX + (ButtonW + ButtonGap) * 2.0f, ButtonY, ButtonW, 28.0f };
+        auto TransformUVs = [&](Mathematics::UVAxes Delta, float Angle, const char* Tag)
+        {
+            UVAuthoringOperations::TransformSelectedFaceUVs(
+                Session->Asset.Network, TransformFaces, { CenterU, CenterV }, Delta, Angle, { 1.0f, 1.0f });
+            Session->FinalizeInteractiveUVRevision(Tag);
+            Session->FramebuffersDirty = true;
+        };
+        if (ConstructCapsuleButton(Surface, CenterBtn, "Center Tile", Theme, Cursor, Pressed, false, false, 9.0f,
+            -1.0f, OptionalTooltip::FromText("Center UVs in the active UDIM tile.")))
+        {
+            const float TileU = static_cast<float>((Session->ActiveUDIMNumber - 1001u) % 10u);
+            const float TileV = static_cast<float>((Session->ActiveUDIMNumber - 1001u) / 10u);
+            TransformUVs({ TileU + 0.5f - CenterU, TileV + 0.5f - CenterV }, 0.0f, "CenterUVTile");
+        }
+        if (ConstructCapsuleButton(Surface, RotateBtn, "Rotate 90°", Theme, Cursor, Pressed, false, false, 9.0f,
+            -1.0f, OptionalTooltip::FromText("Rotate the active UV selection by 90 degrees.")))
+        {
+            TransformUVs({}, 1.57079632679f, "RotateUV90");
+        }
+        if (ConstructCapsuleButton(Surface, FrameBtn, "Frame UV", Theme, Cursor, Pressed, false, false, 9.0f,
+            -1.0f, OptionalTooltip::FromText("Frame the active UV selection in the viewport.")))
+        {
+            (void)Session->ExecuteDirective(UVCommandDirective::FitActiveSelection, nullptr);
+        }
+        CurY += Card.Height + 10.0f;
+    }
 
+    // 1. Unwrap, projections, quad strips and similar stacking.
+    {
+        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 330.0f };
+        Surface.FillRectangle(SecRect, Theme.SectionBg, 22.0f);
+        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 22.0f, 1.0f);
+        const float SX = SecRect.X + 16.0f;
+        const float SW = SecRect.Width - 32.0f;
+        float SY = SecRect.Y + 14.0f;
+        const std::string Status = Session->SelectionMask.CollectSelectedFaces().empty() ? "SURFACE" : "SELECTION";
+        ConstructSectionHeading(Surface, SX, SY, SW, "Unwrap, Quads & Stacking", Theme, Status.c_str(), ControlIcon::LayoutGrid);
+        SY += 24.0f;
+        const float ActionGap = 7.0f;
+        const float ActionW = (SW - ActionGap) * 0.5f;
+        if (ConstructCapsuleButton(Surface, { SX, SY, ActionW, 31.0f }, "LSCM Unwrap (U)", Theme, Cursor, Pressed, false, true, 10.0f,
+            -1.0f, OptionalTooltip::FromText("Unwrap selected faces with least-squares conformal mapping.")))
+            (void)Session->ExecuteDirective(UVCommandDirective::UnwrapConformal, nullptr);
+        if (ConstructCapsuleButton(Surface, { SX + ActionW + ActionGap, SY, ActionW, 31.0f }, "Smart UV Project", Theme, Cursor, Pressed, false, false, 10.0f,
+            -1.0f, OptionalTooltip::FromText("Automatically segment and project the selected surface.")))
+            (void)Session->ExecuteDirective(UVCommandDirective::ProjectSmartUV, nullptr);
+        SY += 42.0f;
+
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { SX, SY }, 9.5f, Theme.TextMuted, "QUAD STRIP & SIMILAR STACKING");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { SX + SW - 35.0f, SY }, 8.5f, Theme.TextFaint, "1-click");
+        SY += 16.0f;
+        const float TripleGap = 4.0f;
+        const float TripleW = (SW - TripleGap * 2.0f) / 3.0f;
+        const std::array<std::pair<const char*, UVCommandDirective>, 3u> QuadActions {{
+            { "Follow Quads", UVCommandDirective::FollowActiveQuads },
+            { "Stack Similar", UVCommandDirective::StackSimilarIslands },
+            { "Unstack", UVCommandDirective::UnstackOverlapping },
+        }};
+        for (uint32_t Index = 0u; Index < QuadActions.size(); ++Index)
+        {
+            if (ConstructCapsuleButton(Surface, { SX + static_cast<float>(Index) * (TripleW + TripleGap), SY, TripleW, 30.0f },
+                QuadActions[Index].first, Theme, Cursor, Pressed, false, false, 8.7f, 10.0f,
+                OptionalTooltip::FromText("Run the selected quad or stacking operation.")))
+                (void)Session->ExecuteDirective(QuadActions[Index].second, nullptr);
+        }
+        SY += 42.0f;
+
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { SX, SY }, 9.5f, Theme.TextMuted, "ANALYTIC PROJECTIONS");
+        char AngleMeta[16]{};
+        std::snprintf(AngleMeta, sizeof(AngleMeta), "%.0f°", Session->SharpAngleThreshold);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular,
+            { SX + SW - 34.0f, SY }, 8.5f, Theme.TextFaint, AngleMeta);
+        SY += 16.0f;
+        constexpr std::array<ControlIcon, 5u> ProjectionIcons {{
+            ControlIcon::CubeShape, ControlIcon::LayersSlabs, ControlIcon::LayoutGrid, ControlIcon::CameraBody, ControlIcon::RefreshCycle,
+        }};
+        constexpr std::array<const char*, 5u> ProjectionTips {{
+            "Cube projection", "Cylinder projection", "Sphere projection", "Project from camera view", "Reset face UVs to the active tile",
+        }};
+        constexpr std::array<UVCommandDirective, 5u> ProjectionOps {{
+            UVCommandDirective::ProjectCubicBox, UVCommandDirective::ProjectCylindrical,
+            UVCommandDirective::ProjectSpherical, UVCommandDirective::ProjectCameraView, UVCommandDirective::UnwrapConformal,
+        }};
+        const float ProjectionGap = 5.0f;
+        const float ProjectionW = (SW - ProjectionGap * 4.0f) / 5.0f;
+        for (uint32_t Index = 0u; Index < ProjectionIcons.size(); ++Index)
+        {
+            const Rectangle2D Button{ SX + static_cast<float>(Index) * (ProjectionW + ProjectionGap), SY, ProjectionW, 30.0f };
+            const bool Hovered = Button.Contains(Cursor);
+            Surface.FillRectangle(Button, Hovered ? Theme.HoverBg : ColorRgba{ 20, 20, 20, 255 }, 10.0f);
+            Surface.StrokeRectangle(Button, Theme.BorderSubtle, 10.0f, 1.0f);
+            VectorIconRepository::ConstructControl(Surface, ProjectionIcons[Index],
+                VectorIconPlacement{ Button.X + (Button.Width - 15.0f) * 0.5f, Button.Y + 7.0f, 15.0f,
+                    Hovered ? Theme.TextPrimary : Theme.TextMuted, 1.8f });
+            if (Hovered)
+            {
+                RecordControlTooltip(Button, ProjectionTips[Index], OptionalTooltip::FromText(ProjectionTips[Index]), ProjectionTips[Index]);
+                if (Pressed) (void)Session->ExecuteDirective(ProjectionOps[Index], nullptr);
+            }
+        }
+        SY += 40.0f;
+
+        float AngleNorm = std::clamp((Session->SharpAngleThreshold - 10.0f) / 79.0f, 0.0f, 1.0f);
+        char AngleTxt[24]{};
+        std::snprintf(AngleTxt, sizeof(AngleTxt), "%.0f°", Session->SharpAngleThreshold);
+        if (ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Smart Angle Limit", AngleTxt, AngleNorm, Theme, Cursor, Down, Pressed))
+            Session->SharpAngleThreshold = 10.0f + AngleNorm * 79.0f;
+        SY += 52.0f;
+        (void)ConstructToggleRow(Surface, { SX, SY, SW, 42.0f }, "Live Unwrap", LiveUnwrapEnabled,
+            Theme, Cursor, Pressed, OptionalTooltip::FromText("Continuously re-solve LSCM while moving pins."),
+            "Continuously re-solve LSCM while moving pins", "");
         CurY += SecRect.Height + 10.0f;
     }
 
@@ -972,175 +1089,270 @@ float UVInspectorPanel::RenderUDIMTab(
     const PaneInputReading& Input)
 {
     using namespace UVAppearance;
-    const UVThemeColors Theme   = QueryThemeColors();
-    const Point2D       Cursor  { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
-    const bool          Pressed = Input.PrimaryPointer.Pressed;
-
+    const UVThemeColors Theme = QueryThemeColors();
+    const Point2D Cursor{ Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+    const bool Pressed = Input.PrimaryPointer.Pressed;
     float CurY = StartY;
+    const auto IslandsByUDIM = SeamCutGenerator::PartitionConnectedUVIslands(Session->Asset.Network);
 
-    char ActBuf[24]{}, CountBuf[24]{}, DensBuf[24]{};
-    std::snprintf(ActBuf, sizeof(ActBuf), "%u", Session->ActiveUDIMNumber);
-    std::snprintf(CountBuf, sizeof(CountBuf), "%zu", Session->Asset.UDIMTiles.size());
-    std::snprintf(DensBuf, sizeof(DensBuf), "%.1f px/cm", Session->WorkspaceConfig.InspectUVPreferences().TargetTexelDensity * 0.01f);
+    char ActiveValue[24]{}, TileCount[24]{}, DensityValue[24]{}, ActiveSub[32]{}, TotalSub[32]{};
+    std::snprintf(ActiveValue, sizeof(ActiveValue), "%u", Session->ActiveUDIMNumber);
+    std::snprintf(TileCount, sizeof(TileCount), "%zu", Session->Asset.UDIMTiles.size());
+    const auto ActiveCfg = Session->QueryUDIMTileSetting(Session->ActiveUDIMNumber);
+    std::snprintf(DensityValue, sizeof(DensityValue), "%.1f",
+        Session->WorkspaceConfig.InspectUVPreferences().TargetTexelDensity * 0.01f);
+    double TotalMP = 0.0;
+    for (const uint32_t Tile : Session->Asset.UDIMTiles)
+    {
+        const uint32_t Res = Session->QueryUDIMTileSetting(Tile).ResolutionPx;
+        TotalMP += static_cast<double>(Res) * Res / 1.0e6;
+    }
+    const double ActiveMP = static_cast<double>(ActiveCfg.ResolutionPx) * ActiveCfg.ResolutionPx / 1.0e6;
+    if (ActiveCfg.ResolutionPx >= 1024u)
+        std::snprintf(ActiveSub, sizeof(ActiveSub), "%uK · %.1f MP", ActiveCfg.ResolutionPx / 1024u, ActiveMP);
+    else
+        std::snprintf(ActiveSub, sizeof(ActiveSub), "%u px · %.1f MP", ActiveCfg.ResolutionPx, ActiveMP);
+    std::snprintf(TotalSub, sizeof(TotalSub), "%.1f MP total", TotalMP);
 
     ConstructMetricTrio(
-        Surface,
-        { LeftX, CurY, InnerW, 56.0f },
-        ActBuf,   "Active UDIM",
-        CountBuf, "Atlas Tiles",
-        DensBuf,  "Texel Density",
-        Theme);
-    CurY += 66.0f;
+        Surface, { LeftX, CurY, InnerW, 60.0f },
+        ActiveValue, "Active UDIM", ActiveSub,
+        TileCount, "Atlas Tiles", TotalSub,
+        DensityValue, "Texel Density", "px/cm average",
+        Theme, true);
+    CurY += 70.0f;
 
-    // Section 1: UDIM Tiles grid (.pz-udim-grid)
+    // UDIM Atlas table, following the HTML section card, compact action toolbar, and chart rows.
     {
-        const float TileListHeight = static_cast<float>(Session->Asset.UDIMTiles.size()) * 36.0f;
-        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 88.0f + TileListHeight };
-        Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
-        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
-
+        const std::size_t TileCountSize = Session->Asset.UDIMTiles.size();
+        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 106.0f + static_cast<float>(TileCountSize) * 40.0f };
+        Surface.FillRectangle(SecRect, Theme.SectionBg, 22.0f);
+        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 22.0f, 1.0f);
         const float SX = SecRect.X + 16.0f;
         const float SW = SecRect.Width - 32.0f;
-        float       SY = SecRect.Y + 14.0f;
-
-        ConstructSectionHeading(Surface, SX, SY, SW, "UDIM Tiles", Theme);
+        float SY = SecRect.Y + 14.0f;
+        char TileBadge[24]{};
+        std::snprintf(TileBadge, sizeof(TileBadge), "%zu TILE%s", TileCountSize, TileCountSize == 1u ? "" : "S");
+        ConstructSectionHeading(Surface, SX, SY, SW, "UDIM Tiles", Theme, TileBadge, ControlIcon::LayoutGrid);
         SY += 24.0f;
 
-        const float HalfW = (SW - 6.0f) * 0.5f;
-        if (ConstructCapsuleButton(Surface, { SX, SY, HalfW, 26.0f }, "+ Add UDIM Tile", Theme, Cursor, Pressed, false, true, 9.6f))
+        const float ToolH = 28.0f;
+        const float AddW = std::min(104.0f, SW - 124.0f);
+        const Rectangle2D AddBounds{ SX, SY, AddW, ToolH };
+        const bool AddHovered = AddBounds.Contains(Cursor);
+        const ColorRgba AddFill = AddHovered ? Theme.PrimaryHover : Theme.PrimaryFill;
+        Surface.FillRectangle(AddBounds, AddFill, 14.0f);
+        Surface.StrokeRectangle(AddBounds, AddFill, 14.0f, 1.0f);
+        VectorIconRepository::ConstructControl(
+            Surface, ControlIcon::PlusAdd, VectorIconPlacement{ AddBounds.X + 9.0f, AddBounds.Y + 7.0f, 14.0f, Theme.PrimaryInk, 1.8f });
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Medium,
+            { AddBounds.X + 28.0f, AddBounds.Y + 9.0f }, AddBounds.Width - 34.0f, 9.2f, Theme.PrimaryInk, "Add UDIM Tile");
+        if (AddHovered)
+            RecordControlTooltip(AddBounds, "Add UDIM Tile", OptionalTooltip::FromText("Allocate the next sequential UDIM tile."),
+                "Allocate the next sequential UDIM tile.");
+        if (AddHovered && Pressed) (void)Session->ConstructNextUDIMTile();
+        // Reserve space for the icon added to the existing shared capsule button label.
+        const float IconW = 28.0f;
+        const float IconGap = 5.0f;
+        const float IconWTotal = 4.0f * IconW + 3.0f * IconGap;
+        const float IconStart = SX + SW - IconWTotal;
+        const std::array<ControlIcon, 4u> TileTools {{
+            ControlIcon::LayersSlabs, ControlIcon::GaugeRate, ControlIcon::LayoutSplit, ControlIcon::ExternalOpen,
+        }};
+        const std::array<const char*, 4u> ToolTips {{
+            "Move selected charts to the active UDIM", "Match texel density across UDIM tiles",
+            "Frame all allocated UDIM tiles", "Load a reference texture",
+        }};
+        for (uint32_t Index = 0u; Index < TileTools.size(); ++Index)
         {
-            (void)Session->ConstructNextUDIMTile();
+            const Rectangle2D Button{ IconStart + static_cast<float>(Index) * (IconW + IconGap), SY, IconW, ToolH };
+            const bool Hovered = Button.Contains(Cursor);
+            Surface.FillRectangle(Button, Hovered ? Theme.HoverBg : ColorRgba{ 31, 31, 31, 255 }, 10.0f);
+            Surface.StrokeRectangle(Button, Theme.BorderSubtle, 10.0f, 1.0f);
+            VectorIconRepository::ConstructControl(
+                Surface, TileTools[Index], VectorIconPlacement{
+                    Button.X + 7.0f, Button.Y + 7.0f, 14.0f, Hovered ? Theme.TextPrimary : Theme.TextMuted, 1.8f });
+            if (Hovered)
+            {
+                RecordControlTooltip(Button, ToolTips[Index], OptionalTooltip::FromText(ToolTips[Index]), ToolTips[Index]);
+            }
+            if (Hovered && Pressed)
+            {
+                if (Index == 0u) (void)Session->MoveSelectedLayerToUDIM(Session->ActiveUDIMNumber);
+                else if (Index == 1u) (void)Session->ExecuteDirective(UVCommandDirective::EqualizeTexelDensity, nullptr);
+                else if (Index == 2u) (void)Session->ExecuteDirective(UVCommandDirective::FitActiveSelection, nullptr);
+                // The upload control shares its affordance with the HTML reference; texture import is handled by the viewport asset flow.
+            }
         }
-        if (ConstructCapsuleButton(Surface, { SX + HalfW + 6.0f, SY, HalfW, 26.0f }, "Distribute UDIMs", Theme, Cursor, Pressed, false, false, 9.6f))
+        SY += 36.0f;
+
+        const Rectangle2D TableBounds{ SX, SY, SW, 18.0f + static_cast<float>(TileCountSize) * 40.0f };
+        Surface.FillRectangle(TableBounds, ColorRgba{ 23, 23, 23, 255 }, 12.0f);
+        Surface.StrokeRectangle(TableBounds, ColorRgba{ 46, 46, 46, 255 }, 12.0f, 1.0f);
+        Surface.FillRectangle({ TableBounds.X + 1.0f, TableBounds.Y + 1.0f, TableBounds.Width - 2.0f, 17.0f },
+            ColorRgba{ 28, 28, 28, 255 }, 11.0f);
+        // Compact table header.
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { SX + 25.0f, SY + 3.0f }, 8.2f, Theme.TextMuted, "TILE");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { SX + SW - 94.0f, SY + 3.0f }, 8.2f, Theme.TextMuted, "CHARTS");
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { SX + SW - 47.0f, SY + 3.0f }, 8.2f, Theme.TextMuted, "RES");
+        SY += 18.0f;
+
+        std::vector<uint32_t> SortedTiles = Session->Asset.UDIMTiles;
+        std::sort(SortedTiles.begin(), SortedTiles.end());
+        constexpr std::array<uint32_t, 5u> ResolutionCycle {{ 512u, 1024u, 2048u, 4096u, 8192u }};
+        for (const uint32_t TileCode : SortedTiles)
         {
-            (void)Session->ExecuteDirective(UVCommandDirective::AutoDistributeUDIMs, nullptr);
-        }
-        SY += 34.0f;
-
-        for (const uint32_t TileCode : Session->Asset.UDIMTiles)
-        {
-            const bool        IsAct = (Session->ActiveUDIMNumber == TileCode);
-            const auto        Cfg   = Session->QueryUDIMTileSetting(TileCode);
-            const float       Occ   = EvaluateUDIMFillPercent(Session->Asset.Network, TileCode);
-            const Rectangle2D Row   { SX, SY, SW, 32.0f };
-            const bool        Hov   = Row.Contains(Cursor);
-
-            Surface.FillRectangle(Row, IsAct ? Theme.AccentSoft : (Hov ? Theme.HoverBg : Theme.WellBg), 8.0f);
-            Surface.StrokeRectangle(Row, IsAct ? Theme.AccentBorder : Theme.BorderSubtle, 8.0f, 1.0f);
-
-            Surface.FillCircle({ Row.X + 12.0f, Row.Y + 14.0f }, 3.5f, IsAct ? Theme.AccentFill : Theme.TextMuted);
-
-            char RowTxt[64]{};
-            const uint32_t TU = (TileCode - 1001u) % 10u;
-            const uint32_t TV = (TileCode - 1001u) / 10u;
-            std::snprintf(RowTxt, sizeof(RowTxt), "UDIM %u   (%u,%u) · %.1f%%", TileCode, TU, TV, Occ);
-            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Row.X + 24.0f, Row.Y + 7.5f }, 9.8f, Theme.TextPrimary, RowTxt);
-
-            char ResolutionTag[16]{};
-            if (Cfg.ResolutionPx >= 1024u)
+            const bool IsActive = Session->ActiveUDIMNumber == TileCode;
+            const auto Cfg = Session->QueryUDIMTileSetting(TileCode);
+            const float Occupancy = EvaluateUDIMFillPercent(Session->Asset.Network, TileCode);
+            const uint32_t ChartCount = static_cast<uint32_t>(std::count_if(
+                IslandsByUDIM.begin(), IslandsByUDIM.end(), [TileCode](const UVIslandPartition& Island)
+                { return Island.AssignedUDIMNumber == TileCode; }));
+            const Rectangle2D Row{ SX + 1.0f, SY, SW - 2.0f, 40.0f };
+            const bool Hovered = Row.Contains(Cursor);
+            if (IsActive) Surface.FillRectangle(Row, ColorRgba{ 31, 31, 31, 255 }, 0.0f);
+            Surface.StrokeLine({ Row.X + 8.0f, Row.Bottom() }, { Row.Right() - 8.0f, Row.Bottom() }, ColorRgba{ 37, 37, 37, 255 }, 1.0f);
+            Surface.FillCircle({ Row.X + 14.0f, Row.Y + 20.0f }, 5.0f, IsActive ? ColorRgba{ 239, 244, 207, 255 } : Theme.TextMuted);
+            const uint32_t U = (TileCode - 1001u) % 10u;
+            const uint32_t V = (TileCode - 1001u) / 10u;
+            char TileName[24]{}, CoordText[48]{}, CountText[16]{}, ResText[12]{};
+            std::snprintf(TileName, sizeof(TileName), "%u", TileCode);
+            std::snprintf(CoordText, sizeof(CoordText), "u%u, v%u · %.0f%%", U, V, Occupancy);
+            std::snprintf(CountText, sizeof(CountText), "%u", ChartCount);
+            if (Cfg.ResolutionPx >= 1024u) std::snprintf(ResText, sizeof(ResText), "%uK", Cfg.ResolutionPx / 1024u);
+            else std::snprintf(ResText, sizeof(ResText), "%u", Cfg.ResolutionPx);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium,
+                { Row.X + 27.0f, Row.Y + 6.0f }, 10.5f, Theme.TextPrimary, TileName);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular,
+                { Row.X + 27.0f, Row.Y + 22.0f }, 8.2f, Theme.TextMuted, CoordText);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular,
+                { Row.X + SW - 91.0f, Row.Y + 13.0f }, 9.2f, Theme.TextPrimary, CountText);
+            const Rectangle2D ResChip{ Row.X + SW - 53.0f, Row.Y + 7.0f, 32.0f, 26.0f };
+            Surface.FillRectangle(ResChip, ColorRgba{ 32, 32, 32, 255 }, 8.0f);
+            Surface.StrokeRectangle(ResChip, Theme.BorderSubtle, 8.0f, 1.0f);
+            WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Medium,
+                { ResChip.X + 3.0f, ResChip.Y + 8.0f }, ResChip.Width - 6.0f, 8.8f, Theme.TextPrimary, ResText);
+            const Rectangle2D DeleteHit{ Row.Right() - 18.0f, Row.Y + 8.0f, 16.0f, 24.0f };
+            VectorIconRepository::ConstructControl(Surface, ControlIcon::CloseCross,
+                VectorIconPlacement{ DeleteHit.X + 2.0f, DeleteHit.Y + 5.0f, 12.0f, Theme.TextMuted, 1.8f });
+            if (Hovered && Pressed)
             {
-                std::snprintf(ResolutionTag, sizeof(ResolutionTag), "%uK", Cfg.ResolutionPx / 1024u);
-            }
-            else
-            {
-                std::snprintf(ResolutionTag, sizeof(ResolutionTag), "%u", Cfg.ResolutionPx);
-            }
-            const float RW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Medium, 9.0f, ResolutionTag);
-            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Row.Right() - RW - 10.0f, Row.Y + 8.0f }, 9.0f, Theme.AccentFill, ResolutionTag);
-
-            // Bottom 2px fill bar
-            if (Occ > 0.2f)
-            {
-                Surface.FillRectangle({ Row.X + 4.0f, Row.Bottom() - 3.0f, (Row.Width - 8.0f) * (Occ * 0.01f), 2.0f }, Theme.AccentFill, 1.0f);
-            }
-
-            if (Hov && Pressed)
-            {
-                Session->ActiveUDIMNumber  = TileCode;
+                Session->ActiveUDIMNumber = TileCode;
                 Session->FramebuffersDirty = true;
             }
-            SY += 36.0f;
+            if (ResChip.Contains(Cursor))
+            {
+                RecordControlTooltip(ResChip, "Resolution", OptionalTooltip::FromText("Click to cycle through 512, 1K, 2K, 4K, and 8K."),
+                    "Set this UDIM's texture resolution.");
+                if (Pressed)
+                {
+                    const auto It = std::find(ResolutionCycle.begin(), ResolutionCycle.end(), Cfg.ResolutionPx);
+                    const uint32_t NextIndex = It == ResolutionCycle.end() ? 0u :
+                        (static_cast<uint32_t>(std::distance(ResolutionCycle.begin(), It)) + 1u) % static_cast<uint32_t>(ResolutionCycle.size());
+                    Session->AccessUDIMTileSetting(TileCode).ResolutionPx = ResolutionCycle[NextIndex];
+                    Session->ActiveUDIMNumber = TileCode;
+                    Session->FramebuffersDirty = true;
+                }
+            }
+            if (DeleteHit.Contains(Cursor))
+            {
+                RecordControlTooltip(DeleteHit, "Remove Tile", OptionalTooltip::FromText("Remove this UDIM tile."), "Remove this UDIM tile.");
+                if (Pressed && Session->Asset.UDIMTiles.size() > 1u)
+                {
+                    std::erase(Session->Asset.UDIMTiles, TileCode);
+                    if (Session->ActiveUDIMNumber == TileCode) Session->ActiveUDIMNumber = Session->Asset.UDIMTiles.front();
+                }
+            }
+            if (Occupancy > 0.0f)
+                Surface.FillRectangle({ Row.X + 4.0f, Row.Bottom() - 3.0f, (Row.Width - 8.0f) * Occupancy * 0.01f, 2.0f },
+                    IsActive ? ColorRgba{ 239, 244, 207, 255 } : ColorRgba{ 90, 90, 90, 255 }, 1.0f);
+            SY += 40.0f;
         }
-
         CurY += SecRect.Height + 10.0f;
     }
 
-    // Section 2: Active UDIM Resolution & Backing
+    // Active UDIM resolution deck and the HTML Color / UV Code / Checker / Slate segmented backing selector.
     {
-        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 132.0f };
-        Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
-        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
-
+        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 150.0f };
+        Surface.FillRectangle(SecRect, Theme.SectionBg, 22.0f);
+        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 22.0f, 1.0f);
         const float SX = SecRect.X + 16.0f;
         const float SW = SecRect.Width - 32.0f;
-        float       SY = SecRect.Y + 14.0f;
-
-        char SecTitle[48]{};
-        std::snprintf(SecTitle, sizeof(SecTitle), "UDIM %u Settings", Session->ActiveUDIMNumber);
-        ConstructSectionHeading(Surface, SX, SY, SW, SecTitle, Theme);
+        float SY = SecRect.Y + 14.0f;
+        char Title[48]{};
+        std::snprintf(Title, sizeof(Title), "UDIM %u Settings", Session->ActiveUDIMNumber);
+        ConstructSectionHeading(Surface, SX, SY, SW, Title, Theme, "", ControlIcon::SlidersQuality);
         SY += 24.0f;
-
         auto& TileCfg = Session->AccessUDIMTileSetting(Session->ActiveUDIMNumber);
-
-        // 5-column resolution deck: 512 | 1K | 2K | 4K | 8K
-        constexpr std::array<std::pair<const char*, uint32_t>, 5u> ResDeck {{
-            { "512", 512u  },
-            { "1K",  1024u },
-            { "2K",  2048u },
-            { "4K",  4096u },
-            { "8K",  8192u },
+        constexpr std::array<std::pair<const char*, const char*>, 5u> ResDeck {{
+            { "512", "0.3 MP" }, { "1K", "1.0 MP" }, { "2K", "4.2 MP" }, { "4K", "16.8 MP" }, { "8K", "67.1 MP" },
         }};
-        const float ResW = (SW - 12.0f) / 5.0f;
-        for (uint32_t Idx = 0u; Idx < 5u; ++Idx)
+        constexpr std::array<uint32_t, 5u> ResValues {{ 512u, 1024u, 2048u, 4096u, 8192u }};
+        const float ResGap = 4.0f;
+        const float ResW = (SW - ResGap * 4.0f) / 5.0f;
+        for (uint32_t Index = 0u; Index < ResDeck.size(); ++Index)
         {
-            if (ConstructCapsuleButton(
-                    Surface,
-                    { SX + static_cast<float>(Idx) * (ResW + 3.0f), SY, ResW, 26.0f },
-                    ResDeck[Idx].first,
-                    Theme,
-                    Cursor,
-                    Pressed,
-                    TileCfg.ResolutionPx == ResDeck[Idx].second,
-                    false,
-                    9.2f,
-                    8.0f))
+            const Rectangle2D Pill{ SX + static_cast<float>(Index) * (ResW + ResGap), SY, ResW, 38.0f };
+            const bool Active = TileCfg.ResolutionPx == ResValues[Index];
+            const bool Hovered = Pill.Contains(Cursor);
+            Surface.FillRectangle(Pill, Active ? ColorRgba{ 239, 244, 207, 255 } :
+                (Hovered ? ColorRgba{ 43, 43, 43, 255 } : ColorRgba{ 28, 28, 28, 255 }), 11.0f);
+            Surface.StrokeRectangle(Pill, Active ? ColorRgba{ 239, 244, 207, 255 } : Theme.BorderSubtle, 11.0f, 1.0f);
+            WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Medium,
+                { Pill.X + 4.0f, Pill.Y + 7.0f }, Pill.Width - 8.0f, 9.5f,
+                Active ? ColorRgba{ 23, 25, 14, 255 } : Theme.TextPrimary, ResDeck[Index].first);
+            WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular,
+                { Pill.X + 4.0f, Pill.Y + 23.0f }, Pill.Width - 8.0f, 7.6f,
+                Active ? ColorRgba{ 23, 25, 14, 166 } : Theme.TextMuted, ResDeck[Index].second);
+            if (Hovered)
             {
-                TileCfg.ResolutionPx      = ResDeck[Idx].second;
-                Session->FramebuffersDirty = true;
+                RecordControlTooltip(Pill, ResDeck[Index].first,
+                    OptionalTooltip::FromText("Set the active UDIM texture resolution."), "Set the active UDIM resolution.");
+                if (Pressed)
+                {
+                    TileCfg.ResolutionPx = ResValues[Index];
+                    Session->FramebuffersDirty = true;
+                }
             }
         }
-        SY += 34.0f;
-
-        // 4-column Backing selector
+        SY += 50.0f;
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular,
+            { SX, SY }, 11.5f, Theme.TextMuted, "Backing");
         constexpr std::array<std::pair<const char*, GeometricRaster::UVBackdropPreset>, 4u> Backings {{
-            { "Slate",      GeometricRaster::UVBackdropPreset::None             },
-            { "ColorCheck", GeometricRaster::UVBackdropPreset::ColorChecker     },
-            { "Trim Atlas", GeometricRaster::UVBackdropPreset::TrimSheetAtlas   },
-            { "Aniso Pack", GeometricRaster::UVBackdropPreset::BrushedAnisoPack },
+            { "Color", GeometricRaster::UVBackdropPreset::ColorChecker },
+            { "UV Code", GeometricRaster::UVBackdropPreset::UVCode },
+            { "Checker", GeometricRaster::UVBackdropPreset::Checker },
+            { "Slate", GeometricRaster::UVBackdropPreset::Slate },
         }};
-        const float BackW = (SW - 9.0f) / 4.0f;
-        for (uint32_t Idx = 0u; Idx < 4u; ++Idx)
+        const Rectangle2D BackTrack{ SX, SY + 16.0f, SW, 30.0f };
+        Surface.FillRectangle(BackTrack, ColorRgba{ 11, 11, 11, 255 }, 15.0f);
+        Surface.StrokeRectangle(BackTrack, ColorRgba{ 255, 255, 255, 22 }, 15.0f, 1.0f);
+        const float BackGap = 3.0f;
+        const float BackW = (SW - 12.0f) / 4.0f;
+        for (uint32_t Index = 0u; Index < Backings.size(); ++Index)
         {
-            if (ConstructCapsuleButton(
-                    Surface,
-                    { SX + static_cast<float>(Idx) * (BackW + 3.0f), SY, BackW, 26.0f },
-                    Backings[Idx].first,
-                    Theme,
-                    Cursor,
-                    Pressed,
-                    TileCfg.BackdropPreset == Backings[Idx].second,
-                    false,
-                    8.8f,
-                    8.0f))
+            const Rectangle2D Option{ SX + 4.0f + static_cast<float>(Index) * (BackW + BackGap), SY + 19.0f, BackW, 24.0f };
+            const bool Active = TileCfg.BackdropPreset == Backings[Index].second;
+            const bool Hovered = Option.Contains(Cursor);
+            if (Active || Hovered)
+                Surface.FillRectangle(Option, Active ? ColorRgba{ 41, 41, 41, 255 } : ColorRgba{ 33, 33, 33, 255 }, 12.0f);
+            WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular,
+                { Option.X + 3.0f, Option.Y + 7.0f }, Option.Width - 6.0f, 8.8f,
+                Active || Hovered ? Theme.TextPrimary : Theme.TextMuted, Backings[Index].first);
+            if (Hovered)
             {
-                TileCfg.BackdropPreset     = Backings[Idx].second;
-                Session->FramebuffersDirty = true;
+                RecordControlTooltip(Option, Backings[Index].first,
+                    OptionalTooltip::FromText("Choose the preview backing for the active UDIM tile."),
+                    "Choose a UDIM backing.");
+                if (Pressed)
+                {
+                    TileCfg.BackdropPreset = Backings[Index].second;
+                    Session->FramebuffersDirty = true;
+                }
             }
         }
-
         CurY += SecRect.Height + 12.0f;
     }
-
     return CurY - StartY;
 }
 
@@ -1152,113 +1364,130 @@ float UVInspectorPanel::RenderShadingTab(
     const PaneInputReading& Input)
 {
     using namespace UVAppearance;
-    const UVThemeColors Theme   = QueryThemeColors();
-    const Point2D       Cursor  { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
-    const bool          Pressed = Input.PrimaryPointer.Pressed;
-    const bool          Down    = Input.PrimaryPointer.Down;
-
+    const UVThemeColors Theme = QueryThemeColors();
+    const Point2D Cursor{ Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+    const bool Pressed = Input.PrimaryPointer.Pressed;
+    const bool Down = Input.PrimaryPointer.Down;
+    const auto& Network = Session->Asset.Network;
     float CurY = StartY;
 
-    // 1. .pz-shading-hero Banner
+    // Material hero with the same hierarchy as Experimental/UVEditor.
     {
-        const Rectangle2D Hero{ LeftX, CurY, InnerW, 76.0f };
+        const Rectangle2D Hero{ LeftX, CurY, InnerW, 154.0f };
         Surface.FillRectangle(Hero, Theme.SectionBg, 20.0f);
-        Surface.StrokeRectangle(Hero, Theme.BorderStrong, 20.0f, 1.0f);
-
-        ConstructMatCapOrbPreview(Surface, { Hero.X + 34.0f, Hero.Y + 38.0f }, 20.0f, SelectedMatCap, true, Theme);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium, { Hero.X + 66.0f, Hero.Y + 16.0f }, 12.5f, Theme.TextPrimary, "Studio + Multi-MatCap");
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Hero.X + 66.0f, Hero.Y + 36.0f }, 9.2f, Theme.TextMuted, "GGX Direct Lit + 16 Procedural MatCaps");
-
-        char SubLine[64]{};
-        std::snprintf(SubLine, sizeof(SubLine), "%s tris · UDIM %u", FormatCountWithCommas(Session->Asset.Network.Faces.size()).c_str(), Session->ActiveUDIMNumber);
-        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Hero.X + 66.0f, Hero.Y + 52.0f }, 8.8f, Theme.AccentFill, SubLine);
-
+        Surface.StrokeRectangle(Hero, Theme.BorderSubtle, 20.0f, 1.0f);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular,
+            { Hero.X + 18.0f, Hero.Y + 16.0f }, 8.8f, Theme.TextMuted, "VIEWPORT SHADER");
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Light,
+            { Hero.X + 18.0f, Hero.Y + 36.0f }, Hero.Width - 36.0f, 25.0f, Theme.TextPrimary, "Surface Material");
+        char ChartTxt[48]{};
+        std::snprintf(ChartTxt, sizeof(ChartTxt), "%u charts", CachedChartCount);
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular,
+            { Hero.X + 18.0f, Hero.Y + 68.0f }, 9.8f, Theme.TextMuted, ChartTxt);
+        Surface.FillRectangle({ Hero.X + 18.0f, Hero.Y + 111.0f, Hero.Width - 36.0f, 5.0f }, Theme.WellBg, 3.0f);
+        Surface.FillRectangle({ Hero.X + 18.0f, Hero.Y + 111.0f, Hero.Width - 36.0f, 5.0f }, Theme.AccentFill, 3.0f);
+        char FaceTxt[48]{}, AreaTxt[64]{};
+        std::snprintf(FaceTxt, sizeof(FaceTxt), "Entire Surface (%s faces)", FormatCountWithCommas(Network.Faces.size()).c_str());
+        std::snprintf(AreaTxt, sizeof(AreaTxt), "UDIM %u · %u px", Session->ActiveUDIMNumber,
+            Session->QueryUDIMTileSetting(Session->ActiveUDIMNumber).ResolutionPx);
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular,
+            { Hero.X + 18.0f, Hero.Y + 124.0f }, Hero.Width * 0.57f, 8.8f, Theme.TextMuted, FaceTxt);
+        WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular,
+            { Hero.X + Hero.Width * 0.57f, Hero.Y + 124.0f }, Hero.Width * 0.39f, 8.8f, Theme.TextMuted, AreaTxt);
         CurY += Hero.Height + 10.0f;
     }
 
-    // 2. 2x2 Bento Telemetry Grid (.pz-bento-grid)
+    // Four independent telemetry tiles as in the HTML bento grid.
     {
-        const float Gap   = 8.0f;
+        const float Gap = 8.0f;
         const float TileW = (InnerW - Gap) * 0.5f;
-        const float TileH = 54.0f;
-
-        char OvStr[32]{}, StrStr[32]{}, ResStr[32]{}, SurfStr[32]{};
-        std::snprintf(OvStr, sizeof(OvStr), "%u Overlaps", Session->LatestMetrics.OverlapFaceCount);
-        std::snprintf(StrStr, sizeof(StrStr), "%.2fx", Session->LatestMetrics.MeanL2Stretch);
-        std::snprintf(ResStr, sizeof(ResStr), "%u px", Session->QueryUDIMTileSetting(Session->ActiveUDIMNumber).ResolutionPx);
-        std::snprintf(SurfStr, sizeof(SurfStr), "%s f", FormatCountWithCommas(Session->Asset.Network.Faces.size()).c_str());
-
-        const std::array<std::pair<const char*, const char*>, 4u> Bento {{
-            { "UV Health",    OvStr   },
-            { "Mean Stretch", StrStr  },
-            { "Atlas Res",    ResStr  },
-            { "Surface",      SurfStr },
+        const float TileH = 76.0f;
+        const float StretchPct = std::max(0.0f, (Session->LatestMetrics.MeanL2Stretch - 1.0f) * 100.0f);
+        char IssueValue[32]{}, StretchValue[32]{}, DensityValue[32]{}, SurfaceValue[32]{};
+        const uint32_t Issues = Session->LatestMetrics.OverlapFaceCount + Session->LatestMetrics.FlippedFaceCount;
+        std::snprintf(IssueValue, sizeof(IssueValue), "%u", Issues);
+        std::snprintf(StretchValue, sizeof(StretchValue), "%.1f", StretchPct);
+        std::snprintf(DensityValue, sizeof(DensityValue), "%.1f", Session->WorkspaceConfig.InspectUVPreferences().TargetTexelDensity * 0.01f);
+        std::snprintf(SurfaceValue, sizeof(SurfaceValue), "%s", FormatCountWithCommas(Network.Faces.size()).c_str());
+        const std::array<std::array<const char*, 3u>, 4u> Tiles {{
+            {{ Issues ? "Overlaps" : "UV Health", IssueValue, Issues ? "issues" : "ok" }},
+            {{ "Stretch", StretchValue, "%" }},
+            {{ "Density", DensityValue, "px" }},
+            {{ "Surface", SurfaceValue, "f" }}
         }};
-
-        for (uint32_t Idx = 0u; Idx < 4u; ++Idx)
+        for (uint32_t Index = 0u; Index < Tiles.size(); ++Index)
         {
-            const float BX = LeftX + static_cast<float>(Idx % 2u) * (TileW + Gap);
-            const float BY = CurY  + static_cast<float>(Idx / 2u) * (TileH + Gap);
-            const Rectangle2D Cell{ BX, BY, TileW, TileH };
-            Surface.FillRectangle(Cell, Theme.SectionBg, 14.0f);
-            Surface.StrokeRectangle(Cell, Theme.BorderSubtle, 14.0f, 1.0f);
-            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular, { Cell.X + 12.0f, Cell.Y + 9.0f }, 8.8f, Theme.TextMuted, Bento[Idx].first);
-            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Medium,  { Cell.X + 12.0f, Cell.Y + 26.0f }, 12.5f, (Idx == 0u && Session->LatestMetrics.OverlapFaceCount == 0u) ? Theme.ReadyGreen : Theme.TextPrimary, Bento[Idx].second);
+            const float X = LeftX + static_cast<float>(Index % 2u) * (TileW + Gap);
+            const float Y = CurY + static_cast<float>(Index / 2u) * (TileH + Gap);
+            const Rectangle2D Card{ X, Y, TileW, TileH };
+            Surface.FillRectangle(Card, Theme.SectionBg, 16.0f);
+            Surface.StrokeRectangle(Card, Theme.BorderSubtle, 16.0f, 1.0f);
+            const ColorRgba BadgeColor = (Index == 0u && Issues == 0u) ? Theme.ReadyGreen : Theme.AccentBorder;
+            Surface.FillCircle({ X + 24.0f, Y + 24.0f }, 10.0f, BadgeColor);
+            constexpr std::array<ControlIcon, 4u> BadgeIcons {{
+                ControlIcon::CircleCheck, ControlIcon::GaugeRate, ControlIcon::LayoutGrid, ControlIcon::LayersSlabs
+            }};
+            const ControlIcon BadgeIcon = (Index == 0u && Issues > 0u) ? ControlIcon::TriangleAlert : BadgeIcons[Index];
+            VectorIconRepository::ConstructControl(Surface, BadgeIcon,
+                VectorIconPlacement{ X + 18.0f, Y + 18.0f, 12.0f, Theme.WellBg, 1.5f });
+            WorkspaceAppearance::ConstructTruncatedText(Surface, FontWeightClass::Regular,
+                { X + 12.0f, Y + 50.0f }, TileW - 24.0f, 8.8f, Theme.TextMuted, Tiles[Index][0]);
+            const float ValueSize = (Index == 3u && Network.Faces.size() > 999u) ? 15.0f : 19.0f;
+            const float ValueW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Light, ValueSize, Tiles[Index][1]);
+            const float UnitW = WorkspaceAppearance::MeasureWeightedTextWidth(Surface, FontWeightClass::Regular, 8.0f, Tiles[Index][2]);
+            const float ValueX = X + TileW - 12.0f - ValueW - UnitW - 3.0f;
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Light,
+                { ValueX, Y + 38.0f }, ValueSize, Theme.TextPrimary, Tiles[Index][1]);
+            WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular,
+                { ValueX + ValueW + 3.0f, Y + 50.0f }, 8.0f, Theme.TextMuted, Tiles[Index][2]);
         }
-        CurY += (TileH * 2.0f + Gap) + 10.0f;
+        CurY += TileH * 2.0f + Gap + 10.0f;
     }
 
-    // 3. Surface Finish & 16-Orb MatCap color set
+    // Native material controls remain actionable; the MatCap palette and finish sliders
+    // use the existing assignment operations rather than visual-only placeholders.
     {
-        const Rectangle2D SecRect{ LeftX, CurY, InnerW, 236.0f };
-        Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
-        Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
-
-        const float SX = SecRect.X + 16.0f;
-        const float SW = SecRect.Width - 32.0f;
-        float       SY = SecRect.Y + 14.0f;
-
-        ConstructSectionHeading(Surface, SX, SY, SW, "Surface Finish & MatCaps", Theme);
-        SY += 26.0f;
-
-        // 8x2 MatCap Sphere Grid
+        const Rectangle2D Card{ LeftX, CurY, InnerW, 372.0f };
+        Surface.FillRectangle(Card, Theme.SectionBg, 20.0f);
+        Surface.StrokeRectangle(Card, Theme.BorderSubtle, 20.0f, 1.0f);
+        const float SX = Card.X + 16.0f;
+        const float SW = Card.Width - 32.0f;
+        float SY = Card.Y + 14.0f;
+        ConstructSectionHeading(Surface, SX, SY, SW, "Surface Finish", Theme, "SURFACE", ControlIcon::SparklesAntiAliasing);
+        SY += 30.0f;
+        WorkspaceAppearance::ConstructWeightedText(Surface, FontWeightClass::Regular,
+            { SX, SY + 3.0f }, 8.8f, Theme.TextMuted, "MatCap Library · 16");
+        SY += 19.0f;
         const float ColStep = SW / 8.0f;
         for (uint32_t Slot = 0u; Slot < 16u; ++Slot)
         {
             const uint32_t Col = Slot % 8u;
             const uint32_t Row = Slot / 8u;
-            const Point2D  Ctr { SX + ColStep * (static_cast<float>(Col) + 0.5f), SY + 13.0f + static_cast<float>(Row) * 32.0f };
-            ConstructMatCapOrbPreview(Surface, Ctr, 11.5f, Slot, SelectedMatCap == Slot, Theme);
-
-            const Rectangle2D Hit{ Ctr.X - 13.0f, Ctr.Y - 13.0f, 26.0f, 26.0f };
+            const Point2D Center{ SX + ColStep * (static_cast<float>(Col) + 0.5f), SY + 13.0f + static_cast<float>(Row) * 31.0f };
+            ConstructMatCapOrbPreview(Surface, Center, 10.5f, Slot, SelectedMatCap == Slot, Theme);
+            const Rectangle2D Hit{ Center.X - 13.0f, Center.Y - 13.0f, 26.0f, 26.0f };
             if (Hit.Contains(Cursor) && Pressed)
             {
                 SelectedMatCap = static_cast<uint8_t>(Slot);
                 Session->ApplyMatCapToActiveSelection(SelectedMatCap);
             }
+            if (Hit.Contains(Cursor)) ControlAppearance::RecordHoveredTooltip(Hit,
+                OptionalTooltip::FromText("Select a procedural MatCap and apply it to the active selection."));
         }
-        SY += 70.0f;
-
+        SY += 72.0f;
         char MetTxt[24]{}, RghTxt[24]{}, BldTxt[24]{};
         std::snprintf(MetTxt, sizeof(MetTxt), "%.2f", SurfaceMetallic);
         std::snprintf(RghTxt, sizeof(RghTxt), "%.2f", SurfaceRoughness);
         std::snprintf(BldTxt, sizeof(BldTxt), "%.0f%%", SurfaceMatBlend * 100.0f);
-
-        bool MaterialDirty = false;
-        MaterialDirty |= ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Metallic", MetTxt, SurfaceMetallic, Theme, Cursor, Down, Pressed);
+        bool Dirty = false;
+        Dirty |= ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Metallic", MetTxt, SurfaceMetallic, Theme, Cursor, Down, Pressed);
         SY += 34.0f;
-        MaterialDirty |= ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Roughness", RghTxt, SurfaceRoughness, Theme, Cursor, Down, Pressed);
+        Dirty |= ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "Roughness", RghTxt, SurfaceRoughness, Theme, Cursor, Down, Pressed);
         SY += 34.0f;
-        MaterialDirty |= ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "MatCap Blend", BldTxt, SurfaceMatBlend, Theme, Cursor, Down, Pressed);
-
-        if (MaterialDirty)
-        {
-            Session->ApplySurfaceRoughnessMetallic(SurfaceRoughness, SurfaceMetallic, SurfaceMatBlend);
-        }
-
-        CurY += SecRect.Height + 12.0f;
+        Dirty |= ConstructSliderControl(Surface, { SX, SY, SW, 28.0f }, "MatCap Blend", BldTxt, SurfaceMatBlend, Theme, Cursor, Down, Pressed);
+        if (Dirty) Session->ApplySurfaceRoughnessMetallic(SurfaceRoughness, SurfaceMetallic, SurfaceMatBlend);
+        CurY += Card.Height + 12.0f;
     }
-
     return CurY - StartY;
 }
 
@@ -1270,53 +1499,73 @@ float UVInspectorPanel::RenderCheckTab(
     const PaneInputReading& Input)
 {
     using namespace UVAppearance;
-    const UVThemeColors Theme   = QueryThemeColors();
-    const Point2D       Cursor  { Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
-    const bool          Pressed = Input.PrimaryPointer.Pressed;
-
+    const UVThemeColors Theme = QueryThemeColors();
+    const Point2D Cursor{ Input.PrimaryPointer.X, Input.PrimaryPointer.Y };
+    const bool Pressed = Input.PrimaryPointer.Pressed;
     float CurY = StartY;
 
-    char OvStr[24]{}, FlpStr[24]{}, StrStr[24]{};
-    std::snprintf(OvStr, sizeof(OvStr), "%u", Session->LatestMetrics.OverlapFaceCount);
-    std::snprintf(FlpStr, sizeof(FlpStr), "%u", Session->LatestMetrics.FlippedFaceCount);
-    std::snprintf(StrStr, sizeof(StrStr), "%.2f", Session->LatestMetrics.MeanL2Stretch);
+    const auto& Metrics = Session->LatestMetrics;
+    char OverlapValue[24]{}, FlippedValue[24]{}, StretchValue[24]{};
+    char OverlapSub[40]{}, FlippedSub[40]{}, StretchSub[32]{};
+    std::snprintf(OverlapValue, sizeof(OverlapValue), "%u", Metrics.OverlapFaceCount);
+    std::snprintf(FlippedValue, sizeof(FlippedValue), "%u", Metrics.FlippedFaceCount);
+    std::snprintf(StretchValue, sizeof(StretchValue), "%.2f", Metrics.MeanL2Stretch);
+    std::snprintf(OverlapSub, sizeof(OverlapSub), "%s", Metrics.OverlapFaceCount == 0u ? "Clean non-overlapping" : "Review overlaps");
+    std::snprintf(FlippedSub, sizeof(FlippedSub), "%s", Metrics.FlippedFaceCount == 0u ? "All positive facing" : "Inverted UV normals");
+    float MaxStretch = 0.0f;
+    for (const float Stretch : Metrics.PerFaceStretch) MaxStretch = std::max(MaxStretch, Stretch);
+    std::snprintf(StretchSub, sizeof(StretchSub), "Max %.2f", MaxStretch);
 
     ConstructMetricTrio(
-        Surface,
-        { LeftX, CurY, InnerW, 56.0f },
-        OvStr,  "Overlapping Faces",
-        FlpStr, "Flipped Winding",
-        StrStr, "Mean L2 Stretch",
-        Theme);
-    CurY += 66.0f;
+        Surface, { LeftX, CurY, InnerW, 60.0f },
+        OverlapValue, "Overlapping Faces", OverlapSub,
+        FlippedValue, "Flipped Winding", FlippedSub,
+        StretchValue, "Mean L2 Stretch", StretchSub,
+        Theme, Metrics.OverlapFaceCount == 0u);
+    CurY += 70.0f;
 
     const Rectangle2D SecRect{ LeftX, CurY, InnerW, 148.0f };
-    Surface.FillRectangle(SecRect, Theme.SectionBg, 20.0f);
-    Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 20.0f, 1.0f);
-
+    Surface.FillRectangle(SecRect, Theme.SectionBg, 22.0f);
+    Surface.StrokeRectangle(SecRect, Theme.BorderSubtle, 22.0f, 1.0f);
     const float SX = SecRect.X + 16.0f;
     const float SW = SecRect.Width - 32.0f;
-    float       SY = SecRect.Y + 14.0f;
-
-    ConstructSectionHeading(Surface, SX, SY, SW, "UV Integrity & Repair", Theme, "VULKAN SAT");
+    float SY = SecRect.Y + 14.0f;
+    const bool IsClean = Metrics.OverlapFaceCount == 0u && Metrics.FlippedFaceCount == 0u;
+    ConstructSectionHeading(Surface, SX, SY, SW, "UV Integrity & Repair", Theme,
+        IsClean ? "CLEAN" : "ATTENTION", IsClean ? ControlIcon::CircleCheck : ControlIcon::TriangleAlert);
     SY += 26.0f;
 
     const float HalfW = (SW - 6.0f) * 0.5f;
-    if (ConstructCapsuleButton(Surface, { SX, SY, HalfW, 28.0f }, "Select Overlaps", Theme, Cursor, Pressed, false, false, 9.6f))
+    if (ConstructCapsuleButton(Surface, { SX, SY, HalfW, 28.0f }, "Select Overlaps", Theme, Cursor, Pressed, false, false, 9.6f,
+        -1.0f, OptionalTooltip::FromText("Select faces participating in UV island overlaps.")))
     {
         (void)Session->ExecuteDirective(UVCommandDirective::SelectOverlappingFaces, nullptr);
     }
-    if (ConstructCapsuleButton(Surface, { SX + HalfW + 6.0f, SY, HalfW, 28.0f }, "Select Flipped", Theme, Cursor, Pressed, false, false, 9.6f))
+    if (ConstructCapsuleButton(Surface, { SX + HalfW + 6.0f, SY, HalfW, 28.0f }, "Select Flipped", Theme, Cursor, Pressed, false, false, 9.6f,
+        -1.0f, OptionalTooltip::FromText("Select faces whose UV winding is flipped.")))
     {
         (void)Session->ExecuteDirective(UVCommandDirective::SelectFlippedFaces, nullptr);
     }
     SY += 34.0f;
-
-    if (ConstructCapsuleButton(Surface, { SX, SY, HalfW, 30.0f }, "Run GPU Inspection", Theme, Cursor, Pressed, false, false, 9.6f))
+    if (ConstructCapsuleButton(Surface, { SX, SY, HalfW, 30.0f }, "Flip UV Winding", Theme, Cursor, Pressed, false, false, 9.6f,
+        -1.0f, OptionalTooltip::FromText("Reverse UV winding on selected faces, or all currently flipped faces.")))
     {
-        (void)Session->ExecuteDirective(UVCommandDirective::ValidateDistortionGPU, nullptr);
+        std::vector<uint32_t> Faces = Session->SelectionMask.CollectSelectedFaces();
+        if (Faces.empty())
+        {
+            for (uint32_t FaceIndex = 0u; FaceIndex < Session->Asset.Network.Faces.size(); ++FaceIndex)
+            {
+                if (Session->Asset.Network.EvaluateFaceSignedAreaUV(FaceIndex) <= 0.0f) Faces.push_back(FaceIndex);
+            }
+        }
+        if (!Faces.empty())
+        {
+            UVAuthoringOperations::MirrorSelectedFaceUVs(Session->Asset.Network, Faces, true);
+            Session->FinalizeInteractiveUVRevision("FlipUVWinding");
+        }
     }
-    if (ConstructCapsuleButton(Surface, { SX + HalfW + 6.0f, SY, HalfW, 30.0f }, "Auto-Relax & Repack", Theme, Cursor, Pressed, false, true, 9.6f))
+    if (ConstructCapsuleButton(Surface, { SX + HalfW + 6.0f, SY, HalfW, 30.0f }, "Auto-Relax & Repack", Theme, Cursor, Pressed, false, true, 9.6f,
+        -1.0f, OptionalTooltip::FromText("Relax stretch, then repack using the active UDIM packing scope.")))
     {
         (void)Session->ExecuteDirective(UVCommandDirective::RelaxStretchGPU, nullptr);
         (void)Session->ExecuteDirective(UVCommandDirective::PackUVsConcaveSkyline, nullptr);
@@ -1358,7 +1607,7 @@ void UVInspectorPanel::Render(
     const float PadX   = 18.0f;
     const float LeftX  = Bounds.X + PadX;
     const float InnerW = std::max(150.0f, Bounds.Width - PadX * 2.0f);
-    float       CurY   = Bounds.Y + 36.0f;
+    float       CurY   = Bounds.Y + 23.0f;
 
     // 1. Breadcrumb + "+ Export OBJ" + "Reset"
     WorkspaceAppearance::ConstructTruncatedText(
@@ -1391,7 +1640,7 @@ void UVInspectorPanel::Render(
     {
         Session->LoadSamplePreset(Session->ActivePreset);
     }
-    CurY += 28.0f;
+    CurY += 54.0f;
 
     // 2. Large 23px Light Selection / Asset Heading + Subtitle (matching InspectorPanel.cpp & Experimental/UVEditor)
     const std::string Heading = SelectedFaces.empty()
@@ -1405,7 +1654,7 @@ void UVInspectorPanel::Render(
         23.0f,
         Theme.TextPrimary,
         Heading);
-    CurY += 29.0f;
+    CurY += 41.0f;
 
     char SubMeta[112]{};
     const auto TileCfg = Session->QueryUDIMTileSetting(Session->ActiveUDIMNumber);
@@ -1454,7 +1703,7 @@ void UVInspectorPanel::Render(
         9.8f,
         Theme.TextMuted,
         SubMeta);
-    CurY += 42.0f;
+    CurY += 39.0f;
 
     // 3. 5-Tab Segmented Bar (.inspector-tabs: Pack | Unwrap | UDIM | Shading | Check)
     {
@@ -1510,7 +1759,7 @@ void UVInspectorPanel::Render(
                 PackingScopeDropdownOpen = false;
             }
         }
-        CurY += 44.0f;
+        CurY += 54.0f;
     }
 
     // 4. Scrollable Active Tab Body above Sticky 40px Inspector Footer
