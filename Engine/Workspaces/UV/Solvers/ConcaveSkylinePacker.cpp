@@ -250,16 +250,14 @@ ConcavePackReport ConcaveSkylinePacker::PackConcaveSkyline(
         static_cast<float>(SkylineGridColumns) * 0.5f);
     const uint32_t GutterCols = static_cast<uint32_t>(std::clamp(RequestedGutterCols, 1.0f, 6.0f));
 
-    std::vector<float> CandidateAngles { 0.0f };
-    if (Preferences.RotationStepDegrees == 90u)
+    std::vector<float> CandidateAngles{ 0.0f };
+    const uint32_t RotationStepDegrees = Preferences.RotationStepDegrees;
+    if (RotationStepDegrees > 0u && RotationStepDegrees < 360u && 360u % RotationStepDegrees == 0u)
     {
-        CandidateAngles.push_back(0.5f * Constants::PiFloat);
-    }
-    else if (Preferences.RotationStepDegrees == 45u)
-    {
-        CandidateAngles.push_back(0.25f * Constants::PiFloat);
-        CandidateAngles.push_back(0.5f * Constants::PiFloat);
-        CandidateAngles.push_back(0.75f * Constants::PiFloat);
+        for (uint32_t AngleDegrees = RotationStepDegrees; AngleDegrees < 360u; AngleDegrees += RotationStepDegrees)
+        {
+            CandidateAngles.push_back(static_cast<float>(AngleDegrees) * Constants::PiFloat / 180.0f);
+        }
     }
 
     // 2. Prepare rotated concave span profiles in parallel across ExecutionChannels

@@ -155,6 +155,9 @@ float UVInspectorPanel::RenderPackingTab(
     const bool          Down    = Input.PrimaryPointer.Down;
 
     float CurY = StartY;
+    Rectangle2D ActiveLayerDropdownBounds{};
+    Rectangle2D TargetUdimDropdownBounds{};
+    Rectangle2D PackingScopeDropdownBounds{};
 
     const float FillPct     = EvaluateUDIMFillPercent(Session->Asset.Network, Session->ActiveUDIMNumber);
     const float RemPct      = Session->Asset.Layers.DeriveRemainderSharePercent();
@@ -235,11 +238,11 @@ float UVInspectorPanel::RenderPackingTab(
             : std::string("Unassigned Remainder");
         WorkspaceAppearance::ConstructWeightedText(
             Surface, FontWeightClass::Regular, { SX, SY + 6.0f }, 9.8f, Theme.TextMuted, "Active Layer");
-        const Rectangle2D ActiveLayerBounds{ SX + 88.0f, SY, SW - 88.0f, 26.0f };
+        ActiveLayerDropdownBounds = { SX + 88.0f, SY, SW - 88.0f, 26.0f };
         const OptionalTooltip ActiveLayerTip = OptionalTooltip::FromTitled(
             "Active Layer", "Choose which priority allocation layer is active and select its faces in the workspace.");
         const ControlContact ActiveLayerButton = DropdownSelector::ConstructButton(
-            Surface, ActiveLayerBounds, ActiveLabel.c_str(), ActiveLayerDropdownOpen, Input.PrimaryPointer, 1.0f,
+            Surface, ActiveLayerDropdownBounds, ActiveLabel.c_str(), ActiveLayerDropdownOpen, Input.PrimaryPointer, 1.0f,
             ControlIcon::LayersSlabs, ActiveLayerTip);
         if (ActiveLayerButton.Clicked)
         {
@@ -381,13 +384,13 @@ float UVInspectorPanel::RenderPackingTab(
         CurrentLayer = Session->Asset.Layers.InspectLayer(Session->SelectedLayerOrdinal);
         const uint32_t TargetUDIM = CurrentLayer != nullptr ? CurrentLayer->TargetUDIMNumber : 0u;
         const std::string TargetLabel = TargetUDIM == 0u ? "Auto UDIM" : "UDIM " + std::to_string(TargetUDIM);
-        const Rectangle2D TargetBounds{ SX + 88.0f, SY, SW - 88.0f, 28.0f };
+        TargetUdimDropdownBounds = { SX + 88.0f, SY, SW - 88.0f, 28.0f };
         const OptionalTooltip TargetTip = OptionalTooltip::FromTitled(
             "Target UDIM", "Pin the active layer's UV islands to a tile. Choosing an explicit UDIM translates its islands into that tile.");
         if (CurrentLayer != nullptr)
         {
             const ControlContact TargetButton = DropdownSelector::ConstructButton(
-                Surface, TargetBounds, TargetLabel.c_str(), TargetUdimDropdownOpen, Input.PrimaryPointer, 1.0f,
+                Surface, TargetUdimDropdownBounds, TargetLabel.c_str(), TargetUdimDropdownOpen, Input.PrimaryPointer, 1.0f,
                 ControlIcon::LayoutGrid, TargetTip);
             if (TargetButton.Clicked)
             {
@@ -398,15 +401,15 @@ float UVInspectorPanel::RenderPackingTab(
         }
         else
         {
-            Surface.FillRectangle(TargetBounds, Theme.WellBg, 14.0f);
-            Surface.StrokeRectangle(TargetBounds, Theme.BorderSubtle, 14.0f, 1.0f);
+            Surface.FillRectangle(TargetUdimDropdownBounds, Theme.WellBg, 14.0f);
+            Surface.StrokeRectangle(TargetUdimDropdownBounds, Theme.BorderSubtle, 14.0f, 1.0f);
             WorkspaceAppearance::ConstructTruncatedText(
-                Surface, FontWeightClass::Regular, { TargetBounds.X + 12.0f, TargetBounds.Y + 8.0f },
-                TargetBounds.Width - 24.0f, 9.5f, Theme.TextMuted, "Select a priority layer first");
-            if (TargetBounds.Contains(Cursor))
+                Surface, FontWeightClass::Regular, { TargetUdimDropdownBounds.X + 12.0f, TargetUdimDropdownBounds.Y + 8.0f },
+                TargetUdimDropdownBounds.Width - 24.0f, 9.5f, Theme.TextMuted, "Select a priority layer first");
+            if (TargetUdimDropdownBounds.Contains(Cursor))
             {
                 ControlAppearance::RecordHoveredTooltip(
-                    TargetBounds, OptionalTooltip::FromText("Choose a priority layer to set or move a Target UDIM."));
+                    TargetUdimDropdownBounds, OptionalTooltip::FromText("Choose a priority layer to set or move a Target UDIM."));
             }
             TargetUdimDropdownOpen = false;
         }
@@ -473,11 +476,11 @@ float UVInspectorPanel::RenderPackingTab(
         constexpr std::array<const char*, 4u> ScopeOptions {{
             "Pack into Active UDIM Tile", "Pack per Assigned UDIM", "Auto Spill Overflow UDIMs", "Selected Islands Only" }};
         const uint32_t ScopeIndex = static_cast<uint32_t>(Prefs.PackingScope);
-        const Rectangle2D ScopeBounds{ SX + 122.0f, SY, SW - 122.0f, 26.0f };
+        PackingScopeDropdownBounds = { SX + 122.0f, SY, SW - 122.0f, 26.0f };
         const OptionalTooltip ScopeTip = OptionalTooltip::FromTitled(
             "UDIM Packing Scope", "Choose which UDIM tiles are affected by the next pack operation.");
         const ControlContact ScopeButton = DropdownSelector::ConstructButton(
-            Surface, ScopeBounds, ScopeOptions[std::min<uint32_t>(ScopeIndex, 3u)],
+            Surface, PackingScopeDropdownBounds, ScopeOptions[std::min<uint32_t>(ScopeIndex, 3u)],
             PackingScopeDropdownOpen, Input.PrimaryPointer, 0.92f, ControlIcon::LayoutGrid, ScopeTip);
         if (ScopeButton.Clicked)
         {
@@ -619,10 +622,8 @@ float UVInspectorPanel::RenderPackingTab(
             break;
         }
     }
-    const Rectangle2D AllocationBounds{ LeftX + 16.0f + 88.0f, StartY + 100.0f + 59.0f,
-                                        std::max(16.0f, InnerW - 32.0f - 88.0f), 26.0f };
     DrawFittedOptionSheet(
-        AllocationBounds, ActivePopupOptions.data(), static_cast<uint32_t>(ActivePopupOptions.size()),
+        ActiveLayerDropdownBounds, ActivePopupOptions.data(), static_cast<uint32_t>(ActivePopupOptions.size()),
         ActivePopupIndex, ActiveLayerDropdownOpen,
         [&](uint32_t Chosen)
         {
@@ -667,10 +668,8 @@ float UVInspectorPanel::RenderPackingTab(
             TilePopupIndex = static_cast<uint32_t>(std::distance(TilePopupOptions.begin(), It));
         }
     }
-    const Rectangle2D TargetPopupBounds{ LeftX + 16.0f + 88.0f, StartY + 100.0f + 295.0f,
-                                         std::max(16.0f, InnerW - 32.0f - 88.0f), 28.0f };
     DrawFittedOptionSheet(
-        TargetPopupBounds, TilePopupLabels.data(), static_cast<uint32_t>(TilePopupLabels.size()),
+        TargetUdimDropdownBounds, TilePopupLabels.data(), static_cast<uint32_t>(TilePopupLabels.size()),
         TilePopupIndex, TargetUdimDropdownOpen,
         [&](uint32_t Chosen)
         {
@@ -682,11 +681,9 @@ float UVInspectorPanel::RenderPackingTab(
 
     constexpr std::array<const char*, 4u> ScopePopupOptions {{
         "Pack into Active UDIM Tile", "Pack per Assigned UDIM", "Auto Spill Overflow UDIMs", "Selected Islands Only" }};
-    const Rectangle2D ScopePopupBounds{ LeftX + 16.0f + 122.0f, StartY + 520.0f + 72.0f,
-                                        std::max(16.0f, InnerW - 32.0f - 122.0f), 26.0f };
     const uint32_t ScopePopupIndex = static_cast<uint32_t>(Session->WorkspaceConfig.InspectUVPreferences().PackingScope);
     DrawFittedOptionSheet(
-        ScopePopupBounds, ScopePopupOptions.data(), static_cast<uint32_t>(ScopePopupOptions.size()),
+        PackingScopeDropdownBounds, ScopePopupOptions.data(), static_cast<uint32_t>(ScopePopupOptions.size()),
         std::min<uint32_t>(ScopePopupIndex, static_cast<uint32_t>(ScopePopupOptions.size() - 1u)),
         PackingScopeDropdownOpen,
         [&](uint32_t Chosen)
