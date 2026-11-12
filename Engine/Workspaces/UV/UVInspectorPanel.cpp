@@ -549,11 +549,15 @@ float UVInspectorPanel::RenderPackingTab(
             OptionalTooltip::FromText("Normalize island scale within each priority layer before packing."));
         SY += 32.0f;
 
-        // Primary CTA: Pack with Importance Budgets (Shift+P)
+        // Auto-spill scope routes through the multi-UDIM pack directive; other scopes use the single-tile pack path.
+        const bool AutoSpillScope = Prefs.PackingScope == Configuration::UVPackingScopeMode::AutoSpillOverflowUDIMs;
+        const char* PackButtonLabel = AutoSpillScope
+            ? "Pack with Auto UDIM Spill (Shift+P)"
+            : "Pack with Importance Budgets (Shift+P)";
         if (ConstructCapsuleButton(
                 Surface,
                 { SX, SY, SW, 34.0f },
-                "Pack with Importance Budgets (Shift+P)",
+                PackButtonLabel,
                 Theme,
                 Cursor,
                 Pressed,
@@ -561,9 +565,15 @@ float UVInspectorPanel::RenderPackingTab(
                 true,
                 10.5f,
                 17.0f,
-                OptionalTooltip::FromTitled("Pack with Importance Budgets", "Arrange UV islands using the active allocation shares and selected packing scope.")))
+                OptionalTooltip::FromTitled(
+                    AutoSpillScope ? "Pack with Auto UDIM Spill" : "Pack with Importance Budgets",
+                    AutoSpillScope
+                        ? "Pack priority-layer islands across successive UDIM tiles when the active tile fills."
+                        : "Arrange UV islands using the active allocation shares.")))
         {
-            (void)Session->ExecuteDirective(UVCommandDirective::PackUVsConcaveSkyline, nullptr);
+            (void)Session->ExecuteDirective(
+                AutoSpillScope ? UVCommandDirective::AutoDistributeUDIMs : UVCommandDirective::PackUVsConcaveSkyline,
+                nullptr);
         }
 
         CurY += SecRect.Height + 12.0f;
