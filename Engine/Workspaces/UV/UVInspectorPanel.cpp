@@ -571,9 +571,7 @@ float UVInspectorPanel::RenderPackingTab(
                         ? "Pack priority-layer islands across successive UDIM tiles when the active tile fills."
                         : "Arrange UV islands using the active allocation shares.")))
         {
-            (void)Session->ExecuteDirective(
-                AutoSpillScope ? UVCommandDirective::AutoDistributeUDIMs : UVCommandDirective::PackUVsConcaveSkyline,
-                nullptr);
+            (void)Session->ExecuteDirective(UVCommandDirective::PackUVsConcaveSkyline, nullptr);
         }
 
         CurY += SecRect.Height + 12.0f;

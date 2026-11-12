@@ -784,7 +784,10 @@ bool UVWorkspaceSession::ExecuteDirective(
         }
         case UVCommandDirective::PackUVsConcaveSkyline:
         {
-            LatestPackReport = SkylinePacker.PackConcaveSkyline(Asset.Network, Asset.Layers, Prefs, false, OptionalChannels);
+            const bool AllowMultiUDIMOverflow =
+                Prefs.PackingScope == Configuration::UVPackingScopeMode::AutoSpillOverflowUDIMs;
+            LatestPackReport = SkylinePacker.PackConcaveSkyline(
+                Asset.Network, Asset.Layers, Prefs, AllowMultiUDIMOverflow, OptionalChannels);
             if (FillPocketsEnabled)
             {
                 const float MarginUV = Prefs.IslandMarginPixels / static_cast<float>( std::max(256u, Prefs.DefaultTileResolutionPx));

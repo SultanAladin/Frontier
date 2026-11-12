@@ -29,16 +29,18 @@
 - `ctest --test-dir build/Development --output-on-failure -R '^(UVRasterPickingGizmoValidation|UVWorkspaceUIValidation|UVParameterizationValidation|UVInteractiveAuthoringValidation|UVBoundaryValidation)$'` — 5/5 passed.
 - Headless SwiftShader run: `env -u DISPLAY -u WAYLAND_DISPLAY ./build/Development/FrontierUV --frames=3 --capture-png=Exhibits/Images/UV/05-SwiftShader_LiveWorkspace.png` — exited successfully and captured a 1840×980 live workspace with populated UV and 3D viewports, Inspector, and Outliner. SwiftShader emitted unsupported-capability 4427 warnings, but the process completed and the captured image was visibly rendered.
 
-## Inspector and Outliner parity follow-up
+## Inspector, Outliner, and viewport control reuse
 
-The UV Inspector and Outliner now have content-aware scrolling, reusable control tooltips, layer tint choices, UDIM-filtered face counts and remainder rows, Escape dismissal for popups, and selection-aware Inspector headings. Inspector option sheets track their actual rendered button bounds so they stay anchored while content scrolls. Packing rotation steps now cover the configured increments, including 15-degree rotation.
+The UV Inspector and Outliner have content-aware scrolling, reusable control tooltips, layer tint choices, UDIM-filtered face counts and remainder rows, Escape dismissal, and selection-aware Inspector headings. Inspector dropdown sheets use their live rendered button bounds. The Outliner UDIM filter now uses the shared `DropdownSelector`; the viewport projection selector uses it as well and applies the chosen `SpatialProjectionPreset`. The viewport split continues to use the shared `ViewportProjectionPane`. Duplicate cube and pack-grid drawings were removed in favor of existing `VectorIconRepository` icons. The configured pack rotation steps, including 15 degrees, are honored. The Auto-Spill scope is routed through the session's common Pack directive so Inspector and viewport Pack actions share behavior.
 
-## Remaining HTML-reference parity work
+**Rendered exhibit:** `Exhibits/Images/UV/06-SharedControls_InspectorOutlinerViewport.png` (1840×980). Captured from the built `FrontierUV` executable with SwiftShader; it shows the Outliner filter dropdown, split UV/3D viewport, shared projection dropdown, and Inspector. SwiftShader prints unsupported-capability 4427 warnings, but rendering exits successfully.
 
-The rendering path is no longer black, but this does not complete a 1:1 UI port. Continue comparing against `Experimental/UVEditor/` rather than inventing partial controls. The known gaps are:
+## Remaining phases
 
-- Match the HTML shading-mode catalog and mode-dependent Inspector content; the C++ renderer currently exposes a smaller set of actual surface display modes and should not display unsupported options as if implemented.
-- Design the lifecycle for application-owned viewport texture dimension changes. Same-size pixel refreshes now use `WantUpdates`, but the upstream backend requires old GPU texture records to retire before a size-changing replacement is created; avoid resetting `TexID`/`BackendUserData` without releasing their backend resources.
-- Bring selection shortcuts and viewport selection feedback in line with the HTML selection-mode semantics.
-- Finish the HTML context-menu interactions and validate Inspector/Outliner popup and selection interactions directly rather than relying only on screenshots.
-- Match camera damping and full-state undo/redo behavior, then add focused validation for interactions rather than relying only on screenshots.
+1. **Packing-scope behavior (next):** implement Active UDIM as an actual target tile, Per Assigned UDIM routing, and Selected Islands Only. Auto-Spill is wired; these other scope choices are still persisted in preferences but not honored by the Pack operation yet.
+2. **Selection and menus:** finish HTML selection shortcut/feedback parity and context-menu interactions; add focused interaction validation for Outliner filtering, Inspector dropdowns, and viewport projection selection.
+3. **Shading and camera parity:** match the HTML shading-mode catalog and mode-dependent Inspector content; align camera damping and full-state undo/redo.
+4. **Resize-safe ImGui textures:** retire old application-owned GPU texture records before size-changing replacements; same-size framebuffer updates already use the update path.
+5. **Final verification:** run the complete UV validation set, inspect a current-state capture, and update exhibits only for intentional visual changes.
+
+Keep comparing against `Experimental/UVEditor/` and reuse existing controls/icons wherever available; do not invent duplicate icon assets or controls.
