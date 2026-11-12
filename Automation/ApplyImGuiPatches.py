@@ -35,7 +35,7 @@ def WriteReport(Category, Message):
 def RunGit(Arguments):
     Environment = dict(os.environ, GIT_CEILING_DIRECTORIES=os.path.dirname(ImGuiRoot))
     Completed = subprocess.run(
-        ['git'] + Arguments,
+        ['git', '-c', 'core.autocrlf=false'] + Arguments,
         cwd=ImGuiRoot,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
