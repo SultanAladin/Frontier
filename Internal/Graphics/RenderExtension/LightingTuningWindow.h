@@ -2,7 +2,7 @@
                                                           LIGHTINGTUNINGWINDOW.H
 ==============================================================================================================================================*/
 // 🧩 The live lighting-tuning debug window state + its one draw call. Holds the sun-source knobs (elevation, azimuth, intensity, colour) that drive
-//    AtmosphereProfile::AssignSolarDirection and the deferred shade's premultiplied SunRadiance, plus the primary sun-shadow knobs (enable,
+//    AtmosphereProfile::ConfigureSolarDirection and the deferred shade's premultiplied SunRadiance, plus the primary sun-shadow knobs (enable,
 //    angular radius, tap count) the area-sampled BVH ray in SurfaceShade.frag reads. DrawLightingTuningWindow renders one collapsible ImGui window
 //    over the shared theme — pure state edit, NO engine / Vulkan calls, so it is host-agnostic and testable. The renderer threads the resulting
 //    fields into the shade push block each frame.
@@ -63,13 +63,22 @@ struct LightingTuningState
     float SunAngularRadius   = 0.03f;  // [rad] - half-angle of the sun disc the shadow rays spread across (penumbra width)
     int   ShadowSampleCount  = 8;      // [-] - jittered rays per pixel across the disc (1 = hard edge, more = smoother penumbra)
 
-    // 📝 Sun source. Elevation/Azimuth drive AtmosphereProfile::AssignSolarDirection each frame, so the SKY and the direct shade follow ONE sun.
+    // 📝 Sun source. Elevation/Azimuth drive AtmosphereProfile::ConfigureSolarDirection each frame, so the SKY and the direct shade follow ONE sun.
     //    Intensity x Colour is premultiplied into the shade's SunRadiance push each frame (the sky keeps its own SolarIlluminance calibration).
     //    Defaults mirror the shipped 45° profile + the retired hardcoded 3.0*(1,0.98,0.95).
-    float SunElevation       = 0.7853982f;         // [rad] - 0 = horizon, +pi/2 = zenith; default 45°
-    float SunAzimuth         = 0.0f;               // [rad] - around the up axis
-    float SunIntensity       = 3.0f;               // [-] - key-light multiplier folded into SunRadiance
-    float SunColour[3]       = { 1.0f, 0.98f, 0.95f }; // [-] - key-light tint (warm white default)
+    //    Elevation runs below the horizon to -18° (astronomical twilight) so the sky's civil / nautical twilight and night background are
+    //    reachable; the direct key light is gated off below the horizon by ResolveSunElevationGate (the sky keeps its own transmittance).
+    float SunElevation       = 0.7853982f;             // [rad] - -pi/10 = astronomical twilight, 0 = horizon, +pi/2 = zenith; default 45°
+    float SunAzimuth         = 0.0f;                   // [rad] - around the up axis
+    float SunIntensity       = 3.0f;                   // [-]   - key-light multiplier folded into SunRadiance
+    float SunColour[3]       = { 1.0f, 0.98f, 0.95f }; // [-]   - key-light tint (warm white default)
+    float ViewerAltitudeKm   = 0.2f;                   // [km]  - sky-view bake observer altitude above sea level (0.005 .. 99.95; 0.2 default)
+
+    // 📝 Sun disc appearance on the sky dome. Muted = the photosphere with its corona and faint aureole (hazy air / eye adapted to the
+    //    disc). Radiant = adds the bright optical glare bloom + broad clean-air fade, scaled by SunGlareStrength. Sky-only: the
+    //    atmosphere tables and the shade's key light are untouched.
+    int   SunAppearanceIndex = 0;                      // [-]   - 0 muted, 1 radiant
+    float SunGlareStrength   = 1.0f;                   // [-]   - radiant glare veil strength (0 .. 2; 1 nominal)
 
     // 📝 Global illumination (W298 surfel port). GlobalIlluminationEnabled is the MASTER switch and it is not a display filter: the renderer skips
     //    RECORDING the whole surfel chain when it is false, so switching GI off costs nothing rather than computing a field nobody reads. The shade
@@ -100,6 +109,23 @@ struct LightingTuningState
 //------------------------------------------------------------------------------------------------------------------------
 //                                                         PUBLIC FUNCTIONS
 //------------------------------------------------------------------------------------------------------------------------
+
+// 📝 Direct key-light gate over sun elevation: 1 above +2°, smoothly 0 at -0.5° (the disc has fully set behind the geometric horizon, refraction
+//    ignored). Applied to the shade's premultiplied SunRadiance only; the sky reads the raw solar vector and dims through its own transmittance.
+inline float ResolveSunElevationGate(const LightingTuningState& Tuning) noexcept
+{
+    constexpr float LowerElevation = -0.5f * 0.01745329252f;   // [rad] - disc fully below the horizon
+    constexpr float UpperElevation =  2.0f * 0.01745329252f;   // [rad] - disc fully above the horizon
+    float Ratio = (Tuning.SunElevation - LowerElevation) / (UpperElevation - LowerElevation);
+    Ratio = Ratio < 0.0f ? 0.0f : (Ratio > 1.0f ? 1.0f : Ratio);
+    return Ratio * Ratio * (3.0f - 2.0f * Ratio);
+}
+
+// Glare strength the sky dome receives: 0 for the muted sun, the tuned strength for the radiant sun.
+inline float ResolveSunGlareStrength(const LightingTuningState& Tuning) noexcept
+{
+    return (Tuning.SunAppearanceIndex == 1) ? (Tuning.SunGlareStrength < 0.0f ? 0.0f : Tuning.SunGlareStrength) : 0.0f;
+}
 
 // Draw one collapsible ImGui window built from the REAL Interface controls (ConstructValueSlider / ConstructBooleanEntry inside a
 // BeginPropertyPanel/BeginPropertyCard column) so it is styled BYTE-IDENTICALLY to ControlsGallery — the look comes from those components pushing

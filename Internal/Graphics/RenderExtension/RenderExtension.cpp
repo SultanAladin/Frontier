@@ -428,7 +428,7 @@ void RecordSurfelChain(RenderExtension& Extension, VkCommandBuffer CommandBuffer
     // ☀️ The SAME Z-up sun the shade is pushed and the SAME premultiplied radiance, so a bounce is lit at the exposure the direct pass uses. A second
     //    derivation here would light the indirect term against a different key and the two would never agree.
     float SunX = 0.0f, SunY = 0.0f, SunZ = 1.0f;
-    Atmosphere::ResolveSolarDirectionSceneFrame(Extension.SkyPass.Profile, SunX, SunY, SunZ);
+    Atmosphere::ResolveSolarDirectionWorldSpace(Extension.SkyPass.Profile, SunX, SunY, SunZ);
 
     SurfelRadianceConstants RadianceConstants;
     RadianceConstants.CameraX = Origin.XCoord;
@@ -437,9 +437,10 @@ void RecordSurfelChain(RenderExtension& Extension, VkCommandBuffer CommandBuffer
     RadianceConstants.SunDirectionX = SunX;
     RadianceConstants.SunDirectionY = SunY;
     RadianceConstants.SunDirectionZ = SunZ;
-    RadianceConstants.SunRadianceR = Extension.LightingTuning.SunColour[0] * Extension.LightingTuning.SunIntensity;
-    RadianceConstants.SunRadianceG = Extension.LightingTuning.SunColour[1] * Extension.LightingTuning.SunIntensity;
-    RadianceConstants.SunRadianceB = Extension.LightingTuning.SunColour[2] * Extension.LightingTuning.SunIntensity;
+    const float SunElevationGate = ResolveSunElevationGate(Extension.LightingTuning);   // 0 once the sun has set below the horizon
+    RadianceConstants.SunRadianceR = Extension.LightingTuning.SunColour[0] * Extension.LightingTuning.SunIntensity * SunElevationGate;
+    RadianceConstants.SunRadianceG = Extension.LightingTuning.SunColour[1] * Extension.LightingTuning.SunIntensity * SunElevationGate;
+    RadianceConstants.SunRadianceB = Extension.LightingTuning.SunColour[2] * Extension.LightingTuning.SunIntensity * SunElevationGate;
 
     // 🔴 HORIZON AND ZENITH CARRY THE SAME TONE ON PURPOSE — THIS IS A FLAT HEMISPHERE, NOT A GRADIENT THAT HAPPENS TO BE UNTUNED. Two reasons, and
     //    either alone is sufficient. ① The tone is SurfaceShade.frag's AmbientColour, the flat fill the gather fades out of, so switching GI on cannot
@@ -1503,6 +1504,7 @@ bool InitializeRenderExtension(RenderExtension& Extension,
         {
             SkyDomeConstants SkyConstants;
             AssembleSkyConstants(Extension.ViewCamera, SkyConstants);
+            SkyConstants.SunGlareStrength = ResolveSunGlareStrength(Extension.LightingTuning);
             RecordSkyAtmospherePass(Extension.SkyPass, Extension.Substrate.Host, CommandBuffer, Extent, SkyConstants);
         });
     AppendRenderScheduleStep(Extension.Schedule, "grid",
@@ -1630,11 +1632,14 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 float PriorSolar[3] = { Extension.SkyPass.Profile.SolarDirection[0],
                                         Extension.SkyPass.Profile.SolarDirection[1],
                                         Extension.SkyPass.Profile.SolarDirection[2] };
-                AtmosphereUniformBlock TunedProfile = Extension.SkyPass.Profile;
-                Atmosphere::AssignSolarDirection(TunedProfile, Extension.LightingTuning.SunElevation, Extension.LightingTuning.SunAzimuth);
+                const float            PriorAltitude = Extension.SkyPass.Profile.OzoneAbsorptionPeak[3];
+                AtmosphereUniformBlock TunedProfile  = Extension.SkyPass.Profile;
+                Atmosphere::ConfigureSolarDirection(TunedProfile, Extension.LightingTuning.SunElevation, Extension.LightingTuning.SunAzimuth);
+                Atmosphere::ConfigureViewerAltitudeKm(TunedProfile, Extension.LightingTuning.ViewerAltitudeKm);
                 const bool SunMoved = TunedProfile.SolarDirection[0] != PriorSolar[0]
                                    || TunedProfile.SolarDirection[1] != PriorSolar[1]
-                                   || TunedProfile.SolarDirection[2] != PriorSolar[2];
+                                   || TunedProfile.SolarDirection[2] != PriorSolar[2]
+                                   || TunedProfile.OzoneAbsorptionPeak[3] != PriorAltitude;   // a viewer-altitude change re-bakes the sky-view too
                 if (SunMoved)
                     UpdateSkyAtmosphereProfile(Extension.SkyPass, TunedProfile);
             }
@@ -2074,6 +2079,7 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 // Sky first — it fills every pixel as the background the shade composites over.
                 SkyDomeConstants SkyConstants;
                 AssembleSkyConstants(Extension.ViewCamera, SkyConstants);
+                SkyConstants.SunGlareStrength = ResolveSunGlareStrength(Extension.LightingTuning);
                 RecordSkyAtmospherePass(Extension.SkyPass, Extension.Substrate.Host, CommandBuffer, Extent, SkyConstants);
 
                 // Surface shade. As of P6.3a the pass binds the FLOOR's vertex/index/instance buffers alongside the heads' and shades both, so the
@@ -2097,7 +2103,7 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 {
                     // The same Z-up sun the shadow clipmap was scrolled against this image, so shading and shadowing cannot disagree.
                     float ShadeSunX = 0.0f, ShadeSunY = 0.0f, ShadeSunZ = 1.0f;
-                    Atmosphere::ResolveSolarDirectionSceneFrame(Extension.SkyPass.Profile, ShadeSunX, ShadeSunY, ShadeSunZ);
+                    Atmosphere::ResolveSolarDirectionWorldSpace(Extension.SkyPass.Profile, ShadeSunX, ShadeSunY, ShadeSunZ);
 
                     SurfaceShadeConstants ShadeConstants;
                     AssembleSurfaceShadeConstants(Extension.ViewCamera, Extension.CompositeFeatureMask,
@@ -2106,9 +2112,11 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                     // ☀️ Key-light radiance from the F10 Sun card: colour × intensity, PREMULTIPLIED here so the frag reads one vec3 (SunRadiance) with no
                     //    per-pixel multiply. The sky keeps its own SolarIlluminance calibration (independent scale, see AtmosphereProfile.h) — this is only
                     //    the deferred shade's key light, the one the retired hardcoded LightColour*LightIntensity used to carry.
-                    ShadeConstants.SunRadiance[0] = Extension.LightingTuning.SunColour[0] * Extension.LightingTuning.SunIntensity;
-                    ShadeConstants.SunRadiance[1] = Extension.LightingTuning.SunColour[1] * Extension.LightingTuning.SunIntensity;
-                    ShadeConstants.SunRadiance[2] = Extension.LightingTuning.SunColour[2] * Extension.LightingTuning.SunIntensity;
+                    //    Gated to 0 below the horizon (ResolveSunElevationGate) so a set sun never lights geometry from underneath.
+                    const float KeyLightGate = ResolveSunElevationGate(Extension.LightingTuning);
+                    ShadeConstants.SunRadiance[0] = Extension.LightingTuning.SunColour[0] * Extension.LightingTuning.SunIntensity * KeyLightGate;
+                    ShadeConstants.SunRadiance[1] = Extension.LightingTuning.SunColour[1] * Extension.LightingTuning.SunIntensity * KeyLightGate;
+                    ShadeConstants.SunRadiance[2] = Extension.LightingTuning.SunColour[2] * Extension.LightingTuning.SunIntensity * KeyLightGate;
                     ShadeConstants.SunRadiance[3] = 0.0f;
 
                     // 🔴 Sourced from the inscription's own record of what b5-b7 hold, never from whether a floor document loaded: when the floor is
@@ -2501,6 +2509,7 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
             {
                 SkyDomeConstants SkyConstants;
                 AssembleSkyConstants(Extension.ViewCamera, SkyConstants);
+                SkyConstants.SunGlareStrength = ResolveSunGlareStrength(Extension.LightingTuning);
                 RecordSkyAtmospherePass(Extension.SkyPass, Extension.Substrate.Host, CommandBuffer, Extent, SkyConstants);
             }
 

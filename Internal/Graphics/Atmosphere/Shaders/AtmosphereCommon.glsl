@@ -8,30 +8,30 @@
 const float PI = 3.14159265358979323846;
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-// ATMOSPHERE UNIFORM BLOCK (std140, mirrors AtmosphereProfile.h::AtmosphereUniformBlock, 272 bytes)
+// ATMOSPHERE UNIFORM BLOCK (std140, mirrors AtmosphereProfile.h::AtmosphereUniformBlock, 208 bytes)
 // ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 layout(std140, binding = 0) uniform AtmosphereBlock
 {
-    vec4  RayleighScatteringBase;    // rgb [1/m]; a pad
-    vec4  MieScatteringBase;         // rgb [1/m]; a pad
-    vec4  MieExtinctionBase;         // rgb [1/m]; a pad
-    vec4  OzoneAbsorptionBase;       // rgb [1/m]; a pad
+    vec4  RayleighScatteringSeaLevel;  // rgb [1/m] Rayleigh scattering; w planetary surface reflectance R
+    vec4  MieScatteringSeaLevel;       // rgb [1/m] Mie scattering;      w planetary surface reflectance G
+    vec4  MieExtinctionSeaLevel;       // rgb [1/m] Mie extinction;      w planetary surface reflectance B
+    vec4  OzoneAbsorptionPeak;         // rgb [1/m] Chappuis ozone;      w viewer altitude above surface [km]
 
-    vec4  RayleighProfileLayer0;     // (Width, ExponentialTerm, ExponentialScale, LinearTerm)
+    vec4  RayleighProfileLayer0;       // (Width, ExponentialTerm, ExponentialScale, LinearTerm)
     vec4  RayleighProfileLayer1;
     vec4  MieProfileLayer0;
     vec4  MieProfileLayer1;
     vec4  OzoneProfileLayer0;
     vec4  OzoneProfileLayer1;
 
-    vec4  SolarDirection;            // rgb unit surface→sun; a pad
-    vec4  SolarIlluminance;          // rgb relative flux; a pad
+    vec4  SolarDirection;              // rgb unit atmosphere-local (+Y up) sun vector; w flow-veil gain
+    vec4  SolarIlluminance;            // rgb extraterrestrial solar flux;              w sequence elapsed seconds [s]
 
-    float BottomRadius;              // [km]
-    float TopRadius;                 // [km]
-    float MieAsymmetry;              // [-1..1]
-    float MultipleScatteringFactor;  // [0..1]
+    float BottomRadius;                // [km]
+    float TopRadius;                   // [km]
+    float MieAsymmetry;                // [-1..1]
+    float MultipleScatteringFactor;    // [0..2]
 } Atmosphere;
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -60,13 +60,13 @@ void EvaluateScatterExtinction(float Altitude, out vec3 Scattering, out vec3 Ext
     float MieDensity      = EvaluateProfileDensity(Atmosphere.MieProfileLayer0,      Atmosphere.MieProfileLayer1,      Altitude);
     float OzoneDensity    = EvaluateProfileDensity(Atmosphere.OzoneProfileLayer0,    Atmosphere.OzoneProfileLayer1,    Altitude);
 
-    vec3 RayleighScatter = Atmosphere.RayleighScatteringBase.rgb * RayleighDensity;
-    vec3 MieScatter      = Atmosphere.MieScatteringBase.rgb      * MieDensity;
+    vec3 RayleighScatter = Atmosphere.RayleighScatteringSeaLevel.rgb * RayleighDensity;
+    vec3 MieScatter      = Atmosphere.MieScatteringSeaLevel.rgb      * MieDensity;
 
     Scattering = RayleighScatter + MieScatter;
     Extinction = RayleighScatter
-               + Atmosphere.MieExtinctionBase.rgb   * MieDensity
-               + Atmosphere.OzoneAbsorptionBase.rgb * OzoneDensity;
+               + Atmosphere.MieExtinctionSeaLevel.rgb   * MieDensity
+               + Atmosphere.OzoneAbsorptionPeak.rgb * OzoneDensity;
 }
 
 // ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────

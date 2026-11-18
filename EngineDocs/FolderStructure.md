@@ -168,10 +168,17 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │   │   │   ├── Diagnostics/  DiagnosticArchive   // (live)
 │   │   │   ├── Extension/    RenderExtension   // (live — extensible pass registry)
 │   │   │   └── Build.bat  README.md
-│   │   ├── Atmosphere/                            // (live) Hillaire 2020 sky
-│   │   │   ├── SkyAtmosphere.{h,cpp}  AtmosphereProfile.h
+│   │   ├── Atmosphere/                            // (live) Hillaire 2020 sky + CPU reference solvers (ground truth for the GPU path)
+│   │   │   ├── SkyAtmosphere.{h,cpp}  AtmosphereProfile.h   // live Vulkan sky pass; 208 B AtmosphereBlock + Earth profile + colour/noise math
+│   │   │   ├── AtmosphericScatteringSolver.{h,cpp}  // Transmittance / MultiScatter / limb-centred SkyView tables, solar disc, orbital planet
+│   │   │   ├── AtmosphericFlowField.{h,cpp}         // divergence-free curl + 6 force operators + RK4 backward characteristics; 560 B UBO
+│   │   │   ├── VolumetricCloudSolver.{h,cpp}        // 5 genera, germ-grain convective cells, Wrenninge octaves, cirrus ice halo; 96 B UBO
+│   │   │   ├── VolumetricFogSolver.{h,cpp}          // height fog + local fog banks advected by the shared flow field; 272 B UBO
+│   │   │   ├── CelestialFieldSolver.{h,cpp}         // J2000 stars, Milky Way, six moon presets with volumetric atmospheres; 608 B UBO
 │   │   │   └── Shaders/ (Transmittance.comp, MultiScatter.comp, SkyView.frag, SkyDome.{vert,frag},
-│   │   │                 FullscreenTriangle.vert, AtmosphereCommon.glsl, TransmittanceLookup.glsl)
+│   │   │                 FullscreenTriangle.vert, AtmosphereCommon.glsl, TransmittanceLookup.glsl,
+│   │   │                 AtmosphericFlowField.glsl, AtmosphereLatticeNoise.glsl, VolumetricCloudField.glsl,
+│   │   │                 VolumetricFogField.glsl, CelestialField.glsl)   // include-only GPU mirrors of the solvers
 │   │   ├── Acceleration/                          // 🟢 (live) GPU LBVH build for the surfel GI prepass — 4 dispatches, no CPU step
 │   │   │   ├── RadixSortSubmission.{h,cpp}        // 8-bit-digit LSD radix sort over 32-bit keys + a payload. STABLE by construction:
 │   │   │   │                                      //    one lane per bin sweeps the tile in ascending index (RadixKeyScatter lines
@@ -423,6 +430,7 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │   ├── TextureBakeEditor/      { TextureBakeEditorEntry.cpp,       Config/, Build.bat }
 │   ├── SimulationEditor/       { SimulationEditorEntry.cpp,        Config/, Build.bat }
 │   └── Validation/                                // validation targets (not editors)
+│       ├── AtmosphereCelestialValidation/  { AtmosphereCelestialValidationEntry.cpp, Build.bat }  // CPU-only: 43 physical gates + the 14-exhibit gallery (Audit Proof/)
 │       ├── ClipmapFieldValidation/         { ClipmapFieldValidation.cpp,             Build.bat }
 │       ├── ConstructionCatalogueValidation/{ ConstructionCatalogueValidationHost.cpp, ConstructionCatalogue.{h,cpp}, ConstructionCataloguePanel.{h,cpp}, ConstructionConsoleBridge.{h,cpp}, ConstructionGlyphs.{h,cpp}, Build.bat }  // non-host units ALSO compiled in-place by SketchModelViewport (the embedded right-click console)
 │       ├── ControlsGallery/                { ControlsGalleryEntry.cpp,               …Panel.{h,cpp}, Build.bat }
@@ -467,14 +475,14 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │                                 WorkspaceDocumentWriter.exe, ConstructionCatalogueValidation.exe,
 │                                 SceneDirectoryInspectorValidation.exe,
 │                                 TexturePaintValidation.exe, RigidBodyDropValidation.exe,
-│                                 TexturePaintWorkspaceValidation.exe,
+│                                 TexturePaintWorkspaceValidation.exe, AtmosphereCelestialValidation.exe,
 │                                 Assets/,                     // the SHARED .wsdoc the render apps load — do NOT author over these
 │                                 RigidBodyDropScene/          // RigidBodyDropValidation's PRIVATE cwd: its own Assets/ + a Shaders junction
 │                                                              // (launch it through RunRigidBodyDropValidation.bat, which cd's here first)
 │                                 RunRigidBodyDropValidation.bat }
 │
 ├── Documentation/                                 // per "Where to Save Documents"
-│   ├── Explainers/  Mockups/  Research/  Skills/  Assets/
+│   ├── Explainers/  Mockups/  Research/  Skills/  Assets/   // Assets/CelestialMaps/: six 2K moon albedo maps (CelestialFieldSolver)
 │   └── Prototypes/                                // single-file .html prototypes, plus:
 │       └── RockFormation/                         // node-based 3D rock/erosion editor (WebGPU, voxel)
 │           │                                      //   RockFormationConstructionTree.html  (chrome + boot)

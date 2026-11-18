@@ -136,9 +136,9 @@ Suggested home: `Engine/Internal/Graphics/Renderer/Volumetric/` (`FroxelField/`,
 | Phase | Deliverable | State |
 |---|---|---|
 | **P0** | WebGL2 reference demo — full physics as a fullscreen march; lock the look/constants | ✔️ DONE (`VolumetricFogDemo.html`) |
-| **P1** | `FroxelField` + `FogDensityInjectionPass` + `FogIntegrationPass` + `FogCompositePass`; one directional (sun) light, constant density; prove the field end-to-end | ☐ |
-| **P2** | `EvaluatePhaseHenyeyGreenstein` in injection → god-rays; `SunTransmittanceMarch` self-shadow | ☐ |
-| **P3** | Curl-noise + wind advection in `EvaluateFogDensity`; `HeightFalloffProfile` | ☐ |
+| **P1** | `FroxelField` + `FogDensityInjectionPass` + `FogIntegrationPass` + `FogCompositePass`; one directional (sun) light, constant density; prove the field end-to-end | ☐ (CPU reference + GLSL mirror ready: `VolumetricFogSolver`, `VolumetricFogField.glsl`) |
+| **P2** | `EvaluatePhaseHenyeyGreenstein` in injection → god-rays; `SunTransmittanceMarch` self-shadow | ◐ CPU reference + GLSL mirror (Wrenninge octaves + diffusion tail) |
+| **P3** | Curl-noise + wind advection in `EvaluateFogDensity`; `HeightFalloffProfile` | ◐ CPU reference + GLSL mirror: closed-form height fog, fog banks advected by the shared `AtmosphericFlowField` (exhibits 17 / 18, gates ⑩) |
 | **P4** | `FogTemporalReprojection` + `SubVoxelJitterProfile` — kill the low-res aliasing | ☐ |
 | **P5** | `FogScatteringInjectionPass` multi-light (point/spot, shadowed) | ☐ |
 | **P6** | `AerialPerspectiveField` (Bruneton→Hillaire LUTs) + composite seam (no double-counted extinction) | ☐ |

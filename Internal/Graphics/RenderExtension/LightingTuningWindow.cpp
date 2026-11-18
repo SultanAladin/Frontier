@@ -39,6 +39,10 @@ namespace
     const char* const ShadowSampleLabels[] = { "1", "4", "8", "16", "32" };
     constexpr int     ShadowSampleCount    = 5;
 
+    // 📝 Sun disc appearance ladder (LightingTuningState::SunAppearanceIndex).
+    const char* const SunAppearanceLabels[] = { "Muted", "Radiant" };
+    constexpr int     SunAppearanceCount    = 2;
+
     // Value -> index (default to 8's index if off the ladder).
     int ShadowSampleIndexForValue(int Value)
     {
@@ -123,7 +127,7 @@ void DrawLightingTuningWindow(const ThemeConfiguration& Theme, LightingTuningSta
         float ElevationDegrees = State.SunElevation / DegToRad;
         ValueSliderDescriptor Elevation = {};
         Elevation.Label = "Elevation"; Elevation.Value = &ElevationDegrees;
-        Elevation.Minimum = 0.0f; Elevation.Maximum = 90.0f; Elevation.Format = "%.1f"; Elevation.Unit = "\xC2\xB0"; Elevation.Enabled = true;   // °
+        Elevation.Minimum = -18.0f; Elevation.Maximum = 90.0f; Elevation.Format = "%.1f"; Elevation.Unit = "\xC2\xB0"; Elevation.Enabled = true;   // °
         if (ConstructValueSlider(Theme, Elevation))
             State.SunElevation = ElevationDegrees * DegToRad;
 
@@ -142,6 +146,23 @@ void DrawLightingTuningWindow(const ThemeConfiguration& Theme, LightingTuningSta
         ColorEntryDescriptor Colour = {};
         Colour.Label = "Colour"; Colour.Channels = State.SunColour; Colour.IncludeAlpha = false; Colour.Enabled = true;
         ConstructColorEntry(Theme, Colour);
+
+        // 📝 Disc appearance: Muted keeps the plain photosphere + corona; Radiant adds the glare bloom and broad fade on the sky dome.
+        SelectionEntryDescriptor Appearance = {};
+        Appearance.Label = "Disc appearance"; Appearance.SelectedIndex = &State.SunAppearanceIndex;
+        Appearance.Options = SunAppearanceLabels; Appearance.OptionCount = SunAppearanceCount; Appearance.Enabled = true;
+        ConstructSelectionEntry(Theme, Appearance);
+
+        ValueSliderDescriptor Glare = {};
+        Glare.Label = "Glare strength"; Glare.Value = &State.SunGlareStrength;
+        Glare.Minimum = 0.0f; Glare.Maximum = 2.0f; Glare.Format = "%.2f"; Glare.Unit = "\xC3\x97"; Glare.Enabled = State.SunAppearanceIndex == 1;   // ×
+        ConstructValueSlider(Theme, Glare);
+
+        // 📝 Observer altitude for the sky-view bake (sea level → upper atmosphere); a change re-bakes the sky-view table like a sun move.
+        ValueSliderDescriptor Altitude = {};
+        Altitude.Label = "Viewer altitude"; Altitude.Value = &State.ViewerAltitudeKm;
+        Altitude.Minimum = 0.005f; Altitude.Maximum = 99.95f; Altitude.Format = "%.3f"; Altitude.Unit = "km"; Altitude.Enabled = true;
+        ConstructValueSlider(Theme, Altitude);
 
         EndPropertyCard(Theme);
     }

@@ -31,8 +31,8 @@ const uint32_t TransmittanceWidth  = 256;
 const uint32_t TransmittanceHeight = 64;
 const uint32_t MultiScatterWidth   = 32;
 const uint32_t MultiScatterHeight  = 32;
-const uint32_t SkyViewWidth        = 192;
-const uint32_t SkyViewHeight       = 108;
+const uint32_t SkyViewWidth        = Atmosphere::SkyViewExtentX;   // 256: azimuth 0..2π, shared with the CPU reference table
+const uint32_t SkyViewHeight       = Atmosphere::SkyViewExtentY;   // 128: horizon-centred quadratic zenith mapping
 const VkFormat LutFormat           = VK_FORMAT_R16G16B16A16_SFLOAT;
 
 // Read a whole SPIR-V file into a byte buffer. Empty on failure (missing / unreadable) → caller skips the sky.
@@ -365,11 +365,11 @@ bool ConstructSetLayout(const VulkanHost& Host, const BindingSpec* Specs, uint32
         Bindings[Index].descriptorCount = 1;
         Bindings[Index].stageFlags      = Specs[Index].Stage;
     }
-    VkDescriptorSetLayoutCreateInfo Info = {};
-    Info.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    Info.bindingCount = Count;
-    Info.pBindings    = Bindings.data();
-    return vkCreateDescriptorSetLayout(Host.Device, &Info, Host.Allocator, &Layout) == VK_SUCCESS;
+    VkDescriptorSetLayoutCreateInfo LayoutDescription = {};
+    LayoutDescription.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    LayoutDescription.bindingCount = Count;
+    LayoutDescription.pBindings    = Bindings.data();
+    return vkCreateDescriptorSetLayout(Host.Device, &LayoutDescription, Host.Allocator, &Layout) == VK_SUCCESS;
 }
 
 // Dispatch one compute LUT bake, transitioning the target UNDEFINED→GENERAL, dispatching, then GENERAL→SHADER_READ_ONLY.
@@ -511,6 +511,12 @@ bool InitializeSkyAtmospherePass(SkyAtmospherePass& Pass,
         SamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         if (vkCreateSampler(Host.Device, &SamplerInfo, Host.Allocator, &Pass.LinearSampler) != VK_SUCCESS)
             return false;
+
+        // Sky-view azimuth is periodic: U wraps (REPEAT) so bilinear taps at u ≈ 0 / 1 blend across the ±π seam instead of clamping
+        // into a visible vertical line behind the camera; V (zenith) stays clamped at the zenith / nadir rows.
+        SamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        if (vkCreateSampler(Host.Device, &SamplerInfo, Host.Allocator, &Pass.SkyViewSampler) != VK_SUCCESS)
+            return false;
     }
 
     // -- Descriptor-set layouts -----------------------------------------------------------------------------------------
@@ -582,7 +588,7 @@ bool InitializeSkyAtmospherePass(SkyAtmospherePass& Pass,
         VkDescriptorImageInfo MultiScatterStore  = { VK_NULL_HANDLE, Pass.MultiScatterView,  VK_IMAGE_LAYOUT_GENERAL };
         VkDescriptorImageInfo TransmittanceSample = { Pass.LinearSampler, Pass.TransmittanceView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
         VkDescriptorImageInfo MultiScatterSample  = { Pass.LinearSampler, Pass.MultiScatterView,  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-        VkDescriptorImageInfo SkyViewSample       = { Pass.LinearSampler, Pass.SkyViewView,       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+        VkDescriptorImageInfo SkyViewSample       = { Pass.SkyViewSampler, Pass.SkyViewView,      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 
         VkWriteDescriptorSet Writes[11] = {};
         auto Write = [&](int I, VkDescriptorSet Set, uint32_t Binding, VkDescriptorType Type,
@@ -630,7 +636,7 @@ bool InitializeSkyAtmospherePass(SkyAtmospherePass& Pass,
     }
 
     Pass.ReadyCondition = true;
-    ISSUE_NOTICE("sky-atmosphere", "sky pass ready (transmittance 256x64, multiscatter 32x32, skyview 192x108)");
+    ISSUE_NOTICE("sky-atmosphere", "sky pass ready (transmittance 256x64, multiscatter 32x32, skyview 256x128)");
     return true;
 }
 
@@ -715,7 +721,8 @@ void FinalizeSkyAtmospherePass(SkyAtmospherePass& Pass, const VulkanHost& Host)
     if (Pass.MultiScatterSetLayout)   vkDestroyDescriptorSetLayout(Host.Device, Pass.MultiScatterSetLayout, A);
     if (Pass.TransmittanceSetLayout)  vkDestroyDescriptorSetLayout(Host.Device, Pass.TransmittanceSetLayout, A);
 
-    if (Pass.LinearSampler) vkDestroySampler(Host.Device, Pass.LinearSampler, A);
+    if (Pass.SkyViewSampler) vkDestroySampler(Host.Device, Pass.SkyViewSampler, A);
+    if (Pass.LinearSampler)  vkDestroySampler(Host.Device, Pass.LinearSampler, A);
 
     if (Pass.SkyViewView)        vkDestroyImageView(Host.Device, Pass.SkyViewView, A);
     if (Pass.SkyViewImage)       vkDestroyImage(Host.Device, Pass.SkyViewImage, A);

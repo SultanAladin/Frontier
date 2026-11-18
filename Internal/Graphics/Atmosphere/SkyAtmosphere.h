@@ -2,7 +2,7 @@
                                                             SKYATMOSPHERE.H
 ==============================================================================================================================================*/
 // 🧩 A modular Hillaire-2020 sky/atmosphere pass. Bakes three precomputed lookup tables once at boot — transmittance (256×64), isotropic
-//    multi-scatter (32×32), and a sun-dependent sky-view radiance table (192×108) — then, per frame, draws a fullscreen sky dome that samples
+//    multi-scatter (32×32), and a sun-dependent sky-view radiance table (256×128) — then, per frame, draws a fullscreen sky dome that samples
 //    the sky-view table along the reconstructed view ray and composites an analytic sun disc, exposure-tonemapped. Built once (LUT images,
 //    samplers, descriptor sets, four pipelines); recorded once per frame into the substrate's open dynamic-rendering scope, BEFORE the grid.
 //    The sky-view table re-bakes only when the sun direction changes. Struct + free-function style, raw Vulkan (no VMA), Pascal-floor safe.
@@ -25,19 +25,17 @@ namespace Frontier
 
 // 📝 Per-frame push data for the sky-dome draw. Byte-compatible with the SkyPush push_constant block in SkyDome.frag: one mat4 (64) + one
 //    vec4 (16) + four floats (16) = 96 bytes, inside the Pascal 256-byte push limit. The InverseViewProjection is the clip→world matrix the
-//    camera already hands the grid; the four scalars steer the sun disc and exposure so a UI can drive them without touching the pass.
+//    camera already hands the grid; the four scalars steer the sun disc, its glare veil and the dome toggle so a UI can drive them without touching the pass.
 struct SkyDomeConstants
 {
     float InverseViewProjection[16];                 // [-]   - Clip → world (column-major, matches Matrix4f)
     float CameraPosition[4] = { 0.0f, 0.0f, 0.0f, 0.0f }; // [m] - World eye xyz; w unused
     float SunAngularRadius  = 0.0047f;               // [rad] - Solar disc half-angle (~0.27°, real sun)
 
-    // 🔴 DEAD, AND KEPT ONLY TO HOLD THE PUSH BLOCK'S SHAPE. SkyDome.frag no longer reads this — it writes linear radiance and
-    //    RadianceResolve owns exposure and the tone curve. Removing the float would shrink the 96-byte block and shift DomeEnabled,
-    //    so it stays as an explicit hole. Set to zero, NOT to its old 8.0: a live-looking value here is how the sky's real
-    //    calibration got lost once already (it now lives in AtmosphereProfile.h::SolarIlluminanceCalibration). Writing anything
-    //    here changes nothing on screen.
-    float ExposureUnused    = 0.0f;                  // [-]   - inert push-block hole; see above
+    // 📝 Radiant-sun glare veil (Atmosphere::EvaluateSolarGlareSpread): 0 = muted sun (disc + corona + faint aureole only), 1 = radiant
+    //    sun (bright optical bloom + broad clean-air fade). This slot used to be the inert ExposureUnused hole; it is NOT an exposure —
+    //    RadianceResolve owns exposure and the tone curve, and the sky calibration lives in SolarIlluminanceCalibration.
+    float SunGlareStrength  = 0.0f;                  // [-]   - 0 muted .. 1 radiant (values above 1 exaggerate the bloom)
     float SunIntensity      = 20.0f;                 // [-]   - Brightness of the disc itself, RELATIVE to SolarIlluminance
     float DomeEnabled       = 1.0f;                  // [-]   - 1 draws the sky, 0 leaves the clear
 };
@@ -69,7 +67,8 @@ struct SkyAtmospherePass
     VkDeviceMemory         SkyViewMemory       = VK_NULL_HANDLE;
     VkImageView            SkyViewView         = VK_NULL_HANDLE;
 
-    VkSampler              LinearSampler       = VK_NULL_HANDLE;   // [-] - Clamp-to-edge linear sampler for all LUTs
+    VkSampler              LinearSampler       = VK_NULL_HANDLE;   // [-] - Clamp-to-edge linear sampler for the transmittance / multi-scatter LUTs
+    VkSampler              SkyViewSampler      = VK_NULL_HANDLE;   // [-] - Linear sampler for the sky-view LUT: U (azimuth) REPEAT, V clamp
 
     // -- Descriptors ------------------------------------------------------------------------------------------------------
     VkDescriptorPool       DescriptorPool      = VK_NULL_HANDLE;
