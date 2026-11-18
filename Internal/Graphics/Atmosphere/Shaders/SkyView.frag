@@ -1,109 +1,100 @@
-#version 450 core
+#version 450
+#extension GL_GOOGLE_include_directive : enable
 
-// ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-//                                                     SKY-VIEW LUT BAKE 🧩
-// ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// Bakes the sky-view radiance table (192×108 RGBA16F): for each view direction over the sphere, raymarches single scattering with a real
-// transmittance-LUT lookup toward the sun AND adds the baked multi-scatter Ψ term. This is the pass that replaces the archive's fake
-// `exp(-Altitude*0.1)` — it samples the LUTs and marches in correct km-space. Re-baked only when the sun moves. X = azimuth, Y = view zenith.
+// 🧩 Per-sun-position sky-view LUT (Hillaire 2020 §4.3) evaluated at the true observer altitude (SolarDirection.w [km]) with
+//    analytical step integration and limb-concentrated quadratic latitude parameterization.
 
 #include "AtmosphereCommon.glsl"
 #include "TransmittanceLookup.glsl"
 
-layout(binding = 3) uniform sampler2D MultiScatterLUT;   // 32×32 RGBA16F, X = sun-zenith cos, Y = altitude
+layout(location = 0) in  vec2 FragUv;
+layout(location = 0) out vec4 OutLuminance;
 
-layout(location = 0) in  vec2 InUv;
-layout(location = 0) out vec4 OutRadiance;
+layout(set = 0, binding = 1) uniform sampler2D TransmittanceTable;
+layout(set = 0, binding = 2) uniform sampler2D MultiScatterTable;
 
-// 📝 LUT uv → view direction. Y uses a sqrt bias so the horizon (where the gradient is steep) gets more texels.
-vec3 SkyViewUvToDirection(vec2 Uv, out float ViewZenithCos)
+const int SKY_VIEW_STEPS = 40;
+
+vec3 SampleMultiScatter(float Radius, float CosineSunZenith)
 {
-    float Azimuth = (Uv.x * 2.0 - 1.0) * PI;
-
-    // Uv.y in [0,0.5) = below horizon-ish → down hemisphere; [0.5,1] = up. Bias toward horizon at 0.5.
-    float V = Uv.y;
-    float Zenith;
-    if (V < 0.5)
-    {
-        float T = 1.0 - 2.0 * V;      // 0 at horizon → 1 at nadir
-        Zenith = (PI * 0.5) + (T * T) * (PI * 0.5);
-    }
-    else
-    {
-        float T = 2.0 * V - 1.0;      // 0 at horizon → 1 at zenith
-        Zenith = (PI * 0.5) - (T * T) * (PI * 0.5);
-    }
-    ViewZenithCos = cos(Zenith);
-    float SinZenith = sin(Zenith);
-    return vec3(SinZenith * cos(Azimuth), ViewZenithCos, SinZenith * sin(Azimuth));
-}
-
-vec3 SampleMultiScatter(float RadiusFromCentre, float SunZenithCos)
-{
-    float Altitude = RadiusFromCentre - Atmosphere.BottomRadius;
-    float U = 0.5 * (SunZenithCos + 1.0);
-    float Vv = clamp(Altitude / max(Atmosphere.TopRadius - Atmosphere.BottomRadius, 1e-4), 0.0, 1.0);
-    return texture(MultiScatterLUT, vec2(U, Vv)).rgb;
+    vec2 Uv;
+    Uv.x = CosineSunZenith * 0.5 + 0.5;
+    Uv.y = clamp((Radius - Atmosphere.BottomRadius)
+               / (Atmosphere.TopRadius - Atmosphere.BottomRadius), 0.0, 1.0);
+    return texture(MultiScatterTable, Uv).rgb;
 }
 
 void main()
 {
-    float ViewZenithCos;
-    vec3  ViewDir = SkyViewUvToDirection(InUv, ViewZenithCos);
-    vec3  SunDir  = normalize(Atmosphere.SolarDirection.xyz);
+    float Azimuth = (FragUv.x - 0.5) * 2.0 * PI;
 
-    // Camera sits just above the ground surface, local up = +Y.
-    float StartRadius = Atmosphere.BottomRadius + 0.5;   // 0.5 km observer altitude
-    vec3  StartPos    = vec3(0.0, StartRadius, 0.0);
+    // Observer altitude tracks the true camera height inside the atmosphere [BottomRadius + 1 m .. TopRadius - 10 m].
+    float ObserverRadius = clamp(Atmosphere.BottomRadius + ObserverAltitudeKilometres(),
+                                 Atmosphere.BottomRadius + 0.001,
+                                 Atmosphere.TopRadius - 0.010);
 
-    float PathToTop    = IntersectSphere(StartRadius, ViewZenithCos, Atmosphere.TopRadius);
-    float PathToGround = IntersectSphere(StartRadius, ViewZenithCos, Atmosphere.BottomRadius);
-    float PathLength   = (PathToGround > 0.0) ? PathToGround : max(PathToTop, 0.0);
+    float SinHorizon  = Atmosphere.BottomRadius / ObserverRadius;
+    float HorizonBeta = -acos(clamp(SinHorizon, -1.0, 1.0));
 
-    vec3 Radiance   = vec3(0.0);
-    vec3 Throughput = vec3(1.0);
-
-    if (PathLength > 0.0)
+    float Latitude;
+    if (FragUv.y < 0.5)
     {
-        const int StepCount = 32;
-        float StepSize = PathLength / float(StepCount);
-
-        float CosSunView = dot(ViewDir, SunDir);
-        float RayleighPh = EvaluateRayleighPhase(CosSunView);
-        float MiePh      = EvaluateCornetteShanksPhase(CosSunView, Atmosphere.MieAsymmetry);
-
-        for (int Step = 0; Step < StepCount; Step++)
-        {
-            float Distance  = (float(Step) + 0.5) * StepSize;
-            vec3  SamplePos = StartPos + ViewDir * Distance;
-            float SampleRad = length(SamplePos);
-            float SampleAlt = SampleRad - Atmosphere.BottomRadius;
-
-            vec3 Scattering, Extinction;
-            EvaluateScatterExtinction(SampleAlt, Scattering, Extinction);
-            vec3 StepTransmittance = exp(-Extinction * StepSize * 1000.0);
-
-            // Split scattering into Rayleigh vs Mie for correct per-species phase weighting.
-            float RayleighDensity = EvaluateProfileDensity(Atmosphere.RayleighProfileLayer0, Atmosphere.RayleighProfileLayer1, SampleAlt);
-            float MieDensity      = EvaluateProfileDensity(Atmosphere.MieProfileLayer0,      Atmosphere.MieProfileLayer1,      SampleAlt);
-            vec3  RayleighScatter = Atmosphere.RayleighScatteringBase.rgb * RayleighDensity;
-            vec3  MieScatter      = Atmosphere.MieScatteringBase.rgb      * MieDensity;
-
-            float SampleSunCos = dot(normalize(SamplePos), SunDir);
-            vec3  SunTransmit  = SampleTransmittanceToSpace(SampleRad, SampleSunCos);
-            vec3  MultiScatter = SampleMultiScatter(SampleRad, SampleSunCos);
-
-            // Single scatter (phase-weighted, shadowed by transmittance to sun) + isotropic multi-scatter.
-            vec3 InScatter = (RayleighScatter * RayleighPh + MieScatter * MiePh) * SunTransmit
-                           + (RayleighScatter + MieScatter) * MultiScatter;
-
-            // Analytic S·T step integral for reduced banding.
-            vec3 IntegralS = (InScatter - InScatter * StepTransmittance) / max(Extinction, vec3(1e-6));
-            Radiance   += Throughput * IntegralS;
-            Throughput *= StepTransmittance;
-        }
+        float Coord = 1.0 - 2.0 * FragUv.y;
+        Latitude    = HorizonBeta - Coord * Coord * (0.5 * PI + HorizonBeta);
+    }
+    else
+    {
+        float Coord = 2.0 * FragUv.y - 1.0;
+        Latitude    = HorizonBeta + Coord * Coord * (0.5 * PI - HorizonBeta);
     }
 
-    Radiance *= Atmosphere.SolarIlluminance.rgb;
-    OutRadiance = vec4(Radiance, 1.0);
+    float CosLat   = cos(Latitude);
+    vec3  ViewRay  = vec3(CosLat * cos(Azimuth), sin(Latitude), CosLat * sin(Azimuth));
+
+    vec3  SunHoriz = vec3(Atmosphere.SolarDirection.x, 0.0, Atmosphere.SolarDirection.z);
+    float HorizLen = length(SunHoriz);
+    vec3  SunAxisX = (HorizLen > 1.0e-5) ? (SunHoriz / HorizLen) : vec3(1.0, 0.0, 0.0);
+    vec3  SunAxisZ = vec3(-SunAxisX.z, 0.0, SunAxisX.x);
+    vec3  WorldDir = SunAxisX * ViewRay.x + vec3(0.0, 1.0, 0.0) * ViewRay.y + SunAxisZ * ViewRay.z;
+
+    float CosineZenith = WorldDir.y;
+    float PathLength   = DistanceToNearestBoundary(ObserverRadius, CosineZenith);
+    float StepLength   = PathLength / float(SKY_VIEW_STEPS);
+
+    vec3  SunDir       = normalize(Atmosphere.SolarDirection.xyz);
+    float CosineSun    = dot(WorldDir, SunDir);
+    float RayPhase     = RayleighPhase(CosineSun);
+    float MiePhase     = CornetteShanksPhase(CosineSun, Atmosphere.MieAsymmetry);
+
+    vec3 Throughput  = vec3(1.0);
+    vec3 InScattered = vec3(0.0);
+
+    for (int Step = 0; Step < SKY_VIEW_STEPS; ++Step)
+    {
+        float T         = (float(Step) + 0.5) * StepLength;
+        vec3  SamplePos = vec3(0.0, ObserverRadius, 0.0) + WorldDir * T;
+        float SampleR   = length(SamplePos);
+        vec3  SampleUp  = SamplePos / SampleR;
+        float SampleMuS = dot(SampleUp, SunDir);
+
+        vec3 RayleighS, MieS, Extinction;
+        EvaluateMediumScattering(SampleR, RayleighS, MieS, Extinction);
+
+        vec3 StepTrans    = exp(-Extinction * StepLength);
+        vec3 SafeExt      = max(Extinction, vec3(1.0e-7));
+        vec3 StepIntegral = (vec3(1.0) - StepTrans) / SafeExt;
+
+        vec3 SunTrans     = RayIntersectsGround(SampleR, SampleMuS)
+                          ? vec3(0.0)
+                          : LookupTransmittance(TransmittanceTable, SampleR, SampleMuS);
+
+        vec3 MultiScat    = SampleMultiScatter(SampleR, SampleMuS) * Atmosphere.MultipleScatteringFactor;
+        vec3 TotalScat    = RayleighS + MieS;
+        vec3 Scattering   = (RayleighS * RayPhase + MieS * MiePhase) * SunTrans + TotalScat * MultiScat;
+
+        InScattered += Throughput * Scattering * StepIntegral;
+        Throughput  *= StepTrans;
+    }
+
+    OutLuminance = vec4(InScattered * Atmosphere.SolarIlluminance.rgb, 1.0);
 }

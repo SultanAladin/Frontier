@@ -1,0 +1,348 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+// 🧩 GPU Compute Volumetric Cloud Raymarcher (parity with VolumetricCloudEvaluation.cpp):
+//    - Nubis 3D Perlin-Worley cauliflower shape + 3-octave domain-rotated Worley edge erosion (zero lattice crosshatching).
+//    - Laine-Karras Owen-scrambled (0,2) Sobol ray offset (zero IGN diagonal stipple banding).
+//    - Backward streamline advection along directional wind + Lamb-Oseen cyclonic circulation ForceField.
+//    - 6-tap sun-cone optical depth + 4-octave multiple-scattering dual-lobe Henyey-Greenstein + Beer-Powder + aerial perspective.
+
+#include "AtmosphereCommon.glsl"
+#include "TransmittanceLookup.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 1) uniform sampler2D TransmittanceTable;
+layout(set = 0, binding = 3) uniform sampler2D SkyViewTable;
+layout(set = 0, binding = 4, rgba16f) uniform writeonly image2D CloudRadianceOutput;
+
+layout(push_constant) uniform CloudMarchPush
+{
+    mat4  InverseViewProjection;
+    vec4  CameraSceneMetres;       // xyz: Z-up world camera [m]; w: SequenceSeconds [s]
+    vec4  StratumParameters;       // x: LowerAlt [m], y: Thickness [m], z: MacroCoverage [0..1], w: ExtinctionPerMetre [1/m]
+    vec4  ForceFieldParameters;    // xy: CycloneCenterXY [m], z: CoreRadius [m], w: PeakTangentialSpeed [m/s]
+    vec4  AmbientWindParameters;   // xy: GeostrophicWindXY [m/s], z: DetailErosion [0..1], w: FrameIndex
+} CloudPush;
+
+uint ReverseBits32(uint Word)
+{
+    Word = ((Word & 0x55555555u) << 1u) | ((Word >> 1u) & 0x55555555u);
+    Word = ((Word & 0x33333333u) << 2u) | ((Word >> 2u) & 0x33333333u);
+    Word = ((Word & 0x0F0F0F0Fu) << 4u) | ((Word >> 4u) & 0x0F0F0F0Fu);
+    Word = ((Word & 0x00FF00FFu) << 8u) | ((Word >> 8u) & 0x00FF00FFu);
+    return (Word << 16u) | (Word >> 16u);
+}
+
+uint OwenScrambleReversed(uint ReversedWord, uint Seed)
+{
+    ReversedWord += Seed;
+    ReversedWord ^= ReversedWord * 0x6C50B47Cu;
+    ReversedWord ^= ReversedWord * 0xB82F1E52u;
+    ReversedWord ^= ReversedWord * 0xC7AFE638u;
+    ReversedWord ^= ReversedWord * 0x8D22F6E6u;
+    return ReversedWord;
+}
+
+float EvaluateOwenSobol0(uint SampleIndex, uint PixelSeed)
+{
+    uint SobolBits = ReverseBits32(SampleIndex);
+    uint Scrambled = ReverseBits32(OwenScrambleReversed(ReverseBits32(SobolBits), PixelSeed ^ 0x7F4A7C15u));
+    return float(Scrambled >> 8u) * (1.0 / 16777216.0);
+}
+
+uint HashCloud3(ivec3 Cell, uint Salt)
+{
+    uint Word = uint(Cell.x) * 73856093u ^ uint(Cell.y) * 19349663u ^ uint(Cell.z) * 83492791u ^ (Salt * 1664525u + 1013904223u);
+    Word = (Word ^ (Word >> 15u)) * 2246822519u;
+    Word = (Word ^ (Word >> 13u)) * 3266489917u;
+    return Word ^ (Word >> 16u);
+}
+
+vec3  RotateDomain3(vec3 P);
+float EvaluatePerlinGradient3(vec3 Coord, uint Salt);
+float EvaluateRotatedWorleyFbm(vec3 Coord, uint Salt);
+
+// Perlin's improved GRADIENT noise (quintic fade, 12 cube-edge gradients) — a gradient basis is what makes cloud margins connected
+// and cusped; a value basis can only produce rounded lumps, which is the exact source of a "blobby" deck.
+float LatticeGradientTerm(ivec3 Cell, vec3 Offset, uint Salt)
+{
+    uint  Selector = HashCloud3(Cell, Salt) % 12u;
+    uint  Axis     = Selector >> 2u;
+    float SignA    = ((Selector & 3u) < 2u) ? 1.0 : -1.0;
+    float SignB    = ((Selector & 1u) == 0u) ? 1.0 : -1.0;
+    vec3  Gradient = vec3(0.0);
+    if (Axis == 0u)      Gradient = vec3(0.0, SignA, SignB);
+    else if (Axis == 1u) Gradient = vec3(SignA, 0.0, SignB);
+    else                 Gradient = vec3(SignA, SignB, 0.0);
+    return dot(Gradient, Offset);
+}
+
+float EvaluatePerlinGradient3(vec3 Coord, uint Salt)
+{
+    ivec3 Base = ivec3(floor(Coord));
+    vec3  F    = Coord - vec3(Base);
+    // C2-continuous quintic fade: no lattice-aligned creases leak out of the FBM sum.
+    vec3  U    = F * F * F * (F * (F * 6.0 - 15.0) + 10.0);
+
+    float N000 = LatticeGradientTerm(Base + ivec3(0, 0, 0), F,                         Salt);
+    float N100 = LatticeGradientTerm(Base + ivec3(1, 0, 0), F - vec3(1.0, 0.0, 0.0),  Salt);
+    float N010 = LatticeGradientTerm(Base + ivec3(0, 1, 0), F - vec3(0.0, 1.0, 0.0),  Salt);
+    float N110 = LatticeGradientTerm(Base + ivec3(1, 1, 0), F - vec3(1.0, 1.0, 0.0),  Salt);
+    float N001 = LatticeGradientTerm(Base + ivec3(0, 0, 1), F - vec3(0.0, 0.0, 1.0),  Salt);
+    float N101 = LatticeGradientTerm(Base + ivec3(1, 0, 1), F - vec3(1.0, 0.0, 1.0),  Salt);
+    float N011 = LatticeGradientTerm(Base + ivec3(0, 1, 1), F - vec3(0.0, 1.0, 1.0),  Salt);
+    float N111 = LatticeGradientTerm(Base + ivec3(1, 1, 1), F - vec3(1.0, 1.0, 1.0),  Salt);
+
+    float Lower = mix(mix(N000, N100, U.x), mix(N010, N110, U.x), U.y);
+    float Upper = mix(mix(N001, N101, U.x), mix(N011, N111, U.x), U.y);
+
+    // Gradient noise is bounded by ~±0.866; the 1.15 gain maps it back to roughly [-1, 1].
+    return clamp(mix(Lower, Upper, U.z) * 1.15, -1.0, 1.0);
+}
+
+float EvaluateRotatedPerlinFbm(vec3 Coord, uint Octaves, uint Salt)
+{
+    float Sum = 0.0;
+    float Amp = 0.50;
+    vec3  P   = Coord;
+    for (uint Octave = 0u; Octave < Octaves; ++Octave)
+    {
+        Sum += Amp * (EvaluatePerlinGradient3(P, Salt + Octave * 13u) * 0.5 + 0.5);
+        P = RotateDomain3(P) * 2.03 + vec3(9.4, -5.8, 3.2);
+        Amp *= 0.50;
+    }
+    return Sum;
+}
+
+float EvaluateInvertedWorley3(vec3 Coord, uint Salt)
+{
+    ivec3 Base      = ivec3(floor(Coord));
+    float MinDistSq = 4.0;
+    for (int DZ = -1; DZ <= 1; ++DZ)
+    {
+        for (int DY = -1; DY <= 1; ++DY)
+        {
+            for (int DX = -1; DX <= 1; ++DX)
+            {
+                ivec3 Cell = Base + ivec3(DX, DY, DZ);
+                uint  H0   = HashCloud3(Cell, Salt);
+                uint  H1   = HashCloud3(Cell + ivec3(19, -7, 31), Salt + 5u);
+                vec3  Feat = vec3(Cell) + vec3(float(H0 & 0x3FFu) / 1023.0,
+                                               float((H0 >> 10u) & 0x3FFu) / 1023.0,
+                                               float(H1 & 0x3FFu) / 1023.0);
+                vec3  Diff = Feat - Coord;
+                MinDistSq  = min(MinDistSq, dot(Diff, Diff));
+            }
+        }
+    }
+    return clamp(1.0 - sqrt(MinDistSq) * 0.92, 0.0, 1.0);
+}
+
+vec3 RotateDomain3(vec3 P)
+{
+    return vec3(0.80 * P.x - 0.48 * P.y + 0.36 * P.z,
+                0.48 * P.x + 0.86 * P.y + 0.16 * P.z,
+               -0.36 * P.x + 0.04 * P.y + 0.93 * P.z);
+}
+
+float EvaluateRotatedWorleyFbm(vec3 Coord, uint Salt)
+{
+    float W0 = EvaluateInvertedWorley3(Coord, Salt);
+    vec3  R1 = RotateDomain3(Coord) * 2.12 + vec3(4.3, -2.7, 0.0);
+    float W1 = EvaluateInvertedWorley3(R1, Salt + 17u);
+    vec3  R2 = RotateDomain3(R1) * 2.05 + vec3(-1.9, 6.1, 0.0);
+    float W2 = EvaluateInvertedWorley3(R2, Salt + 37u);
+    return 0.625 * W0 + 0.250 * W1 + 0.125 * W2;
+}
+
+vec3 EvaluateForceFieldVelocity(vec3 PosMetres)
+{
+    vec3  Vel   = vec3(CloudPush.AmbientWindParameters.xy, 0.0);
+    float CoreR = max(50.0, CloudPush.ForceFieldParameters.z);
+    float PeakV = CloudPush.ForceFieldParameters.w;
+    if (abs(PeakV) > 1.0e-3)
+    {
+        vec2  Rel = PosMetres.xy - CloudPush.ForceFieldParameters.xy;
+        float R   = length(Rel);
+        if (R > 1.0e-2)
+        {
+            float NormR  = R / CoreR;
+            float Swirl  = PeakV * ((1.0 - exp(-1.25643 * NormR * NormR)) / max(0.08, NormR)) * 1.398;
+            vec2  Tang   = vec2(-Rel.y / R, Rel.x / R);
+            vec2  Radial = Rel / R;
+            Vel.xy += Tang * Swirl - Radial * (abs(Swirl) * 0.22);
+        }
+    }
+    return Vel;
+}
+
+float EvaluateCloudDensity(vec3 WorldPosMetres)
+{
+    float LowerAlt  = CloudPush.StratumParameters.x;
+    float Thickness = max(100.0, CloudPush.StratumParameters.y);
+    float HFrac     = (WorldPosMetres.z - LowerAlt) / Thickness;
+    if (HFrac <= 0.0 || HFrac >= 1.0)
+        return 0.0;
+
+    // 4-step RK2 backward characteristic integration along ForceField + wind.
+    vec3  LagPos = WorldPosMetres;
+    float Dt     = max(0.0, CloudPush.CameraSceneMetres.w) * 0.25;
+    if (Dt > 1.0e-3)
+    {
+        for (int Step = 0; Step < 4; ++Step)
+        {
+            vec3 V1 = EvaluateForceFieldVelocity(LagPos);
+            vec3 V2 = EvaluateForceFieldVelocity(LagPos - V1 * (0.5 * Dt));
+            LagPos -= V2 * Dt;
+        }
+    }
+
+    float Weather   = 0.62 * EvaluateRotatedPerlinFbm(vec3(LagPos.xy * 0.000068, 0.35), 4u, 11u)
+                    + 0.38 * EvaluateRotatedPerlinFbm(vec3(LagPos.xy * 0.000145, 1.15), 3u, 29u);
+    float Coverage  = smoothstep(1.0 - CloudPush.StratumParameters.z - 0.18,
+                                 1.0 - CloudPush.StratumParameters.z + 0.24, Weather);
+    if (Coverage <= 1.0e-3)
+        return 0.0;
+
+    float AltProf   = smoothstep(0.0, 0.11, HFrac) * (1.0 - smoothstep(0.55, 0.88, HFrac));
+
+    // Nubis macro shape: a gradient Perlin FBM dilated by inverted Worley, aspect-matched (~1.8 km cells horizontally) so the
+    // deck does not resolve into flat pancakes. Mirrors EvaluateCloudDensityInternal in the CPU evaluator exactly.
+    vec3  ShapePos  = LagPos * vec3(0.000560, 0.000560, 0.000920);
+    float PerlinM   = EvaluateRotatedPerlinFbm(ShapePos, 5u, 53u);
+    float WorleyM   = EvaluateRotatedWorleyFbm(ShapePos * 1.45, 97u);
+    float PerlinC   = clamp((PerlinM - 0.30) / 0.42, 0.0, 1.0);
+    float DilateM   = clamp(0.25 + 1.30 * WorleyM, 0.0, 1.0);
+    float PW        = PerlinC * DilateM;
+
+    float CoarseCloud = clamp((PW * AltProf - (1.0 - Coverage)) / max(1.0e-4, Coverage), 0.0, 1.0);
+    if (CoarseCloud <= 1.0e-4)
+        return 0.0;
+
+    if (CloudPush.AmbientWindParameters.z > 1.0e-3)
+    {
+        // (a) Worley lobe crumple + (b) |Perlin| billow cusps, both applied as a REMAP inside the silhouette band only.
+        float LobeW   = EvaluateRotatedWorleyFbm(LagPos * vec3(0.00135, 0.00135, 0.00160), 181u);
+        vec3  CuspPos = LagPos * vec3(0.00078, 0.00078, 0.00096);
+        float CuspA   = abs(EvaluatePerlinGradient3(CuspPos, 211u));
+        float CuspB   = abs(EvaluatePerlinGradient3(CuspPos * 2.13 + vec3(5.1, -3.3, 1.7), 233u));
+        float Cusp    = clamp(CuspA * 0.66 + CuspB * 0.44, 0.0, 1.0);
+
+        float Band    = smoothstep(0.02, 0.26, CoarseCloud) * (1.0 - 0.85 * smoothstep(0.58, 0.95, CoarseCloud));
+        float Crown   = 0.55 + 0.45 * (1.0 - smoothstep(0.55, 1.0, HFrac));
+        float Erode   = CloudPush.AmbientWindParameters.z * Band * Crown * ((1.0 - LobeW) * 0.58 + Cusp * 0.62);
+        Erode         = clamp(Erode, 0.0, 0.62);
+
+        CoarseCloud = clamp((CoarseCloud - Erode) / max(1.0e-4, 1.0 - Erode), 0.0, 1.0);
+        if (CoarseCloud <= 1.0e-4)
+            return 0.0;
+    }
+
+    // Condensation fills outward from the saturated core, then normalised field -> droplet density.
+    CoarseCloud = pow(CoarseCloud, 0.78);
+    float AdiabaticGain = 0.45 + 0.85 * smoothstep(0.0, 0.55, HFrac);
+    return clamp(CoarseCloud * AdiabaticGain * 2.60, 0.0, 1.0);
+}
+
+float DualLobeHg(float Mu, float G0, float G1, float Mix0)
+{
+    float P0 = (1.0 - G0 * G0) / (4.0 * PI * pow(max(1.0e-4, 1.0 + G0 * G0 - 2.0 * G0 * Mu), 1.5));
+    float P1 = (1.0 - G1 * G1) / (4.0 * PI * pow(max(1.0e-4, 1.0 + G1 * G1 - 2.0 * G1 * Mu), 1.5));
+    return mix(P1, P0, Mix0);
+}
+
+void main()
+{
+    ivec2 Size  = imageSize(CloudRadianceOutput);
+    ivec2 Pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (Pixel.x >= Size.x || Pixel.y >= Size.y)
+        return;
+
+    vec2 Uv       = (vec2(Pixel) + 0.5) / vec2(Size);
+    vec2 Ndc      = Uv * 2.0 - 1.0;
+    vec4 NearClip = CloudPush.InverseViewProjection * vec4(Ndc, 0.0, 1.0);
+    vec4 FarClip  = CloudPush.InverseViewProjection * vec4(Ndc, 1.0, 1.0);
+    vec3 ViewDir  = normalize(FarClip.xyz / FarClip.w - NearClip.xyz / NearClip.w);
+
+    float PlanetR    = Atmosphere.BottomRadius * 1000.0;
+    float LowerR     = PlanetR + CloudPush.StratumParameters.x;
+    float UpperR     = LowerR + max(100.0, CloudPush.StratumParameters.y);
+    vec3  CamPlanetM = vec3(CloudPush.CameraSceneMetres.xy, PlanetR + max(1.5, CloudPush.CameraSceneMetres.z));
+
+    vec2 LowerHit = IntersectSphereGeneral(CamPlanetM, ViewDir, LowerR);
+    vec2 UpperHit = IntersectSphereGeneral(CamPlanetM, ViewDir, UpperR);
+    float TStart  = max(0.0, LowerHit.y);
+    float TEnd    = min(UpperHit.y, TStart + 48000.0);
+    if (ViewDir.z <= -0.04 || TEnd <= TStart)
+    {
+        imageStore(CloudRadianceOutput, Pixel, vec4(0.0, 0.0, 0.0, 1.0));
+        return;
+    }
+
+    const int STEPS    = 80;
+    float StepM        = (TEnd - TStart) / float(STEPS);
+    uint  PixelSeed    = uint(Pixel.x) * 1973u ^ uint(Pixel.y) * 9277u ^ 0x68BC21EBu;
+    float Jitter       = EvaluateOwenSobol0(uint(CloudPush.AmbientWindParameters.w), PixelSeed);
+
+    // Sun direction in Z-up scene frame: (local.x, local.z, local.y).
+    vec3  SunScene     = normalize(vec3(Atmosphere.SolarDirection.x, Atmosphere.SolarDirection.z, Atmosphere.SolarDirection.y));
+    float CosSun       = dot(ViewDir, SunScene);
+
+    float Transmittance = 1.0;
+    vec3  Radiance      = vec3(0.0);
+
+    for (int Step = 0; Step < STEPS; ++Step)
+    {
+        if (Transmittance < 0.008)
+        {
+            Transmittance = 0.0;
+            break;
+        }
+        float T          = TStart + (float(Step) + Jitter) * StepM;
+        vec3  PlanetPos  = CamPlanetM + ViewDir * T;
+        float SampleRadM = length(PlanetPos);
+        vec3  ScenePos   = vec3(PlanetPos.xy, SampleRadM - PlanetR);
+
+        float Density = EvaluateCloudDensity(ScenePos);
+        if (Density <= 1.0e-4)
+            continue;
+
+        float ExtSigma  = Density * CloudPush.StratumParameters.w;
+        float StepTrans = exp(-ExtSigma * StepM);
+
+        float SunTau = 0.0;
+        for (int Tap = 1; Tap <= 6; ++Tap)
+        {
+            float Span     = float(Tap * Tap) * 42.0;
+            vec3  TapP     = PlanetPos + SunScene * Span;
+            float TapDens  = EvaluateCloudDensity(vec3(TapP.xy, length(TapP) - PlanetR));
+            SunTau        += TapDens * CloudPush.StratumParameters.w * (float(2 * Tap - 1) * 42.0);
+        }
+
+        float LocalMuS  = dot(PlanetPos / SampleRadM, SunScene);
+        vec3  SunTrans  = LookupTransmittance(TransmittanceTable, SampleRadM * 0.001, LocalMuS);
+        vec3  SunIrrad  = Atmosphere.SolarIlluminance.rgb * SunTrans;
+
+        float MultiEnergy = 0.0;
+        float Atten = 1.0, Contrib = 1.0, PhaseS = 1.0;
+        for (int Oct = 0; Oct < 4; ++Oct)
+        {
+            MultiEnergy += Contrib * DualLobeHg(CosSun, 0.80 * PhaseS, -0.42 * PhaseS, 0.70) * exp(-SunTau * Atten);
+            Atten   *= 0.52;
+            Contrib *= 0.56;
+            PhaseS  *= 0.50;
+        }
+        float Powder = 1.0 - 0.55 * exp(-SunTau * 2.1) * (0.68 - 0.32 * max(0.0, CosSun));
+        MultiEnergy *= Powder;
+
+        float HFrac   = clamp((ScenePos.z - CloudPush.StratumParameters.x) / max(100.0, CloudPush.StratumParameters.y), 0.0, 1.0);
+        vec3  Ambient = vec3(0.08, 0.13, 0.22) * Atmosphere.SolarIlluminance.rgb * (0.04 + 0.08 * HFrac);
+        vec3  ScatSrc = (ExtSigma * 0.985) * (SunIrrad * MultiEnergy + Ambient);
+
+        Radiance      += Transmittance * ScatSrc * ((1.0 - StepTrans) / max(1.0e-6, ExtSigma));
+        Transmittance *= StepTrans;
+    }
+
+    imageStore(CloudRadianceOutput, Pixel, vec4(Radiance, Transmittance));
+}

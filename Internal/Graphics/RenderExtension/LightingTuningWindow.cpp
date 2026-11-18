@@ -123,7 +123,7 @@ void DrawLightingTuningWindow(const ThemeConfiguration& Theme, LightingTuningSta
         float ElevationDegrees = State.SunElevation / DegToRad;
         ValueSliderDescriptor Elevation = {};
         Elevation.Label = "Elevation"; Elevation.Value = &ElevationDegrees;
-        Elevation.Minimum = 0.0f; Elevation.Maximum = 90.0f; Elevation.Format = "%.1f"; Elevation.Unit = "\xC2\xB0"; Elevation.Enabled = true;   // °
+        Elevation.Minimum = -30.0f; Elevation.Maximum = 90.0f; Elevation.Format = "%.1f"; Elevation.Unit = "\xC2\xB0"; Elevation.Enabled = true;   // ° (-30°..90° spans astronomical dawn, sunrise, overhead, sunset, night)
         if (ConstructValueSlider(Theme, Elevation))
             State.SunElevation = ElevationDegrees * DegToRad;
 

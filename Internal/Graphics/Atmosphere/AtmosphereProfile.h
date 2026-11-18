@@ -38,14 +38,16 @@ struct AtmosphereUniformBlock
     float OzoneProfileLayer0[4];       // ozone tent up-slope layer
     float OzoneProfileLayer1[4];       // ozone tent down-slope layer
 
-    float SolarDirection[4];           // [-]  rgb: unit surface→sun vector; a: pad
-    float SolarIlluminance[4];         // [-]  rgb: extraterrestrial solar flux (relative); a: pad
+    float SolarDirection[4];           // [-]  rgb: unit surface→sun vector; a: observer altitude above surface [km]
+    float SolarIlluminance[4];         // [-]  rgb: extraterrestrial solar flux (relative); a: sequence elapsed time [s]
 
     float BottomRadius;                // [km] planetary surface radius (Earth 6360)
     float TopRadius;                   // [km] atmosphere outer boundary (Earth 6460)
     float MieAsymmetry;                // [-1..1] Cornette-Shanks forward-scatter g
     float MultipleScatteringFactor;    // [0..1] isotropic multi-scatter intensity
 };
+
+static_assert(sizeof(AtmosphereUniformBlock) == 208u, "AtmosphereUniformBlock must remain 208 bytes to match GLSL std140 AtmosphereBlock.");
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                    EARTH-LIKE DEFAULTS (Bruneton 2008)
@@ -98,7 +100,7 @@ namespace Atmosphere
         AssignFloat4(Profile.OzoneProfileLayer0, 25.0f, 0.0f, 0.0f,  1.0f / 15.0f);
         AssignFloat4(Profile.OzoneProfileLayer1,  0.0f, 0.0f, 0.0f, -1.0f / 15.0f);
 
-        AssignFloat4(Profile.SolarDirection,   0.70710678f, 0.70710678f, 0.0f, 0.0f); // 45° elevation
+        AssignFloat4(Profile.SolarDirection,   0.70710678f, 0.70710678f, 0.0f, 0.002f); // 45° elevation, 2 m observer eye height
         AssignFloat4(Profile.SolarIlluminance, SolarIlluminanceCalibration, SolarIlluminanceCalibration, SolarIlluminanceCalibration, 0.0f);
 
         Profile.BottomRadius              = 6360.0f;
@@ -109,17 +111,30 @@ namespace Atmosphere
         return Profile;
     }
 
-    // 📝 Rewrite SolarDirection from elevation + azimuth (both radians). Elevation 0 = horizon, +π/2 = zenith.
-    //    Up is +Y in atmosphere-local space, so the sun rides the X/Z plane and lifts along Y.
+    // 📝 Rewrite SolarDirection from elevation + azimuth (both radians). Elevation 0 = limb, +π/2 = overhead, negative = twilight/night.
+    //    Up is +Y in atmosphere-local space, so the sun rides the X/Z plane and lifts along Y; preserves observer altitude in .w.
     inline void AssignSolarDirection(AtmosphereUniformBlock& Profile, float ElevationRadians, float AzimuthRadians)
     {
-        float CosElevation = std::cos(ElevationRadians);
-        float SinElevation = std::sin(ElevationRadians);
+        float CosElevation        = std::cos(ElevationRadians);
+        float SinElevation        = std::sin(ElevationRadians);
+        float PreservedAltitudeKm = (Profile.SolarDirection[3] > 0.0f) ? Profile.SolarDirection[3] : 0.002f;
         AssignFloat4(Profile.SolarDirection,
                      CosElevation * std::cos(AzimuthRadians),
                      SinElevation,
                      CosElevation * std::sin(AzimuthRadians),
-                     0.0f);
+                     PreservedAltitudeKm);
+    }
+
+    // 📝 Store observer altitude [km] above BottomRadius into SolarDirection[3] so SkyView.frag evaluates at the true eye height.
+    inline void AssignObserverAltitudeKilometres(AtmosphereUniformBlock& Profile, float AltitudeKilometres)
+    {
+        Profile.SolarDirection[3] = (AltitudeKilometres > 0.001f) ? AltitudeKilometres : 0.001f;
+    }
+
+    // 📝 Store sequence time [s] into SolarIlluminance[3] for ForceField / upper-air advection in SkyDome.frag.
+    inline void AssignSequenceSeconds(AtmosphereUniformBlock& Profile, float SequenceSeconds)
+    {
+        Profile.SolarIlluminance[3] = SequenceSeconds;
     }
 
     // 📝 SolarDirection in the SCENE's frame: unit surface→sun with Z as up. Everything outside the atmosphere unit (the shadow clipmap's light basis,

@@ -135,6 +135,12 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │   │   │   ├── Collision/  ColliderShape, NarrowPhaseContact, AnalyticContact, ConvexDistance, ContactManifold
 │   │   │   ├── RealTime/   RigidState, ImpulseResponse, OrientationAlgebra
 │   │   │   └── PhysicsValidation.cpp             // ← was PhysicsTrial.cpp ("Trial" banned)
+│   │   ├── ForceField/                            // 🟢 (live) 3D atmospheric force-field velocity solver driving clouds + sky media
+│   │   │   ├── AtmosphericForceField.{h,cpp}      //   geostrophic Ekman shear, Lamb-Oseen cyclone (radial inflow + eyewall updraft),
+│   │   │   │                                      //   directional jet, radial plume, gravity-wave stratum, divergence-free curl eddies,
+│   │   │   │                                      //   midpoint-RK2 backward streamlines, and the baked AdvectionOffsetVolume that both
+│   │   │   │                                      //   the cloud and sky evaluators sample trilinearly instead of re-integrating.
+│   │   │   └── (builds into Simulation.lib next to Physics / Cloth / Gameplay)
 │   │   ├── Cloth/                                 // NEW: soft-body / fabric
 │   │   │   └── ClothExtension, FabricEnvelope, SpringConstraint, IntegrationSolver, WindEffector
 │   │   └── Gameplay/                              // NEW: game-logic execution (document-less)
@@ -168,10 +174,27 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │   │   │   ├── Diagnostics/  DiagnosticArchive   // (live)
 │   │   │   ├── Extension/    RenderExtension   // (live — extensible pass registry)
 │   │   │   └── Build.bat  README.md
-│   │   ├── Atmosphere/                            // (live) Hillaire 2020 sky
+│   │   ├── Atmosphere/                            // (live) Hillaire 2020 sky + Vulkan-independent physical reference solvers
 │   │   │   ├── SkyAtmosphere.{h,cpp}  AtmosphereProfile.h
+│   │   │   ├── RadiometricSkyEvaluation.{h,cpp}   // CPU spherical Rayleigh+Mie+Chappuis transfer: transmittance / 64-dir multiple-
+│   │   │   │                                      //   scattering / limb-centred sky-view LUTs, orbital globe + limb shading, Neckel-Labs
+│   │   │   │                                      //   limb-darkened photosphere with circumsolar aureole, Cox-Munk marine lower hemisphere.
+│   │   │   │                                      //   SkyAdvectionOffsetField bakes the haze/cirrus Lagrangian offsets per frame so the
+│   │   │   │                                      //   march never re-integrates a streamline per sample.
+│   │   │   ├── CelestialSphereEvaluation.{h,cpp}  // J2000 Hipparcos starfield + Galactic Pogson population + dust-extinguished Milky Way,
+│   │   │   │                                      //   Fraunhofer Airy / Moffat PSF, Planckian star chromaticity, six 2K moon atlases,
+│   │   │   │                                      //   Hapke-Lommel-Seeliger regolith and a 20-step 3D spherical lunar atmosphere.
+│   │   │   ├── VolumetricCloudEvaluation.{h,cpp}  // Nubis Perlin-Worley deck on a GRADIENT basis, contrast-normalised Worley dilation,
+│   │   │   │                                      //   silhouette-band remap erosion (Worley lobes + |Perlin| cusps), Owen-scrambled
+│   │   │   │                                      //   Sobol jitter, baked wind-offset volume, 6-tap macro-LOD sun cone,
+│   │   │   │                                      //   4-octave multiple scattering, spherical aerial perspective.
+│   │   │   ├── AtmosphericFogEvaluation.{h,cpp}   // Exponential height fog integrated in CLOSED FORM (RadiationMist / AdvectionFog /
+│   │   │   │                                      //   ValleyStratum profiles, wind-advected inversion-cap relief) plus ellipsoidal
+│   │   │   │                                      //   local fog bodies marched with the cloud deck's multiple-scattering ladder.
+│   │   │   │                                      //   Both ride the same AtmosphericWindField + AdvectionOffsetVolume as the deck.
 │   │   │   └── Shaders/ (Transmittance.comp, MultiScatter.comp, SkyView.frag, SkyDome.{vert,frag},
-│   │   │                 FullscreenTriangle.vert, AtmosphereCommon.glsl, TransmittanceLookup.glsl)
+│   │   │                 FullscreenTriangle.vert, AtmosphereCommon.glsl, TransmittanceLookup.glsl,
+│   │   │                 CelestialBodies.glsl, VolumetricCloudMarch.comp)
 │   │   ├── Acceleration/                          // 🟢 (live) GPU LBVH build for the surfel GI prepass — 4 dispatches, no CPU step
 │   │   │   ├── RadixSortSubmission.{h,cpp}        // 8-bit-digit LSD radix sort over 32-bit keys + a payload. STABLE by construction:
 │   │   │   │                                      //    one lane per bin sweeps the tile in ascending index (RadixKeyScatter lines
@@ -431,6 +454,7 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │       │                                                                                          //   byte; also judges Model*InverseModel
 │       │                                                                                          //   and drives a real .wsdoc through the
 │       │                                                                                          //   load path into the arena (assertion 7)
+│       ├── AtmosphereCelestialValidation/  { AtmosphereCelestialValidation.cpp, Build.bat }  // CPU-only physical audit: 10 quantitative physics gates (208 B AtmosphereUniformBlock ABI, transmittance/Earth-shadow, Rayleigh spectral extinction, Cox-Munk marine lower hemisphere, zero-DawnMist limb continuity, Neckel-Labs limb darkening, 3D lunar atmosphere, Planckian chromaticity, ForceField cloud advection, orbital limb glow) then renders the 12-plate AuditProof set at 1280x720 4-spp with a zero-dependency RFC 2083 PNG writer into Exhibits/AuditProof. Optional argv[2..] prefixes select scenes.
 │       ├── GeometryTreeValidation/         { GeometryTreeValidationEntry.cpp,        Build.bat }  // CPU-only: the SAH builder itself
 │       ├── InstrumentationValidation/      { InstrumentationValidationEntry.cpp,     Build.bat }
 │       ├── ModellingToolValidation/        { ModellingToolValidationHost.cpp,        …Panel.{h,cpp}, Build.bat }

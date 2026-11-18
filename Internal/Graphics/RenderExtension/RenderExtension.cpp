@@ -1627,15 +1627,20 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
             //    sun costs nothing. The sky and the direct shade both read Extension.SkyPass.Profile, so one write drives both (and the ported GI trace
             //    will read the same profile for its sun + sky-miss radiance).
             {
-                float PriorSolar[3] = { Extension.SkyPass.Profile.SolarDirection[0],
+                const Vector3f ObserverEye = EvaluateObserverPosition(Extension.ViewCamera);
+                const float    ObserverAltKm = std::max(0.002f, ObserverEye.ZCoord * 0.001f);
+                float PriorSolar[4] = { Extension.SkyPass.Profile.SolarDirection[0],
                                         Extension.SkyPass.Profile.SolarDirection[1],
-                                        Extension.SkyPass.Profile.SolarDirection[2] };
+                                        Extension.SkyPass.Profile.SolarDirection[2],
+                                        Extension.SkyPass.Profile.SolarDirection[3] };
                 AtmosphereUniformBlock TunedProfile = Extension.SkyPass.Profile;
                 Atmosphere::AssignSolarDirection(TunedProfile, Extension.LightingTuning.SunElevation, Extension.LightingTuning.SunAzimuth);
-                const bool SunMoved = TunedProfile.SolarDirection[0] != PriorSolar[0]
-                                   || TunedProfile.SolarDirection[1] != PriorSolar[1]
-                                   || TunedProfile.SolarDirection[2] != PriorSolar[2];
-                if (SunMoved)
+                Atmosphere::AssignObserverAltitudeKilometres(TunedProfile, ObserverAltKm);
+                const bool SunMoved      = TunedProfile.SolarDirection[0] != PriorSolar[0]
+                                        || TunedProfile.SolarDirection[1] != PriorSolar[1]
+                                        || TunedProfile.SolarDirection[2] != PriorSolar[2];
+                const bool AltitudeMoved = std::fabs(TunedProfile.SolarDirection[3] - PriorSolar[3]) > 0.02f;
+                if (SunMoved || AltitudeMoved)
                     UpdateSkyAtmosphereProfile(Extension.SkyPass, TunedProfile);
             }
 
@@ -2106,9 +2111,11 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                     // ☀️ Key-light radiance from the F10 Sun card: colour × intensity, PREMULTIPLIED here so the frag reads one vec3 (SunRadiance) with no
                     //    per-pixel multiply. The sky keeps its own SolarIlluminance calibration (independent scale, see AtmosphereProfile.h) — this is only
                     //    the deferred shade's key light, the one the retired hardcoded LightColour*LightIntensity used to carry.
-                    ShadeConstants.SunRadiance[0] = Extension.LightingTuning.SunColour[0] * Extension.LightingTuning.SunIntensity;
-                    ShadeConstants.SunRadiance[1] = Extension.LightingTuning.SunColour[1] * Extension.LightingTuning.SunIntensity;
-                    ShadeConstants.SunRadiance[2] = Extension.LightingTuning.SunColour[2] * Extension.LightingTuning.SunIntensity;
+                    const float AboveLimbGate = std::clamp((ShadeSunZ + 0.012f) / 0.036f, 0.0f, 1.0f);
+                    const float DirectSunGate = AboveLimbGate * AboveLimbGate * (3.0f - 2.0f * AboveLimbGate);
+                    ShadeConstants.SunRadiance[0] = Extension.LightingTuning.SunColour[0] * Extension.LightingTuning.SunIntensity * DirectSunGate;
+                    ShadeConstants.SunRadiance[1] = Extension.LightingTuning.SunColour[1] * Extension.LightingTuning.SunIntensity * DirectSunGate;
+                    ShadeConstants.SunRadiance[2] = Extension.LightingTuning.SunColour[2] * Extension.LightingTuning.SunIntensity * DirectSunGate;
                     ShadeConstants.SunRadiance[3] = 0.0f;
 
                     // 🔴 Sourced from the inscription's own record of what b5-b7 hold, never from whether a floor document loaded: when the floor is

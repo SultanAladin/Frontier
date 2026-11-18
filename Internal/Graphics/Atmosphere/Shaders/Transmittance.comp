@@ -1,50 +1,70 @@
-#version 450 core
+#version 450
+#extension GL_GOOGLE_include_directive : enable
 
-// ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-//                                                     TRANSMITTANCE LUT 🧩
-// ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// Bakes T(r, μ) — the transmittance from an altitude toward the top of the atmosphere along view-zenith cosine μ — via Beer-Lambert optical-depth
-// integration (Hillaire 2020). Output: 256×64 RGBA16F, sun-independent, baked once at boot. X axis = μ (grazing→up), Y axis = altitude 0→top.
+// 🧩 Precompute optical transmittance T(r, mu) from altitude r along zenith cosine mu to the top of the atmosphere, WITH planetary
+//    shadow occultation when the ray intersects BottomRadius (essential for physical Earth-shadow / Belt-of-Venus twilight!).
 
 #include "AtmosphereCommon.glsl"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
-layout(rgba16f, binding = 1) uniform writeonly image2D TransmittanceOutput;
+
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D TransmittanceTable;
+
+const int TRANSMITTANCE_STEPS = 48;
+
+void UnmapTransmittanceParameters(vec2 Uv, out float Radius, out float CosineZenith)
+{
+    float XMu = Uv.x;
+    float XR  = Uv.y;
+
+    float HorizonMax = sqrt(max(0.0, Atmosphere.TopRadius * Atmosphere.TopRadius
+                                   - Atmosphere.BottomRadius * Atmosphere.BottomRadius));
+    float Rho        = XR * HorizonMax;
+    Radius           = sqrt(Rho * Rho + Atmosphere.BottomRadius * Atmosphere.BottomRadius);
+
+    float DMin       = Atmosphere.TopRadius - Radius;
+    float DMax       = Rho + HorizonMax;
+    float Distance   = DMin + XMu * (DMax - DMin);
+
+    CosineZenith     = (Distance == 0.0)
+        ? 1.0
+        : clamp((HorizonMax * HorizonMax - Rho * Rho - Distance * Distance) / (2.0 * Radius * Distance), -1.0, 1.0);
+}
+
+vec3 IntegrateTransmittanceToTop(float Radius, float CosineZenith)
+{
+    // Rays occluded by the solid planet carry zero direct solar transmittance (Earth's umbral shadow).
+    if (RayIntersectsGround(Radius, CosineZenith))
+        return vec3(0.0);
+
+    float PathLength = max(0.0, IntersectSphere(Radius, CosineZenith, Atmosphere.TopRadius));
+    float StepLength = PathLength / float(TRANSMITTANCE_STEPS);
+
+    vec3 OpticalDepth = vec3(0.0);
+    for (int Step = 0; Step < TRANSMITTANCE_STEPS; ++Step)
+    {
+        float T           = (float(Step) + 0.5) * StepLength;
+        float SampleR     = sqrt(Radius * Radius + T * T + 2.0 * Radius * CosineZenith * T);
+
+        vec3 RayleighS, MieS, Extinction;
+        EvaluateMediumScattering(SampleR, RayleighS, MieS, Extinction);
+        OpticalDepth += Extinction * StepLength;
+    }
+    return exp(-OpticalDepth);
+}
 
 void main()
 {
-    ivec2 Texel   = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 Extent  = imageSize(TransmittanceOutput);
-    if (Texel.x >= Extent.x || Texel.y >= Extent.y)
+    ivec2 Size  = imageSize(TransmittanceTable);
+    ivec2 Pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (Pixel.x >= Size.x || Pixel.y >= Size.y)
         return;
 
-    vec2 Uv = (vec2(Texel) + 0.5) / vec2(Extent);
+    vec2 Uv = (vec2(Pixel) + 0.5) / vec2(Size);
 
-    // Map: Y → altitude [0, atmosphere thickness]; X → view-zenith cosine μ, biased toward the horizon for resolution.
-    float Altitude         = Uv.y * (Atmosphere.TopRadius - Atmosphere.BottomRadius);
-    float ViewZenithCosine = 2.0 * Uv.x - 1.0;   // [-1, 1]
+    float Radius, CosineZenith;
+    UnmapTransmittanceParameters(Uv, Radius, CosineZenith);
 
-    float RadiusFromCentre = Atmosphere.BottomRadius + Altitude;
-    float PathLength       = IntersectSphere(RadiusFromCentre, ViewZenithCosine, Atmosphere.TopRadius);
-
-    vec3 OpticalDepth = vec3(0.0);
-    if (PathLength > 0.0)
-    {
-        const int StepCount = 40;
-        float StepSize = PathLength / float(StepCount);
-        for (int Step = 0; Step < StepCount; Step++)
-        {
-            float SampleDistance = (float(Step) + 0.5) * StepSize;
-            float SampleRadius   = AdvanceRadius(RadiusFromCentre, ViewZenithCosine, SampleDistance);
-            float SampleAltitude = SampleRadius - Atmosphere.BottomRadius;
-
-            vec3 Scattering;
-            vec3 Extinction;
-            EvaluateScatterExtinction(SampleAltitude, Scattering, Extinction);
-            OpticalDepth += Extinction * StepSize;
-        }
-    }
-
-    // Extinction bases are 1/m and the march is in km → convert (× 1000) so the exponent is dimensionless.
-    imageStore(TransmittanceOutput, Texel, vec4(exp(-OpticalDepth * 1000.0), 1.0));
+    vec3 Transmittance = IntegrateTransmittanceToTop(Radius, CosineZenith);
+    imageStore(TransmittanceTable, Pixel, vec4(Transmittance, 1.0));
 }
