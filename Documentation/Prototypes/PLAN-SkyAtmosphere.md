@@ -105,7 +105,9 @@ Construct/Initialize/Finalize; PascalCase constants, no `k-`. Sun vector = `Sola
 
 ## Follow-on roadmap (after core sky lands)
 1. **Sky (this doc)** — Hillaire core chain: transmittance + multi-scatter + sky-view + sky-dome + sun disc.
-   Aerial-perspective froxel deferred (no scene geometry in the validation app yet).
+   Aerial-perspective froxel deferred (no scene geometry in the validation app yet). Day/night is proven, not
+   asserted: exhibits 24-31 sweep one 45 N scene through eight sun elevations (predawn, dawn, sunrise, morning,
+   noon, sunset, dusk) with hour-angle-consistent azimuth and sidereal time, so the star field tracks the sun.
 2. **Fog** — height/distance fog integrated with the atmosphere transmittance; froxel/aerial-perspective
    volume becomes worthwhile here once it fades over geometry. Same `SolarDirection` + LUTs feed it.
 3. **Clouds** — volumetric cloud layer (raymarched), lit by the same sun + sky-view radiance so it stays

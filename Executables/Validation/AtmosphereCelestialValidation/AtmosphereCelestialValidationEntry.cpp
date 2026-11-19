@@ -1251,6 +1251,53 @@ namespace
             ConfigureDefaultNightSky(Exhibit.Celestial, -0.46f, 45.0f * Atmosphere::DegreesToRadians);
             Catalogue.push_back(Exhibit);
         }
+        // 24-31 — Diurnal sweep: one 45 N site on the equinox, one cumulus deck, eight sun elevations running from the
+        // astronomical-twilight band through civil dawn, sunrise, noon, sunset and civil dusk. Sun azimuth and
+        // sidereal time are not hand-picked: both follow from the hour angle of the elevation
+        // (sin h = sin(lat) sin(dec) + cos(lat) cos(dec) cos(H) with dec = 0, and LST = H + right ascension), so the
+        // star field, the ecliptic and the zodiacal wedge track the sun frame by frame. The camera is level (8 degrees of
+        // pitch, horizon and sea anchoring every frame) and holds the sun 25 degrees off-axis, so the eight stops differ
+        // by light and not by framing; past ~25 degrees of elevation the disc itself leaves the frame, as it does in any
+        // photograph metered for the ground. Radiance spans about five decades from predawn to noon, so each stop is
+        // log-average metered to its own key target (Exposure, last column) the way a camera raises ISO — the multipliers
+        // fall away from noon so the dark stops stay dark instead of being lifted to middle grey.
+        struct TimeOfDayStop
+        {
+            const char* FileName;
+            float       SunElevationDegrees;
+            float       SunAzimuthDegrees;
+            float       SiderealHours;
+            float       Exposure;      // scene key multiplier: 1 = middle grey, lower keeps the stop under-exposed
+        };
+        static constexpr std::array<TimeOfDayStop, 8u> SweepStops {
+            TimeOfDayStop { "24_Predawn.png",        -12.0f,  77.7f, 16.86f, 0.22f },   // 04:52 solar, galactic core high to the south
+            TimeOfDayStop { "25_Dawn.png",            -4.5f,  85.5f, 17.57f, 0.42f },   // civil dawn, the eastern band lights first
+            TimeOfDayStop { "26_Sunrise.png",          0.4f,  90.4f, 18.04f, 0.80f },   // disc on the horizon, due east
+            TimeOfDayStop { "27_AfterSunrise.png",    14.0f, 104.4f, 19.33f, 1.10f },   // deck warms, shadows lengthen eastward
+            TimeOfDayStop { "28_DaylightZenith.png",  45.0f, 180.0f, 12.00f, 1.15f },   // noon: highest the sun reaches at 45 N
+            TimeOfDayStop { "29_Sunset.png",           0.3f, 269.7f,  5.97f, 0.85f },   // disc on the horizon, due west
+            TimeOfDayStop { "30_AfterSunset.png",     -4.8f, 274.8f,  6.45f, 0.48f },   // civil dusk, blue hour overhead
+            TimeOfDayStop { "31_Dusk.png",           -12.5f, 282.8f,  7.19f, 0.26f },   // astronomical twilight ending
+        };
+        for (const TimeOfDayStop& Stop : SweepStops)
+        {
+            ExhibitSpecification Exhibit{};
+            Exhibit.FileName            = Stop.FileName;
+            Exhibit.SunElevationDegrees = Stop.SunElevationDegrees; Exhibit.SunAzimuthDegrees = Stop.SunAzimuthDegrees;
+            Exhibit.CameraYawDegrees    = Stop.SunAzimuthDegrees + 25.0f; Exhibit.HorizontalFovDegrees = 85.0f;
+            Exhibit.CameraPitchDegrees  = 8.0f;   // level at every stop: horizon and sea anchor the frame, sun out of frame past ~25 degrees
+            Exhibit.Exposure            = Stop.Exposure; Exhibit.Metering = ExposureCalibration::SceneKey;
+            Exhibit.CloudsEnabled       = true; Exhibit.Clouds = BuildCloudGenusPreset(CloudGenusIdentifier::Cumulus, 0.32f);   // broken enough that sky reads between the turrets at every hour
+            // Aureole wash follows the slant path: strongest where the sun grazes the horizon (long path, muted disc) and a tight
+            // flare once the sun is up. Held flat at 0.65, the noon aureole over-drives the thin backlit turret crossing the sun
+            // and that element clips to a white plateau — the deck, not the sky, is what saturates.
+            const float TwilightWeight = std::exp(-0.5f * (Stop.SunElevationDegrees / 6.5f) * (Stop.SunElevationDegrees / 6.5f));
+            Exhibit.SolarGlareStrength  = 0.15f + 0.50f * TwilightWeight;
+            Exhibit.Shafts.ShaftsEnabled       = true;    // shadow fans where the deck cuts the sun, strongest near horizon
+            Exhibit.Shafts.HazeExtinctionPerKm = 0.12f;
+            ConfigureDefaultNightSky(Exhibit.Celestial, 45.0f * Atmosphere::DegreesToRadians, Stop.SiderealHours * 15.0f * Atmosphere::DegreesToRadians);
+            Catalogue.push_back(Exhibit);
+        }
         // Cloud exhibits integrate 4 Owen-Sobol samples per pixel ahead of the bilateral pass (jittered-march noise floor).
         for (ExhibitSpecification& Exhibit : Catalogue)
             if (Exhibit.CloudsEnabled)
