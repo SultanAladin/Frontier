@@ -311,8 +311,8 @@ float EvaluateEllipsoidDistance(float OffsetX, float OffsetY, float OffsetZ, flo
     return Ratio * (Ratio - 1.0) / sqrt(GradientX * GradientX + GradientY * GradientY + GradientZ * GradientZ);
 }
 
-// 📝 One bubble octave (Quílez sdBase): each corner of the unit lattice cell carries a sphere of hashed radius in [0, 0.5); the nearest
-//    sphere surface in lattice units.
+// 📝 One bubble octave (the Quílez per-octave lattice distance): each corner of the unit lattice cell carries a sphere of hashed
+//    radius in [0, 0.5); the value is the nearest sphere surface in lattice units.
 float EvaluateBubbleLatticeDistance(vec3 Coord, uint Salt)
 {
     vec3  Floored = floor(Coord);
@@ -339,9 +339,9 @@ float ResolveCascadeBlend(float Protrusion)
 //    then halves the lattice and rotates the domain (an exact 2 × rotation). Bubbles therefore grow on the surface of the octave before
 //    them — thermal → turret → sub-turret → cauliflower (Bouthors & Neyret 2004). A fractional OctaveBudget fades the last octave in by
 //    shrinking its bubbles and their shell (cross-fading distances leaves free-floating beads).
-float ApplyBubbleCascade(vec3 PositionKm, float BaseDistanceKm, float CellKm, float Protrusion, float OctaveBudget, uint Salt)
+float ApplyBubbleCascade(vec3 PositionKm, float EnvelopeDistanceKm, float CellKm, float Protrusion, float OctaveBudget, uint Salt)
 {
-    float  Distance = BaseDistanceKm;
+    float  Distance = EnvelopeDistanceKm;
     float  Scale    = CellKm;
     vec3   Coord    = PositionKm / CellKm;
     uint   FullOctaves = uint(max(0.0, OctaveBudget));
@@ -625,6 +625,18 @@ float EvaluateConvectiveDensity(float HorizontalX, float HorizontalZ, float Alti
     return EvaluateCloudSmoothStep(0.0, SurfaceRamp, Eroded);
 }
 
+// 📝 Empty-space probe step [km] (mirror of ResolveCoarseStepKm): 1/24 of the stratum (≤ 200 m) near the viewer, then 1.5 % of range.
+float ResolveCoarseStepKm(float ThicknessKm, float DistanceKm)
+{
+    return max(min(ThicknessKm / 24.0, 0.2), 0.015 * DistanceKm);
+}
+
+// 📝 In-cloud integration step [km] (mirror of ResolveFineStepKm): 25 m at the viewer growing with range, capped at 1/12 of the stratum.
+float ResolveFineStepKm(float ThicknessKm, float DistanceKm)
+{
+    return min(ThicknessKm / 12.0, 0.025 + 0.0035 * DistanceKm);
+}
+
 // 📝 Conservative density bound for the empty-space probe (mirror of EvaluateCloudDensityBound): the EnvelopeBound fidelity, whose value is
 //    an upper bound on every finer fidelity, so a probe that finds it empty is guaranteed to be.
 float EvaluateCloudDensityBound(float HorizontalX, float HorizontalZ, float AltitudeKm, float CondensationDelta)
@@ -662,10 +674,10 @@ bool IntersectConcentricSphere(vec3 Viewer, vec3 Direction, float SphereRadius, 
     return true;
 }
 
-// 📝 Distant cloud shadow of a planet-local point [km] (mirror of EvaluateCloudShadowTransmittance, stratum only): 16 coarse taps up the
+// 📝 Distant cloud shadow of a planet-local point [km] (mirror of the stratum term of EvaluateCloudShadowTransmittance): 16 coarse taps up the
 //    solar axis through the stratum, read at ShadowCascade fidelity (turret-scale billows cast the shadow, the fine ripples do not). The
 //    flow advection and the cirrus veil term of the CPU reference are left to the includer, which owns those volumes.
-float EvaluateCrepuscularCloudShadow(vec3 PlanetPositionKm, vec3 SolarAxis, float SequenceSeconds)
+float EvaluateCloudShadowTransmittance(vec3 PlanetPositionKm, vec3 SolarAxis, float SequenceSeconds)
 {
     float Radius     = length(PlanetPositionKm);
     vec3  Up         = PlanetPositionKm / max(1.0, Radius);
@@ -691,7 +703,7 @@ float EvaluateCrepuscularCloudShadow(vec3 PlanetPositionKm, vec3 SolarAxis, floa
     return exp(-OpticalDepth);
 }
 
-vec3 EvaluateCrepuscularRays(vec3 LocalDirection, float SequenceSeconds, float StartJitter, vec3 HazeAmbient,
+vec3 IntegrateCrepuscularRays(vec3 LocalDirection, float SequenceSeconds, float StartJitter, vec3 HazeAmbient,
                              out vec3 OutHazeRadiance, out float OutHazeTransmittance)
 {
     OutHazeRadiance     = vec3(0.0);
@@ -752,7 +764,7 @@ vec3 EvaluateCrepuscularRays(vec3 LocalDirection, float SequenceSeconds, float S
         vec3  ViewTrans = exp(-HalfAir - vec3(HalfHaze));
 
         vec3  SunRadiance = SolarFlux * SampleTransmittanceToSpace(Radius, dot(normalize(Position), SolarAxis));
-        float Shadow      = EvaluateCrepuscularCloudShadow(Position, SolarAxis, SequenceSeconds);
+        float Shadow      = EvaluateCloudShadowTransmittance(Position, SolarAxis, SequenceSeconds);
         vec3  Lit         = SunRadiance * ViewTrans;
 
         Deficit        += AirScatterPerKm * Lit * ((1.0 - Shadow) * StepKm);

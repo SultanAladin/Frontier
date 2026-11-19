@@ -432,7 +432,7 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │   ├── TextureBakeEditor/      { TextureBakeEditorEntry.cpp,       Config/, Build.bat }
 │   ├── SimulationEditor/       { SimulationEditorEntry.cpp,        Config/, Build.bat }
 │   └── Validation/                                // validation targets (not editors)
-│       ├── AtmosphereCelestialValidation/  { AtmosphereCelestialValidationEntry.cpp, Build.bat }  // CPU-only: 56 physical gates + the 23-exhibit gallery (Audit Proof/)
+│       ├── AtmosphereCelestialValidation/  { AtmosphereCelestialValidationEntry.cpp, Build.bat }  // CPU-only: 62 physical gates + the 23-exhibit gallery (Audit Proof/)
 │       ├── ClipmapFieldValidation/         { ClipmapFieldValidation.cpp,             Build.bat }
 │       ├── ConstructionCatalogueValidation/{ ConstructionCatalogueValidationHost.cpp, ConstructionCatalogue.{h,cpp}, ConstructionCataloguePanel.{h,cpp}, ConstructionConsoleBridge.{h,cpp}, ConstructionGlyphs.{h,cpp}, Build.bat }  // non-host units ALSO compiled in-place by SketchModelViewport (the embedded right-click console)
 │       ├── ControlsGallery/                { ControlsGalleryEntry.cpp,               …Panel.{h,cpp}, Build.bat }

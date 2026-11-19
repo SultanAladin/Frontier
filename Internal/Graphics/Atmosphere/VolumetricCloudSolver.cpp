@@ -438,8 +438,8 @@ namespace
         return Ratio * (Ratio - 1.0f) / std::sqrt(GradientX * GradientX + GradientY * GradientY + GradientZ * GradientZ);
     }
 
-    // 📝 One bubble octave (Quílez sdBase): each corner of the unit lattice cell carries a sphere of hashed radius in [0, 0.5); the
-    //    nearest sphere surface in lattice units.
+    // 📝 One bubble octave (the Quílez per-octave lattice distance): each corner of the unit lattice cell carries a sphere of hashed
+    //    radius in [0, 0.5); the value is the nearest sphere surface in lattice units.
     [[nodiscard]] float EvaluateBubbleLatticeDistance(const Vector3f& Coord, uint32_t Salt) noexcept
     {
         const float   FloorX  = std::floor(Coord.XCoord);
@@ -478,9 +478,9 @@ namespace
     //    of the octave before it — thermal → turret → sub-turret → cauliflower — the hierarchical self-similarity of real cumulus
     //    (Bouthors & Neyret 2004). Each octave lifts the surface by at most (Protrusion + Blend / 4) s, so the whole cascade by at most
     //    2 (Protrusion + Blend / 4) s₀ (ResolveCascadeGrowthKm). A fractional OctaveBudget fades the last octave in (footprint LOD).
-    [[nodiscard]] float ApplyBubbleCascade(const Vector3f& PositionKm, float BaseDistanceKm, float CellKm, float Protrusion, float OctaveBudget, uint32_t Salt) noexcept
+    [[nodiscard]] float ApplyBubbleCascade(const Vector3f& PositionKm, float EnvelopeDistanceKm, float CellKm, float Protrusion, float OctaveBudget, uint32_t Salt) noexcept
     {
-        float          Distance    = BaseDistanceKm;
+        float          Distance    = EnvelopeDistanceKm;
         float          Scale       = CellKm;
         Vector3f       Coord       = ScaleVector(PositionKm, 1.0f / CellKm);
         const uint32_t FullOctaves = static_cast<uint32_t>(std::max(0.0f, OctaveBudget));
@@ -561,7 +561,7 @@ namespace
     [[nodiscard]] float EvaluateBubbleColumnDistance(float OffsetX, float HeightKm, float OffsetZ, float RadiusKm, float TopKm, int32_t LatticeX, int32_t LatticeZ,
                                                      uint32_t Salt) noexcept
     {
-        const int32_t BubbleCount = std::clamp(static_cast<int32_t>(std::ceil(TopKm / (1.1f * RadiusKm))), 1, 6);
+        const int32_t BubbleCount = std::clamp(static_cast<int32_t>(std::ceil(TopKm / (0.78f * RadiusKm))), 1, 8);
         const float   Segment     = TopKm / static_cast<float>(BubbleCount);
         float         CentreX     = 0.0f;
         float         CentreZ     = 0.0f;
@@ -571,7 +571,7 @@ namespace
             const float Rise        = (static_cast<float>(Bubble) + 0.5f) / static_cast<float>(BubbleCount);
             const float Taper       = 1.0f - 0.42f * Rise;
             const float Radius      = RadiusKm * Taper * (0.72f + 0.55f * HashLatticeCell(LatticeX, 40 + Bubble, LatticeZ, Salt));
-            const float HalfHeight  = std::min(Radius, 0.75f * Segment + 0.25f * Radius);
+            const float HalfHeight  = std::min(0.72f * Radius, 0.75f * Segment + 0.25f * Radius);
             const float CentreY     = (Bubble == BubbleCount - 1) ? TopKm - HalfHeight : (static_cast<float>(Bubble) + 0.55f) * Segment;
             Distance = BlendDistanceUnion(Distance,
                                           EvaluateEllipsoidDistance(OffsetX - CentreX, HeightKm - CentreY, OffsetZ - CentreZ, Radius, HalfHeight, Radius * 0.92f),

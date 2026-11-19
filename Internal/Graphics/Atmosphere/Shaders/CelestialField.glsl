@@ -294,7 +294,7 @@ struct CelestialRotation
     vec3  PoleAxis;
     float CosineSidereal;
     float SineSidereal;
-}
+};
 
 CelestialRotation ResolveCelestialRotation(float SiderealRadians, float SiteLatitudeRadians)
 {

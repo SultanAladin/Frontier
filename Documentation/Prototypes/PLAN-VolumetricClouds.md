@@ -191,12 +191,13 @@ Suggested home: `Engine/Internal/Graphics/Renderer/Volumetric/Clouds/` (`Noise/`
 | **P1** | `CloudRaymarchPass` — base-shape only, constant coverage, Beer-Lambert transmittance; prove the march | ☐ (CPU reference + GLSL mirror: two-speed march with a density-bound empty-space probe) |
 | **P2** | `WeatherProfileField` + `AltitudeGradientProfile` blend → stratus/stratocumulus/cumulus/cirrus; **cumulonimbus override** | ◐ CPU reference + GLSL mirror: Poisson germ-grain thermal envelopes, hashed congestus→Cb height split, Quílez anvil wedge + overshooting top (exhibits 02–06) |
 | **P3** | Lighting: dual-lobe `EvaluatePhaseHenyeyGreenstein` + `PowderEdgeProfile` + `SunConeTransmittance` self-shadow; energy-conserving integral | ◐ replaced by the approximate Mie phase (Jendersie & d'Eon 2023) — normalised to < 1 % for d = 5…50 µm, δ-M diffraction fraction on the sunlight paths, two-stream diffusion tail; powder + solar cone as planned (gates ⑨, ⑨b) |
-| **P4** | Detail erosion + `CurlMotionField` advection (wind over `SequenceTime`) → moving, wispy clouds | ☐ |
+| **P4** | Detail erosion + `CurlMotionField` advection (wind over `SequenceTime`) → moving, wispy clouds | ◐ CPU reference + GLSL mirror: inverted-Worley erosion of the fringe only, footprint octave LOD, dual-phase bounded-age advection through the shared `AtmosphericFlowField`, glaciation-faded detail on the anvil |
 | **P5** | Quarter-res target + `RaymarchJitterProfile` + `CloudTemporalReprojection` + `SparseUpdateProfile` (1-of-16) — hit the 1060 budget | ☐ |
 | **P6** | `CloudShadowProjectionPass` → `CloudShadowField`; sample it when shading the scene → moving cloud shadows | ☐ |
 | **P7** | Atmosphere seam — apply aerial-perspective / sky LUT + order cloud vs [[PLAN-VolumetricFog]] fog composite (open question #1) | ☐ |
 | **P8** | `VolumetricCloudValidation` app + 1060 timing capture; tune resolution / reprojection cadence | ☐ |
 | **P9** | Nubis3 upgrade — compressed-SDF sphere-trace + decoupled sun-density voxel grid | ◐ CPU reference: SDF field (ellipsoid/dome/bubble-column/storm) with a Quílez bubble cascade, four sample fidelities, and the bound as the empty-space probe; light taps read the uneroded cascade (gates ⑨c) |
+| **P10** | Crepuscular rays — haze-layer march under the deck, shadow deficit subtracted from the sky so the shafts read as dark gaps | ◐ CPU reference + GLSL mirror: `IntegrateCrepuscularRays` (+ 32 B block), quarter-res shaft grid with 4 jittered starts in the harness (exhibit 19, gates ⑨d) |
 
 ---
 

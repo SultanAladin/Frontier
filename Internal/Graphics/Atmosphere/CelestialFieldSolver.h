@@ -189,12 +189,16 @@ void LoadLunarSurfaceAtlas(LunarSurfaceAtlas& OutAtlas, const std::string& Optio
     const Vector3f&                    SolarDirectionLocal,
     const LinearColour&                SolarIlluminance) noexcept;
 
-// Evaluate J2000 bright star catalogue + 14k+ Pogson deep starfield + Milky Way & dark dust rift along LocalDirection (+Y up).
+// Evaluate J2000 bright star catalogue + 66k Pogson deep starfield + Milky Way & dark dust rift along LocalDirection (+Y up).
 [[nodiscard]] LinearColour EvaluateStarfieldGalaxy(
     const StarfieldConfiguration&  StarConfiguration,
     const Vector3f&                LocalDirection,
     float                          SequenceSeconds,
     bool                           VacuumSpaceCondition) noexcept;
+
+// Surface brightness of interplanetary dust in S10 units (one V = 10 star per square degree) for an equatorial view axis and the Sun's
+// equatorial axis: Leinert (1998) in-ecliptic profile in helioecliptic longitude, exponential latitude falloff, gegenschein ridge.
+[[nodiscard]] LinearColour EvaluateZodiacalLight(const Vector3f& EquatorialAxis, const Vector3f& SolarEquatorialAxis) noexcept;
 
 // Evaluate complete celestial backdrop (moons + optical stars + Milky Way) with exact terrestrial Beer-Lambert extinction.
 [[nodiscard]] LinearColour EvaluateCelestialBackdrop(

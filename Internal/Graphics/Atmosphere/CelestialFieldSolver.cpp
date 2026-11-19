@@ -460,48 +460,6 @@ namespace
             Emitted.Blue  * std::exp(-DustDepth * 1.32f) };
     }
 
-    // 📝 Zodiacal light + gegenschein: sunlight scattered by interplanetary dust concentrated toward the ecliptic. Surface brightness in
-    //    S10 units (one V = 10 star per square degree) from the Leinert et al. (1998) table: an in-ecliptic profile over the helioecliptic
-    //    longitude difference Δλ (log-log interpolated, 2690 S10 at 30° falling to 165 S10 at 140°, rising to the 200 S10 gegenschein at
-    //    the anti-solar point) and an exponential fall-off in ecliptic latitude β toward the 60 S10 ecliptic-pole floor, with a width
-    //    growing from ~21° near the sun to ~38° at the anti-solar point. The dust sits outside the atmosphere (extinction is applied by
-    //    the caller) and reddens sunlight slightly (B-V ≈ 0.75 vs the solar 0.65).
-    [[nodiscard]] LinearColour EvaluateZodiacalLight(const Vector3f& EquatorialAxis, const Vector3f& SolarEquatorialAxis) noexcept
-    {
-        static const Vector3f EclipticPole = ConstructEquatorialAxis(270.0f * Atmosphere::DegreesToRadians, 66.56071f * Atmosphere::DegreesToRadians);
-        static constexpr float ProfileLongitudes[] = { 15.0f, 20.0f, 25.0f, 30.0f, 35.0f, 40.0f, 45.0f, 60.0f, 75.0f, 90.0f, 105.0f, 120.0f, 140.0f, 160.0f, 170.0f, 180.0f };
-        static constexpr float ProfileS10[]        = { 9000.0f, 5000.0f, 3500.0f, 2690.0f, 2000.0f, 1440.0f, 1080.0f, 588.0f, 371.0f, 261.0f, 210.0f, 185.0f, 165.0f, 170.0f, 185.0f, 200.0f };
-        constexpr float PoleS10 = 60.0f;
-
-        const float    LatitudeSine  = std::clamp(DotVector(EquatorialAxis, EclipticPole), -1.0f, 1.0f);
-        const float    Latitude      = std::abs(std::asin(LatitudeSine)) / Atmosphere::DegreesToRadians;
-        const Vector3f ViewPlane     = SubtractVector(EquatorialAxis, ScaleVector(EclipticPole, LatitudeSine));
-        const Vector3f SolarPlane    = SubtractVector(SolarEquatorialAxis, ScaleVector(EclipticPole, DotVector(SolarEquatorialAxis, EclipticPole)));
-        const float    PlaneLengths  = VectorLength(ViewPlane) * VectorLength(SolarPlane);
-        if (PlaneLengths < 1.0e-6f)
-            return ScaleColour(LinearColour{ 1.0f, 0.93f, 0.80f }, PoleS10);
-        const float Longitude = std::acos(std::clamp(DotVector(ViewPlane, SolarPlane) / PlaneLengths, -1.0f, 1.0f)) / Atmosphere::DegreesToRadians;
-
-        // In-ecliptic brightness (log-log interpolation; inside 15° the corona / twilight dominates, so the profile is held).
-        constexpr uint32_t ProfileCount = sizeof(ProfileLongitudes) / sizeof(ProfileLongitudes[0]);
-        float EclipticS10 = ProfileS10[0];
-        for (uint32_t Knot = 1u; Knot < ProfileCount; ++Knot)
-        {
-            if (Longitude <= ProfileLongitudes[Knot])
-            {
-                const float Span = std::log(ProfileLongitudes[Knot] / ProfileLongitudes[Knot - 1u]);
-                const float Mix  = std::clamp(std::log(std::max(Longitude, ProfileLongitudes[0]) / ProfileLongitudes[Knot - 1u]) / Span, 0.0f, 1.0f);
-                EclipticS10      = std::exp(std::log(ProfileS10[Knot - 1u]) + Mix * std::log(ProfileS10[Knot] / ProfileS10[Knot - 1u]));
-                break;
-            }
-        }
-        // Gegenschein: compact (~8° wide) anti-solar brightening that fades within ~10° of latitude.
-        const float AntiSolar  = 180.0f - Longitude;
-        const float Gegenschein = 45.0f * std::exp(-(AntiSolar * AntiSolar + Latitude * Latitude) / (2.0f * 7.0f * 7.0f));
-        const float Width      = 20.0f + 0.10f * Longitude;
-        const float S10        = PoleS10 + (EclipticS10 - PoleS10) * std::exp(-Latitude / Width) + Gegenschein;
-        return ScaleColour(LinearColour{ 1.0f, 0.93f, 0.80f }, S10);
-    }
 
     // 📝 Local gnomonic tangent offsets (east, north) [rad] of EquatorialAxis relative to TargetAxis.
     void ResolveTangentOffsets(const Vector3f& EquatorialAxis, const Vector3f& TargetAxis, float& OutEast, float& OutNorth) noexcept
@@ -1056,6 +1014,49 @@ namespace
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        PUBLIC FUNCTIONS
 //------------------------------------------------------------------------------------------------------------------------
+
+// 📝 Zodiacal light + gegenschein: sunlight scattered by interplanetary dust concentrated toward the ecliptic. Surface brightness in
+//    S10 units (one V = 10 star per square degree) from the Leinert et al. (1998) table: an in-ecliptic profile over the helioecliptic
+//    longitude difference Δλ (log-log interpolated, 2690 S10 at 30° falling to 165 S10 at 140°, rising to the 200 S10 gegenschein at
+//    the anti-solar point) and an exponential fall-off in ecliptic latitude β toward the 60 S10 ecliptic-pole floor, with a width
+//    growing from ~21° near the sun to ~38° at the anti-solar point. The dust sits outside the atmosphere (extinction is applied by
+//    the caller) and reddens sunlight slightly (B-V ≈ 0.75 vs the solar 0.65).
+[[nodiscard]] LinearColour EvaluateZodiacalLight(const Vector3f& EquatorialAxis, const Vector3f& SolarEquatorialAxis) noexcept
+{
+    static const Vector3f EclipticPole = ConstructEquatorialAxis(270.0f * Atmosphere::DegreesToRadians, 66.56071f * Atmosphere::DegreesToRadians);
+    static constexpr float ProfileLongitudes[] = { 15.0f, 20.0f, 25.0f, 30.0f, 35.0f, 40.0f, 45.0f, 60.0f, 75.0f, 90.0f, 105.0f, 120.0f, 140.0f, 160.0f, 170.0f, 180.0f };
+    static constexpr float ProfileS10[]        = { 9000.0f, 5000.0f, 3500.0f, 2690.0f, 2000.0f, 1440.0f, 1080.0f, 588.0f, 371.0f, 261.0f, 210.0f, 185.0f, 165.0f, 170.0f, 185.0f, 200.0f };
+    constexpr float PoleS10 = 60.0f;
+
+    const float    LatitudeSine  = std::clamp(DotVector(EquatorialAxis, EclipticPole), -1.0f, 1.0f);
+    const float    Latitude      = std::abs(std::asin(LatitudeSine)) / Atmosphere::DegreesToRadians;
+    const Vector3f ViewPlane     = SubtractVector(EquatorialAxis, ScaleVector(EclipticPole, LatitudeSine));
+    const Vector3f SolarPlane    = SubtractVector(SolarEquatorialAxis, ScaleVector(EclipticPole, DotVector(SolarEquatorialAxis, EclipticPole)));
+    const float    PlaneLengths  = VectorLength(ViewPlane) * VectorLength(SolarPlane);
+    if (PlaneLengths < 1.0e-6f)
+        return ScaleColour(LinearColour{ 1.0f, 0.93f, 0.80f }, PoleS10);
+    const float Longitude = std::acos(std::clamp(DotVector(ViewPlane, SolarPlane) / PlaneLengths, -1.0f, 1.0f)) / Atmosphere::DegreesToRadians;
+
+    // In-ecliptic brightness (log-log interpolation; inside 15° the corona / twilight dominates, so the profile is held).
+    constexpr uint32_t ProfileCount = sizeof(ProfileLongitudes) / sizeof(ProfileLongitudes[0]);
+    float EclipticS10 = ProfileS10[0];
+    for (uint32_t Knot = 1u; Knot < ProfileCount; ++Knot)
+    {
+        if (Longitude <= ProfileLongitudes[Knot])
+        {
+            const float Span = std::log(ProfileLongitudes[Knot] / ProfileLongitudes[Knot - 1u]);
+            const float Mix  = std::clamp(std::log(std::max(Longitude, ProfileLongitudes[0]) / ProfileLongitudes[Knot - 1u]) / Span, 0.0f, 1.0f);
+            EclipticS10      = std::exp(std::log(ProfileS10[Knot - 1u]) + Mix * std::log(ProfileS10[Knot] / ProfileS10[Knot - 1u]));
+            break;
+        }
+    }
+    // Gegenschein: compact (~8° wide) anti-solar brightening that fades within ~10° of latitude.
+    const float AntiSolar  = 180.0f - Longitude;
+    const float Gegenschein = 45.0f * std::exp(-(AntiSolar * AntiSolar + Latitude * Latitude) / (2.0f * 7.0f * 7.0f));
+    const float Width      = 20.0f + 0.10f * Longitude;
+    const float S10        = PoleS10 + (EclipticS10 - PoleS10) * std::exp(-Latitude / Width) + Gegenschein;
+    return ScaleColour(LinearColour{ 1.0f, 0.93f, 0.80f }, S10);
+}
 
 LunarBodyDescriptor BuildLunarPreset(
     LunarPresetIdentifier Preset,

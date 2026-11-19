@@ -328,6 +328,35 @@ namespace
         }
         EnforceGate(Ledger, TwinkleMaximum > 1.03f * TwinkleMinimum, "Atmospheric scintillation modulates flux", "max > 1.03 min", TwinkleMaximum / TwinkleMinimum);
 
+        // ⑦b Zodiacal light: the Leinert in-ecliptic profile, the ecliptic-latitude falloff and the gegenschein ridge, in S10.
+        {
+            const float Obliquity = 23.4393f * Atmosphere::DegreesToRadians;
+            const auto  EclipticAxis = [Obliquity](float LongitudeDegrees, float LatitudeDegrees)
+            {
+                const float    Longitude    = LongitudeDegrees * Atmosphere::DegreesToRadians;
+                const float    Latitude     = LatitudeDegrees * Atmosphere::DegreesToRadians;
+                const Vector3f EclipticX    { std::cos(Longitude), std::sin(Longitude) * std::cos(Obliquity), std::sin(Longitude) * std::sin(Obliquity) };
+                const Vector3f EclipticPole { 0.0f, -std::sin(Obliquity), std::cos(Obliquity) };
+                return NormalizeVector(AddVector(ScaleVector(EclipticX, std::cos(Latitude)), ScaleVector(EclipticPole, std::sin(Latitude))));
+            };
+            const Vector3f FacingSun = EclipticAxis(0.0f, 0.0f);
+            const auto     BrightnessAt = [FacingSun, EclipticAxis](float LongitudeDegrees, float LatitudeDegrees)
+            {
+                return EvaluateRelativeLuminance(EvaluateZodiacalLight(EclipticAxis(LongitudeDegrees, LatitudeDegrees), FacingSun));
+            };
+            const float BandAtThirty    = BrightnessAt(30.0f, 0.0f);
+            const float PoleFloor       = BrightnessAt(90.0f, 90.0f);
+            const float LoftedThirty    = BrightnessAt(30.0f, 30.0f);
+            const float Gegenschein     = BrightnessAt(180.0f, 0.0f);
+            const float AntiBand        = BrightnessAt(165.0f, 0.0f);
+            EnforceGate(Ledger, std::isfinite(BandAtThirty) && BandAtThirty > 0.0f, "Zodiacal band is finite and positive", "S10 > 0", BandAtThirty);
+            EnforceGate(Ledger, BandAtThirty > 15.0f * PoleFloor, "Zodiacal band towers over the ecliptic pole", "S10(30°, 0°) / S10(pole) > 15", BandAtThirty / PoleFloor);
+            EnforceGate(Ledger, LoftedThirty < 0.35f * BandAtThirty, "Zodiacal band thins out of the ecliptic", "S10(30°, 30°) / S10(30°, 0°) < 0.35", LoftedThirty / BandAtThirty);
+            EnforceGate(Ledger, Gegenschein > 1.15f * AntiBand, "Gegenschein ridge at the anti-solar point", "S10(180°) / S10(165°) > 1.15", Gegenschein / AntiBand);
+            EnforceGate(Ledger, BrightnessAt(30.0f, 0.0f) > BrightnessAt(90.0f, 0.0f) && BrightnessAt(90.0f, 0.0f) > Gegenschein,
+                        "Zodiacal profile falls monotonically toward the antisolar dip", "S10(30°) > S10(90°) > S10(165°)", BrightnessAt(90.0f, 0.0f));
+        }
+
         // ⑧ Lunar system: atlas decode, solid occlusion, off-limb atmosphere, umbra, opposition surge.
         EnforceGate(Ledger, Atlas.DecodedAssetCount == MaximumLunarBodyCount, "Six authentic lunar maps decoded", "count == 6", Atlas.DecodedAssetCount);
         const LinearColour   Flux      { 12.8f, 12.8f, 12.8f };

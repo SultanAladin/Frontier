@@ -62,7 +62,7 @@
     <div class="group">
         <h2>Local Fog Banks</h2>
         <div class="row"><label>Banks active</label><input id="bankCount" type="range" min="0" max="3" step="1" value="2"><span class="val" id="bankCount_v"></span></div>
-        <div class="row"><label>Core σ [1/km]</label><input id="bankSigma" type="range" min="0" max="20" step="0.1" value="6"><span class="val" id="bankSigma_v"></span></div>
+        <div class="row"><label>Bank σ [1/km]</label><input id="bankSigma" type="range" min="0" max="20" step="0.1" value="6"><span class="val" id="bankSigma_v"></span></div>
         <div class="row"><label>Edge softness</label><input id="bankSoft" type="range" min="0.02" max="1" step="0.01" value="0.45"><span class="val" id="bankSoft_v"></span></div>
         <div class="row"><label>Clump noise</label><input id="bankNoise" type="range" min="0" max="1" step="0.01" value="0.6"><span class="val" id="bankNoise_v"></span></div>
         <div class="row"><label>Clump size [m]</label><input id="bankNoiseScale" type="range" min="40" max="1200" step="10" value="320"><span class="val" id="bankNoiseScale_v"></span></div>
@@ -217,7 +217,7 @@ float Hash13(ivec3 cell, uint salt) {
     return float(n >> 8u) * (1.0 / 16777216.0);
 }
 float Quintic(float x) { return x * x * x * (x * (x * 6.0 - 15.0) + 10.0); }
-float ValueNoise(vec3 p, uint salt) {
+float LatticeNoise(vec3 p, uint salt) {
     vec3 f = floor(p); ivec3 c = ivec3(f);
     vec3 u = vec3(Quintic(p.x - f.x), Quintic(p.y - f.y), Quintic(p.z - f.z));
     float a000 = Hash13(c, salt), a100 = Hash13(c + ivec3(1,0,0), salt);
@@ -232,7 +232,7 @@ float ValueNoise(vec3 p, uint salt) {
 float Fbm(vec3 p, uint salt) {
     float sum = 0.0, amp = 0.5, norm = 0.0;
     for (int octave = 0; octave < 3; ++octave) {
-        sum += amp * ValueNoise(p, salt + uint(octave) * 37u);
+        sum += amp * LatticeNoise(p, salt + uint(octave) * 37u);
         norm += amp;
         p = vec3(0.80 * p.x - 0.48 * p.y + 0.36 * p.z,
                  0.48 * p.x + 0.86 * p.y + 0.16 * p.z,

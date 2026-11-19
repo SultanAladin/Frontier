@@ -110,3 +110,7 @@ Construct/Initialize/Finalize; PascalCase constants, no `k-`. Sun vector = `Sola
    volume becomes worthwhile here once it fades over geometry. Same `SolarDirection` + LUTs feed it.
 3. **Clouds** — volumetric cloud layer (raymarched), lit by the same sun + sky-view radiance so it stays
    consistent with the atmosphere; composits under the sky dome, over fog.
+4. **Celestial field** — J2000 sky behind the atmosphere: Yale BSC5 bright-star catalogue (V ≤ 5.0, multiples
+   resolved per component) over a Pogson deep field, Milky Way band + dark rift, named nebulae, zodiacal light
+   with the gegenschein, and six textured moons with ray-marched lunar atmospheres. CPU reference + GLSL mirror
+   done (`CelestialFieldSolver`, `CelestialField.glsl`; exhibits 07–11, 20–23, gates ⑦ / ⑦b / ⑧).
