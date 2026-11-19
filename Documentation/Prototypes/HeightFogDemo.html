@@ -446,7 +446,7 @@ void main() {
         mastDistance   = TraceMasts(origin, direction);
         if (hitGround && (mastDistance < 0.0 || groundDistance < mastDistance)) {
             vec3  point  = origin + direction * groundDistance;
-            float albedo = 0.16 + 0.12 * Fbm(point.xy / 240.0, 331u);
+            float albedo = 0.16 + 0.12 * Fbm(vec3(point.xy / 240.0, 0.0), 331u);
             background = albedo * vec3(0.40, 0.46, 0.32) * (0.22 + 0.78 * max(dot(groundNormal, uSunDir), 0.0));
             backgroundDepth = groundDistance;
         } else if (mastDistance > 0.0) {

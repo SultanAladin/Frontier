@@ -561,7 +561,7 @@ namespace
     [[nodiscard]] float EvaluateBubbleColumnDistance(float OffsetX, float HeightKm, float OffsetZ, float RadiusKm, float TopKm, int32_t LatticeX, int32_t LatticeZ,
                                                      uint32_t Salt) noexcept
     {
-        const int32_t BubbleCount = std::clamp(static_cast<int32_t>(std::ceil(TopKm / (0.78f * RadiusKm))), 1, 8);
+        const int32_t BubbleCount = std::clamp(static_cast<int32_t>(std::ceil(TopKm / (1.05f * RadiusKm))), 1, 6);
         const float   Segment     = TopKm / static_cast<float>(BubbleCount);
         float         CentreX     = 0.0f;
         float         CentreZ     = 0.0f;
@@ -571,7 +571,7 @@ namespace
             const float Rise        = (static_cast<float>(Bubble) + 0.5f) / static_cast<float>(BubbleCount);
             const float Taper       = 1.0f - 0.42f * Rise;
             const float Radius      = RadiusKm * Taper * (0.72f + 0.55f * HashLatticeCell(LatticeX, 40 + Bubble, LatticeZ, Salt));
-            const float HalfHeight  = std::min(0.72f * Radius, 0.75f * Segment + 0.25f * Radius);
+            const float HalfHeight  = std::min(Radius, 0.80f * Segment + 0.35f * Radius);
             const float CentreY     = (Bubble == BubbleCount - 1) ? TopKm - HalfHeight : (static_cast<float>(Bubble) + 0.55f) * Segment;
             Distance = BlendDistanceUnion(Distance,
                                           EvaluateEllipsoidDistance(OffsetX - CentreX, HeightKm - CentreY, OffsetZ - CentreZ, Radius, HalfHeight, Radius * 0.92f),
