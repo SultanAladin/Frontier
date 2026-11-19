@@ -3,7 +3,7 @@
 🧩 A raymarched volumetric cloudscape for Frontier: a Perlin-Worley density field authored by a
 weather map + altitude gradients so one renderer produces every cloud type — flat stratus, lumpy
 stratocumulus, billowy cumulus, wispy cirrus, and towering **cumulonimbus (thunderheads)** — lit by
-Beer-Lambert extinction + a dual-lobe Henyey-Greenstein phase + a powder dark-edge term, self-shadowed
+Beer-Lambert extinction + an approximate-Mie phase (HG diffraction peak + Draine lobe) + a powder dark-edge term, self-shadowed
 by a sun-facing sample cone, and casting **moving cloud shadows onto the scene** via a top-down
 transmittance map. Made real-time (GTX 1060 / Pascal baseline) with a quarter-resolution target,
 jittered raymarch, and temporal reprojection. It shares its physics core (Beer-Lambert + HG + the
@@ -188,15 +188,15 @@ Suggested home: `Engine/Internal/Graphics/Renderer/Volumetric/Clouds/` (`Noise/`
 | Phase | Deliverable | State |
 |---|---|---|
 | **P0** | Precompute `BaseShapeField` (128³) + `DetailErosionField` (32³) + `CurlMotionField` (128²); write to cache | ☐ |
-| **P1** | `CloudRaymarchPass` — base-shape only, constant coverage, Beer-Lambert transmittance; prove the march | ☐ |
-| **P2** | `WeatherProfileField` + `AltitudeGradientProfile` blend → stratus/stratocumulus/cumulus/cirrus; **cumulonimbus override** | ☐ |
-| **P3** | Lighting: dual-lobe `EvaluatePhaseHenyeyGreenstein` + `PowderEdgeProfile` + `SunConeTransmittance` self-shadow; energy-conserving integral | ☐ |
+| **P1** | `CloudRaymarchPass` — base-shape only, constant coverage, Beer-Lambert transmittance; prove the march | ☐ (CPU reference + GLSL mirror: two-speed march with a density-bound empty-space probe) |
+| **P2** | `WeatherProfileField` + `AltitudeGradientProfile` blend → stratus/stratocumulus/cumulus/cirrus; **cumulonimbus override** | ◐ CPU reference + GLSL mirror: Poisson germ-grain thermal envelopes, hashed congestus→Cb height split, Quílez anvil wedge + overshooting top (exhibits 02–06) |
+| **P3** | Lighting: dual-lobe `EvaluatePhaseHenyeyGreenstein` + `PowderEdgeProfile` + `SunConeTransmittance` self-shadow; energy-conserving integral | ◐ replaced by the approximate Mie phase (Jendersie & d'Eon 2023) — normalised to < 1 % for d = 5…50 µm, δ-M diffraction fraction on the sunlight paths, two-stream diffusion tail; powder + solar cone as planned (gates ⑨, ⑨b) |
 | **P4** | Detail erosion + `CurlMotionField` advection (wind over `SequenceTime`) → moving, wispy clouds | ☐ |
 | **P5** | Quarter-res target + `RaymarchJitterProfile` + `CloudTemporalReprojection` + `SparseUpdateProfile` (1-of-16) — hit the 1060 budget | ☐ |
 | **P6** | `CloudShadowProjectionPass` → `CloudShadowField`; sample it when shading the scene → moving cloud shadows | ☐ |
 | **P7** | Atmosphere seam — apply aerial-perspective / sky LUT + order cloud vs [[PLAN-VolumetricFog]] fog composite (open question #1) | ☐ |
 | **P8** | `VolumetricCloudValidation` app + 1060 timing capture; tune resolution / reprojection cadence | ☐ |
-| **P9** *(deferred)* | Nubis3 upgrade — compressed-SDF sphere-trace + decoupled sun-density voxel grid | ⏸ deferred |
+| **P9** | Nubis3 upgrade — compressed-SDF sphere-trace + decoupled sun-density voxel grid | ◐ CPU reference: SDF field (ellipsoid/dome/bubble-column/storm) with a Quílez bubble cascade, four sample fidelities, and the bound as the empty-space probe; light taps read the uneroded cascade (gates ⑨c) |
 
 ---
 

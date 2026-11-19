@@ -172,9 +172,11 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │   │   │   ├── SkyAtmosphere.{h,cpp}  AtmosphereProfile.h   // live Vulkan sky pass; 208 B AtmosphereBlock + Earth profile + colour/noise math
 │   │   │   ├── AtmosphericScatteringSolver.{h,cpp}  // Transmittance / MultiScatter / limb-centred SkyView tables, solar disc, orbital planet
 │   │   │   ├── AtmosphericFlowField.{h,cpp}         // divergence-free curl + 6 force operators + RK4 backward characteristics; 560 B UBO
-│   │   │   ├── VolumetricCloudSolver.{h,cpp}        // 5 genera, germ-grain convective cells, Wrenninge octaves, cirrus ice halo; 96 B UBO
+│   │   │   ├── VolumetricCloudSolver.{h,cpp}        // 5 genera, SDF thermal envelopes + Quílez bubble cascade, approximate-Mie phase,
+│   │   │   │                                        //   Wrenninge octaves + diffusion tail, cirrus ice halo, crepuscular rays; 112 B UBO (+32 B)
 │   │   │   ├── VolumetricFogSolver.{h,cpp}          // height fog + local fog banks advected by the shared flow field; 272 B UBO
-│   │   │   ├── CelestialFieldSolver.{h,cpp}         // J2000 stars, Milky Way, six moon presets with volumetric atmospheres; 608 B UBO
+│   │   │   ├── CelestialFieldSolver.{h,cpp}         // J2000 stars, Milky Way, zodiacal light, six moon presets with volumetric atmospheres; 608 B UBO
+│   │   │   ├── BrightStarCatalogue.h                // BSC5 V ≤ 5.0 bright-star table (1 640 entries) the deep field is seeded from
 │   │   │   └── Shaders/ (Transmittance.comp, MultiScatter.comp, SkyView.frag, SkyDome.{vert,frag},
 │   │   │                 FullscreenTriangle.vert, AtmosphereCommon.glsl, TransmittanceLookup.glsl,
 │   │   │                 AtmosphericFlowField.glsl, AtmosphereLatticeNoise.glsl, VolumetricCloudField.glsl,
@@ -430,7 +432,7 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │   ├── TextureBakeEditor/      { TextureBakeEditorEntry.cpp,       Config/, Build.bat }
 │   ├── SimulationEditor/       { SimulationEditorEntry.cpp,        Config/, Build.bat }
 │   └── Validation/                                // validation targets (not editors)
-│       ├── AtmosphereCelestialValidation/  { AtmosphereCelestialValidationEntry.cpp, Build.bat }  // CPU-only: 43 physical gates + the 14-exhibit gallery (Audit Proof/)
+│       ├── AtmosphereCelestialValidation/  { AtmosphereCelestialValidationEntry.cpp, Build.bat }  // CPU-only: 56 physical gates + the 23-exhibit gallery (Audit Proof/)
 │       ├── ClipmapFieldValidation/         { ClipmapFieldValidation.cpp,             Build.bat }
 │       ├── ConstructionCatalogueValidation/{ ConstructionCatalogueValidationHost.cpp, ConstructionCatalogue.{h,cpp}, ConstructionCataloguePanel.{h,cpp}, ConstructionConsoleBridge.{h,cpp}, ConstructionGlyphs.{h,cpp}, Build.bat }  // non-host units ALSO compiled in-place by SketchModelViewport (the embedded right-click console)
 │       ├── ControlsGallery/                { ControlsGalleryEntry.cpp,               …Panel.{h,cpp}, Build.bat }

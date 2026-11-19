@@ -160,7 +160,7 @@ namespace
         EnforceGate(Ledger, sizeof(AtmosphereUniformBlock) == 208u, "AtmosphereUniformBlock std140 size", "bytes == 208", static_cast<double>(sizeof(AtmosphereUniformBlock)));
         EnforceGate(Ledger, sizeof(FlowFieldUniformBlock) == 560u, "FlowFieldUniformBlock std140 size", "bytes == 560", static_cast<double>(sizeof(FlowFieldUniformBlock)));
         EnforceGate(Ledger, sizeof(CelestialUniformBlock) == 608u, "CelestialUniformBlock std140 size", "bytes == 608", static_cast<double>(sizeof(CelestialUniformBlock)));
-        EnforceGate(Ledger, sizeof(CloudFieldUniformBlock) == 96u, "CloudFieldUniformBlock std140 size", "bytes == 96", static_cast<double>(sizeof(CloudFieldUniformBlock)));
+        EnforceGate(Ledger, sizeof(CloudFieldUniformBlock) == 112u, "CloudFieldUniformBlock std140 size", "bytes == 112", static_cast<double>(sizeof(CloudFieldUniformBlock)));
 
         // ② Ozone Chappuis tent: peak 1 at 25 km, 0.5 at 17.5 / 32.5 km, zero below 10 km and above 40 km.
         LinearColour Rayleigh{}, Mie{}, Extinction25{}, Extinction45{}, Extinction325{};
@@ -311,13 +311,13 @@ namespace
                                                 ScaleVector(Pole, std::sin(Declination)));
             return EvaluateStarfieldGalaxy(Stars, NormalizeVector(Local), SequenceSeconds, Vacuum);
         };
-        const LinearColour Sirius         = PeakNear(6.752f, -16.716f, 0.0f, true);
-        const LinearColour Adhara         = PeakNear(6.977f, -28.972f, 0.0f, true);
+        const LinearColour Sirius         = PeakNear(6.75247f, -16.7161f, 0.0f, true);
+        const LinearColour Adhara         = PeakNear(6.97709f, -28.9721f, 0.0f, true);
         const float        PogsonRatio    = EvaluateRelativeLuminance(Sirius) / std::max(1e-12f, EvaluateRelativeLuminance(Adhara));
         const float        PogsonExpected = std::pow(10.0f, 0.4f * (1.50f + 1.46f));
         EnforceGate(Ledger, std::abs(PogsonRatio / PogsonExpected - 1.0f) < 0.05f, "Pogson flux ratio Sirius / Adhara", "|ratio / 10^(0.4 dm) - 1| < 5%", PogsonRatio / PogsonExpected);
-        const LinearColour VacuumA = PeakNear(6.752f, -16.716f, 1.0f, true);
-        const LinearColour VacuumB = PeakNear(6.752f, -16.716f, 7.3f, true);
+        const LinearColour VacuumA = PeakNear(6.75247f, -16.7161f, 1.0f, true);
+        const LinearColour VacuumB = PeakNear(6.75247f, -16.7161f, 7.3f, true);
         EnforceGate(Ledger, VacuumA.Green == VacuumB.Green && VacuumA.Green == Sirius.Green, "Scintillation strictly zero in vacuum", "L(t1) == L(t2)", std::abs(VacuumA.Green - VacuumB.Green));
         float TwinkleMinimum = 1.0e30f, TwinkleMaximum = 0.0f;
         for (uint32_t Tick = 0u; Tick < 40u; ++Tick)
@@ -412,6 +412,73 @@ namespace
         // Slant rays at 25-83 deg see cumulus towers side-on, so the opaque fraction exceeds the 60 % plan-view coverage; the upper
         // bound only rejects a saturated overcast deck (600 / 600), the lower bound a vanished field.
         EnforceGate(Ledger, OpaqueCount > 90u && OpaqueCount < 570u, "Cumulus 60% broken sky above 25 deg elevation", "90 < opaque rays < 570", OpaqueCount);
+
+        // ⑨b Approximate Mie phase (Jendersie–d'Eon): normalised over the sphere for every fitted droplet size, strongly forward-peaked.
+        {
+            double WorstNormalisation = 0.0;
+            for (const float Diameter : { 5.0f, 10.0f, 16.0f, 25.0f, 50.0f })
+            {
+                const ApproximateMieParameters Phase = ResolveApproximateMieParameters(Diameter);
+                // ∫ p dΩ = 2π ∫ p(μ) dμ: a fine midpoint sum in θ resolves the ≲1° diffraction peak.
+                constexpr uint32_t AngleSteps = 400000u;
+                double             Integral   = 0.0;
+                for (uint32_t Step = 0u; Step < AngleSteps; ++Step)
+                {
+                    const double Theta = (Step + 0.5) * Atmosphere::PiConstant / AngleSteps;
+                    Integral += EvaluateApproximateMiePhase(Phase, static_cast<float>(std::cos(Theta)), 1.0f) * std::sin(Theta);
+                }
+                Integral *= 2.0 * Atmosphere::PiConstant * (Atmosphere::PiConstant / AngleSteps);
+                WorstNormalisation = std::max(WorstNormalisation, std::fabs(Integral - 1.0));
+            }
+            EnforceGate(Ledger, WorstNormalisation < 0.01, "Approximate Mie phase normalised (d = 5..50 um)", "|int p dOmega - 1| < 1%", WorstNormalisation);
+            const ApproximateMieParameters Droplet = ResolveApproximateMieParameters(16.0f);
+            const float ForwardRatio = EvaluateApproximateMiePhase(Droplet, 1.0f, 1.0f) / EvaluateApproximateMiePhase(Droplet, -1.0f, 1.0f);
+            EnforceGate(Ledger, ForwardRatio > 1.0e3f && Droplet.PeakAsymmetry > 0.98f, "Mie diffraction peak forward / back ratio (16 um)", "p(0) / p(180) > 1e3", ForwardRatio);
+        }
+
+        // ⑨c Convective envelope: the full-detail field must vanish wherever the envelope bound (envelope lifted by the maximum cascade
+        //    growth) is zero — otherwise the coarse empty-space probe would skip real cloud and clip bubbles flat.
+        {
+            bool     BoundHolds = true;
+            uint32_t Violations = 0u;
+            for (const CloudGenusIdentifier Genus : { CloudGenusIdentifier::Cumulus, CloudGenusIdentifier::Stratocumulus, CloudGenusIdentifier::Cumulonimbus })
+            {
+                const VolumetricCloudConfiguration Field = BuildCloudGenusPreset(Genus, 0.45f);
+                const float Floor     = Field.Stratum.FloorAltitudeKm;
+                const float Thickness = Field.Stratum.CeilingAltitudeKm - Floor;
+                for (uint32_t Probe = 0u; Probe < 6000u; ++Probe)
+                {
+                    const Vector3f Position { (Probe % 97u) * 0.37f - 18.0f, CloudProfile.BottomRadius + Floor + Thickness * ((Probe * 53u) % 211u) / 211.0f,
+                                              (Probe / 97u) * 0.41f - 12.0f };
+                    const float Detail = EvaluateCloudDensity(Field, CloudProfile, nullptr, Position, 0.0f, true);
+                    const float Bound  = EvaluateCloudDensityBound(Field, CloudProfile, nullptr, Position, 0.0f);
+                    if (Detail > 1.0e-4f && Bound <= 0.0f)
+                        ++Violations;
+                }
+            }
+            BoundHolds = Violations == 0u;
+            EnforceGate(Ledger, BoundHolds, "Cascade growth bounded by the envelope probe", "detail > 0 => bound > 0", Violations);
+        }
+
+        // ⑨d Crepuscular rays: the shadow deficit is non-negative, never exceeds the sky radiance on the same ray, vanishes in the sun's
+        //    full light, and the haze layer conserves energy (0 < T <= 1).
+        {
+            EnforceGate(Ledger, sizeof(CrepuscularRayUniformBlock) == 32u, "CrepuscularRayUniformBlock std140 size", "bytes == 32", sizeof(CrepuscularRayUniformBlock));
+            CrepuscularRayConfiguration Shafts{};
+            Shafts.ShaftsEnabled = true;
+            VolumetricCloudConfiguration Sunlit = BuildCloudGenusPreset(CloudGenusIdentifier::Cumulus, 0.0f);
+            Sunlit.Cirrus.VeilEnabled = false;
+            const Vector3f             Slant         = ConstructDirection(6.0f, 30.0f);
+            const CrepuscularRayResult SunlitRay     = IntegrateCrepuscularRays(Shafts, Sunlit, CloudTables, CloudProfile, nullptr, Slant, 0.0f, 0.5f);
+            const CrepuscularRayResult OvercastRay   = IntegrateCrepuscularRays(Shafts, Overcast, CloudTables, CloudProfile, nullptr, Slant, 0.0f, 0.5f);
+            const LinearColour         SkyOnRay      = SampleSkyViewRadiance(CloudTables, CloudProfile, Slant);
+            EnforceGate(Ledger, SunlitRay.ShadowedDeficit.Green == 0.0f, "Godray deficit vanishes in full sunlight", "deficit == 0", SunlitRay.ShadowedDeficit.Green);
+            EnforceGate(Ledger, OvercastRay.ShadowedDeficit.Green > 0.0f && OvercastRay.ShadowedDeficit.Green < SkyOnRay.Green,
+                        "Godray deficit bounded by the sky in-scatter", "0 < deficit < L_sky", OvercastRay.ShadowedDeficit.Green / std::max(1.0e-9f, SkyOnRay.Green));
+            EnforceGate(Ledger, OvercastRay.HazeRadiance.Green < SunlitRay.HazeRadiance.Green && SunlitRay.HazeTransmittance.Green > 0.0f
+                                && SunlitRay.HazeTransmittance.Green <= 1.0f, "Haze shafts darken in cloud shadow", "L_haze(shadow) < L_haze(sun)",
+                        OvercastRay.HazeRadiance.Green / std::max(1.0e-9f, SunlitRay.HazeRadiance.Green));
+        }
 
         // ⑩ Fog: Beer-Lambert in a uniform medium, closed-form height integral vs a fine Riemann sum, flow coupling, energy bounds, layout.
         EnforceGate(Ledger, sizeof(FogFieldUniformBlock) == 272u, "FogFieldUniformBlock std140 size", "bytes == 272", sizeof(FogFieldUniformBlock));
@@ -568,6 +635,7 @@ namespace
         float                        SolarGlareStrength   = 0.0f;   // 0 = muted sun, 1 = radiant sun (glare bloom + aureole)
         bool                         FogEnabled           = false;
         VolumetricFogConfiguration   Fog                  {};
+        CrepuscularRayConfiguration  Shafts               {};       // godray layer (needs CloudsEnabled)
         ExposureCalibration          Metering             = ExposureCalibration::FixedGain;
     };
 
@@ -729,6 +797,64 @@ namespace
         if (Exhibit.CloudsEnabled)
             DenoiseCloudLayerBilateral(ExhibitWidth, ExhibitHeight, CloudRadiance, CloudTransmittance, CloudDistance);
 
+        // Crepuscular rays vary smoothly across the image (shadow volumes many pixels wide), so the layer is integrated on a quarter-
+        // resolution grid with 4 jittered start offsets per texel and bilinearly upsampled.
+        std::vector<LinearColour> ShaftDeficit(PixelCount);
+        std::vector<LinearColour> HazeRadiance(PixelCount);
+        std::vector<LinearColour> HazeTransmittance(PixelCount, LinearColour{ 1.0f, 1.0f, 1.0f });
+        if (Exhibit.CloudsEnabled && Exhibit.Shafts.ShaftsEnabled && !Exhibit.OrbitalEnabled)
+        {
+            constexpr uint32_t        GridStride = 4u;
+            const uint32_t            GridWidth  = ExhibitWidth / GridStride + 2u;
+            const uint32_t            GridHeight = ExhibitHeight / GridStride + 2u;
+            std::vector<CrepuscularRayResult> Grid(static_cast<std::size_t>(GridWidth) * GridHeight);
+            ExecuteParallelRows(GridHeight, [&](uint32_t GridRow)
+            {
+                for (uint32_t GridColumn = 0u; GridColumn < GridWidth; ++GridColumn)
+                {
+                    const float    NdcX      = ((static_cast<float>(GridColumn) - 0.5f) * GridStride / ExhibitWidth) * 2.0f - 1.0f;
+                    const float    NdcY      = 1.0f - ((static_cast<float>(GridRow) - 0.5f) * GridStride / ExhibitHeight) * 2.0f;
+                    const Vector3f Direction = NormalizeVector(AddVector(Camera.ForwardAxis,
+                        AddVector(ScaleVector(Camera.RightAxis, NdcX * Camera.TangentHalfWidth), ScaleVector(Camera.UpAxis, NdcY * Camera.TangentHalfHeight))));
+                    CrepuscularRayResult Sum{};
+                    Sum.HazeTransmittance = LinearColour{};
+                    for (uint32_t Sample = 0u; Sample < 4u; ++Sample)
+                    {
+                        const float                Jitter = (static_cast<float>(Sample) + 0.5f) / 4.0f;
+                        const CrepuscularRayResult Ray    = IntegrateCrepuscularRays(Exhibit.Shafts, Exhibit.Clouds, Tables, Profile, FlowPointer, Direction,
+                                                                                     Exhibit.SequenceSeconds, Jitter);
+                        Sum.ShadowedDeficit   = AddColour(Sum.ShadowedDeficit, ScaleColour(Ray.ShadowedDeficit, 0.25f));
+                        Sum.HazeRadiance      = AddColour(Sum.HazeRadiance, ScaleColour(Ray.HazeRadiance, 0.25f));
+                        Sum.HazeTransmittance = AddColour(Sum.HazeTransmittance, ScaleColour(Ray.HazeTransmittance, 0.25f));
+                    }
+                    Grid[static_cast<std::size_t>(GridRow) * GridWidth + GridColumn] = Sum;
+                }
+            });
+            for (uint32_t Row = 0u; Row < ExhibitHeight; ++Row)
+            {
+                for (uint32_t Column = 0u; Column < ExhibitWidth; ++Column)
+                {
+                    const float       GridX   = (static_cast<float>(Column) + 0.5f) / GridStride + 0.5f;
+                    const float       GridY   = (static_cast<float>(Row) + 0.5f) / GridStride + 0.5f;
+                    const uint32_t    Left    = std::min(GridWidth - 2u, static_cast<uint32_t>(GridX));
+                    const uint32_t    Top     = std::min(GridHeight - 2u, static_cast<uint32_t>(GridY));
+                    const float       WeightX = std::clamp(GridX - static_cast<float>(Left), 0.0f, 1.0f);
+                    const float       WeightY = std::clamp(GridY - static_cast<float>(Top), 0.0f, 1.0f);
+                    const auto        Blend   = [&](LinearColour CrepuscularRayResult::*Member)
+                    {
+                        const LinearColour Upper = InterpolateColour(Grid[Top * GridWidth + Left].*Member, Grid[Top * GridWidth + Left + 1u].*Member, WeightX);
+                        const LinearColour Lower = InterpolateColour(Grid[(Top + 1u) * GridWidth + Left].*Member, Grid[(Top + 1u) * GridWidth + Left + 1u].*Member, WeightX);
+                        return InterpolateColour(Upper, Lower, WeightY);
+                    };
+                    const std::size_t Pixel = static_cast<std::size_t>(Row) * ExhibitWidth + Column;
+                    ShaftDeficit[Pixel]      = Blend(&CrepuscularRayResult::ShadowedDeficit);
+                    HazeRadiance[Pixel]      = Blend(&CrepuscularRayResult::HazeRadiance);
+                    HazeTransmittance[Pixel] = Blend(&CrepuscularRayResult::HazeTransmittance);
+                }
+            }
+        }
+
+
         // Radiant-sun glare veils everything in front of it (it forms in the optics), scaled once by the sun's own cloud visibility.
         std::vector<LinearColour> GlareRadiance(PixelCount);
         if (Exhibit.SolarGlareStrength > 0.0f)
@@ -759,12 +885,22 @@ namespace
             });
         }
 
+        // Layer order along the view ray: fog (nearest) → haze shafts → clouds → shadow-darkened sky backdrop; glare forms in the optics.
+        const auto ResolveFinalRadiance = [&](std::size_t Pixel)
+        {
+            const LinearColour Sky    { std::max(0.0f, Backdrop[Pixel].Red - ShaftDeficit[Pixel].Red), std::max(0.0f, Backdrop[Pixel].Green - ShaftDeficit[Pixel].Green),
+                                        std::max(0.0f, Backdrop[Pixel].Blue - ShaftDeficit[Pixel].Blue) };
+            const LinearColour Clouds = AddColour(CloudRadiance[Pixel], MultiplyColour(CloudTransmittance[Pixel], Sky));
+            const LinearColour Hazed  = AddColour(HazeRadiance[Pixel], MultiplyColour(HazeTransmittance[Pixel], Clouds));
+            return AddColour(AddColour(FogRadiance[Pixel], MultiplyColour(FogTransmittance[Pixel], Hazed)), GlareRadiance[Pixel]);
+        };
+
         if (Exhibit.Metering == ExposureCalibration::SceneKey)
         {
             double LogLuminanceSum = 0.0;
             for (std::size_t Pixel = 0u; Pixel < PixelCount; ++Pixel)
             {
-                const LinearColour Final = AddColour(AddColour(FogRadiance[Pixel], MultiplyColour(FogTransmittance[Pixel], AddColour(CloudRadiance[Pixel], MultiplyColour(CloudTransmittance[Pixel], Backdrop[Pixel])))), GlareRadiance[Pixel]);
+                const LinearColour Final = ResolveFinalRadiance(Pixel);
                 LogLuminanceSum += std::log(1.0e-12 + std::max(0.0f, EvaluateRelativeLuminance(Final)));
             }
             const double LogAverage = std::exp(LogLuminanceSum / static_cast<double>(PixelCount));
@@ -775,7 +911,7 @@ namespace
         double LuminanceSum = 0.0;
         for (std::size_t Pixel = 0u; Pixel < PixelCount; ++Pixel)
         {
-            const LinearColour Final  = AddColour(AddColour(FogRadiance[Pixel], MultiplyColour(FogTransmittance[Pixel], AddColour(CloudRadiance[Pixel], MultiplyColour(CloudTransmittance[Pixel], Backdrop[Pixel])))), GlareRadiance[Pixel]);
+            const LinearColour Final  = ResolveFinalRadiance(Pixel);
             const LinearColour Mapped = EvaluatePbrNeutralTonemap(Final, Exposure);
             // Triangular-PDF dither (±1 LSB) removes 8-bit banding in smooth twilight gradients.
             const uint32_t Hash   = Atmosphere::HashPixelSeed(static_cast<uint32_t>(Pixel % ExhibitWidth), static_cast<uint32_t>(Pixel / ExhibitWidth), 0xD17Eu);
@@ -860,9 +996,9 @@ namespace
         {   // 05 — Deep convective cumulonimbus towers with anvils.
             ExhibitSpecification Exhibit{};
             Exhibit.FileName            = "05_CumulonimbusTowers.png";
-            Exhibit.SunElevationDegrees = 26.0f; Exhibit.SunAzimuthDegrees = 140.0f;
-            Exhibit.CameraYawDegrees    = 0.0f; Exhibit.CameraPitchDegrees = 9.0f; Exhibit.HorizontalFovDegrees = 80.0f;
-            Exhibit.CloudsEnabled       = true; Exhibit.Clouds = BuildCloudGenusPreset(CloudGenusIdentifier::Cumulonimbus, 0.10f);
+            Exhibit.SunElevationDegrees = 22.0f; Exhibit.SunAzimuthDegrees = 140.0f;
+            Exhibit.CameraYawDegrees    = 65.0f; Exhibit.CameraPitchDegrees = 9.0f; Exhibit.HorizontalFovDegrees = 80.0f;
+            Exhibit.CloudsEnabled       = true; Exhibit.Clouds = BuildCloudGenusPreset(CloudGenusIdentifier::Cumulonimbus, 0.16f);
             Catalogue.push_back(Exhibit);
         }
         {   // 06 — Cirrus veil with the 22° ice-crystal halo.
@@ -1036,6 +1172,54 @@ namespace
             Band.WorldCentreMetres = Vector3f{ 3000.0f, 0.0f, 0.0f }; Band.HalfExtentMetres = Vector3f{ 3400.0f, 760.0f, 260.0f };
             Band.ExtinctionPerKm   = 7.0f; Band.EdgeSoftness = 0.55f; Band.NoiseStrength = 0.6f; Band.NoiseScaleMetres = 340.0f;
             RegisterFogVolume(Exhibit.Fog, Band);
+            Catalogue.push_back(Exhibit);
+        }
+        {   // 19 — Crepuscular rays: a low sun behind a broken cumulus deck fans shadow shafts through the hazy boundary layer.
+            ExhibitSpecification Exhibit{};
+            Exhibit.FileName            = "19_CrepuscularRaysCumulus.png";
+            Exhibit.SunElevationDegrees = 14.0f; Exhibit.SunAzimuthDegrees = 10.0f;
+            Exhibit.CameraYawDegrees    = 10.0f; Exhibit.CameraPitchDegrees = 15.0f; Exhibit.HorizontalFovDegrees = 85.0f;
+            Exhibit.CloudsEnabled       = true; Exhibit.Clouds = BuildCloudGenusPreset(CloudGenusIdentifier::Cumulus, 0.60f);
+            Exhibit.SolarGlareStrength  = 0.8f;
+            Exhibit.Shafts.ShaftsEnabled       = true;
+            Exhibit.Shafts.HazeExtinctionPerKm = 0.20f;
+            Exhibit.Shafts.MarchStepCount      = 20u;
+            Catalogue.push_back(Exhibit);
+        }
+        {   // 20 — Zodiacal light: a steep evening ecliptic (southern spring, LST 18 h at 26° S) after astronomical twilight.
+            ExhibitSpecification Exhibit{};
+            Exhibit.FileName            = "20_ZodiacalLightDusk.png";
+            Exhibit.SunElevationDegrees = -19.0f; Exhibit.SunAzimuthDegrees = 180.0f;
+            Exhibit.CameraYawDegrees    = 180.0f; Exhibit.CameraPitchDegrees = 26.0f; Exhibit.HorizontalFovDegrees = 110.0f;
+            Exhibit.Exposure            = 0.30f; Exhibit.Metering = ExposureCalibration::SceneKey; Exhibit.SamplesPerPixel = 4u;
+            ConfigureDefaultNightSky(Exhibit.Celestial, -0.46f, 270.0f * Atmosphere::DegreesToRadians);
+            Catalogue.push_back(Exhibit);
+        }
+        {   // 21 — Crux and the Coalsack transiting at 56° in the south (LST 12.5 h, 26° S), alpha / beta Centauri beside them.
+            ExhibitSpecification Exhibit{};
+            Exhibit.FileName            = "21_SouthernCrossCoalsack.png";
+            Exhibit.SunElevationDegrees = -40.0f; Exhibit.SunAzimuthDegrees = 0.0f;
+            Exhibit.CameraYawDegrees    = 270.0f; Exhibit.CameraPitchDegrees = 48.0f; Exhibit.HorizontalFovDegrees = 70.0f;
+            Exhibit.Exposure            = 0.28f; Exhibit.Metering = ExposureCalibration::SceneKey; Exhibit.SamplesPerPixel = 4u;
+            ConfigureDefaultNightSky(Exhibit.Celestial, -0.46f, 187.5f * Atmosphere::DegreesToRadians);
+            Catalogue.push_back(Exhibit);
+        }
+        {   // 22 — The winter hunter: red Betelgeuse against blue-white Rigel, the belt and M42, transiting in the north (LST 5.6 h).
+            ExhibitSpecification Exhibit{};
+            Exhibit.FileName            = "22_WinterHunterBetelgeuse.png";
+            Exhibit.SunElevationDegrees = -40.0f; Exhibit.SunAzimuthDegrees = 270.0f;
+            Exhibit.CameraYawDegrees    = 90.0f; Exhibit.CameraPitchDegrees = 46.0f; Exhibit.HorizontalFovDegrees = 72.0f;
+            Exhibit.Exposure            = 0.28f; Exhibit.Metering = ExposureCalibration::SceneKey; Exhibit.SamplesPerPixel = 4u;
+            ConfigureDefaultNightSky(Exhibit.Celestial, -0.46f, 84.0f * Atmosphere::DegreesToRadians);
+            Catalogue.push_back(Exhibit);
+        }
+        {   // 23 — Large and Small Magellanic Clouds with Achernar and Canopus high in the southern sky (LST 3 h).
+            ExhibitSpecification Exhibit{};
+            Exhibit.FileName            = "23_MagellanicClouds.png";
+            Exhibit.SunElevationDegrees = -40.0f; Exhibit.SunAzimuthDegrees = 90.0f;
+            Exhibit.CameraYawDegrees    = 270.0f; Exhibit.CameraPitchDegrees = 40.0f; Exhibit.HorizontalFovDegrees = 90.0f;
+            Exhibit.Exposure            = 0.28f; Exhibit.Metering = ExposureCalibration::SceneKey; Exhibit.SamplesPerPixel = 4u;
+            ConfigureDefaultNightSky(Exhibit.Celestial, -0.46f, 45.0f * Atmosphere::DegreesToRadians);
             Catalogue.push_back(Exhibit);
         }
         // Cloud exhibits integrate 4 Owen-Sobol samples per pixel ahead of the bilateral pass (jittered-march noise floor).

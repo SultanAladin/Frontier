@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Height Fog — Analytic Stratification & Flow-Driven Banks Demo</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Segoe UI', system-ui, sans-serif; }
+    #gl { display: block; width: 100vw; height: 100vh; }
+    #panel {
+        position: fixed; top: 12px; left: 12px; width: 312px;
+        background: rgba(16, 18, 24, 0.82); backdrop-filter: blur(8px);
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;
+        padding: 14px 16px; color: #d8dce4; font-size: 12px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        max-height: calc(100vh - 24px); overflow-y: auto;
+    }
+    #panel h1 { font-size: 13px; font-weight: 600; letter-spacing: 0.3px; color: #fff; margin-bottom: 2px; }
+    #panel .sub { font-size: 10.5px; color: #8891a0; margin-bottom: 12px; line-height: 1.4; }
+    .group { margin-bottom: 12px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 10px; }
+    .group h2 { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #6ec1e4; margin-bottom: 8px; }
+    .row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; gap: 8px; }
+    .row label { flex: 1; color: #b4bcc8; }
+    .row input[type=range] { flex: 1.3; accent-color: #6ec1e4; height: 3px; }
+    .row .val { width: 46px; text-align: right; font-variant-numeric: tabular-nums; color: #6ec1e4; font-size: 11px; }
+    .row.check label { flex: 1; }
+    .row input[type=checkbox] { accent-color: #6ec1e4; width: 14px; height: 14px; }
+    .swatch { display: flex; gap: 4px; }
+    .swatch button { flex: 1; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); color: #b4bcc8; border-radius: 5px; padding: 5px 0; cursor: pointer; font-size: 10.5px; transition: 0.15s; }
+    .swatch button:hover { background: rgba(110,193,228,0.18); color: #fff; }
+    .swatch button.active { background: #6ec1e4; color: #0a0c10; border-color: #6ec1e4; }
+    #hud { position: fixed; bottom: 10px; left: 12px; color: #6ec1e4; font-size: 11px; font-variant-numeric: tabular-nums; text-shadow: 0 1px 3px #000; }
+    #help { position: fixed; bottom: 10px; right: 12px; color: #6b7280; font-size: 10.5px; text-align: right; text-shadow: 0 1px 3px #000; line-height: 1.5; }
+    #note { position: fixed; top: 12px; right: 12px; width: 292px; background: rgba(16,18,24,0.82); backdrop-filter: blur(8px);
+             border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 14px; color: #98a1b0; font-size: 10.5px; line-height: 1.55; }
+    #note b { color: #d8dce4; font-weight: 600; }
+    #note code { color: #6ec1e4; }
+    #note.hidden { display: none; }
+    #noteToggle { position: fixed; top: 12px; right: 12px; z-index: 2; border: 1px solid rgba(255,255,255,0.12); background: rgba(16,18,24,0.82);
+                  color: #98a1b0; border-radius: 8px; padding: 4px 8px; font-size: 10.5px; cursor: pointer; display: none; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="panel">
+    <h1>Height Fog</h1>
+    <div class="sub">Exponential stratification integrated in closed form along the ray, plus flow-driven local fog banks. Every term mirrors
+        <code>VolumetricFogSolver.cpp</code>. Drag to orbit · scroll to zoom.</div>
+
+    <div class="group">
+        <h2>Global Height Fog</h2>
+        <div class="row"><label>σ at the ground [1/km]</label><input id="sigma" type="range" min="0" max="4" step="0.01" value="0.6"><span class="val" id="sigma_v"></span></div>
+        <div class="row"><label>Scale height [m]</label><input id="scaleHeight" type="range" min="10" max="900" step="1" value="120"><span class="val" id="scaleHeight_v"></span></div>
+        <div class="row"><label>Uniform floor [m]</label><input id="floor" type="range" min="-40" max="300" step="1" value="0"><span class="val" id="floor_v"></span></div>
+        <div class="row"><label>Flow variation</label><input id="variation" type="range" min="0" max="1" step="0.01" value="0.45"><span class="val" id="variation_v"></span></div>
+        <div class="row"><label>Variation patch [m]</label><input id="variationScale" type="range" min="100" max="3000" step="10" value="900"><span class="val" id="variationScale_v"></span></div>
+        <div class="row check"><label>Closed-form column depth</label><input id="closedForm" type="checkbox" checked></div>
+    </div>
+
+    <div class="group">
+        <h2>Local Fog Banks</h2>
+        <div class="row"><label>Banks active</label><input id="bankCount" type="range" min="0" max="3" step="1" value="2"><span class="val" id="bankCount_v"></span></div>
+        <div class="row"><label>Core σ [1/km]</label><input id="bankSigma" type="range" min="0" max="20" step="0.1" value="6"><span class="val" id="bankSigma_v"></span></div>
+        <div class="row"><label>Edge softness</label><input id="bankSoft" type="range" min="0.02" max="1" step="0.01" value="0.45"><span class="val" id="bankSoft_v"></span></div>
+        <div class="row"><label>Clump noise</label><input id="bankNoise" type="range" min="0" max="1" step="0.01" value="0.6"><span class="val" id="bankNoise_v"></span></div>
+        <div class="row"><label>Clump size [m]</label><input id="bankNoiseScale" type="range" min="40" max="1200" step="10" value="320"><span class="val" id="bankNoiseScale_v"></span></div>
+    </div>
+
+    <div class="group">
+        <h2>Flow Coupling</h2>
+        <div class="row"><label>Wind [m/s]</label><input id="wind" type="range" min="0" max="12" step="0.05" value="2.4"><span class="val" id="wind_v"></span></div>
+        <div class="row"><label>Curl swirl</label><input id="curl" type="range" min="0" max="2" step="0.01" value="0.75"><span class="val" id="curl_v"></span></div>
+        <div class="row"><label>Parcel age [s]</label><input id="age" type="range" min="5" max="180" step="1" value="90"><span class="val" id="age_v"></span></div>
+        <div class="row"><label>Coupling gain</label><input id="coupling" type="range" min="0" max="2" step="0.01" value="1"><span class="val" id="coupling_v"></span></div>
+        <div class="row"><label>Bank outflow</label><input id="outflow" type="range" min="0" max="1" step="0.01" value="0.35"><span class="val" id="outflow_v"></span></div>
+    </div>
+
+    <div class="group">
+        <h2>Scattering</h2>
+        <div class="row"><label>Albedo ω₀</label><input id="albedo" type="range" min="0" max="1" step="0.01" value="0.97"><span class="val" id="albedo_v"></span></div>
+        <div class="row"><label>Forward g</label><input id="gForward" type="range" min="0" max="0.95" step="0.01" value="0.62"><span class="val" id="gForward_v"></span></div>
+        <div class="row"><label>Backward g</label><input id="gBack" type="range" min="-0.95" max="0" step="0.01" value="-0.2"><span class="val" id="gBack_v"></span></div>
+        <div class="row"><label>Forward lobe weight</label><input id="lobeWeight" type="range" min="0" max="1" step="0.01" value="0.85"><span class="val" id="lobeWeight_v"></span></div>
+        <div class="row"><label>Sky ambient</label><input id="ambient" type="range" min="0" max="2" step="0.01" value="1"><span class="val" id="ambient_v"></span></div>
+        <div class="row"><label>Primary steps</label><input id="steps" type="range" min="8" max="64" step="1" value="28"><span class="val" id="steps_v"></span></div>
+        <div class="row"><label>Sun taps</label><input id="sunTaps" type="range" min="0" max="8" step="1" value="4"><span class="val" id="sunTaps_v"></span></div>
+        <div class="row"><label>Render scale</label><input id="renderScale" type="range" min="0.35" max="1" step="0.05" value="0.65"><span class="val" id="renderScale_v"></span></div>
+    </div>
+
+    <div class="group">
+        <h2>Sun &amp; View</h2>
+        <div class="row"><label>Sun elevation [°]</label><input id="sunElevation" type="range" min="-6" max="60" step="0.5" value="6"><span class="val" id="sunElevation_v"></span></div>
+        <div class="row"><label>Sun azimuth [°]</label><input id="sunAzimuth" type="range" min="-180" max="180" step="1" value="24"><span class="val" id="sunAzimuth_v"></span></div>
+        <div class="row"><label>Sun intensity</label><input id="sunIntensity" type="range" min="0" max="8" step="0.05" value="3.1"><span class="val" id="sunIntensity_v"></span></div>
+        <div class="row"><label>Exposure</label><input id="exposure" type="range" min="0.1" max="3" step="0.01" value="1"><span class="val" id="exposure_v"></span></div>
+        <div class="row"><label>Eye height [m]</label><input id="eyeHeight" type="range" min="-10" max="260" step="1" value="18"><span class="val" id="eyeHeight_v"></span></div>
+        <div class="row check"><label>Animate flow</label><input id="animate" type="checkbox" checked></div>
+        <div class="row check"><label>Show optical depth</label><input id="showTau" type="checkbox"></div>
+        <div class="row check"><label>Ground &amp; masts</label><input id="showGround" type="checkbox" checked></div>
+    </div>
+
+    <div class="group">
+        <h2>Presets</h2>
+        <div class="swatch">
+            <button data-preset="radiation" class="active">Radiation</button>
+            <button data-preset="valley">Valley</button>
+            <button data-preset="sea">Sea Trailing</button>
+            <button data-preset="spiral">Cyclone</button>
+        </div>
+    </div>
+</div>
+
+<button id="noteToggle">physics ▾</button>
+<div id="note">
+    <b>Height fog.</b> σ<sub>t</sub>(h) = σ₀ · exp(−(h − h<sub>floor</sub>)/H), uniform below the floor. Over a segment the optical depth is the
+    antiderivative difference <code>σ₀ · L · [F(h₁) − F(h₀)] / Δh</code> with <code>F(h) = H (1 − e^(−(h−h_floor)/H))</code> — exact for the
+    stratified layer, so the march resolution never biases it. Near-level segments use the midpoint value, where that difference loses precision.
+    <br><br><b>Banks.</b> Ellipsoids with a soft radial mask, pooling toward the crown, an fBm clump texture, and a bounded-age backward
+    characteristic that drags the noise through the wind and the curl eddies. Lift (positive condensation) thickens the fog; the radial outflow
+    around a bank core clears it — the same <code>FlowCouplingScale</code> gain the solver applies.
+    <br><br><b>Turn the closed form off</b> to see the Riemann sum the CPU gate compares against: within ~0.2 % of the analytic depth at 28 steps
+    on a grazing chord, visibly banded at 8. The sun column uses the analytic height term plus a tap march through the banks.
+    <br><br><button id="noteClose" style="border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.05);color:#98a1b0;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:10px">hide</button>
+</div>
+
+<div id="hud"></div>
+<div id="help">LMB drag · orbit &nbsp;|&nbsp; scroll · zoom<br>Fog raymarched per-pixel in WebGL2</div>
+
+<script>
+"use strict";
+// ============================================================================
+//  Height Fog — single-file WebGL2 demo
+//  Port of the volumetric fog layer of Internal/Graphics/Atmosphere/VolumetricFogSolver.cpp:
+//    · global stratified fog   σt(h) = σ0 · exp(-(h - floor) / H), closed-form segment depth (IntegrateHeightFogSegment)
+//    · local fog banks         ellipsoid mask × edge softness × pooling × fBm clump texture (EvaluateFogVolumeDensity)
+//    · flow coupling           bounded-age backward characteristic (wind + curl + bank outflow), condensation lift / clearing
+//    · in-scatter              dual-lobe Henyey-Greenstein (forward 0.62 / backward -0.20) × sun + sky ambient
+//    · sun shading             analytic stratified column above the parcel, floored slant, plus taps through the banks
+//  Both integration paths (analytic column vs Riemann sum) are wired up so the CPU gate that compares them can be seen per-pixel.
+// ============================================================================
+
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl2', { antialias: false, premultipliedAlpha: false });
+if (!gl) { document.body.innerHTML = '<p style="color:#fff;padding:20px;font-family:sans-serif">WebGL2 not available in this browser.</p>'; throw new Error('no webgl2'); }
+
+const VERT = `#version 300 es
+precision highp float;
+out vec2 vUv;
+void main() {
+    vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
+    vUv = p;
+    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+const FRAG = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outColor;
+
+uniform vec2  uRes;
+uniform float uTime;
+uniform vec3  uCamPos;
+uniform mat3  uCamBasis;          // columns: right, up, forward
+uniform float uTanHalfFov;
+
+// ---- global height fog (HeightFalloffProfile) ----
+uniform float uSigma;             // [1/km] GroundExtinctionPerKm
+uniform float uScaleHeight;      // [m]    ScaleHeightKm
+uniform float uFloor;             // [m]    FloorAltitudeKm
+uniform float uVariation;         // [0..1] FlowVariation
+uniform float uVariationScale;    // [m]    VariationScaleKm
+uniform float uClosedForm;        // 0 / 1  analytic column depth vs Riemann sum
+
+// ---- local fog banks (FogVolumeDescriptor slots) ----
+uniform int   uBankCount;
+uniform vec3  uBankCentre[3];
+uniform vec3  uBankExtent[3];
+uniform float uBankSigma;
+uniform float uBankSoft;
+uniform float uBankNoise;
+uniform float uBankNoiseScale;
+
+// ---- flow coupling ----
+uniform float uWind;              // [m/s]
+uniform float uCurl;
+uniform float uAge;               // [s]   AdvectionPeriodSeconds
+uniform float uCoupling;          // FlowCouplingScale
+uniform float uOutflow;
+
+// ---- scattering ----
+uniform float uAlbedo;
+uniform float uGForward;
+uniform float uGBack;
+uniform float uLobeWeight;
+uniform float uAmbient;
+uniform float uSteps;
+uniform float uSunTaps;
+
+// ---- sun & view ----
+uniform vec3  uSunDir;
+uniform float uSunIntensity;
+uniform float uExposure;
+uniform float uShowTau;
+uniform float uShowGround;
+
+const float METRES_TO_KM = 0.001;   // every optical depth below is per-km
+const float SUN_SLANT_FLOOR = 0.052; // 3° — the curved layer caps the real grazing path
+
+// ---------------------------------------------------------------------------
+//  Hash / value noise / rotated fBm — same integer avalanche and quintic fades as AtmosphereProfile.h
+// ---------------------------------------------------------------------------
+float Hash13(ivec3 cell, uint salt) {
+    uint n = uint(cell.x) * 0x9E3779B1u ^ uint(cell.y) * 0x85EBCA77u ^ uint(cell.z) * 0xC2B2AE3Du ^ salt * 0x27D4EB2Fu;
+    n ^= n >> 16u; n *= 0x7FEB352Du; n ^= n >> 15u; n *= 0x846CA68Bu; n ^= n >> 16u;
+    return float(n >> 8u) * (1.0 / 16777216.0);
+}
+float Quintic(float x) { return x * x * x * (x * (x * 6.0 - 15.0) + 10.0); }
+float ValueNoise(vec3 p, uint salt) {
+    vec3 f = floor(p); ivec3 c = ivec3(f);
+    vec3 u = vec3(Quintic(p.x - f.x), Quintic(p.y - f.y), Quintic(p.z - f.z));
+    float a000 = Hash13(c, salt), a100 = Hash13(c + ivec3(1,0,0), salt);
+    float a010 = Hash13(c + ivec3(0,1,0), salt), a110 = Hash13(c + ivec3(1,1,0), salt);
+    float a001 = Hash13(c + ivec3(0,0,1), salt), a101 = Hash13(c + ivec3(1,0,1), salt);
+    float a011 = Hash13(c + ivec3(0,1,1), salt), a111 = Hash13(c + ivec3(1,1,1), salt);
+    return mix(mix(mix(a000, a100, u.x), mix(a010, a110, u.x), u.y),
+               mix(mix(a001, a101, u.x), mix(a011, a111, u.x), u.y), u.z);
+}
+// Orthonormal 2x rotation between octaves so the lattices never align (EvaluateRotatedFbm3D). The demo runs the 3-octave budget the
+// solver reserves for its far LOD; the CPU reference uses 4.
+float Fbm(vec3 p, uint salt) {
+    float sum = 0.0, amp = 0.5, norm = 0.0;
+    for (int octave = 0; octave < 3; ++octave) {
+        sum += amp * ValueNoise(p, salt + uint(octave) * 37u);
+        norm += amp;
+        p = vec3(0.80 * p.x - 0.48 * p.y + 0.36 * p.z,
+                 0.48 * p.x + 0.86 * p.y + 0.16 * p.z,
+                -0.36 * p.x + 0.04 * p.y + 0.93 * p.z) * 2.03 + vec3(13.7, -7.1, 5.3);
+        amp *= 0.5;
+    }
+    return sum / norm;
+}
+float SmoothStep(float edgeLow, float edgeHigh, float x) {
+    float t = clamp((x - edgeLow) / max(1.0e-6, edgeHigh - edgeLow), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+// ---------------------------------------------------------------------------
+//  Fog banks: radial mask × pooling × clump texture (mirror of EvaluateFogVolumeDensity)
+// ---------------------------------------------------------------------------
+float BankDensityAtSource(vec3 source) {
+    float total = 0.0;
+    for (int index = 0; index < 3; ++index) {
+        if (index >= uBankCount) break;
+        vec3  relative = (source - uBankCentre[index]) / max(vec3(1.0), uBankExtent[index]);
+        float radius   = length(relative);
+        float noise     = clamp(uBankNoise, 0.0, 1.0);
+        if (radius >= 1.0 + 0.4 * noise) continue;          // the fBm can push the edge out by at most 40 %
+        float scale     = max(1.0, uBankNoiseScale);
+        float clump     = Fbm(vec3(source.xy / scale, source.z * 2.5 / scale), 7703u + uint(index) * 97u);
+        float distorted = radius * (1.0 - 0.8 * noise * (clump - 0.5));
+        float softness  = clamp(uBankSoft, 0.02, 1.0);
+        float mask      = 1.0 - SmoothStep(1.0 - softness, 1.0, distorted);
+        float pooling   = 1.0 - 0.5 * SmoothStep(-0.2, 1.0, relative.z);   // banks pool: dense below, thinning into the crown
+        float clumpGain = clamp(1.0 + noise * (2.0 * clump - 1.0) * 1.4, 0.0, 2.0);
+        total += uBankSigma * mask * pooling * clumpGain;
+    }
+    return total;
+}
+
+// ---------------------------------------------------------------------------
+//  Flow field analogue: shear band + two counter-rotating eddies + a radial outflow at every bank core.
+//  The solver samples a baked curl-noise field; what the fog depends on — wind, eddies, divergence — is what is mirrored here.
+//  OutLift is the condensation delta: positive where air is lifted (thickening), negative in the divergent outflow (clearing).
+// ---------------------------------------------------------------------------
+vec3 FlowVelocity(vec3 point, float time, out float outLift) {
+    float shear = 1.0 + 0.35 * sin(point.z / 420.0 + time * 0.05);
+    vec3  wind  = vec3(uWind * shear, 0.15 * uWind * sin(point.x / 900.0 + time * 0.03), 0.0);
+
+    vec3  swirl = vec3(0.0);
+    for (int eddy = 0; eddy < 2; ++eddy) {
+        vec2  centre = (eddy == 0) ? vec2(-260.0, 180.0) : vec2(340.0, -120.0);
+        centre += wind.xy * time * 0.35;
+        vec2  delta  = point.xy - centre;
+        float r2     = dot(delta, delta) + 1.0e4;
+        float gain   = uCurl * 2.2e6 / r2 * exp(-r2 / 4.0e6);
+        swirl += vec3(-delta.y, delta.x, 0.0) * gain * ((eddy == 0) ? 1.0 : -1.0);
+    }
+
+    vec3  outflow = vec3(0.0);
+    float lift    = 0.0;
+    for (int index = 0; index < 3; ++index) {
+        if (index >= uBankCount) break;
+        vec3  relative = point - uBankCentre[index];
+        float d        = length(relative / max(vec3(1.0), uBankExtent[index]));
+        float fan      = exp(-d * d * 1.6) * (1.0 - exp(-d * d * 0.7));
+        outflow += normalize(vec3(relative.xy, 0.0) + vec3(1.0e-4)) * fan * uOutflow * 6.0;
+        lift     += (0.9 * exp(-d * d * 1.2) - 1.7 * fan) * uOutflow;
+    }
+    outLift = clamp(lift, -1.0, 1.0);
+    return wind + swirl + outflow;
+}
+
+// Bounded-age backward characteristic: the parcel is walked back through the wind for its age, and the density textures are read at the
+// source. The solver traces two phases half a period apart and cross-fades them; the demo keeps one phase per pixel for cost.
+vec3 AdvectSource(vec3 point, float time, out float outCondensation) {
+    float period = max(1.0, uAge);
+    float age    = mod(time, period);
+    vec3  source = point;
+    float lift   = 0.0;
+    for (int step = 0; step < 2; ++step) {
+        float sampleTime = time - age * (float(step) + 0.5) * 0.5;
+        source -= FlowVelocity(source, sampleTime, lift) * (age * 0.5);
+    }
+    outCondensation = lift;
+    return source;
+}
+
+// ---------------------------------------------------------------------------
+//  Height fog: profile, antiderivative, exact segment depth, thickness modulation
+// ---------------------------------------------------------------------------
+float HeightProfile(float altitude) {
+    float relative = (altitude - uFloor) * METRES_TO_KM;
+    return (relative <= 0.0) ? 1.0 : exp(-relative / max(1.0e-4, uScaleHeight * METRES_TO_KM));
+}
+float HeightAntiderivative(float altitude) {
+    float relative = (altitude - uFloor) * METRES_TO_KM;
+    float scaleHeight = max(1.0e-4, uScaleHeight * METRES_TO_KM);
+    if (relative <= 0.0) return relative;
+    return scaleHeight * (1.0 - exp(-relative / scaleHeight));
+}
+// Mirror of IntegrateHeightFogSegment: L / dh · [F(h1) - F(h0)], midpoint value on a near-level segment.
+float HeightFogSegment(float startAltitude, float endAltitude, float lengthKm) {
+    if (uSigma <= 0.0 || lengthKm <= 0.0) return 0.0;
+    float rise = (endAltitude - startAltitude) * METRES_TO_KM;
+    if (abs(rise) < 1.0e-4)
+        return uSigma * lengthKm * HeightProfile(0.5 * (startAltitude + endAltitude));
+    float column = HeightAntiderivative(endAltitude) - HeightAntiderivative(startAltitude);
+    return uSigma * lengthKm * column / rise;
+}
+// Mirror of EvaluateHeightModulation: advected thickness patches, then the flow condensation gain.
+float HeightModulation(vec3 source, float condensation) {
+    float modulation = 1.0;
+    if (uVariation > 0.0) {
+        float scale = max(1.0, uVariationScale);
+        float noise = Fbm(vec3(source.xy / scale, source.z * 4.0 / scale), 5317u);
+        modulation = clamp(1.0 + clamp(uVariation, 0.0, 1.0) * (2.0 * noise - 1.0) * 2.0, 0.0, 2.0);
+    }
+    return modulation * max(0.0, 1.0 + uCoupling * condensation);
+}
+// Mirror of EvaluateHeightFogSunOpticalDepth: the column above the parcel on a floored slant.
+float HeightFogSunDepth(float altitude) {
+    if (uSigma <= 0.0) return 0.0;
+    float scaleHeight = max(1.0e-4, uScaleHeight * METRES_TO_KM);
+    float column = scaleHeight - HeightAntiderivative(altitude);
+    return uSigma * max(0.0, column) / max(SUN_SLANT_FLOOR, uSunDir.z);
+}
+float BankSunDepth(vec3 point) {
+    if (uBankCount == 0 || uSunTaps < 1.0) return 0.0;
+    int   taps = int(uSunTaps);
+    float reach = 2600.0;
+    float previous = 0.0, opticalDepth = 0.0;
+    for (int step = 0; step < 8; ++step) {
+        if (step >= taps) break;
+        float f0 = float(step) / float(taps);
+        float f1 = float(step + 1) / float(taps);
+        float d0 = reach * f0 * f0, d1 = reach * f1 * f1;
+        opticalDepth += BankDensityAtSource(point + uSunDir * (0.5 * (d0 + d1))) * (d1 - d0) * METRES_TO_KM;
+        previous = d1;
+    }
+    return opticalDepth;
+}
+
+float PhaseHenyeyGreenstein(float cosScatter, float asymmetry) {
+    float g  = clamp(asymmetry, -0.99, 0.99);
+    float g2 = g * g;
+    float den = max(1.0e-4, 1.0 + g2 - 2.0 * g * cosScatter);
+    return (1.0 - g2) / (4.0 * 3.14159265 * den * sqrt(den));
+}
+float Phase(float cosScatter) {
+    float w = clamp(uLobeWeight, 0.0, 1.0);
+    return w * PhaseHenyeyGreenstein(cosScatter, uGForward) + (1.0 - w) * PhaseHenyeyGreenstein(cosScatter, uGBack);
+}
+
+// ---------------------------------------------------------------------------
+//  Scene: sky, undulating ground, a row of masts whose tops pierce the fog layer (a readable stratification ruler)
+// ---------------------------------------------------------------------------
+vec3 SkyRadiance(vec3 direction) {
+    float up = clamp(direction.z, 0.0, 1.0);
+    vec3  zenith  = vec3(0.10, 0.20, 0.36);
+    vec3  horizon = vec3(0.55, 0.47, 0.38);
+    float sunDisk = smoothstep(0.9993, 0.9997, dot(direction, uSunDir));
+    vec3  glow    = pow(max(dot(direction, uSunDir), 0.0), 20.0) * vec3(1.0, 0.70, 0.42);
+    vec3  colour  = mix(horizon, zenith, pow(up, 0.55));
+    return colour + (0.35 * glow + 30.0 * sunDisk) * uSunIntensity;
+}
+float GroundHeight(vec2 xy) { return 26.0 * sin(xy.x / 900.0) * cos(xy.y / 1100.0); }
+
+bool TraceGround(vec3 origin, vec3 direction, out float outDistance, out vec3 outNormal) {
+    outDistance = -1.0;
+    outNormal   = vec3(0.0, 0.0, 1.0);
+    if (direction.z > -0.05) return false;
+    float t = (origin.z - GroundHeight(origin.xy)) / -direction.z;
+    for (int iteration = 0; iteration < 5; ++iteration) {
+        vec3 p = origin + direction * t;
+        t += (p.z - GroundHeight(p.xy)) * 0.5;
+    }
+    vec3  p = origin + direction * t;
+    float e = 6.0;
+    outNormal = normalize(vec3(-(GroundHeight(p.xy + vec2(e, 0.0)) - GroundHeight(p.xy - vec2(e, 0.0))) / (2.0 * e),
+                               -(GroundHeight(p.xy + vec2(0.0, e)) - GroundHeight(p.xy - vec2(0.0, e))) / (2.0 * e), 1.0));
+    outDistance = t;
+    return t > 0.0;
+}
+float TraceMasts(vec3 origin, vec3 direction) {
+    float best = -1.0;
+    for (int index = 0; index < 7; ++index) {
+        vec2  centre = vec2(-1500.0 + float(index) * 520.0, -900.0 + float(index) * 260.0);
+        vec2  offset = origin.xy - centre;
+        float a  = dot(direction.xy, direction.xy);
+        float b  = 2.0 * dot(offset, direction.xy);
+        float c  = dot(offset, offset) - 16.0;                 // 4 m radius
+        float disc = b * b - 4.0 * a * c;
+        if (disc <= 0.0) continue;
+        float t = (-b - sqrt(disc)) / (2.0 * a);
+        if (t <= 0.0) continue;
+        float z = origin.z + direction.z * t;
+        if (z >= 0.0 && z <= 120.0) best = (best < 0.0) ? t : min(best, t);
+    }
+    return best;
+}
+
+void main() {
+    vec2  ndc = vUv * 2.0 - 1.0;
+    vec3  direction = normalize(uCamBasis * vec3(ndc.x * uTanHalfFov * (uRes.x / uRes.y), ndc.y * uTanHalfFov, 1.0));
+    vec3  origin = uCamPos;
+    float horizonDistance = 30000.0;
+
+    vec3  background;
+    float backgroundDepth;
+    float groundDistance = -1.0, mastDistance = -1.0;
+    vec3  groundNormal = vec3(0.0, 0.0, 1.0);
+    if (uShowGround > 0.5) {
+        bool hitGround = TraceGround(origin, direction, groundDistance, groundNormal);
+        mastDistance   = TraceMasts(origin, direction);
+        if (hitGround && (mastDistance < 0.0 || groundDistance < mastDistance)) {
+            vec3  point  = origin + direction * groundDistance;
+            float albedo = 0.16 + 0.12 * Fbm(point.xy / 240.0, 331u);
+            background = albedo * vec3(0.40, 0.46, 0.32) * (0.22 + 0.78 * max(dot(groundNormal, uSunDir), 0.0));
+            backgroundDepth = groundDistance;
+        } else if (mastDistance > 0.0) {
+            background = vec3(0.09, 0.10, 0.12);
+            backgroundDepth = mastDistance;
+        } else {
+            background = SkyRadiance(direction);
+            backgroundDepth = horizonDistance;
+        }
+    } else {
+        background = SkyRadiance(direction);
+        backgroundDepth = horizonDistance;
+    }
+
+    // ---- fog march: quadratically spaced segments (denser near the viewer), primary step budget ----
+    int   stepCount = int(uSteps);
+    float cosScatter = dot(direction, uSunDir);
+    float skyAmbient = mix(0.30, 1.0, clamp(direction.z, 0.0, 1.0)) * uAmbient;
+    vec3  sunColour  = vec3(1.0, 0.78, 0.55);
+    float opticalDepth = 0.0;
+    vec3  inScattered  = vec3(0.0);
+    for (int step = 0; step < 64; ++step) {
+        if (step >= stepCount) break;
+        float f0 = float(step) / float(stepCount);
+        float f1 = float(step + 1) / float(stepCount);
+        float t0 = backgroundDepth * f0 * f0;
+        float t1 = backgroundDepth * f1 * f1;
+        float segmentMetres = max(0.0, t1 - t0);
+        if (segmentMetres <= 1.0e-3) continue;
+        float segmentKm = segmentMetres * METRES_TO_KM;
+        vec3  middle = origin + direction * (0.5 * (t0 + t1));
+
+        float   condensation;
+        vec3    source = AdvectSource(middle, uTime, condensation);
+        float   banks  = BankDensityAtSource(source) * segmentKm;
+        float   heightDepth;
+        if (uClosedForm > 0.5) {
+            // exact stratified column over the segment, weighted by the advected thickness of the midpoint parcel, + marched banks
+            float modulation = HeightModulation(source, condensation);
+            heightDepth = HeightFogSegment(origin.z, middle.z, segmentKm) * clamp(modulation, 0.0, 2.0);
+        } else {
+            // Riemann sum: midpoint σ × length — the reference the CPU gate checks the closed form against
+            float sigma = uSigma * HeightProfile(middle.z) * HeightModulation(source, condensation);
+            heightDepth = sigma * segmentKm;
+        }
+        float segmentTau = heightDepth + banks;
+        if (segmentTau <= 0.0) continue;
+
+        float transmittanceBefore = exp(-opticalDepth);
+        opticalDepth += segmentTau;
+        float segmentThroughput = exp(-segmentTau);
+        // 📝 source = (sun × T_sun→parcel × phase + sky ambient) × ω₀ × (1 - e^-τ), attenuated by everything in front of the segment
+        float sunTau     = HeightFogSunDepth(middle.z) + BankSunDepth(middle);
+        float sunWeight  = uSunIntensity * exp(-sunTau) * Phase(cosScatter) * clamp(uAlbedo, 0.0, 1.0);
+        float sourceTerm = (sunWeight + skyAmbient * 0.25 * clamp(uAlbedo, 0.0, 1.0)) * (1.0 - segmentThroughput);
+        inScattered += sourceTerm * mix(vec3(1.0, 0.94, 0.86), sunColour, clamp(sunWeight * 0.6, 0.0, 1.0)) * transmittanceBefore;
+        if (opticalDepth > 6.0) break;
+    }
+
+    vec3 colour = background * exp(-opticalDepth) + inScattered;
+    if (uShowTau > 0.5) {
+        float shown = clamp(opticalDepth / 4.0, 0.0, 1.0);
+        colour = vec3(shown * shown, shown, 1.0 - shown);
+    }
+    colour = vec3(1.0) - exp(-max(vec3(0.0), colour) * uExposure);
+    outColor = vec4(pow(colour, vec3(1.0 / 2.2)), 1.0);
+}
+`;
+
+// ---------------------------------------------------------------------------
+//  GL boilerplate
+// ---------------------------------------------------------------------------
+function compile(type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(s));
+        throw new Error('shader compile failed');
+    }
+    return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, compile(gl.VERTEX_SHADER, VERT));
+gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FRAG));
+gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+    console.error(gl.getProgramInfoLog(prog));
+    throw new Error('link failed');
+}
+gl.useProgram(prog);
+
+const U = {};
+for (const n of ['uRes','uTime','uCamPos','uCamBasis','uTanHalfFov','uSigma','uScaleHeight','uFloor','uVariation','uVariationScale',
+    'uClosedForm','uBankCount','uBankCentre','uBankExtent','uBankSigma','uBankSoft','uBankNoise','uBankNoiseScale','uWind','uCurl',
+    'uAge','uCoupling','uOutflow','uAlbedo','uGForward','uGBack','uLobeWeight','uAmbient','uSteps','uSunTaps','uSunDir','uSunIntensity',
+    'uExposure','uShowTau','uShowGround']) {
+    U[n] = gl.getUniformLocation(prog, n);
+}
+const vao = gl.createVertexArray();
+gl.bindVertexArray(vao);
+
+// ---------------------------------------------------------------------------
+//  Camera (orbit; +Z up, the same world convention the fog profile is written against)
+// ---------------------------------------------------------------------------
+const cam = { yaw: 2.4, pitch: 0.05, dist: 2600.0, target: [0, 0, 60] };
+let dragging = false, lastX = 0, lastY = 0;
+canvas.addEventListener('mousedown', e => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
+window.addEventListener('mouseup', () => dragging = false);
+window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    cam.yaw   += (e.clientX - lastX) * 0.005;
+    cam.pitch -= (e.clientY - lastY) * 0.004;
+    cam.pitch = Math.max(-0.30, Math.min(1.20, cam.pitch));
+    lastX = e.clientX; lastY = e.clientY;
+});
+canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    cam.dist *= (1.0 + Math.sign(e.deltaY) * 0.08);
+    cam.dist = Math.max(120.0, Math.min(9000.0, cam.dist));
+}, { passive: false });
+
+function buildCamera(eyeHeight) {
+    const cy = Math.cos(cam.yaw),   sy = Math.sin(cam.yaw);
+    const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+    const forward = [cp * cy, cp * sy, sp];
+    const position = [cam.target[0] - forward[0] * cam.dist,
+                      cam.target[1] - forward[1] * cam.dist,
+                      cam.target[2] - forward[2] * cam.dist + eyeHeight];
+    const worldUp = [0, 0, 1];
+    let right = [forward[1] * worldUp[2] - forward[2] * worldUp[1],
+                 forward[2] * worldUp[0] - forward[0] * worldUp[2],
+                 forward[0] * worldUp[1] - forward[1] * worldUp[0]];
+    const rl = Math.hypot(...right) || 1; right = right.map(v => v / rl);
+    const up = [right[1] * forward[2] - right[2] * forward[1],
+                right[2] * forward[0] - right[0] * forward[2],
+                right[0] * forward[1] - right[1] * forward[0]];
+    // column-major mat3: right, up, forward
+    return { position, basis: [...right, ...up, ...forward] };
+}
+
+// ---------------------------------------------------------------------------
+//  UI wiring
+// ---------------------------------------------------------------------------
+const P = {};
+const sliders = ['sigma','scaleHeight','floor','variation','variationScale','bankCount','bankSigma','bankSoft','bankNoise','bankNoiseScale',
+    'wind','curl','age','coupling','outflow','albedo','gForward','gBack','lobeWeight','ambient','steps','sunTaps','renderScale',
+    'sunElevation','sunAzimuth','sunIntensity','exposure','eyeHeight'];
+for (const id of sliders) {
+    const el = document.getElementById(id);
+    const out = document.getElementById(id + '_v');
+    const update = () => { P[id] = parseFloat(el.value); out.textContent = el.value; };
+    el.addEventListener('input', update); update();
+}
+const chkAnimate = document.getElementById('animate');
+const chkClosed  = document.getElementById('closedForm');
+const chkTau     = document.getElementById('showTau');
+const chkGround  = document.getElementById('showGround');
+
+// Bank slots: a wide valley floor, a drainage band downwind, and a shelf out over the sea.
+const BANK_CENTRES = [[-260, 180, 30], [900, -520, 18], [-1200, 620, 70]];
+const BANK_EXTENTS = [[1500, 1500, 140], [2200, 520, 70], [900, 900, 210]];
+
+const PRESETS = {
+    radiation: { sigma: 0.6, scaleHeight: 120, floor: 0, variation: 0.45, variationScale: 900, bankCount: 2, bankSigma: 4,
+                 wind: 2.4, curl: 0.75, age: 90, coupling: 1.0, outflow: 0.35, gForward: 0.62, lobeWeight: 0.85,
+                 sunElevation: 6, sunAzimuth: 24, sunIntensity: 3.1, steps: 28, eyeHeight: 18, ambient: 1.0 },
+    valley:    { sigma: 1.4, scaleHeight: 260, floor: -10, variation: 0.70, variationScale: 1400, bankCount: 1, bankSigma: 7,
+                 wind: 1.2, curl: 1.10, age: 120, coupling: 1.4, outflow: 0.20, gForward: 0.70, lobeWeight: 0.90,
+                 sunElevation: 14, sunAzimuth: -60, sunIntensity: 2.4, steps: 32, eyeHeight: 90, ambient: 1.1 },
+    sea:       { sigma: 0.9, scaleHeight: 60, floor: 0, variation: 0.30, variationScale: 2200, bankCount: 3, bankSigma: 9,
+                 wind: 6.0, curl: 0.40, age: 60, coupling: 0.6, outflow: 0.60, gForward: 0.55, lobeWeight: 0.70,
+                 sunElevation: 3, sunAzimuth: 120, sunIntensity: 4.4, steps: 36, eyeHeight: 8, ambient: 0.9 },
+    spiral:    { sigma: 0.5, scaleHeight: 180, floor: 0, variation: 0.90, variationScale: 700, bankCount: 2, bankSigma: 8,
+                 wind: 4.5, curl: 1.80, age: 150, coupling: 1.8, outflow: 0.90, gForward: 0.80, lobeWeight: 0.92,
+                 sunElevation: 22, sunAzimuth: 150, sunIntensity: 2.8, steps: 32, eyeHeight: 40, ambient: 1.0 },
+};
+function applyPreset(name) {
+    const preset = PRESETS[name];
+    for (const key in preset) {
+        const el = document.getElementById(key);
+        if (el) { el.value = preset[key]; el.dispatchEvent(new Event('input')); }
+    }
+}
+document.querySelectorAll('.swatch button').forEach(button => {
+    button.addEventListener('click', () => {
+        document.querySelectorAll('.swatch button').forEach(x => x.classList.remove('active'));
+        button.classList.add('active');
+        applyPreset(button.dataset.preset);
+    });
+});
+const note = document.getElementById('note');
+const noteToggle = document.getElementById('noteToggle');
+document.getElementById('noteClose').addEventListener('click', () => {
+    note.classList.add('hidden');
+    noteToggle.style.display = 'block';
+});
+noteToggle.addEventListener('click', () => {
+    note.classList.remove('hidden');
+    noteToggle.style.display = 'none';
+});
+
+// ---------------------------------------------------------------------------
+//  Resize + loop
+// ---------------------------------------------------------------------------
+function resize() {
+    const scale = P.renderScale || 0.65;
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.0) * scale;
+    canvas.width  = Math.max(320, Math.floor(window.innerWidth  * dpr));
+    canvas.height = Math.max(200, Math.floor(window.innerHeight * dpr));
+    gl.viewport(0, 0, canvas.width, canvas.height);
+}
+window.addEventListener('resize', resize);
+document.getElementById('renderScale').addEventListener('input', resize);
+resize();
+
+const hud = document.getElementById('hud');
+let animTime = 0, last = performance.now(), frames = 0, fps = 0, fpsClock = 0;
+
+function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.05); last = now;
+    if (chkAnimate.checked) animTime += dt;
+    frames++; fpsClock += dt;
+    if (fpsClock > 0.5) { fps = frames / fpsClock; frames = 0; fpsClock = 0; }
+
+    const camera = buildCamera(P.eyeHeight);
+    const elevation = P.sunElevation * Math.PI / 180, azimuth = P.sunAzimuth * Math.PI / 180;
+    const horizontal = Math.cos(elevation);
+    const sun = [Math.cos(azimuth) * horizontal, Math.sin(azimuth) * horizontal, Math.sin(elevation)];
+    const sunLength = Math.hypot(...sun) || 1;
+
+    gl.useProgram(prog);
+    gl.bindVertexArray(vao);
+    gl.uniform2f(U.uRes, canvas.width, canvas.height);
+    gl.uniform1f(U.uTime, animTime);
+    gl.uniform3fv(U.uCamPos, camera.position);
+    gl.uniformMatrix3fv(U.uCamBasis, false, camera.basis);
+    gl.uniform1f(U.uTanHalfFov, Math.tan(0.5 * 0.9));
+    gl.uniform1f(U.uSigma, P.sigma);
+    gl.uniform1f(U.uScaleHeight, P.scaleHeight);
+    gl.uniform1f(U.uFloor, P.floor);
+    gl.uniform1f(U.uVariation, P.variation);
+    gl.uniform1f(U.uVariationScale, P.variationScale);
+    gl.uniform1f(U.uClosedForm, chkClosed.checked ? 1 : 0);
+    gl.uniform1i(U.uBankCount, Math.round(P.bankCount));
+    gl.uniform1f(U.uBankSigma, P.bankSigma);
+    gl.uniform1f(U.uBankSoft, P.bankSoft);
+    gl.uniform1f(U.uBankNoise, P.bankNoise);
+    gl.uniform1f(U.uBankNoiseScale, P.bankNoiseScale);
+    const centres = [], extents = [];
+    for (let i = 0; i < 3; ++i) { centres.push(...BANK_CENTRES[i]); extents.push(...BANK_EXTENTS[i]); }
+    gl.uniform3fv(U.uBankCentre, new Float32Array(centres));
+    gl.uniform3fv(U.uBankExtent, new Float32Array(extents));
+    gl.uniform1f(U.uWind, P.wind);
+    gl.uniform1f(U.uCurl, P.curl);
+    gl.uniform1f(U.uAge, P.age);
+    gl.uniform1f(U.uCoupling, P.coupling);
+    gl.uniform1f(U.uOutflow, P.outflow);
+    gl.uniform1f(U.uAlbedo, P.albedo);
+    gl.uniform1f(U.uGForward, P.gForward);
+    gl.uniform1f(U.uGBack, P.gBack);
+    gl.uniform1f(U.uLobeWeight, P.lobeWeight);
+    gl.uniform1f(U.uAmbient, P.ambient);
+    gl.uniform1f(U.uSteps, P.steps);
+    gl.uniform1f(U.uSunTaps, P.sunTaps);
+    gl.uniform3f(U.uSunDir, sun[0] / sunLength, sun[1] / sunLength, sun[2] / sunLength);
+    gl.uniform1f(U.uSunIntensity, P.sunIntensity);
+    gl.uniform1f(U.uExposure, P.exposure);
+    gl.uniform1f(U.uShowTau, chkTau.checked ? 1 : 0);
+    gl.uniform1f(U.uShowGround, chkGround.checked ? 1 : 0);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    hud.textContent = `${fps.toFixed(0)} fps · eye ${P.eyeHeight.toFixed(0)} m · σ₀ ${P.sigma.toFixed(2)} /km · H ${P.scaleHeight.toFixed(0)} m · `
+        + `${chkClosed.checked ? 'closed form' : 'Riemann march'} · ${Math.round(P.steps)} steps · banks ${Math.round(P.bankCount)}`;
+    requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

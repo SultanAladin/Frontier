@@ -9,6 +9,8 @@
 //     or an obliquely crossed detached layer) and the radial step budget resolving the thinnest vertical structure
 //   - sun-ward lunar transmittance with the soft body umbra / penumbra
 //   - Hapke shadow-hiding opposition surge and the Lommel-Seeliger / Oren-Nayar regolith reflectance blend
+//   - zodiacal light (Leinert 1998 S10 profile in ecliptic longitude, latitude falloff, gegenschein), the one starfield term that is
+//     analytic and therefore ported; the catalogue, the galaxy and the nebulae stay CPU-only
 // Per-preset constants the 608 B block does not carry (Mie extinction/scatter ratio, haze half-width and scatter, opposition width) are
 // keyed by the preset index in PhaseSpinPack.w; they match BuildLunarPreset exactly. Albedo maps and the star catalogue are bound by the
 // consuming shader.
@@ -279,6 +281,87 @@ float EvaluateRegolithReflectance(vec3 ShadingNormal, vec3 SolarAxis, vec3 ViewA
 
 // 📝 Regolith reflectance factor for one moon entry (mirror of EvaluateLunarSurfaceRadiance): opposition surge from the preset width
 //    and the geometric terminator gate (relief may catch grazing light slightly past the terminator, never deep on the night side).
+// ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ZODIACAL LIGHT (mirror of EvaluateZodiacalLight)
+// ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+// 📝 Site-local ↔ equatorial basis (mirror of ConstructCelestialRotation): the celestial pole P sits at elevation φ toward north, the
+//    equatorial meridian point M at elevation 90° - φ toward south, the hour angle increases westward (-X).
+struct CelestialRotation
+{
+    vec3  MeridianAxis;
+    vec3  WestAxis;
+    vec3  PoleAxis;
+    float CosineSidereal;
+    float SineSidereal;
+}
+
+CelestialRotation ResolveCelestialRotation(float SiderealRadians, float SiteLatitudeRadians)
+{
+    float      Latitude  = clamp(SiteLatitudeRadians, -1.5707, 1.5707);
+    CelestialRotation Rotation;
+    Rotation.MeridianAxis   = vec3(0.0, cos(Latitude), -sin(Latitude));
+    Rotation.WestAxis       = vec3(-1.0, 0.0, 0.0);
+    Rotation.PoleAxis       = vec3(0.0, sin(Latitude), cos(Latitude));
+    Rotation.CosineSidereal = cos(SiderealRadians);
+    Rotation.SineSidereal   = sin(SiderealRadians);
+    return Rotation;
+}
+
+vec3 TransformLocalToEquatorial(CelestialRotation Rotation, vec3 LocalAxis)
+{
+    float HourCosine = dot(LocalAxis, Rotation.MeridianAxis);
+    float HourSine   = dot(LocalAxis, Rotation.WestAxis);
+    float PoleSine   = dot(LocalAxis, Rotation.PoleAxis);
+    return vec3(Rotation.CosineSidereal * HourCosine + Rotation.SineSidereal * HourSine,
+                Rotation.SineSidereal * HourCosine - Rotation.CosineSidereal * HourSine,
+                PoleSine);
+}
+
+vec3 ConstructEquatorialAxis(float RightAscensionRadians, float DeclinationRadians)
+{
+    float CosineDeclination = cos(DeclinationRadians);
+    return vec3(CosineDeclination * cos(RightAscensionRadians), CosineDeclination * sin(RightAscensionRadians), sin(DeclinationRadians));
+}
+
+// 📝 Interplanetary dust radiance in S10 units (one V = 10 star per square degree): Leinert et al. (1998) table S10 along the
+//    ecliptic (log-log in solar elongation, held inside 15° where the corona and twilight dominate), an exponential falloff with
+//    ecliptic latitude widening with elongation, and the compact gegenschein ridge at the anti-solar point. Colour is the solar
+//    spectrum scattered by 10 µm silicates (1.0, 0.93, 0.80).
+vec3 EvaluateZodiacalLight(vec3 EquatorialAxis, vec3 SolarEquatorialAxis)
+{
+    vec3   EclipticPole = ConstructEquatorialAxis(radians(270.0), radians(66.56071));
+    float  ProfileLongitudes[16] = float[16](15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 60.0, 75.0, 90.0, 105.0, 120.0, 140.0, 160.0, 170.0, 180.0);
+    float  ProfileS10[16]        = float[16](9000.0, 5000.0, 3500.0, 2690.0, 2000.0, 1440.0, 1080.0, 588.0, 371.0, 261.0, 210.0, 185.0, 165.0, 170.0, 185.0, 200.0);
+    const  float PoleS10         = 60.0;
+
+    float  LatitudeSine = clamp(dot(EquatorialAxis, EclipticPole), -1.0, 1.0);
+    float  Latitude     = degrees(abs(asin(LatitudeSine)));
+    vec3   ViewPlane    = EquatorialAxis - EclipticPole * LatitudeSine;
+    vec3   SolarPlane   = SolarEquatorialAxis - EclipticPole * dot(SolarEquatorialAxis, EclipticPole);
+    float  PlaneLengths = length(ViewPlane) * length(SolarPlane);
+    if (PlaneLengths < 1.0e-6)
+        return vec3(1.0, 0.93, 0.80) * PoleS10;
+    float  Longitude    = degrees(acos(clamp(dot(ViewPlane, SolarPlane) / PlaneLengths, -1.0, 1.0)));
+
+    float EclipticS10 = ProfileS10[0];
+    for (int Knot = 1; Knot < 16; ++Knot)
+    {
+        if (Longitude <= ProfileLongitudes[Knot])
+        {
+            float Span = log(ProfileLongitudes[Knot] / ProfileLongitudes[Knot - 1]);
+            float Mix  = clamp(log(max(Longitude, ProfileLongitudes[0]) / ProfileLongitudes[Knot - 1]) / Span, 0.0, 1.0);
+            EclipticS10 = exp(log(ProfileS10[Knot - 1]) + Mix * log(ProfileS10[Knot] / ProfileS10[Knot - 1]));
+            break;
+        }
+    }
+    float AntiSolar   = 180.0 - Longitude;
+    float Gegenschein = 45.0 * exp(-(AntiSolar * AntiSolar + Latitude * Latitude) / (2.0 * 7.0 * 7.0));
+    float Width       = 20.0 + 0.10 * Longitude;
+    float S10         = PoleS10 + (EclipticS10 - PoleS10) * exp(-Latitude / Width) + Gegenschein;
+    return vec3(1.0, 0.93, 0.80) * S10;
+}
+
 float EvaluateLunarSurfaceResponse(LunarEntry Moon, vec3 SurfaceNormal, vec3 ShadingNormal, vec3 SolarAxis, vec3 ViewAxis)
 {
     float TerminatorGate = EvaluateCelestialSmoothStep(-0.06, 0.02, dot(SurfaceNormal, SolarAxis));

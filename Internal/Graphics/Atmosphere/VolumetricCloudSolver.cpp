@@ -2,9 +2,10 @@
                                                        VOLUMETRICCLOUDSOLVER.CPP
 ==============================================================================================================================================*/
 // 🧩 Implementation of the curved volumetric cloud stratum + cirrus veil: tileable 3D Perlin-Worley / Worley-billow noise volumes (built
-//    once), genus height profiles, Worley edge erosion, RK4 flow-field advection, Owen-Sobol jittered marching with analytic step
-//    integration, 4-octave Wrenninge multiple scattering, dual-lobe Henyey-Greenstein + 22° ice halo, Beer-Powder, solar cone shadowing,
-//    Hillaire aerial perspective, cloud shadow transmittance, and joint bilateral denoising.
+//    once), signed-distance convective envelopes with a footprint-LOD bubble cascade, Worley value erosion, RK4 flow-field advection,
+//    Owen-Sobol jittered marching with analytic step integration, Wrenninge multiple scattering over the approximate Mie phase + 22° ice
+//    halo, Beer-Powder, solar cone shadowing, Hillaire aerial perspective, cloud shadow transmittance, godray inscatter, and joint bilateral
+//    denoising.
 
 #include "Graphics/Atmosphere/VolumetricCloudSolver.h"
 
@@ -348,7 +349,7 @@ namespace
         }
     }
 
-    // 📝 Worley edge erosion of a soft shape field followed by liquid-water saturation (footprint-prefiltered detail octaves).
+    // 📝 Worley value erosion of a soft shape field (footprint-prefiltered detail octaves); returns the eroded fraction in [0, 1].
     [[nodiscard]] float ApplyDetailErosion(
         const CloudStratumProfile& Stratum,
         const CloudNoiseVolumes&   Volumes,
@@ -357,7 +358,8 @@ namespace
         float                      AltitudeKm,
         float                      HeightFraction,
         float                      ShapeField,
-        float                      SampleFootprintKm) noexcept
+        float                      SampleFootprintKm,
+        float                      StrengthScale = 1.0f) noexcept
     {
         // Worley edge erosion: billowy crowns at the top, wispy ragged floor (inverted detail) near the condensation level.
         const float          DetailTile = std::max(0.02f, Stratum.DetailScaleKm * 4.0f);
@@ -376,8 +378,7 @@ namespace
         // the feature points into wisps, which is reserved for the ragged condensation floor (lowest 20 % of the stratum).
         const float FloorBlend         = std::clamp(1.0f - HeightFraction * 5.0f, 0.0f, 1.0f);
         const float DetailModifier     = (1.0f - DetailFbm) + (2.0f * DetailFbm - 1.0f) * FloorBlend;
-        const float Eroded         = std::clamp(RemapRange(ShapeField, DetailModifier * Stratum.ErosionStrength, 1.0f, 0.0f, 1.0f), 0.0f, 1.0f);
-        return ResolveSaturatedDensity(Eroded);
+        return std::clamp(RemapRange(ShapeField, DetailModifier * Stratum.ErosionStrength * StrengthScale, 1.0f, 0.0f, 1.0f), 0.0f, 1.0f);
     }
 
     // 📝 Mesoscale weather (coverage swing, convective top variation) at a horizontal stratum position [km].
@@ -398,60 +399,277 @@ namespace
         return std::clamp(Coverage + (WeatherCoverage - 0.5f) * 1.10f * (1.0f - 0.6f * Coverage * Coverage) + CondensationDelta * 0.25f, 0.0f, 1.0f);
     }
 
-    // 📝 Turret displacement amplitude in normalized cell-field units (Cumulonimbus towers are lumpier than fair-weather domes).
-    [[nodiscard]] float ResolveTurretAmplitude(CloudGenusIdentifier Genus) noexcept
+    // 📝 Sample fidelity of the stratum density: the empty-space probe needs only a conservative bound, light taps need the billow
+    //    scale that casts self-shadow across turrets, and primary samples need every footprint-resolved octave plus erosion.
+    enum class CloudDensityFidelity : uint8_t
     {
-        if (Genus == CloudGenusIdentifier::Cumulonimbus)
-            return 0.55f;
-        return (Genus == CloudGenusIdentifier::Stratocumulus) ? 0.32f : 0.38f;
+        EnvelopeBound,   // Upper bound: thermal envelope lifted by the maximum cascade growth (no bubbles, no erosion)
+        AmbientCascade,  // One bubble octave, no erosion (sky-ambient column taps)
+        ShadowCascade,   // Two bubble octaves, no erosion (solar cone taps, shadow maps)
+        FullDetail       // Footprint-resolved bubble octaves plus Worley value erosion (primary samples)
+    };
+
+    // 📝 Polynomial smooth minimum of two signed distances [km] over blend width BlendWidth [km] (Quílez): rounded fillets.
+    [[nodiscard]] float BlendDistanceUnion(float Left, float Right, float BlendWidth) noexcept
+    {
+        const float Overlap = std::max(BlendWidth - std::fabs(Left - Right), 0.0f) / std::max(1.0e-6f, BlendWidth);
+        return std::min(Left, Right) - Overlap * Overlap * BlendWidth * 0.25f;
     }
 
-    // Polynomial smooth maximum (Quílez): neighbouring thermals merge through a rounded fillet instead of the hard crease a plain
-    // max() leaves where two sphere-like cells intersect — the crease read as a flat lit facet beside a flat shadowed one.
-    [[nodiscard]] float BlendFieldUnion(float Left, float Right) noexcept
+    // 📝 Polynomial smooth maximum of two signed distances [km] (rounded intersection).
+    [[nodiscard]] float BlendDistanceIntersection(float Left, float Right, float BlendWidth) noexcept
     {
-        constexpr float BlendWidth = 0.3f;
-        const float     Overlap    = std::max(BlendWidth - std::fabs(Left - Right), 0.0f) / BlendWidth;
+        const float Overlap = std::max(BlendWidth - std::fabs(Left - Right), 0.0f) / std::max(1.0e-6f, BlendWidth);
         return std::max(Left, Right) + Overlap * Overlap * BlendWidth * 0.25f;
     }
 
-    // 📝 Convective cell field for Cumulus / Stratocumulus / Cumulonimbus: a Boolean germ-grain model on a jittered 2D lattice (spacing = shape
-    //    scale). Each lattice cell holds at most one thermal with probability P, radius r = ρ S (0.7 + 0.6 u) and its own top height;
-    //    the plan-view coverage of such Poisson discs is c = 1 - exp(-P π ρ²), inverted here so the configured local coverage is met
-    //    exactly (P saturating at 1 grows the radii instead). The vertical profile is a flat-based dome (r √(1 - q²), q = h / top);
-    //    a Cumulonimbus tower narrows slowly with height and spreads into a flat anvil just under the tropopause; Stratocumulus cells
-    //    are flat-topped rolls stretched along the shear. Returns the smooth union of the signed normalized fields 1 - d / R(h)
-    //    (positive inside, 1 on the axis).
-    [[nodiscard]] float EvaluateConvectiveCellField(
+    // 📝 Signed distance bound to an axis-aligned ellipsoid with semi-axes (RadiusX, RadiusY, RadiusZ) [km] (Quílez k0 (k0 - 1) / k1).
+    [[nodiscard]] float EvaluateEllipsoidDistance(float OffsetX, float OffsetY, float OffsetZ, float RadiusX, float RadiusY, float RadiusZ) noexcept
+    {
+        const float NormalX = OffsetX / RadiusX;
+        const float NormalY = OffsetY / RadiusY;
+        const float NormalZ = OffsetZ / RadiusZ;
+        const float Ratio   = std::sqrt(NormalX * NormalX + NormalY * NormalY + NormalZ * NormalZ);
+        if (Ratio < 1.0e-4f)
+            return -std::min(RadiusX, std::min(RadiusY, RadiusZ));
+        const float GradientX = NormalX / RadiusX;
+        const float GradientY = NormalY / RadiusY;
+        const float GradientZ = NormalZ / RadiusZ;
+        return Ratio * (Ratio - 1.0f) / std::sqrt(GradientX * GradientX + GradientY * GradientY + GradientZ * GradientZ);
+    }
+
+    // 📝 One bubble octave (Quílez sdBase): each corner of the unit lattice cell carries a sphere of hashed radius in [0, 0.5); the
+    //    nearest sphere surface in lattice units.
+    [[nodiscard]] float EvaluateBubbleLatticeDistance(const Vector3f& Coord, uint32_t Salt) noexcept
+    {
+        const float   FloorX  = std::floor(Coord.XCoord);
+        const float   FloorY  = std::floor(Coord.YCoord);
+        const float   FloorZ  = std::floor(Coord.ZCoord);
+        const int32_t CellX   = static_cast<int32_t>(FloorX);
+        const int32_t CellY   = static_cast<int32_t>(FloorY);
+        const int32_t CellZ   = static_cast<int32_t>(FloorZ);
+        const float   FracX   = Coord.XCoord - FloorX;
+        const float   FracY   = Coord.YCoord - FloorY;
+        const float   FracZ   = Coord.ZCoord - FloorZ;
+        float         Nearest = 1.0e9f;
+        for (int32_t Corner = 0; Corner < 8; ++Corner)
+        {
+            const int32_t CornerX = Corner & 1;
+            const int32_t CornerY = (Corner >> 1) & 1;
+            const int32_t CornerZ = Corner >> 2;
+            const float   Radius  = 0.5f * HashLatticeCell(CellX + CornerX, CellY + CornerY, CellZ + CornerZ, Salt);
+            const float   DeltaX  = FracX - static_cast<float>(CornerX);
+            const float   DeltaY  = FracY - static_cast<float>(CornerY);
+            const float   DeltaZ  = FracZ - static_cast<float>(CornerZ);
+            Nearest = std::min(Nearest, std::sqrt(DeltaX * DeltaX + DeltaY * DeltaY + DeltaZ * DeltaZ) - Radius);
+        }
+        return Nearest;
+    }
+
+    // 📝 Smooth-union radius of a cascade octave in lattice units. A shell bubble whose surface sits up to Protrusion s off the
+    //    current surface must still fuse with it, so the blend radius always exceeds the protrusion; otherwise bubbles float free.
+    [[nodiscard]] float ResolveCascadeBlend(float Protrusion) noexcept
+    {
+        return std::max(0.3f, Protrusion + 0.14f);
+    }
+
+    // 📝 Bubble cascade (Quílez SDF fBm): every octave unions a lattice of random spheres clipped to a shell just outside the current
+    //    surface, then halves the lattice and rotates the domain (an exact 2 × rotation). Each bubble therefore grows on the surface
+    //    of the octave before it — thermal → turret → sub-turret → cauliflower — the hierarchical self-similarity of real cumulus
+    //    (Bouthors & Neyret 2004). Each octave lifts the surface by at most (Protrusion + Blend / 4) s, so the whole cascade by at most
+    //    2 (Protrusion + Blend / 4) s₀ (ResolveCascadeGrowthKm). A fractional OctaveBudget fades the last octave in (footprint LOD).
+    [[nodiscard]] float ApplyBubbleCascade(const Vector3f& PositionKm, float BaseDistanceKm, float CellKm, float Protrusion, float OctaveBudget, uint32_t Salt) noexcept
+    {
+        float          Distance    = BaseDistanceKm;
+        float          Scale       = CellKm;
+        Vector3f       Coord       = ScaleVector(PositionKm, 1.0f / CellKm);
+        const uint32_t FullOctaves = static_cast<uint32_t>(std::max(0.0f, OctaveBudget));
+        const float    Partial     = OctaveBudget - static_cast<float>(FullOctaves);
+        const float    Blend       = ResolveCascadeBlend(Protrusion);
+        for (uint32_t Octave = 0u; Octave <= FullOctaves && Octave < 6u; ++Octave)
+        {
+            const float Weight = (Octave < FullOctaves) ? 1.0f : Partial;
+            // Past the shell of every remaining octave the cascade cannot reach this point any more.
+            if (Weight <= 0.0f || Distance > 2.0f * Scale * (Protrusion + 0.25f * Blend))
+                break;
+            // A fading octave shrinks its bubbles and their shell instead of cross-fading distances: lerping the fused field toward
+            // the bare one keeps the deep bubble centres negative while the shallow fillets vanish, leaving free-floating beads.
+            float Bubble = Scale * (EvaluateBubbleLatticeDistance(Coord, Salt + 977u * Octave) + 0.5f * (1.0f - Weight));
+            Bubble       = BlendDistanceIntersection(Bubble, Distance - Protrusion * Weight * Scale, 0.3f * Scale);
+            Distance     = BlendDistanceUnion(Bubble, Distance, Blend * Scale);
+            // 2 × orthonormal rotation (Quílez): lattice axes never line up between octaves, so no grid alignment shows.
+            Coord = Vector3f{ 0.00f * Coord.XCoord - 1.60f * Coord.YCoord - 1.20f * Coord.ZCoord,
+                              1.60f * Coord.XCoord + 0.72f * Coord.YCoord - 0.96f * Coord.ZCoord,
+                              1.20f * Coord.XCoord - 0.96f * Coord.YCoord + 1.28f * Coord.ZCoord };
+            Scale *= 0.5f;
+        }
+        return Distance;
+    }
+
+    // 📝 First bubble lattice spacing [km] per genus: about half a thermal radius, so the first octave reads as turrets.
+    [[nodiscard]] float ResolveCascadeCellKm(const CloudStratumProfile& Stratum) noexcept
+    {
+        switch (Stratum.Genus)
+        {
+            case CloudGenusIdentifier::Cumulonimbus:  return std::max(0.2f, Stratum.ShapeScaleKm * 0.26f);
+            case CloudGenusIdentifier::Stratocumulus: return std::max(0.1f, Stratum.ShapeScaleKm * 0.30f);
+            default:                                  return std::max(0.1f, Stratum.ShapeScaleKm * 0.36f);
+        }
+    }
+
+    // 📝 Bubble protrusion (shell depth per octave in lattice units): cauliflower Cumulus / Cumulonimbus, flatter Stratocumulus rolls.
+    [[nodiscard]] float ResolveCascadeProtrusion(CloudGenusIdentifier Genus) noexcept
+    {
+        return (Genus == CloudGenusIdentifier::Stratocumulus) ? 0.18f : 0.24f;
+    }
+
+    // 📝 Upper bound of the outward surface lift of a full cascade [km].
+    [[nodiscard]] float ResolveCascadeGrowthKm(float CellKm, float Protrusion) noexcept
+    {
+        return 2.0f * CellKm * (Protrusion + 0.25f * ResolveCascadeBlend(Protrusion));
+    }
+
+    // 📝 Penetrable fringe [km]: depth over which the dimensional profile rises from 0 at the cascade surface to 1 inside (the noise
+    //    erosion acts only within it, leaving smooth dense interiors and sculpted edges — Nubis value erosion).
+    //    The fringe sets how deep the Worley erosion may carve (≈ 0.6 × the billow size), widening with the sample footprint.
+    [[nodiscard]] float ResolveFringeKm(const CloudStratumProfile& Stratum, float SampleFootprintKm) noexcept
+    {
+        return std::clamp(std::max(Stratum.DetailScaleKm * 0.6f, 1.5f * SampleFootprintKm), 0.06f, 0.6f);
+    }
+
+    // 📝 Fair-weather thermal envelope [km]: a flat-based dome plus two hashed flanking lobes (younger, lower bubbles beside the main
+    //    updraft) merged through rounded fillets, so no two cumulus share a silhouette. Offsets are in km about the thermal centre.
+    [[nodiscard]] float EvaluateThermalDomeDistance(float OffsetX, float HeightKm, float OffsetZ, float RadiusKm, float TopKm, int32_t LatticeX, int32_t LatticeZ) noexcept
+    {
+        float Distance = EvaluateEllipsoidDistance(OffsetX, HeightKm, OffsetZ, RadiusKm, TopKm, RadiusKm);
+        for (int32_t Lobe = 0; Lobe < 2; ++Lobe)
+        {
+            const float Azimuth    = Atmosphere::TauConstant * HashLatticeCell(LatticeX, 10 + Lobe, LatticeZ, 7103u);
+            const float LobeRadius = RadiusKm * (0.50f + 0.25f * HashLatticeCell(LatticeX, 12 + Lobe, LatticeZ, 7211u));
+            const float LobeTop    = TopKm * (0.45f + 0.40f * HashLatticeCell(LatticeX, 14 + Lobe, LatticeZ, 7307u));
+            const float LobeX      = OffsetX - 0.55f * RadiusKm * std::cos(Azimuth);
+            const float LobeZ      = OffsetZ - 0.55f * RadiusKm * std::sin(Azimuth);
+            Distance = BlendDistanceUnion(Distance, EvaluateEllipsoidDistance(LobeX, HeightKm, LobeZ, LobeRadius, LobeTop, LobeRadius), 0.35f * RadiusKm);
+        }
+        return Distance;
+    }
+
+    // 📝 Towering-cumulus column [km]: a leaning stack of successively released thermal bubbles. Each bubble is an oblate ellipsoid
+    //    whose centre random-walks sideways (entrainment pushes rising bubbles off-axis) and whose radius shrinks with height (the
+    //    updraft narrows as it entrains dry air), so the silhouette bulges and pinches irregularly instead of rising as a straight
+    //    pillar; the topmost bubble forms the rounded cauliflower crown.
+    [[nodiscard]] float EvaluateBubbleColumnDistance(float OffsetX, float HeightKm, float OffsetZ, float RadiusKm, float TopKm, int32_t LatticeX, int32_t LatticeZ,
+                                                     uint32_t Salt) noexcept
+    {
+        const int32_t BubbleCount = std::clamp(static_cast<int32_t>(std::ceil(TopKm / (1.1f * RadiusKm))), 1, 6);
+        const float   Segment     = TopKm / static_cast<float>(BubbleCount);
+        float         CentreX     = 0.0f;
+        float         CentreZ     = 0.0f;
+        float         Distance    = 1.0e9f;
+        for (int32_t Bubble = 0; Bubble < BubbleCount; ++Bubble)
+        {
+            const float Rise        = (static_cast<float>(Bubble) + 0.5f) / static_cast<float>(BubbleCount);
+            const float Taper       = 1.0f - 0.42f * Rise;
+            const float Radius      = RadiusKm * Taper * (0.72f + 0.55f * HashLatticeCell(LatticeX, 40 + Bubble, LatticeZ, Salt));
+            const float HalfHeight  = std::min(Radius, 0.75f * Segment + 0.25f * Radius);
+            const float CentreY     = (Bubble == BubbleCount - 1) ? TopKm - HalfHeight : (static_cast<float>(Bubble) + 0.55f) * Segment;
+            Distance = BlendDistanceUnion(Distance,
+                                          EvaluateEllipsoidDistance(OffsetX - CentreX, HeightKm - CentreY, OffsetZ - CentreZ, Radius, HalfHeight, Radius * 0.92f),
+                                          0.22f * Radius);
+            const float Heading = Atmosphere::TauConstant * HashLatticeCell(LatticeX, 50 + Bubble, LatticeZ, Salt + 11u);
+            const float Drift   = 0.50f * Radius * HashLatticeCell(LatticeX, 60 + Bubble, LatticeZ, Salt + 23u);
+            CentreX += Drift * std::cos(Heading);
+            CentreZ += Drift * std::sin(Heading);
+        }
+        // Flat condensation base under the lowest bubble.
+        return BlendDistanceIntersection(Distance, -HeightKm, 0.05f * RadiusKm);
+    }
+
+    // 📝 Mature cumulonimbus envelope [km]: a slightly leaning, upward-widening updraft column with a rounded crown, flanking towers,
+    //    an anvil wedge that is flat on top at the tropopause (the stable layer stops the updraft) and fans out and thins downwind
+    //    along the upper-level shear (+X), with a short back-sheared overhang, and an overshooting dome punching above the anvil.
+    //    OutAnvilWeight reports how much of the local distance belongs to the glaciated anvil (smooth, fibrous detail).
+    [[nodiscard]] float EvaluateStormTowerDistance(float OffsetX, float HeightKm, float OffsetZ, float RadiusKm, float TopKm, int32_t LatticeX, int32_t LatticeZ,
+                                                   float AnvilSpread, float& OutAnvilWeight) noexcept
+    {
+        const float Lean      = 0.25f * RadiusKm * (HashLatticeCell(LatticeX, 20, LatticeZ, 7411u) - 0.3f) * std::min(1.0f, HeightKm / TopKm);
+        const float AxisX     = OffsetX - Lean;
+        float       Tower     = EvaluateBubbleColumnDistance(OffsetX - Lean, HeightKm, OffsetZ, 0.95f * RadiusKm, TopKm * 0.97f, LatticeX, LatticeZ, 7451u);
+        for (int32_t Flank = 0; Flank < 3; ++Flank)
+        {
+            const float Azimuth   = Atmosphere::TauConstant * HashLatticeCell(LatticeX, 22 + Flank, LatticeZ, 7517u);
+            const float FlankRad  = RadiusKm * (0.42f + 0.22f * HashLatticeCell(LatticeX, 25 + Flank, LatticeZ, 7621u));
+            const float FlankTop  = TopKm * (0.22f + 0.38f * HashLatticeCell(LatticeX, 28 + Flank, LatticeZ, 7723u));
+            const float FlankX    = OffsetX - 0.85f * RadiusKm * std::cos(Azimuth);
+            const float FlankZ    = OffsetZ - 0.85f * RadiusKm * std::sin(Azimuth);
+            Tower = BlendDistanceUnion(Tower, EvaluateEllipsoidDistance(FlankX, HeightKm, FlankZ, FlankRad, FlankTop, FlankRad), 0.4f * RadiusKm);
+        }
+
+        // Anvil wedge: plan ellipse from x = -Back to x = +Length, half width fanning from 1.0 R to (1.2 + 1.6 s) R, thickness falling
+        // from 19 % of the tower height at the updraft to a thin ice sheet at the downwind tip.
+        const float Length    = RadiusKm * (2.2f + 3.0f * AnvilSpread);
+        const float Back      = RadiusKm * 0.9f;
+        const float Along     = std::clamp((OffsetX + Back) / (Length + Back), 0.0f, 1.0f);
+        const float HalfWidth = RadiusKm * (1.0f + (0.2f + 1.6f * AnvilSpread) * Along);
+        const float Thickness = TopKm * (0.19f - 0.14f * Along);
+        // Plan-ellipse distance (Quílez k0 (k0 - 1) / k1): scaling by the minor axis instead would under-report the distance along
+        // the long axis, widen the cascade shell there, and let bubbles float detached beside the anvil edge.
+        const float SemiMajor = 0.5f * (Length + Back);
+        const float PlanX     = OffsetX - 0.5f * (Length - Back);
+        const float NormalK0  = std::sqrt((PlanX / SemiMajor) * (PlanX / SemiMajor) + (OffsetZ / HalfWidth) * (OffsetZ / HalfWidth));
+        const float NormalK1  = std::sqrt((PlanX / (SemiMajor * SemiMajor)) * (PlanX / (SemiMajor * SemiMajor))
+                                        + (OffsetZ / (HalfWidth * HalfWidth)) * (OffsetZ / (HalfWidth * HalfWidth)));
+        const float PlanDist  = NormalK0 * (NormalK0 - 1.0f) / std::max(1.0e-6f, NormalK1);
+        const float SlabDist  = std::max(TopKm - Thickness - HeightKm, HeightKm - TopKm);
+        const float Anvil     = BlendDistanceIntersection(PlanDist, SlabDist, 0.6f * Thickness);
+        const float Overshoot = EvaluateEllipsoidDistance(AxisX - 0.2f * RadiusKm, HeightKm - TopKm, OffsetZ, 0.5f * RadiusKm, 0.09f * TopKm, 0.5f * RadiusKm);
+        const float Crown     = BlendDistanceUnion(Anvil, Overshoot, 0.3f * RadiusKm);
+        OutAnvilWeight        = EvaluateSmoothStep(0.5f * RadiusKm, -0.5f * RadiusKm, Crown - Tower);
+        return BlendDistanceUnion(Tower, Crown, 0.8f * RadiusKm);
+    }
+
+    // 📝 Convective envelope distance [km] for Cumulus / Stratocumulus / Cumulonimbus at a horizontal position [km] and height above the
+    //    condensation level [km]. Thermals come from a Boolean germ-grain model on a jittered 2D lattice (spacing = shape scale): each
+    //    lattice cell holds at most one thermal with probability P and plan radius r = ρ S (0.7 + 0.6 u); the plan coverage of such
+    //    Poisson discs is c = 1 - exp(-P π ρ²), inverted so the configured local coverage is met (P saturating at 1 grows the radii
+    //    instead). Cumulonimbus lattices mix a heavy-tailed height distribution: most cells stay congestus, a few mature into anvilled
+    //    storms. Envelopes are smooth-unioned; OutGlaciation is the anvil (ice) weight at the point.
+    [[nodiscard]] float EvaluateConvectiveEnvelopeDistance(
         const CloudStratumProfile& Stratum,
         float                      HorizontalX,
         float                      HorizontalZ,
-        float                      HeightFraction,
-        float                      CondensationDelta) noexcept
+        float                      HeightKm,
+        float                      CondensationDelta,
+        float&                     OutGlaciation) noexcept
     {
         const bool  TowerCondition = Stratum.Genus == CloudGenusIdentifier::Cumulonimbus;
-        const float Spacing        = std::max(0.1f, Stratum.ShapeScaleKm);
         const bool  RollCondition  = Stratum.Genus == CloudGenusIdentifier::Stratocumulus;
-        const float RadiusRatio    = TowerCondition ? 0.40f : (RollCondition ? 0.42f : 0.36f);
+        const float Spacing        = std::max(0.1f, Stratum.ShapeScaleKm);
+        const float Thickness      = std::max(0.05f, Stratum.CeilingAltitudeKm - Stratum.FloorAltitudeKm);
+        const float RadiusRatio    = TowerCondition ? 0.36f : (RollCondition ? 0.42f : 0.36f);
         const float DiscArea       = Atmosphere::PiConstant * RadiusRatio * RadiusRatio;
+        const float CascadeGrowth  = ResolveCascadeGrowthKm(ResolveCascadeCellKm(Stratum), ResolveCascadeProtrusion(Stratum.Genus)) / Spacing;
 
-        // Lattice reach: a thermal plus its turret bulge (1 + amplitude) and sheared anvil must stay inside the searched
-        // neighbourhood, otherwise its surface is clipped flat at a lattice line. Towers search 5 × 5 cells, domes 3 × 3.
-        const int32_t Reach        = TowerCondition ? 2 : 1;
-        const float   RadiusLimit  = (static_cast<float>(Reach) - 0.02f) / (1.0f + ResolveTurretAmplitude(Stratum.Genus));
+        // Lattice reach: a thermal envelope (flanks ≈ 1.3 r, anvil up to (2.2 + 3 s) r downwind) plus its cascade growth must stay inside
+        // the searched neighbourhood or it is clipped flat at a lattice line. Storms search 5 × 5 cells, domes and rolls 3 × 3.
+        const int32_t ReachLow     = TowerCondition ? 2 : 1;
+        const int32_t ReachHigh    = TowerCondition ? 2 : 1;
+        const int32_t ReachSide    = TowerCondition ? 2 : 1;
+        const float   RadiusLimit  = TowerCondition ? (1.98f - CascadeGrowth) / (2.2f + 3.0f * Stratum.AnvilSpread) : (0.98f - CascadeGrowth) / (RollCondition ? 1.7f : 1.32f);
         const float   CellX        = HorizontalX / Spacing;
         const float   CellZ        = HorizontalZ / Spacing;
-        const int32_t AnchorX        = static_cast<int32_t>(std::floor(CellX));
-        const int32_t AnchorZ        = static_cast<int32_t>(std::floor(CellZ));
-        float         BestField    = -1.0f;
-        for (int32_t OffsetZ = -Reach; OffsetZ <= Reach; ++OffsetZ)
+        const int32_t AnchorX      = static_cast<int32_t>(std::floor(CellX));
+        const int32_t AnchorZ      = static_cast<int32_t>(std::floor(CellZ));
+        float         BestDistance = 1.0e9f;
+        float         Glaciation   = 0.0f;
+        for (int32_t OffsetZ = -ReachSide; OffsetZ <= ReachSide; ++OffsetZ)
         {
-            for (int32_t OffsetX = -Reach; OffsetX <= Reach; ++OffsetX)
+            for (int32_t OffsetX = -ReachLow; OffsetX <= ReachHigh; ++OffsetX)
             {
                 const int32_t LatticeX = AnchorX + OffsetX;
                 const int32_t LatticeZ = AnchorZ + OffsetZ;
-                const float CentreX = static_cast<float>(LatticeX) + HashLatticeCell(LatticeX, 1, LatticeZ, 6203u);
-                const float CentreZ = static_cast<float>(LatticeZ) + HashLatticeCell(LatticeX, 2, LatticeZ, 6307u);
+                const float   CentreX  = static_cast<float>(LatticeX) + HashLatticeCell(LatticeX, 1, LatticeZ, 6203u);
+                const float   CentreZ  = static_cast<float>(LatticeZ) + HashLatticeCell(LatticeX, 2, LatticeZ, 6307u);
                 // Coverage, and so P and the radius gain, are evaluated at the thermal centre: sampled at the point instead, the
                 // coverage gradient would grow and shrink one thermal across its own body and slice it into flat walls.
                 float WeatherCoverage  = 0.5f;
@@ -469,49 +687,53 @@ namespace
                 const float Existence = std::clamp((Occupancy - HashLatticeCell(LatticeX, 0, LatticeZ, 6101u)) / 0.12f, 0.0f, 1.0f);
                 if (Existence <= 0.0f)
                     continue;
-                const float Radius  = std::min(RadiusLimit, RadiusRatio * RadiusGain * (0.7f + 0.6f * HashLatticeCell(LatticeX, 3, LatticeZ, 6409u))) * std::sqrt(Existence);
-                const float TopHash = HashLatticeCell(LatticeX, 4, LatticeZ, 6511u);
+                const float RadiusCells = std::min(RadiusLimit, RadiusRatio * RadiusGain * (0.7f + 0.6f * HashLatticeCell(LatticeX, 3, LatticeZ, 6409u)))
+                                        * (0.35f + 0.65f * std::sqrt(Existence));
+                const float RadiusKm    = RadiusCells * Spacing;
+                const float TopHash     = HashLatticeCell(LatticeX, 4, LatticeZ, 6511u);
+                const float LocalX      = (CellX - CentreX) * Spacing;
+                const float LocalZ      = (CellZ - CentreZ) * Spacing;
 
-                // Stratocumulus cells are rolls stretched along the shear vector (+X): the along-roll offset counts at 60 %.
-                const float DeltaX  = (CellX - CentreX) * (RollCondition ? 0.6f : 1.0f);
-                const float DeltaZ  = CellZ - CentreZ;
-                const float Offset  = std::sqrt(DeltaX * DeltaX + DeltaZ * DeltaZ);
+                // Cheap rejection: the planar gap to the thermal's widest extent already exceeds the best distance so far.
+                const float PlanarGap = std::sqrt(LocalX * LocalX + LocalZ * LocalZ) - RadiusKm * (TowerCondition ? 2.2f + 3.0f * Stratum.AnvilSpread : 1.7f);
+                if (PlanarGap > BestDistance + 0.5f * RadiusKm)
+                    continue;
+
+                float Distance = 1.0e9f;
+                float AnvilPart = 0.0f;
                 if (TowerCondition)
                 {
-                    const float TopFraction = 0.86f + 0.14f * TopHash;
-                    const float Ratio       = HeightFraction / TopFraction;
-                    if (Ratio >= 1.0f)
-                        continue;
-                    const float Tower  = Radius * (1.0f - 0.15f * Ratio) * std::sqrt(std::max(0.0f, 1.0f - std::pow(Ratio, 8.0f)));
-                    const float Spread = EvaluateSmoothStep(0.60f, 0.90f, Ratio);
-                    const float Anvil  = std::min(RadiusLimit - 0.45f * Spread, Radius * (1.0f + 4.0f * Stratum.AnvilSpread) * Spread * std::sqrt(Spread)
-                                                                                * (1.0f - EvaluateSmoothStep(0.92f, 1.0f, Ratio)));
-                    // Upper-level shear drags the anvil downwind (+X): its centre leans out of the tower as the spread grows.
-                    const float AnvilDeltaX = DeltaX - 0.45f * Spread;
-                    const float TowerField  = 1.0f - Offset / std::max(1.0e-3f, Tower);
-                    const float AnvilField  = 1.0f - std::sqrt(AnvilDeltaX * AnvilDeltaX + DeltaZ * DeltaZ) / std::max(1.0e-3f, Anvil);
-                    BestField = BlendFieldUnion(BestField, std::max(TowerField, AnvilField));
+                    // Heavy-tailed storm heights: two thirds of the cells stay congestus (≤ 45 % of the column), the rest mature to the
+                    // tropopause and spread an anvil.
+                    if (TopHash > 0.66f)
+                        Distance = EvaluateStormTowerDistance(LocalX, HeightKm, LocalZ, RadiusKm, Thickness * (0.90f + 0.08f * (TopHash - 0.66f) / 0.34f),
+                                                              LatticeX, LatticeZ, Stratum.AnvilSpread, AnvilPart);
+                    else
+                    {
+                        const float CongestusTop = Thickness * (0.10f + 0.35f * TopHash / 0.66f);
+                        Distance = (CongestusTop > 1.4f * RadiusKm * 0.75f)
+                                       ? EvaluateBubbleColumnDistance(LocalX, HeightKm, LocalZ, RadiusKm * 0.75f, CongestusTop, LatticeX, LatticeZ, 7561u)
+                                       : EvaluateThermalDomeDistance(LocalX, HeightKm, LocalZ, RadiusKm * 0.75f, CongestusTop, LatticeX, LatticeZ);
+                    }
                 }
                 else if (RollCondition)
                 {
-                    // Shallow boxy cell: nearly full-depth, flat-topped (√(1 - q⁴)) under the capping inversion.
-                    const float TopFraction = 0.62f + 0.38f * TopHash;
-                    const float Ratio       = HeightFraction / TopFraction;
-                    if (Ratio >= 1.0f)
-                        continue;
-                    BestField = BlendFieldUnion(BestField, 1.0f - Offset / std::max(1.0e-3f, Radius * std::sqrt(1.0f - Ratio * Ratio * Ratio * Ratio)));
+                    // Stratocumulus rolls: elongated along the shear (+X) and capped flat by the inversion at the stratum ceiling.
+                    const float TopKm = Thickness * (0.62f + 0.38f * TopHash);
+                    Distance = EvaluateEllipsoidDistance(LocalX, HeightKm, LocalZ, RadiusKm * 1.6f, TopKm, RadiusKm);
                 }
                 else
                 {
-                    const float TopFraction = std::clamp(0.30f + 0.40f * TopHash + 0.30f * WeatherVariation, 0.25f, 1.0f);
-                    const float Ratio       = HeightFraction / TopFraction;
-                    if (Ratio >= 1.0f)
-                        continue;
-                    BestField = BlendFieldUnion(BestField, 1.0f - Offset / std::max(1.0e-3f, Radius * std::sqrt(1.0f - Ratio * Ratio)));
+                    const float TopKm = Thickness * std::clamp(0.30f + 0.40f * TopHash + 0.30f * WeatherVariation, 0.25f, 1.0f);
+                    Distance = EvaluateThermalDomeDistance(LocalX, HeightKm, LocalZ, RadiusKm, TopKm, LatticeX, LatticeZ);
                 }
+                if (Distance < BestDistance)
+                    Glaciation = AnvilPart;
+                BestDistance = BlendDistanceUnion(BestDistance, Distance, 0.25f * Spacing * RadiusRatio);
             }
         }
-        return BestField;
+        OutGlaciation = Glaciation;
+        return BestDistance;
     }
 
     // 📝 Density at an already-advected planet-local position (horizontal X/Z in km, altitude above BottomRadius in km).
@@ -521,7 +743,7 @@ namespace
         float                      HorizontalZ,
         float                      AltitudeKm,
         float                      CondensationDelta,
-        bool                       DetailEnabled,
+        CloudDensityFidelity       Fidelity,
         float                      SampleFootprintKm) noexcept
     {
         const float Thickness      = std::max(0.05f, Stratum.CeilingAltitudeKm - Stratum.FloorAltitudeKm);
@@ -530,43 +752,53 @@ namespace
             return 0.0f;
 
         const CloudNoiseVolumes& Volumes             = RetrieveCloudNoiseVolumes();
-        float                    ShapeField           = 0.0f;
         const bool               ConvectiveCondition = Stratum.Genus == CloudGenusIdentifier::Cumulus || Stratum.Genus == CloudGenusIdentifier::Cumulonimbus
                                                     || Stratum.Genus == CloudGenusIdentifier::Stratocumulus;
         if (ConvectiveCondition)
         {
-            // Thermal domes from the germ-grain field, their surfaces displaced by 3D Perlin-Worley turrets so every dome breaks
-            // into stacked convective bubbles before the Worley erosion adds the cauliflower.
-            const float CellField = EvaluateConvectiveCellField(Stratum, HorizontalX, HorizontalZ, HeightFraction, CondensationDelta);
-            const bool  TowerCondition  = Stratum.Genus == CloudGenusIdentifier::Cumulonimbus;
-            const float TurretAmplitude = ResolveTurretAmplitude(Stratum.Genus);
-            if (CellField <= -TurretAmplitude)
+            // ① Thermal envelopes as signed distance [km], ② bubble cascade grown on their surface, ③ flat condensation floor (and the
+            // inversion lid), ④ dimensional profile across the penetrable fringe, ⑤ Worley value erosion of the fringe only.
+            const float HeightKm   = AltitudeKm - Stratum.FloorAltitudeKm;
+            float       Glaciation = 0.0f;
+            const float Envelope   = EvaluateConvectiveEnvelopeDistance(Stratum, HorizontalX, HorizontalZ, HeightKm, CondensationDelta, Glaciation);
+            const float CellKm     = ResolveCascadeCellKm(Stratum);
+            // Bubbles bulge upward and sideways; the lowest few hundred metres stay smooth so the base reads as one flat, darker floor,
+            // and the glaciated anvil keeps only a gentle undulation.
+            const float Protrusion = ResolveCascadeProtrusion(Stratum.Genus) * (1.0f - 0.9f * Glaciation) * (0.3f + 0.7f * EvaluateSmoothStep(0.0f, 0.6f, HeightKm));
+            // The glaciated anvil is a smooth ice sheet a few hundred metres thick: a narrower fringe keeps its interior intact.
+            const float EdgeFringe = ResolveFringeKm(Stratum, SampleFootprintKm) * (1.0f - 0.6f * Glaciation);
+            const float Growth     = ResolveCascadeGrowthKm(CellKm, ResolveCascadeProtrusion(Stratum.Genus));
+            if (Envelope - Growth >= 0.0f)
                 return 0.0f;
-            // Two turret octaves: bubbles at ~0.4 and ~0.15 of the thermal spacing (Cumulonimbus: ~0.2 and ~0.08, so a 15 km tower
-            // breaks into kilometre-scale convective cells all the way up instead of reading as a smooth column).
-            const float TurretTileLarge = std::max(0.1f, Stratum.ShapeScaleKm * (TowerCondition ? 0.8f : (Stratum.Genus == CloudGenusIdentifier::Stratocumulus ? 1.2f : 1.6f)));
-            const float TurretTileSmall = TurretTileLarge * 0.38f;
-            const float TurretSpan      = Volumes.CellularQuantiles[(ShapeQuantileCount - 1u) * 7u / 8u] - Volumes.CellularQuantiles[(ShapeQuantileCount - 1u) / 8u];
-            const float TurretMedian    = Volumes.CellularQuantiles[ShapeQuantileCount / 2u];
-            std::array<float, 4> TurretLarge {};
-            std::array<float, 4> TurretSmall {};
-            SampleTileableVolume<4>(Volumes.ShapeTexels, ShapeVolumeExtent, Vector3f{ HorizontalX / TurretTileLarge, AltitudeKm * 1.2f / TurretTileLarge, HorizontalZ / TurretTileLarge }, TurretLarge);
-            SampleTileableVolume<4>(Volumes.ShapeTexels, ShapeVolumeExtent, Vector3f{ HorizontalZ / TurretTileSmall + 0.37f, AltitudeKm * 1.2f / TurretTileSmall, HorizontalX / TurretTileSmall + 0.61f }, TurretSmall);
-            // Standardised turret noise: centred on the shape median and scaled by the central 75 % quantile span (the raw
-            // Perlin-Worley distribution is narrow, ~±0.08), so ±0.5 spans three quarters of all turret samples. The sum is
-            // clamped to ±1 so a bulge never outgrows the early-out bound or the lattice reach (no flat clipped walls).
-            const float TurretBlend = 0.65f * (ResolvePrimaryShape(TurretLarge.data(), false) - TurretMedian) + 0.35f * (ResolvePrimaryShape(TurretSmall.data(), false) - TurretMedian);
-            const float TurretShape = std::clamp(TurretBlend / std::max(1.0e-3f, TurretSpan) * 1.25f, -1.0f, 1.0f);
-            const float FloorFade   = EvaluateSmoothStep(0.0f, 0.04f, HeightFraction) * (1.0f - EvaluateSmoothStep(0.97f, 1.0f, HeightFraction));
-            // The anvil is glaciated outflow, not convection: its ice sheet is smooth and fibrous, so turrets and erosion fade out
-            // across the spreading level.
-            const float Glaciation = TowerCondition ? EvaluateSmoothStep(0.66f, 0.84f, HeightFraction) : 0.0f;
-            ShapeField = std::clamp((CellField + TurretShape * TurretAmplitude * (1.0f - 0.75f * Glaciation)) * FloorFade / 0.45f, 0.0f, 1.0f);
-            const float Density = ResolveSaturatedDensity(ShapeField);
-            if (Density <= 0.0f || !DetailEnabled)
-                return Density;
-            const float Eroded = ApplyDetailErosion(Stratum, Volumes, HorizontalX, HorizontalZ, AltitudeKm, HeightFraction, ShapeField, SampleFootprintKm);
-            return Density + (Eroded - Density) * (1.0f - 0.7f * Glaciation);
+            // Liquid surface ramp: once the fringe has been carved, liquid water closes within ~25 m (one or two mean free paths) of
+            // the eroded iso-surface — crisp cauliflower texture rather than a soft glow — widening with the footprint for LOD.
+            const float SurfaceRamp = std::clamp(std::max(0.05f, 0.6f * SampleFootprintKm) / EdgeFringe, 0.12f, 1.0f);
+            if (Fidelity == CloudDensityFidelity::EnvelopeBound)
+                return std::clamp((Growth - Envelope) / (EdgeFringe * SurfaceRamp), 0.0f, 1.0f);
+
+            // Footprint LOD: octaves finer than ~1.5 sample footprints alias into speckle, so the cascade stops there (fractional fade).
+            float OctaveBudget = (Fidelity == CloudDensityFidelity::AmbientCascade) ? 1.0f : 2.0f;
+            if (Fidelity == CloudDensityFidelity::FullDetail)
+                OctaveBudget = std::clamp(std::log2(CellKm / std::max(0.012f, 1.5f * SampleFootprintKm)) + 1.0f, 1.0f, 5.0f);
+            float Distance = ApplyBubbleCascade(Vector3f{ HorizontalX, HeightKm, HorizontalZ }, Envelope, CellKm, Protrusion, OctaveBudget, 8101u);
+            // Condensation floor: flat at the lifting condensation level, with a gentle 0..90 m undulation (moisture variance) so the
+            // underside reads as a mottled ceiling rather than a polished plane; Stratocumulus is also lidded by the inversion.
+            const float FloorLift = 0.09f * Atmosphere::EvaluateQuinticNoise3D(Vector3f{ HorizontalX / 0.45f, 0.5f, HorizontalZ / 0.45f }, 8209u);
+            Distance       = BlendDistanceIntersection(Distance, FloorLift - HeightKm, 0.04f);
+            if (Stratum.Genus == CloudGenusIdentifier::Stratocumulus)
+                Distance = BlendDistanceIntersection(Distance, HeightKm - 0.97f * Thickness, 0.1f);
+            const float Profile = std::clamp(-Distance / EdgeFringe, 0.0f, 1.0f);
+            if (Profile <= 0.0f)
+                return 0.0f;
+            if (Fidelity != CloudDensityFidelity::FullDetail)
+            {
+                // Light taps see the mean erosion depth (half the strength) instead of the per-point noise.
+                const float MeanCut = 0.5f * Stratum.ErosionStrength * (1.0f - 0.95f * Glaciation);
+                return EvaluateSmoothStep(0.0f, SurfaceRamp, (Profile - MeanCut) / (1.0f - MeanCut));
+            }
+            const float Eroded = ApplyDetailErosion(Stratum, Volumes, HorizontalX, HorizontalZ, AltitudeKm, HeightFraction, Profile, SampleFootprintKm,
+                                                    1.0f - 0.95f * Glaciation);
+            return EvaluateSmoothStep(0.0f, SurfaceRamp, Eroded);
         }
         float WeatherCoverage  = 0.5f;
         float WeatherVariation = 0.5f;
@@ -607,16 +839,16 @@ namespace
         // Soft shape field: a wide ramp above the threshold (instead of a near-step) leaves a density gradient across the outer
         // few hundred metres of every cell, so the Worley erosion below sculpts real billows rather than dusting a hard shell.
         const float                                  SoftRamp         = std::max(0.06f, 0.35f * (Quantiles[ShapeQuantileCount - 1u] - Threshold));
-                                                     ShapeField        = std::clamp((PrimaryShape * Envelope - Threshold) / SoftRamp, 0.0f, 1.0f);
+        const float                                  ShapeField       = std::clamp((PrimaryShape * Envelope - Threshold) / SoftRamp, 0.0f, 1.0f);
         float                                        Density          = ResolveSaturatedDensity(ShapeField);
         // Closing stratus deck: the residual low quantile of a 24 km sheet noise clusters into one large hole, but a real
         // overcast only thins there; a coverage-gated floor keeps an optically thin (tau ~ 5) sheet across those patches.
         if (SheetCondition)
             Density = std::max(Density, Envelope * 0.35f * EvaluateSmoothStep(0.90f, 1.0f, LocalCoverage));
-        if (Density <= 0.0f || !DetailEnabled)
+        if (Density <= 0.0f || Fidelity != CloudDensityFidelity::FullDetail)
             return Density;
 
-        Density = ApplyDetailErosion(Stratum, Volumes, HorizontalX, HorizontalZ, AltitudeKm, HeightFraction, ShapeField, SampleFootprintKm);
+        Density = ResolveSaturatedDensity(ApplyDetailErosion(Stratum, Volumes, HorizontalX, HorizontalZ, AltitudeKm, HeightFraction, ShapeField, SampleFootprintKm));
         if (SheetCondition)
             Density = std::max(Density, Envelope * 0.35f * EvaluateSmoothStep(0.90f, 1.0f, LocalCoverage));
         return Density;
@@ -667,19 +899,13 @@ namespace
         return (1.0f - G2) / (4.0f * Atmosphere::PiConstant * Denominator * std::sqrt(Denominator));
     }
 
-    [[nodiscard]] float EvaluateDualLobePhase(const VolumetricCloudConfiguration& CloudConfiguration, float CosineAngle, float EccentricityScale) noexcept
-    {
-        const float Weight = std::clamp(CloudConfiguration.ForwardLobeWeight, 0.0f, 1.0f);
-        return Weight * EvaluateHenyeyGreenstein(CosineAngle, CloudConfiguration.ForwardAsymmetry * EccentricityScale)
-             + (1.0f - Weight) * EvaluateHenyeyGreenstein(CosineAngle, CloudConfiguration.BackwardAsymmetry * EccentricityScale);
-    }
-
-    // 📝 Wrenninge (2013) multiple-scattering octaves (a = b = c = 0.5 on extinction, energy, eccentricity) plus a diffusion tail. The
-    //    octave series decays as e^{-τ/2^n} and leaves the far side of a τ ~ 100 cumulus black, but radiative transfer is diffusive
-    //    there: the conservative two-stream flux transmission 1 / (1 + ¾ (1 - g) τ) falls off only algebraically. The tail feeds that
-    //    isotropic diffuse field (mean intensity ~ T_d / π per unit solar flux, half of it scattered back toward the viewer), gated by
-    //    1 - e^{-τ/2} so thin sunlit fringes stay octave-dominated.
-    [[nodiscard]] float EvaluateScatterOctaves(const VolumetricCloudConfiguration& CloudConfiguration, float CosineScatter, float SunOpticalDepth, uint32_t Octaves) noexcept
+    // 📝 Wrenninge (2013) multiple-scattering octaves (a = b = c = 0.5 on extinction, energy, eccentricity) over the Jendersie–d'Eon
+    //    approximate Mie phase, plus a diffusion tail. SunOpticalDepth is already δ-M scaled (the diffraction peak removed). The octave
+    //    series decays as e^{-τ/2^n} and leaves the far side of a thick cumulus black, but radiative transfer is diffusive there: the
+    //    conservative two-stream flux transmission 1 / (1 + ¾ (1 - g') τ') falls off only algebraically. The tail feeds that isotropic
+    //    diffuse field (mean intensity ~ T_d / π per unit solar flux, half of it scattered back toward the viewer), gated by
+    //    1 - e^{-τ'/2} so thin sunlit fringes stay octave-dominated.
+    [[nodiscard]] float EvaluateScatterOctaves(const ApproximateMieParameters& Phase, float CosineScatter, float SunOpticalDepth, uint32_t Octaves) noexcept
     {
         float ScatterSum = 0.0f;
         float Extinction = 1.0f;
@@ -687,12 +913,13 @@ namespace
         float Eccentric  = 1.0f;
         for (uint32_t Octave = 0u; Octave < Octaves; ++Octave)
         {
-            ScatterSum += Energy * EvaluateDualLobePhase(CloudConfiguration, CosineScatter, Eccentric) * std::exp(-Extinction * SunOpticalDepth);
+            ScatterSum += Energy * EvaluateApproximateMiePhase(Phase, CosineScatter, Eccentric) * std::exp(-Extinction * SunOpticalDepth);
             Extinction *= 0.5f;
             Energy     *= 0.5f;
             Eccentric  *= 0.5f;
         }
-        const float DiffuseTransmission = 1.0f / (1.0f + 0.75f * (1.0f - 0.85f) * SunOpticalDepth);
+        // δ-M scaled droplet asymmetry g' ≈ 0.70 (the Draine lobe once the diffraction peak is folded into the extinction).
+        const float DiffuseTransmission = 1.0f / (1.0f + 0.75f * (1.0f - 0.70f) * SunOpticalDepth);
         return ScatterSum + 0.3f / Atmosphere::PiConstant * DiffuseTransmission * (1.0f - std::exp(-0.5f * SunOpticalDepth));
     }
 
@@ -705,7 +932,7 @@ namespace
         return (1.0f - PowderWeight) + PowderWeight * PowderTerm;
     }
 
-    // 📝 Conservative two-stream diffuse transmission T = 1 / (1 + ¾ (1 - g) τ) with cloud-droplet asymmetry g ≈ 0.85.
+    // 📝 Conservative two-stream diffuse transmission T = 1 / (1 + ¾ (1 - g) τ) with the full Mie droplet asymmetry g ≈ 0.85.
     [[nodiscard]] float EvaluateAmbientDiffuseTransmission(float OpticalDepth) noexcept
     {
         return 1.0f / (1.0f + 0.75f * (1.0f - 0.85f) * OpticalDepth);
@@ -903,7 +1130,7 @@ namespace
         float                               DeltaX,
         float                               DeltaZ,
         float                               Condensation,
-        bool                                DetailEnabled,
+        CloudDensityFidelity                Fidelity,
         float                               SampleFootprintKm = 0.0f) noexcept
     {
         const float AltitudeKm = VectorLength(PlanetPositionKm) - Profile.BottomRadius;
@@ -913,7 +1140,7 @@ namespace
             PlanetPositionKm.ZCoord + DeltaZ,
             AltitudeKm,
             Condensation,
-            DetailEnabled,
+            Fidelity,
             SampleFootprintKm);
     }
 }
@@ -921,6 +1148,41 @@ namespace
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        PUBLIC FUNCTIONS
 //------------------------------------------------------------------------------------------------------------------------
+
+ApproximateMieParameters ResolveApproximateMieParameters(float DropletDiameterMicrometres) noexcept
+{
+    // Jendersie & d'Eon (2023) fits, valid for 5 µm < d < 50 µm.
+    const float Diameter = std::clamp(DropletDiameterMicrometres, 5.0f, 50.0f);
+    ApproximateMieParameters Phase{};
+    Phase.PeakAsymmetry   = std::exp(-0.0990567f / (Diameter - 1.67154f));
+    Phase.DraineAsymmetry = std::exp(-2.20679f / (Diameter + 3.91029f) - 0.428934f);
+    Phase.DraineAlpha     = std::exp(3.62489f - 8.29288f / (Diameter + 5.52825f));
+    Phase.DraineWeight    = std::exp(-0.599085f / (Diameter - 0.641583f) - 0.665888f);
+    return Phase;
+}
+
+float EvaluateApproximateMiePhase(const ApproximateMieParameters& Phase, float CosineAngle, float EccentricityScale) noexcept
+{
+    const auto HenyeyGreenstein = [](float Cosine, float Asymmetry) noexcept
+    {
+        const float G2          = Asymmetry * Asymmetry;
+        const float Denominator = std::max(1.0e-7f, 1.0f + G2 - 2.0f * Asymmetry * Cosine);
+        return (1.0f - G2) / (4.0f * Atmosphere::PiConstant * Denominator * std::sqrt(Denominator));
+    };
+    const float PeakG   = std::clamp(Phase.PeakAsymmetry * EccentricityScale, -0.999f, 0.999f);
+    const float DraineG = std::clamp(Phase.DraineAsymmetry * EccentricityScale, -0.999f, 0.999f);
+    const float Alpha   = Phase.DraineAlpha;
+    // Draine (2003): HG × (1 + α cos²θ) / (1 + α (1 + 2 g²) / 3) — exactly normalised; α = 0 is HG, α = 1 Cornette-Shanks.
+    const float Draine  = HenyeyGreenstein(CosineAngle, DraineG) * (1.0f + Alpha * CosineAngle * CosineAngle) / (1.0f + Alpha * (1.0f + 2.0f * DraineG * DraineG) / 3.0f);
+    return (1.0f - Phase.DraineWeight) * HenyeyGreenstein(CosineAngle, PeakG) + Phase.DraineWeight * Draine;
+}
+
+float ResolveDiffractionPeakFraction(const ApproximateMieParameters& Phase) noexcept
+{
+    // The g ≈ 0.99 lobe carries the diffraction peak (≲ 1° wide): its light is indistinguishable from the unscattered beam, so δ-M
+    // scaling (Wiscombe 1977) removes that fraction from the extinction seen by sunlight paths.
+    return std::clamp(1.0f - Phase.DraineWeight, 0.0f, 0.9f);
+}
 
 VolumetricCloudConfiguration BuildCloudGenusPreset(CloudGenusIdentifier Genus, float CoverageFraction) noexcept
 {
@@ -1002,7 +1264,25 @@ float EvaluateCloudDensity(
     float       DeltaZ       = 0.0f;
     float       Condensation = 0.0f;
     ResolveFlowDisplacement(OptionalFlowField, PlanetPositionKm, AltitudeKm, SequenceSeconds, DeltaX, DeltaZ, Condensation);
-    return EvaluateStratumAtPlanetPoint(CloudConfiguration, Profile, PlanetPositionKm, DeltaX, DeltaZ, Condensation, DetailEnabled);
+    return EvaluateStratumAtPlanetPoint(CloudConfiguration, Profile, PlanetPositionKm, DeltaX, DeltaZ, Condensation,
+                                        DetailEnabled ? CloudDensityFidelity::FullDetail : CloudDensityFidelity::ShadowCascade);
+}
+
+float EvaluateCloudDensityBound(
+    const VolumetricCloudConfiguration& CloudConfiguration,
+    const AtmosphereUniformBlock&       Profile,
+    const AtmosphericFlowField*         OptionalFlowField,
+    const Vector3f&                     PlanetPositionKm,
+    float                               SequenceSeconds) noexcept
+{
+    if (!CloudConfiguration.CloudsEnabled)
+        return 0.0f;
+    const float AltitudeKm   = VectorLength(PlanetPositionKm) - Profile.BottomRadius;
+    float       DeltaX       = 0.0f;
+    float       DeltaZ       = 0.0f;
+    float       Condensation = 0.0f;
+    ResolveFlowDisplacement(OptionalFlowField, PlanetPositionKm, AltitudeKm, SequenceSeconds, DeltaX, DeltaZ, Condensation);
+    return EvaluateStratumAtPlanetPoint(CloudConfiguration, Profile, PlanetPositionKm, DeltaX, DeltaZ, Condensation, CloudDensityFidelity::EnvelopeBound);
 }
 
 CloudRayResult IntegrateVolumetricClouds(
@@ -1086,6 +1366,8 @@ CloudRayResult IntegrateVolumetricClouds(
         const uint32_t Octaves       = std::clamp(CloudConfiguration.ScatterOctaveCount, 1u, 8u);
         const uint32_t ConeTaps      = std::clamp(CloudConfiguration.SolarConeTapCount, 1u, 12u);
         const uint32_t StepBudget    = std::max(32u, CloudConfiguration.PrimaryStepLimit);
+        const ApproximateMieParameters Phase         = ResolveApproximateMieParameters(CloudConfiguration.DropletDiameterMicrometres);
+        const float                    PeakRetention = 1.0f - ResolveDiffractionPeakFraction(Phase) * std::clamp(Stratum.SingleScatterAlbedo, 0.0f, 1.0f);
 
         // Unit-disc offsets for the solar shadow cone taps. The cone keeps one fixed orientation (rotating it per pixel turned the
         // first, nearest taps into surface-scale shading grain); the second Owen-Sobol dimension only jitters the tap radii.
@@ -1124,7 +1406,7 @@ CloudRayResult IntegrateVolumetricClouds(
             }
 
             // Cheap uneroded probe first (an upper bound of the eroded density, so no cloud is skipped).
-            const float Coarse = EvaluateStratumAtPlanetPoint(CloudConfiguration, Profile, SamplePosition, AdvectX, AdvectZ, Condensation, false);
+            const float Coarse = EvaluateStratumAtPlanetPoint(CloudConfiguration, Profile, SamplePosition, AdvectX, AdvectZ, Condensation, CloudDensityFidelity::EnvelopeBound);
             if (!InsideCloud)
             {
                 const float CoarseStepKm = ResolveCoarseStepKm(Thickness, DistanceKm);
@@ -1148,7 +1430,7 @@ CloudRayResult IntegrateVolumetricClouds(
                 continue;
             }
             EmptyRun = 0u;
-            const float Density = EvaluateStratumAtPlanetPoint(CloudConfiguration, Profile, SamplePosition, AdvectX, AdvectZ, Condensation, true, StepKm);
+            const float Density = EvaluateStratumAtPlanetPoint(CloudConfiguration, Profile, SamplePosition, AdvectX, AdvectZ, Condensation, CloudDensityFidelity::FullDetail, StepKm);
             if (Density <= 1.0e-4f)
             {
                 DistanceKm += StepKm;
@@ -1170,19 +1452,23 @@ CloudRayResult IntegrateVolumetricClouds(
                 const Vector3f TapPosition = AddVector(
                     AddVector(SamplePosition, ScaleVector(SolarAxis, TapDistance)),
                     AddVector(ScaleVector(SunTangentU, ConeOffsets[Tap][0] * ConeRadius), ScaleVector(SunTangentV, ConeOffsets[Tap][1] * ConeRadius)));
-                const float    TapDensity  = EvaluateStratumAtPlanetPoint(CloudConfiguration, Profile, TapPosition, AdvectX, AdvectZ, Condensation, false);
+                // The two nearest taps resolve the fine bubbles (each sub-turret shadows its own lee side: the cauliflower relief);
+                // farther taps only need the turret scale.
+                const float    TapDensity  = EvaluateStratumAtPlanetPoint(CloudConfiguration, Profile, TapPosition, AdvectX, AdvectZ, Condensation,
+                                                                          (Tap < 2u) ? CloudDensityFidelity::FullDetail : CloudDensityFidelity::ShadowCascade, std::max(StepKm, TapLength));
                 SunOpticalDepth += TapDensity * SigmaT * TapLength;
             }
             // Distant unresolved shadowing beyond the cone (long-range coarse tap).
             {
                 const Vector3f FarTap = AddVector(SamplePosition, ScaleVector(SolarAxis, ConeLengthKm * 2.2f));
-                SunOpticalDepth += EvaluateStratumAtPlanetPoint(CloudConfiguration, Profile, FarTap, AdvectX, AdvectZ, Condensation, false) * SigmaT * ConeLengthKm * 1.2f;
+                SunOpticalDepth += EvaluateStratumAtPlanetPoint(CloudConfiguration, Profile, FarTap, AdvectX, AdvectZ, Condensation, CloudDensityFidelity::AmbientCascade) * SigmaT * ConeLengthKm * 1.2f;
             }
 
             const float        SampleRadius   = VectorLength(SamplePosition);
             const float        LocalSunCosine = DotVector(ScaleVector(SamplePosition, 1.0f / SampleRadius), SolarAxis);
             const LinearColour SunRadiance    = MultiplyColour(SolarFlux, SampleTransmittanceToSpace(Tables, Profile, SampleRadius, LocalSunCosine));
-            const float        ScatterSum     = EvaluateScatterOctaves(CloudConfiguration, CosineScatter, SunOpticalDepth, Octaves);
+            // δ-M scaling: sunlight scattered into the diffraction peak keeps travelling with the beam, so the solar path sees σ_t (1 - f ω).
+            const float        ScatterSum     = EvaluateScatterOctaves(Phase, CosineScatter, SunOpticalDepth * PeakRetention, Octaves);
             const float        Powder         = EvaluatePowderFactor(CloudConfiguration, Density, CosineScatter);
 
             // Sky ambient through the overlying and underlying columns: two coarse taps each way estimate τ_up and τ_down; each
@@ -1197,8 +1483,8 @@ CloudRayResult IntegrateVolumetricClouds(
             {
                 const Vector3f UpTap   = AddVector(SamplePosition, ScaleVector(UpAxis, CeilingGap * TapFraction));
                 const Vector3f DownTap = AddVector(SamplePosition, ScaleVector(UpAxis, -FloorGap * TapFraction));
-                UpOpticalDepth   += EvaluateStratumAtPlanetPoint(CloudConfiguration, Profile, UpTap, AdvectX, AdvectZ, Condensation, false) * SigmaT * CeilingGap * 0.5f;
-                DownOpticalDepth += EvaluateStratumAtPlanetPoint(CloudConfiguration, Profile, DownTap, AdvectX, AdvectZ, Condensation, false) * SigmaT * FloorGap * 0.5f;
+                UpOpticalDepth   += EvaluateStratumAtPlanetPoint(CloudConfiguration, Profile, UpTap, AdvectX, AdvectZ, Condensation, CloudDensityFidelity::AmbientCascade) * SigmaT * CeilingGap * 0.5f;
+                DownOpticalDepth += EvaluateStratumAtPlanetPoint(CloudConfiguration, Profile, DownTap, AdvectX, AdvectZ, Condensation, CloudDensityFidelity::AmbientCascade) * SigmaT * FloorGap * 0.5f;
             }
             const LinearColour Ambient = AddColour(ScaleColour(AmbientTop, 0.5f * EvaluateAmbientDiffuseTransmission(UpOpticalDepth)),
                                                    ScaleColour(AmbientFloor, 0.5f * EvaluateAmbientDiffuseTransmission(DownOpticalDepth)));
@@ -1298,7 +1584,8 @@ float EvaluateCloudShadowTransmittance(
         for (uint32_t Step = 0u; Step < ShadowSteps; ++Step)
         {
             const Vector3f SamplePoint = AddVector(PlanetPositionKm, ScaleVector(SolarAxis, FloorDistance + (static_cast<float>(Step) + 0.5f) * StepKm));
-            OpticalDepth += EvaluateStratumAtPlanetPoint(CloudConfiguration, Profile, SamplePoint, AdvectX, AdvectZ, Condensation, true, StepKm) * Stratum.ExtinctionPerKm * StepKm;
+            OpticalDepth += EvaluateStratumAtPlanetPoint(CloudConfiguration, Profile, SamplePoint, AdvectX, AdvectZ, Condensation, CloudDensityFidelity::ShadowCascade, StepKm)
+                            * Stratum.ExtinctionPerKm * StepKm;
         }
     }
     if (CloudConfiguration.Cirrus.VeilEnabled && CloudConfiguration.Cirrus.CoverageFraction > 0.0f)
@@ -1308,6 +1595,94 @@ float EvaluateCloudShadowTransmittance(
         OpticalDepth += CloudConfiguration.Cirrus.OpticalDepthPeak * EvaluateCirrusFilamentDensity(CloudConfiguration.Cirrus, OptionalFlowField, VeilPoint, SequenceSeconds) / SunCosine;
     }
     return std::exp(-OpticalDepth);
+}
+
+CrepuscularRayResult IntegrateCrepuscularRays(
+    const CrepuscularRayConfiguration&  ShaftConfiguration,
+    const VolumetricCloudConfiguration& CloudConfiguration,
+    const AtmosphericLookupTables&      Tables,
+    const AtmosphereUniformBlock&       Profile,
+    const AtmosphericFlowField*         OptionalFlowField,
+    const Vector3f&                     LocalDirection,
+    float                               SequenceSeconds,
+    float                               StartJitter) noexcept
+{
+    CrepuscularRayResult Result{};
+    if (!ShaftConfiguration.ShaftsEnabled || !CloudConfiguration.CloudsEnabled)
+        return Result;
+    const Vector3f SolarAxis = NormalizeVector(Vector3f{ Profile.SolarDirection[0], Profile.SolarDirection[1], Profile.SolarDirection[2] });
+    if (SolarAxis.YCoord <= 0.01f)
+        return Result;
+
+    // ① March span: viewer to the cloud floor (shafts form beneath the deck; the cloud layer itself owns the in-cloud light), the
+    //    ground, or the configured limit, whichever comes first.
+    const float    ViewerRadius = Profile.BottomRadius + Atmosphere::RetrieveViewerAltitudeKm(Profile);
+    const Vector3f Viewer       { 0.0f, ViewerRadius, 0.0f };
+    const float    FloorRadius  = Profile.BottomRadius + CloudConfiguration.Stratum.FloorAltitudeKm;
+    float          EndKm        = std::max(0.5f, ShaftConfiguration.MaximumDistanceKm);
+    float          Near         = 0.0f, Far = 0.0f;
+    if (ViewerRadius < FloorRadius && IntersectConcentricSphere(ViewerRadius, LocalDirection, FloorRadius, Near, Far))
+        EndKm = std::min(EndKm, Far);
+    if (IntersectConcentricSphere(ViewerRadius, LocalDirection, Profile.BottomRadius, Near, Far) && Near > 0.0f)
+        EndKm = std::min(EndKm, Near);
+
+    // ② Single scattering of the solar beam: clean air (Rayleigh + Cornette-Shanks aerosol, as in the sky table) and the haze layer.
+    const float              CosineScatter  = DotVector(LocalDirection, SolarAxis);
+    const float              RayleighPhase  = EvaluateRayleighPhaseFunction(CosineScatter);
+    const float              AerosolPhase   = EvaluateCornetteShanksPhaseFunction(CosineScatter, Profile.MieAsymmetry);
+    const float              HazePhase      = EvaluateHenyeyGreenstein(CosineScatter, ShaftConfiguration.HazeAsymmetry);
+    const LinearColour       SolarFlux      { Profile.SolarIlluminance[0], Profile.SolarIlluminance[1], Profile.SolarIlluminance[2] };
+    // Sky light scattered by the haze: the upper hemisphere's mean radiance, isotropic (2π L / 4π = L / 2).
+    const LinearColour       HazeAmbient    = ScaleColour(ResolveHemisphereRadiance(Tables, Profile, SolarAxis, true), 0.5f);
+    const uint32_t           StepCount      = std::clamp(ShaftConfiguration.MarchStepCount, 4u, 128u);
+    // Quadratic sample spacing: shafts are sharpest close to the viewer, where a step subtends the largest angle.
+    LinearColour             AirOpticalDepth{};
+    float                    HazeOpticalDepth = 0.0f;
+    float                    PreviousKm       = 0.0f;
+    for (uint32_t Step = 0u; Step < StepCount; ++Step)
+    {
+        const float Fraction  = (static_cast<float>(Step) + std::clamp(StartJitter, 0.0f, 1.0f)) / static_cast<float>(StepCount);
+        const float SampleKm  = EndKm * Fraction * Fraction;
+        const float BoundKm   = EndKm * ((static_cast<float>(Step) + 1.0f) / static_cast<float>(StepCount)) * ((static_cast<float>(Step) + 1.0f) / static_cast<float>(StepCount));
+        const float StepKm    = BoundKm - PreviousKm;
+        PreviousKm            = BoundKm;
+
+        const Vector3f Position   = AddVector(Viewer, ScaleVector(LocalDirection, SampleKm));
+        const float    Radius     = VectorLength(Position);
+        const float    AltitudeKm = Radius - Profile.BottomRadius;
+        LinearColour   RayleighScatter{}, MieScatter{}, Extinction{};
+        EvaluateMediumCoefficients(Profile, AltitudeKm, RayleighScatter, MieScatter, Extinction);
+        const LinearColour AirScatterPerKm = ScaleColour(AddColour(ScaleColour(RayleighScatter, RayleighPhase), ScaleColour(MieScatter, AerosolPhase)), 1000.0f);
+        const float        HazeSigma       = std::max(0.0f, ShaftConfiguration.HazeExtinctionPerKm)
+                                           * std::exp(-std::max(0.0f, AltitudeKm) / std::max(0.1f, ShaftConfiguration.HazeScaleHeightKm));
+
+        // Midpoint transmittance from the viewer (air + haze) to the sample.
+        const LinearColour HalfAir   = AddColour(AirOpticalDepth, ScaleColour(Extinction, 500.0f * StepKm));
+        const float        HalfHaze  = HazeOpticalDepth + 0.5f * HazeSigma * StepKm;
+        const LinearColour ViewTrans { std::exp(-HalfAir.Red - HalfHaze), std::exp(-HalfAir.Green - HalfHaze), std::exp(-HalfAir.Blue - HalfHaze) };
+
+        const LinearColour SunRadiance = MultiplyColour(SolarFlux, SampleTransmittanceToSpace(Tables, Profile, Radius, DotVector(ScaleVector(Position, 1.0f / Radius), SolarAxis)));
+        const float        Shadow      = EvaluateCloudShadowTransmittance(CloudConfiguration, Profile, OptionalFlowField, Position, SequenceSeconds);
+        const LinearColour Lit         = MultiplyColour(SunRadiance, ViewTrans);
+
+        Result.ShadowedDeficit = AddColour(Result.ShadowedDeficit, ScaleColour(MultiplyColour(AirScatterPerKm, Lit), (1.0f - Shadow) * StepKm));
+        const float HazeScatter = HazeSigma * std::clamp(ShaftConfiguration.HazeAlbedo, 0.0f, 1.0f) * StepKm;
+        Result.HazeRadiance = AddColour(Result.HazeRadiance, ScaleColour(AddColour(ScaleColour(Lit, HazePhase * Shadow), MultiplyColour(HazeAmbient, ViewTrans)), HazeScatter));
+
+        AirOpticalDepth  = AddColour(AirOpticalDepth, ScaleColour(Extinction, 1000.0f * StepKm));
+        HazeOpticalDepth += HazeSigma * StepKm;
+    }
+    const float HazeTransmittance = std::exp(-HazeOpticalDepth);
+    Result.HazeTransmittance = LinearColour{ HazeTransmittance, HazeTransmittance, HazeTransmittance };
+    return Result;
+}
+
+void EncodeCrepuscularRayUniformBlock(const CrepuscularRayConfiguration& ShaftConfiguration, CrepuscularRayUniformBlock& OutUniforms) noexcept
+{
+    Atmosphere::EncodeFloat4(OutUniforms.HazePack, ShaftConfiguration.HazeExtinctionPerKm, ShaftConfiguration.HazeScaleHeightKm,
+                             ShaftConfiguration.HazeAsymmetry, ShaftConfiguration.HazeAlbedo);
+    Atmosphere::EncodeFloat4(OutUniforms.MarchPack, ShaftConfiguration.MaximumDistanceKm, static_cast<float>(ShaftConfiguration.MarchStepCount),
+                             ShaftConfiguration.ShaftsEnabled ? 1.0f : 0.0f, 0.0f);
 }
 
 void DenoiseCloudLayerBilateral(
@@ -1379,8 +1754,10 @@ void EncodeCloudFieldUniformBlock(
                              static_cast<float>(static_cast<uint32_t>(Stratum.Genus)));
     Atmosphere::EncodeFloat4(OutUniforms.StratumNoisePack, Stratum.ShapeScaleKm, Stratum.DetailScaleKm, Stratum.ErosionStrength, Stratum.WeatherScaleKm);
     Atmosphere::EncodeFloat4(OutUniforms.StratumOpticsPack, Stratum.ExtinctionPerKm, Stratum.SingleScatterAlbedo, Stratum.AnvilSpread, CloudConfiguration.PowderStrength);
-    Atmosphere::EncodeFloat4(OutUniforms.PhasePack, CloudConfiguration.ForwardAsymmetry, CloudConfiguration.BackwardAsymmetry, CloudConfiguration.ForwardLobeWeight,
-                             static_cast<float>(CloudConfiguration.ScatterOctaveCount));
+    const ApproximateMieParameters Phase = ResolveApproximateMieParameters(CloudConfiguration.DropletDiameterMicrometres);
+    Atmosphere::EncodeFloat4(OutUniforms.PhasePack, Phase.PeakAsymmetry, Phase.DraineAsymmetry, Phase.DraineAlpha, Phase.DraineWeight);
+    Atmosphere::EncodeFloat4(OutUniforms.LightingPack, CloudConfiguration.DropletDiameterMicrometres, ResolveDiffractionPeakFraction(Phase),
+                             static_cast<float>(CloudConfiguration.ScatterOctaveCount), CloudConfiguration.AmbientStrength);
     Atmosphere::EncodeFloat4(OutUniforms.CirrusPack, Cirrus.AltitudeKm, Cirrus.CoverageFraction, Cirrus.OpticalDepthPeak,
                              (CloudConfiguration.CloudsEnabled && Cirrus.VeilEnabled) ? Cirrus.FilamentScaleKm : 0.0f);
     Atmosphere::EncodeFloat4(OutUniforms.QualityPack, static_cast<float>(CloudConfiguration.PrimaryStepLimit), static_cast<float>(CloudConfiguration.SolarConeTapCount),

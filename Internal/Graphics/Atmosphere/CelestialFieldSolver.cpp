@@ -7,6 +7,7 @@
 //    stellar chromaticity, Airy-Moffat optical PSF, Kasten-Young scintillation, IAU galactic Milky Way + Great Rift, and deep-sky nebulae.
 
 #include "Graphics/Atmosphere/CelestialFieldSolver.h"
+#include "Graphics/Atmosphere/BrightStarCatalogue.h"
 
 #include <algorithm>
 #include <array>
@@ -63,7 +64,10 @@ namespace
     using Atmosphere::HashLatticeCell;
 
     constexpr uint32_t CubeCellsPerAxis       = 48u;     // [-]   - Cubemap star-index cells per face edge
-    constexpr uint32_t DeepFieldStarCount     = 15200u;  // [-]   - Procedural Pogson deep-field stars (V 4.6 .. 9.6)
+    constexpr uint32_t DeepFieldStarCount     = 66000u;  // [-]   - Procedural deep-field stars (V 5.0 .. 8.5, real whole-sky count)
+    constexpr float    DeepFieldBrightLimit   = 5.0f;    // [mag] - Deep field begins where the BSC5 catalogue subset ends
+    constexpr float    DeepFieldFaintLimit    = 8.5f;    // [mag] - Fainter starlight lives in the Milky Way surface brightness
+    constexpr float    StarCountSlope         = 0.47f;   // [dex/mag] - d log N(<m) / dm for V 5..9 (Allen's Astrophysical Quantities)
     constexpr float    SolarApparentMagnitude = -26.74f; // [mag] - Johnson V apparent magnitude of the Sun
     // [-] - Irradiance of a V = 0 star in solar-calibrated units: E_sun * 10^(0.4 * V_sun) (Pogson, ~2.6e-10)
     const float        StellarFluxReference   = Atmosphere::SolarIlluminanceCalibration * std::pow(10.0f, 0.4f * SolarApparentMagnitude);
@@ -180,73 +184,6 @@ namespace
     }
 
     //--------------------------------------------------------------------------------------------------------------------
-    //                                  J2000 BRIGHT STAR CATALOGUE (RA h, Dec °, V mag, B-V)
-    //--------------------------------------------------------------------------------------------------------------------
-
-    struct CatalogueStarEntry
-    {
-        float RightAscensionHours; // [h]   - J2000 right ascension
-        float DeclinationDegrees;  // [°]   - J2000 declination
-        float VisualMagnitude;     // [mag] - Johnson V apparent magnitude
-        float ColourIndexBV;       // [mag] - Johnson B-V colour index
-    };
-
-    constexpr CatalogueStarEntry BrightStarCatalogue[] = {
-        {  6.752f, -16.716f, -1.46f,  0.00f }, {  6.399f, -52.696f, -0.74f,  0.15f }, { 14.261f,  19.182f, -0.05f,  1.23f },
-        { 14.660f, -60.834f, -0.27f,  0.71f }, { 18.616f,  38.784f,  0.03f,  0.00f }, {  5.278f,  45.998f,  0.08f,  0.80f },
-        {  5.242f,  -8.202f,  0.13f, -0.03f }, {  7.655f,   5.225f,  0.34f,  0.42f }, {  1.629f, -57.237f,  0.46f, -0.16f },
-        {  5.919f,   7.407f,  0.50f,  1.85f }, { 14.064f, -60.373f,  0.61f, -0.23f }, { 19.846f,   8.868f,  0.76f,  0.22f },
-        { 12.443f, -63.099f,  0.76f, -0.24f }, {  4.599f,  16.509f,  0.86f,  1.54f }, { 16.490f, -26.432f,  0.96f,  1.83f },
-        { 13.420f, -11.161f,  0.97f, -0.23f }, {  7.755f,  28.026f,  1.14f,  1.00f }, { 22.961f, -29.622f,  1.16f,  0.09f },
-        { 20.690f,  45.280f,  1.25f,  0.09f }, { 12.795f, -59.689f,  1.25f, -0.23f }, { 10.139f,  11.967f,  1.35f, -0.11f },
-        {  6.977f, -28.972f,  1.50f, -0.21f }, {  7.577f,  31.888f,  1.58f,  0.03f }, { 12.519f, -57.113f,  1.63f,  1.59f },
-        { 17.560f, -37.104f,  1.62f, -0.22f }, {  5.419f,   6.350f,  1.64f, -0.22f }, {  5.438f,  28.608f,  1.65f, -0.13f },
-        {  9.220f, -69.717f,  1.68f,  0.07f }, {  5.604f,  -1.202f,  1.69f, -0.18f }, { 22.137f, -46.961f,  1.74f, -0.13f },
-        {  5.679f,  -1.943f,  1.77f, -0.21f }, { 12.900f,  55.960f,  1.77f, -0.02f }, { 11.062f,  61.751f,  1.79f,  1.07f },
-        {  3.405f,  49.861f,  1.79f,  0.48f }, {  7.140f, -26.393f,  1.84f,  0.68f }, { 17.622f, -42.998f,  1.86f,  0.40f },
-        { 18.403f, -34.385f,  1.85f, -0.03f }, {  8.375f, -59.510f,  1.86f,  1.28f }, { 13.792f,  49.313f,  1.86f, -0.19f },
-        {  5.992f,  44.947f,  1.90f,  0.08f }, { 16.811f, -69.028f,  1.92f,  1.44f }, {  6.628f,  16.399f,  1.93f,  0.00f },
-        { 20.427f, -56.735f,  1.94f, -0.20f }, {  2.530f,  89.264f,  1.98f,  0.60f }, {  6.378f, -17.956f,  1.98f, -0.23f },
-        {  9.460f,  -8.659f,  1.99f,  1.44f }, {  2.120f,  23.463f,  2.00f,  1.15f }, {  0.727f, -17.987f,  2.04f,  1.02f },
-        { 18.921f, -26.297f,  2.05f, -0.13f }, { 14.111f, -36.370f,  2.06f,  1.01f }, {  0.140f,  29.091f,  2.06f, -0.11f },
-        {  1.162f,  35.621f,  2.05f,  1.58f }, {  5.796f,  -9.670f,  2.07f, -0.17f }, { 14.845f,  74.156f,  2.08f,  1.47f },
-        { 17.582f,  12.560f,  2.08f,  0.15f }, {  3.136f,  40.956f,  2.12f, -0.05f }, {  2.065f,  42.330f,  2.10f,  1.37f },
-        { 11.818f,  14.572f,  2.14f,  0.09f }, {  8.060f, -40.003f,  2.21f, -0.27f }, {  0.945f,  60.717f,  2.15f, -0.15f },
-        {  9.285f, -59.275f,  2.21f,  0.18f }, { 15.578f,  26.715f,  2.23f, -0.02f }, { 13.399f,  54.925f,  2.23f,  0.02f },
-        { 20.370f,  40.257f,  2.23f,  0.68f }, {  0.675f,  56.537f,  2.24f,  1.17f }, { 17.943f,  51.489f,  2.24f,  1.52f },
-        {  5.533f,  -0.299f,  2.25f, -0.22f }, {  0.153f,  59.150f,  2.28f,  0.34f }, { 16.006f, -22.622f,  2.29f, -0.12f },
-        { 16.836f, -34.293f,  2.29f,  1.15f }, { 11.031f,  56.382f,  2.37f, -0.02f }, { 14.750f,  27.074f,  2.37f,  0.97f },
-        { 21.736f,   9.875f,  2.39f,  1.53f }, {  0.438f, -42.306f,  2.40f,  1.09f }, { 11.897f,  53.695f,  2.44f,  0.00f },
-        { 17.173f, -15.725f,  2.43f,  0.06f }, { 23.063f,  28.083f,  2.42f,  1.67f }, { 21.310f,  62.586f,  2.45f,  0.26f },
-        {  7.402f, -29.303f,  2.45f, -0.08f }, { 23.079f,  15.205f,  2.49f, -0.04f }, {  3.038f,   4.090f,  2.54f,  1.64f },
-        { 11.235f,  20.524f,  2.56f,  0.12f }, {  5.546f, -17.822f,  2.58f,  0.21f }, { 12.263f, -17.542f,  2.59f, -0.11f },
-        { 15.738f,   6.426f,  2.63f,  1.17f }, { 15.283f,  -9.383f,  2.61f, -0.11f }, {  1.911f,  20.808f,  2.64f,  0.13f },
-        { 16.504f,  21.490f,  2.78f,  0.94f }, { 17.507f,  52.301f,  2.79f,  0.98f }, { 19.512f,  27.960f,  3.05f,  1.13f },
-        { 13.036f,  10.959f,  2.83f,  0.94f }, { 19.771f,  10.613f,  2.72f,  1.52f }, { 10.333f,  19.842f,  2.01f,  1.15f },
-        {  3.791f,  24.105f,  2.87f, -0.09f }, {  3.819f,  24.053f,  3.62f, -0.07f }, {  3.747f,  24.113f,  3.70f, -0.11f },
-        {  3.763f,  24.368f,  3.87f, -0.07f }, {  3.772f,  23.948f,  4.18f, -0.06f }, {  3.754f,  24.467f,  4.30f, -0.11f },
-        {  3.819f,  24.137f,  5.05f, -0.08f }, {  3.748f,  24.289f,  5.45f, -0.04f }, {  5.585f,   9.934f,  3.33f, -0.16f },
-        {  5.590f,  -5.910f,  2.77f, -0.24f }, {  5.588f,  -5.390f,  4.00f,  0.02f }, { 16.091f, -19.806f,  2.62f, -0.07f },
-        { 16.598f, -28.216f,  2.82f, -0.25f }, { 17.513f, -37.296f,  2.70f, -0.22f }, { 17.708f, -39.030f,  2.39f, -0.22f },
-        { 18.350f, -29.828f,  2.70f,  1.38f }, { 18.466f, -25.422f,  2.81f,  1.04f }, { 19.044f, -29.880f,  2.60f,  0.08f },
-        { 19.163f, -21.024f,  2.89f,  0.35f }, { 18.097f, -30.424f,  2.98f,  1.00f }, { 20.770f,  33.970f,  2.48f,  1.03f },
-        { 19.750f,  45.131f,  2.87f, -0.03f }, { 18.835f,  33.363f,  3.52f,  0.00f }, { 18.982f,  32.690f,  3.25f, -0.05f },
-        {  1.430f,  60.235f,  2.68f,  0.13f }, {  1.907f,  63.670f,  3.37f, -0.15f }, { 12.257f,  57.033f,  3.31f,  0.08f },
-        { 12.252f, -58.749f,  2.79f, -0.23f }, { 13.665f, -53.466f,  2.30f, -0.22f }, { 14.592f, -42.158f,  2.31f, -0.19f },
-        { 13.926f, -47.288f,  2.55f, -0.18f }, { 10.716f, -64.394f,  2.76f, -0.22f }, {  9.133f, -43.433f,  2.21f,  1.66f },
-        {  8.745f, -54.709f,  1.96f,  0.04f }, {  9.368f, -55.011f,  2.47f, -0.18f }, {  8.159f, -47.337f,  1.83f, -0.22f },
-        {  6.732f,  25.131f,  2.98f,  1.38f }, {  6.383f,  22.514f,  2.87f,  1.64f }, {  5.995f,  37.213f,  2.62f, -0.08f },
-        { 19.922f,   6.407f,  3.71f,  0.86f }, { 13.911f,  18.398f,  2.68f,  0.58f }, { 16.619f, -10.567f,  2.56f,  0.02f },
-        {  3.967f, -13.509f,  2.95f,  1.59f }, {  5.131f,  -5.086f,  2.78f,  0.13f }, {  5.471f, -20.759f,  2.84f,  0.82f },
-        {  5.661f, -34.074f,  2.65f, -0.12f }, { 22.711f, -46.885f,  2.07f,  1.60f }, { 17.422f, -55.530f,  2.84f,  1.46f },
-        {  5.627f,  21.143f,  3.00f, -0.19f }, {  6.338f, -30.063f,  3.02f, -0.19f }, { 14.699f, -47.388f,  2.30f, -0.20f },
-        { 14.073f,  64.376f,  3.65f, -0.05f }, { 15.345f,  71.834f,  3.00f,  0.05f }, { 21.526f,  -5.571f,  2.87f,  0.83f },
-        { 22.096f,  -0.320f,  2.95f,  0.98f }, { 21.784f, -16.127f,  2.85f,  0.29f }, { 14.848f, -16.042f,  2.75f,  0.15f },
-        { 12.694f,  -1.449f,  2.74f,  0.36f }, { 12.573f, -23.397f,  2.65f,  0.89f }, { 16.688f,  31.603f,  2.81f,  0.65f },
-        {  9.764f,  23.774f,  2.98f,  0.81f }, {  0.429f, -77.254f,  2.80f,  0.62f }, { 22.308f, -60.260f,  2.86f,  1.39f },
-    };
-
-    //--------------------------------------------------------------------------------------------------------------------
     //                                   CUBEMAP-INDEXED STELLAR FIELD (CATALOGUE + DEEP FIELD)
     //--------------------------------------------------------------------------------------------------------------------
 
@@ -304,7 +241,9 @@ namespace
         const float Thickness        = 0.10f + 0.10f * std::exp(-GalacticLongitude * GalacticLongitude / 0.6f);
         const float DiskProfile      = std::exp(-AbsoluteLatitude / Thickness);
         const float Bulge            = std::exp(-(GalacticLongitude * GalacticLongitude) / 0.18f - (GalacticLatitude * GalacticLatitude) / 0.04f);
-        return std::clamp(0.16f + 0.84f * DiskProfile * (0.55f + 0.45f * std::cos(GalacticLongitude * 0.5f)) + 0.6f * Bulge, 0.0f, 1.6f);
+        // Stars of V 5..8.5 lie mostly within ~1 kpc: their plane-to-pole density contrast is only ~3-4 (Seares), not the ~10 of the
+        // integrated Milky Way light, so the pole keeps a 0.3 floor.
+        return std::clamp(0.30f + 0.70f * DiskProfile * (0.60f + 0.40f * std::cos(GalacticLongitude * 0.5f)) + 0.35f * Bulge, 0.0f, 1.6f);
     }
 
     [[nodiscard]] const StellarCubeIndex& RetrieveStellarCubeIndex()
@@ -338,10 +277,10 @@ namespace
             }
             Constructed.CatalogueCount = static_cast<uint32_t>(CatalogueLength);
 
-            // Rejection-sample deep-field stars concentrated toward the galactic plane + bulge (Pogson N(<m) ∝ 10^(0.5 m)).
+            // Rejection-sample deep-field stars concentrated toward the galactic plane + bulge (star counts N(<m) ∝ 10^(0.47 m)).
             const GalacticBasis& Basis   = RetrieveGalacticBasis();
             uint32_t             Attempt = 0u;
-            while (Constructed.Stars.size() < CatalogueLength + DeepFieldStarCount && Attempt < 400000u)
+            while (Constructed.Stars.size() < CatalogueLength + DeepFieldStarCount && Attempt < 1200000u)
             {
                 ++Attempt;
                 const float    Vertical  = 2.0f * HashUnitInterval(Attempt * 3u + 1u) - 1.0f;
@@ -357,10 +296,33 @@ namespace
                     AddVector(ScaleVector(Basis.CentreAxis, Galactic.XCoord), ScaleVector(Basis.QuadratureAxis, Galactic.YCoord)),
                     ScaleVector(Basis.PoleAxis, Galactic.ZCoord));
 
+                // Inverse CDF of N(<m) ∝ 10^(0.47 m) between the catalogue limit and the faint limit.
                 const float MagnitudeUniform = HashUnitInterval(Attempt * 7u + 5u);
-                const float Magnitude        = 4.6f + std::log10(1.0f + MagnitudeUniform * (std::pow(10.0f, 0.5f * 5.0f) - 1.0f)) / 0.5f;
-                const float ColourUniform    = HashUnitInterval(Attempt * 11u + 7u);
-                const float ColourIndex      = -0.28f + 2.05f * std::pow(ColourUniform, 1.15f);
+                const float MagnitudeSpan    = std::pow(10.0f, StarCountSlope * (DeepFieldFaintLimit - DeepFieldBrightLimit)) - 1.0f;
+                const float Magnitude        = DeepFieldBrightLimit + std::log10(1.0f + MagnitudeUniform * MagnitudeSpan) / StarCountSlope;
+                // Field-star B-V is bimodal (BSC5 / Hipparcos V < 8.5): A dwarfs near 0.05, F-G dwarfs near 0.55, the dominant red-clump
+                // K giants near 1.10, and a thin M-giant tail near 1.6. Box-Muller deviate around the picked component.
+                const float ComponentPick    = HashUnitInterval(Attempt * 11u + 7u);
+                const float GaussianRadius   = SafeSquareRoot(-2.0f * std::log(std::max(1.0e-6f, HashUnitInterval(Attempt * 13u + 3u))));
+                const float GaussianDeviate  = GaussianRadius * std::cos(Atmosphere::TauConstant * HashUnitInterval(Attempt * 17u + 9u));
+                float       ColourMean       = 1.10f;
+                float       ColourSpread     = 0.18f;
+                if (ComponentPick < 0.28f)
+                {
+                    ColourMean   = 0.05f;
+                    ColourSpread = 0.14f;
+                }
+                else if (ComponentPick < 0.52f)
+                {
+                    ColourMean   = 0.55f;
+                    ColourSpread = 0.12f;
+                }
+                else if (ComponentPick > 0.95f)
+                {
+                    ColourMean   = 1.60f;
+                    ColourSpread = 0.12f;
+                }
+                const float ColourIndex      = std::clamp(ColourMean + ColourSpread * GaussianDeviate, -0.35f, 2.0f);
                 AppendStar(Equatorial, Magnitude, ColourIndex, Attempt + 100000u);
             }
 
@@ -496,6 +458,49 @@ namespace
             Emitted.Red   * std::exp(-DustDepth * 0.75f),
             Emitted.Green * std::exp(-DustDepth),
             Emitted.Blue  * std::exp(-DustDepth * 1.32f) };
+    }
+
+    // 📝 Zodiacal light + gegenschein: sunlight scattered by interplanetary dust concentrated toward the ecliptic. Surface brightness in
+    //    S10 units (one V = 10 star per square degree) from the Leinert et al. (1998) table: an in-ecliptic profile over the helioecliptic
+    //    longitude difference Δλ (log-log interpolated, 2690 S10 at 30° falling to 165 S10 at 140°, rising to the 200 S10 gegenschein at
+    //    the anti-solar point) and an exponential fall-off in ecliptic latitude β toward the 60 S10 ecliptic-pole floor, with a width
+    //    growing from ~21° near the sun to ~38° at the anti-solar point. The dust sits outside the atmosphere (extinction is applied by
+    //    the caller) and reddens sunlight slightly (B-V ≈ 0.75 vs the solar 0.65).
+    [[nodiscard]] LinearColour EvaluateZodiacalLight(const Vector3f& EquatorialAxis, const Vector3f& SolarEquatorialAxis) noexcept
+    {
+        static const Vector3f EclipticPole = ConstructEquatorialAxis(270.0f * Atmosphere::DegreesToRadians, 66.56071f * Atmosphere::DegreesToRadians);
+        static constexpr float ProfileLongitudes[] = { 15.0f, 20.0f, 25.0f, 30.0f, 35.0f, 40.0f, 45.0f, 60.0f, 75.0f, 90.0f, 105.0f, 120.0f, 140.0f, 160.0f, 170.0f, 180.0f };
+        static constexpr float ProfileS10[]        = { 9000.0f, 5000.0f, 3500.0f, 2690.0f, 2000.0f, 1440.0f, 1080.0f, 588.0f, 371.0f, 261.0f, 210.0f, 185.0f, 165.0f, 170.0f, 185.0f, 200.0f };
+        constexpr float PoleS10 = 60.0f;
+
+        const float    LatitudeSine  = std::clamp(DotVector(EquatorialAxis, EclipticPole), -1.0f, 1.0f);
+        const float    Latitude      = std::abs(std::asin(LatitudeSine)) / Atmosphere::DegreesToRadians;
+        const Vector3f ViewPlane     = SubtractVector(EquatorialAxis, ScaleVector(EclipticPole, LatitudeSine));
+        const Vector3f SolarPlane    = SubtractVector(SolarEquatorialAxis, ScaleVector(EclipticPole, DotVector(SolarEquatorialAxis, EclipticPole)));
+        const float    PlaneLengths  = VectorLength(ViewPlane) * VectorLength(SolarPlane);
+        if (PlaneLengths < 1.0e-6f)
+            return ScaleColour(LinearColour{ 1.0f, 0.93f, 0.80f }, PoleS10);
+        const float Longitude = std::acos(std::clamp(DotVector(ViewPlane, SolarPlane) / PlaneLengths, -1.0f, 1.0f)) / Atmosphere::DegreesToRadians;
+
+        // In-ecliptic brightness (log-log interpolation; inside 15° the corona / twilight dominates, so the profile is held).
+        constexpr uint32_t ProfileCount = sizeof(ProfileLongitudes) / sizeof(ProfileLongitudes[0]);
+        float EclipticS10 = ProfileS10[0];
+        for (uint32_t Knot = 1u; Knot < ProfileCount; ++Knot)
+        {
+            if (Longitude <= ProfileLongitudes[Knot])
+            {
+                const float Span = std::log(ProfileLongitudes[Knot] / ProfileLongitudes[Knot - 1u]);
+                const float Mix  = std::clamp(std::log(std::max(Longitude, ProfileLongitudes[0]) / ProfileLongitudes[Knot - 1u]) / Span, 0.0f, 1.0f);
+                EclipticS10      = std::exp(std::log(ProfileS10[Knot - 1u]) + Mix * std::log(ProfileS10[Knot] / ProfileS10[Knot - 1u]));
+                break;
+            }
+        }
+        // Gegenschein: compact (~8° wide) anti-solar brightening that fades within ~10° of latitude.
+        const float AntiSolar  = 180.0f - Longitude;
+        const float Gegenschein = 45.0f * std::exp(-(AntiSolar * AntiSolar + Latitude * Latitude) / (2.0f * 7.0f * 7.0f));
+        const float Width      = 20.0f + 0.10f * Longitude;
+        const float S10        = PoleS10 + (EclipticS10 - PoleS10) * std::exp(-Latitude / Width) + Gegenschein;
+        return ScaleColour(LinearColour{ 1.0f, 0.93f, 0.80f }, S10);
     }
 
     // 📝 Local gnomonic tangent offsets (east, north) [rad] of EquatorialAxis relative to TargetAxis.
@@ -1525,7 +1530,17 @@ LinearColour EvaluateCelestialBackdrop(
     LinearColour         Backdrop = Lunar.Radiance;
     if (!Lunar.SolidDiscHit)
     {
-        const LinearColour Stars = EvaluateStarfieldGalaxy(Scene.Stars, LocalDirection, SequenceSeconds, VacuumSpaceCondition);
+        LinearColour Stars = EvaluateStarfieldGalaxy(Scene.Stars, LocalDirection, SequenceSeconds, VacuumSpaceCondition);
+        if (Scene.Stars.ZodiacalLightEnabled && Scene.Stars.ZodiacalRadianceScale > 0.0f)
+        {
+            // S10 → solar-calibrated radiance: one V = 10 star (10^-4 of the V = 0 flux) spread over a square degree (3.0462e-4 sr).
+            constexpr float         SquareDegreeSteradians = 3.0462e-4f;
+            const float             S10Radiance            = StellarFluxReference * 1.0e-4f / SquareDegreeSteradians;
+            const CelestialRotation Rotation               = ConstructCelestialRotation(Scene.Stars);
+            const Vector3f          ViewEquatorial         = NormalizeVector(TransformLocalToEquatorial(Rotation, LocalDirection));
+            const Vector3f          SolarEquatorial        = NormalizeVector(TransformLocalToEquatorial(Rotation, SolarAxis));
+            Stars = AddColour(Stars, ScaleColour(EvaluateZodiacalLight(ViewEquatorial, SolarEquatorial), S10Radiance * Scene.Stars.ZodiacalRadianceScale));
+        }
         Backdrop = AddColour(Backdrop, MultiplyColour(Lunar.TransmittanceToStars, Stars));
     }
     return MultiplyColour(Backdrop, Extinction);

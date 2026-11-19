@@ -96,6 +96,8 @@ struct StarfieldConfiguration
     float    RadianceScale            = 1.0f;    // [-]   - Photometric starfield exposure calibration
     float    MilkyWayRadianceScale    = 1.0f;    // [-]   - Galactic plane surface-brightness calibration
     float    ScintillationStrength    = 0.35f;   // [-]   - Atmospheric Kolmogorov twinkling strength (forced 0 in space)
+    bool     ZodiacalLightEnabled     = true;    // [-]   - Evaluates interplanetary-dust zodiacal light + gegenschein along the ecliptic
+    float    ZodiacalRadianceScale    = 1.0f;    // [-]   - Zodiacal surface-brightness calibration (1 = Leinert et al. 1998)
     float    PixelAngularSizeRadians  = 0.0011f; // [rad] - Sensor pixel pitch setting diffraction-limited optical PSF central lobe
 };
 

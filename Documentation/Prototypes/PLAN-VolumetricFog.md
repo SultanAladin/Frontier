@@ -135,7 +135,7 @@ Suggested home: `Engine/Internal/Graphics/Renderer/Volumetric/` (`FroxelField/`,
 
 | Phase | Deliverable | State |
 |---|---|---|
-| **P0** | WebGL2 reference demo — full physics as a fullscreen march; lock the look/constants | ✔️ DONE (`VolumetricFogDemo.html`) |
+| **P0** | WebGL2 reference demo — full physics as a fullscreen march; lock the look/constants | ✔️ DONE (`VolumetricFogDemo.html`; height fog + banks alone in `HeightFogDemo.html`) |
 | **P1** | `FroxelField` + `FogDensityInjectionPass` + `FogIntegrationPass` + `FogCompositePass`; one directional (sun) light, constant density; prove the field end-to-end | ☐ (CPU reference + GLSL mirror ready: `VolumetricFogSolver`, `VolumetricFogField.glsl`) |
 | **P2** | `EvaluatePhaseHenyeyGreenstein` in injection → god-rays; `SunTransmittanceMarch` self-shadow | ◐ CPU reference + GLSL mirror (Wrenninge octaves + diffusion tail) |
 | **P3** | Curl-noise + wind advection in `EvaluateFogDensity`; `HeightFalloffProfile` | ◐ CPU reference + GLSL mirror: closed-form height fog, fog banks advected by the shared `AtmosphericFlowField` (exhibits 17 / 18, gates ⑩) |
