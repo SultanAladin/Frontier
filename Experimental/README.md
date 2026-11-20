@@ -19,6 +19,7 @@
 | **`VehicleLab/`** | `ControlVehicle` `FCT1` mesh inspection, VR38DETT torque & turbo spool curves, Pacejka MF6.1 tyre thermal/slip solver, and 10 telemetry channels. | `Frontier-OLD` @ `438aeaf` | `Engine/Physics/` (`JoltPhysics` wheeled vehicle + Pacejka/thermal solver) + `Engine/Assets/` + `Engine/Editor/` |
 | **`UVEditor/`** | Synchronized 2D UDIM layout & 3D mesh viewport, LSCM conformal unwrapping, seam authoring, GPU wireframe overlays, and importance-weighted packing. | `c7egoist/Frontier` @ `3350774` | `Engine/Geometry/` (LSCM unwrap & UDIM packer) + `Shaders/` (GPU UV/wireframe overlays) + `Engine/Editor/` |
 | **`TextureStudio/`** | Five-workspace texturing suite: `#material` look-dev, `#pattern` noise-scaled layer stack, `#stamp` decals, `#paint` 3D brush projection, and `#bake` mesh + volume SDF baking. | `c7egoist/Frontier` @ `3350774` | `Engine/Materials/`, `Engine/Assets/`, & `Shaders/` (`.slang` procedural noise, brush projection, AO/curvature/SDF bakers) + `Engine/Editor/` |
+| **`RemovedSdfGi/`** | **Removal record, not an active prototype.** Byte-exact copy of the SDF shadow / SDF GI / emissive-GI engine files and exhibit suites deleted by commit `63db120`, with their rendered proof sheets and a `Restore.py` one-command restore. | `Exhibits/{CleanEmissiveGi,CleanEmissiveShadow,VoxelSdfClipmapGi}Validation.cpp` @ `63db120^` | `Engine/DistanceFieldSpace/` + `Engine/Shaders/GlobalIllumination/` + `Exhibits/` (re-integration pending a decision) |
 
 ---
 
@@ -30,6 +31,7 @@
 | **`Shared/UvTextureBridge.js`** | Cross-studio UV layout & mesh transfer bridge connecting `UVEditor/` and `TextureStudio/`. |
 | **`VehicleProvingGrounds/{Archive,Source}/`** | Binary `FCT1` `ControlVehicle` body/rim/tyre streams and authored powertrain/Pacejka/thermal sheets loaded by `VehicleLab/`. |
 | **`UI_COMPONENT_GUIDELINES.md`** | Visual layout, typography, and custom inspector widget specification shared across the reference studios. |
+| **`RemovedSdfGi/{Source,Evidence}/`** | SDF/GI removal record: the deleted engine + exhibit sources, the emitted evidence PNGs, and `Restore.py` (dry-run by default, `--apply` to restore). See its `README.md` for the full removal timeline. |
 
 ---
 
