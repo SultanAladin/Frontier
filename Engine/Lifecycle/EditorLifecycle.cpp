@@ -451,17 +451,14 @@ void EditorLifecycle::AttachForceFieldAuthoringToActivePanes()
                         ActivePanes->Outliner,
                         *ShowcaseBundle,
                         Shape,
-                        Pos,
-                        !GpuActive);
-                    InvalidateRtxLattice();
+                        Pos);
                     if (GpuActive)
                     {
-                        GpuWorldRenderer->SynchronizeSceneResources(ShowcaseBundle->Scene, nullptr, true);
+                        GpuWorldRenderer->SynchronizeSceneResources(ShowcaseBundle->Scene, true);
                     }
                     else if (ShowcaseRenderer != nullptr)
                     {
                         ShowcaseRenderer->PrepareWorldScene(ShowcaseBundle->Scene);
-                        RtxLatticePrepared = true;
                     }
                     RefreshShowcaseViewportRaster();
                 }
@@ -628,10 +625,7 @@ bool EditorLifecycle::AttachVulkanGizmoOverlay(
             GpuWorldRenderer = std::move(CandidateWorldGpu);
             if (ShowcaseBundle != nullptr)
             {
-                GpuWorldRenderer->SynchronizeSceneResources(
-                    ShowcaseBundle->Scene,
-                    (ShowcaseRenderer != nullptr && RtxLatticePrepared) ? &ShowcaseRenderer->InspectIrradianceLattice() : nullptr,
-                    true);
+                GpuWorldRenderer->SynchronizeSceneResources(ShowcaseBundle->Scene, true);
             }
         }
     }
@@ -697,10 +691,8 @@ void EditorLifecycle::PopulateShowcaseGallerySession(uint32_t RenderWidthPx, uin
         return;
     }
 
-    JoinRtxLatticeThread();
     ShowcaseBundle     = std::make_unique<GeometricRaster::ShowcaseWorldSceneBundle>();
     ShowcaseRenderer   = std::make_unique<GeometricRaster::TieredWorldRenderSequence>();
-    InvalidateRtxLattice();
     CachedWorldRgba8.clear();
     CachedWorldWidthPx  = 0u;
     CachedWorldHeightPx = 0u;
@@ -708,7 +700,7 @@ void EditorLifecycle::PopulateShowcaseGallerySession(uint32_t RenderWidthPx, uin
     WorldTransformGizmo.ConfigureHandleFilter(Editor::GizmoHandleFilter::Universal);
 
     const bool GpuActive = (GpuWorldRenderer != nullptr && GpuWorldRenderer->QueryReady());
-    GeometricRaster::BuildShowcaseGalleryScene(*ShowcaseBundle, RenderWidthPx, RenderHeightPx, !GpuActive);
+    GeometricRaster::BuildShowcaseGalleryScene(*ShowcaseBundle, RenderWidthPx, RenderHeightPx);
     {
         const auto& DisplayCfg = Panes->Viewport.QueryDisplaySettings();
         auto& Atmo = ShowcaseBundle->Scene.Atmosphere;
@@ -737,12 +729,11 @@ void EditorLifecycle::PopulateShowcaseGallerySession(uint32_t RenderWidthPx, uin
     }
     if (GpuActive)
     {
-        GpuWorldRenderer->SynchronizeSceneResources(ShowcaseBundle->Scene, nullptr, true);
+        GpuWorldRenderer->SynchronizeSceneResources(ShowcaseBundle->Scene, true);
     }
     else
     {
         ShowcaseRenderer->PrepareWorldScene(ShowcaseBundle->Scene);
-        RtxLatticePrepared = true;
     }
     GeometricRaster::RegisterShowcaseGalleryInOutliner(Panes->Outliner, *ShowcaseBundle, true);
     Panes->Viewport.ConfigureSceneTitle(
@@ -813,8 +804,7 @@ void EditorLifecycle::PopulateShowcaseGallerySession(uint32_t RenderWidthPx, uin
                         Title,
                         { 212u, 208u, 200u, 255u },
                         DropPos,
-                        {},
-                        true);
+                        {});
                     SynchronizeShowcaseRendererAfterEdit(true);
                 }
             }
@@ -1386,8 +1376,7 @@ OutlinerSlotToken EditorLifecycle::SpawnComponentClassPlacement(
                     Hdr.Title,
                     PartTint,
                     WorldPos,
-                    EncOutliner,
-                    false);
+                    EncOutliner);
                 if (OutlinerRecordEntry* Row = Panes->Outliner.AccessEntry(SpawnedSlot))
                 {
                     Row->PositionX         = LocalXform.LocationMeters.X;
@@ -1428,7 +1417,7 @@ OutlinerSlotToken EditorLifecycle::SpawnComponentClassPlacement(
                 if (Light != nullptr)
                 {
                     bool NeedsRebuild = false;
-                    (void)GeometricRaster::SynchronizeShowcaseGallerySceneLive(Panes->Outliner, *ShowcaseBundle, NeedsRebuild, false);
+                    (void)GeometricRaster::SynchronizeShowcaseGallerySceneLive(Panes->Outliner, *ShowcaseBundle, NeedsRebuild);
                     for (auto& Binding : ShowcaseBundle->AreaLightBindings)
                     {
                         if (Binding.SlotToken == SpawnedSlot && Binding.AreaLightIndex < ShowcaseBundle->Scene.AreaLights.size())
@@ -1627,15 +1616,13 @@ void EditorLifecycle::SynchronizeShowcaseRendererAfterEdit(bool RebuildGeometry)
         return;
     }
 
-    InvalidateRtxLattice();
     if (GpuWorldRenderer != nullptr && GpuWorldRenderer->QueryReady())
     {
-        GpuWorldRenderer->SynchronizeSceneResources(ShowcaseBundle->Scene, nullptr, RebuildGeometry);
+        GpuWorldRenderer->SynchronizeSceneResources(ShowcaseBundle->Scene, RebuildGeometry);
     }
     else if (ShowcaseRenderer != nullptr)
     {
         ShowcaseRenderer->PrepareWorldScene(ShowcaseBundle->Scene);
-        RtxLatticePrepared = true;
     }
     SynchronizeShowcaseGizmoAnchor();
     RefreshShowcaseViewportRaster();
@@ -1673,8 +1660,7 @@ void EditorLifecycle::HandleContentDropOnViewport(
             Entry.DisplayTitle,
             Tint,
             DropPos,
-            {},
-            true);
+            {});
         SynchronizeShowcaseRendererAfterEdit(true);
         return;
     }
@@ -1696,7 +1682,7 @@ void EditorLifecycle::HandleContentDropOnViewport(
             if (Panes->Viewport.QueryDisplaySettings().RenderEngineIndex == static_cast<uint32_t>(GeometricRaster::WorldRenderEngine::MatCap))
             {
                 Panes->Viewport.AccessDisplaySettings().RenderEngineIndex =
-                    static_cast<uint32_t>(GeometricRaster::WorldRenderEngine::SdfGlobalIllumination);
+                    static_cast<uint32_t>(GeometricRaster::WorldRenderEngine::OpenPbrDirect);
                 Panes->Viewport.AccessDisplaySettings().DebugChannelIndex = 0u;
             }
             SynchronizeShowcaseRendererAfterEdit(false);
@@ -1753,8 +1739,7 @@ void EditorLifecycle::HandleContentDropOnOutliner(
             Entry.DisplayTitle,
             Tint,
             DropPos,
-            HitSlot,
-            true);
+            HitSlot);
         SynchronizeShowcaseRendererAfterEdit(true);
         return;
     }
@@ -2260,95 +2245,6 @@ void EditorLifecycle::RefreshGizmoOverlayFromCachedWorld()
     Panes->Viewport.AssignCanvasRasterImage(ViewportRgba.data(), CachedWorldWidthPx, CachedWorldHeightPx);
 }
 
-void EditorLifecycle::InvalidateRtxLattice() noexcept
-{
-    ++RtxLatticeGeneration;
-    RtxLatticePrepared = false;
-}
-
-void EditorLifecycle::JoinRtxLatticeThread() noexcept
-{
-    if (RtxLatticeThread.joinable())
-    {
-        RtxLatticeThread.join();
-    }
-    RtxLatticeInFlight.store(false, std::memory_order_release);
-    RtxLatticeReady.store(false, std::memory_order_release);
-}
-
-void EditorLifecycle::BeginAsyncRtxLatticeBake()
-{
-    if (ShowcaseBundle == nullptr || RtxLatticeInFlight.load(std::memory_order_acquire))
-    {
-        return;
-    }
-    if (RtxLatticeThread.joinable())
-    {
-        RtxLatticeThread.join();
-    }
-
-    GeometricRaster::TieredWorldRenderSequence::CompileBounceSummaries(ShowcaseBundle->Scene);
-    const auto     ConfigCopy      = ShowcaseBundle->Scene.LatticeConfig;
-    const auto     TreeCopy        = ShowcaseBundle->Scene.SceneTree;
-    const auto     SummariesCopy   = ShowcaseBundle->Scene.BounceSummaries;
-    const auto     SunCopy         = ShowcaseBundle->Scene.Sun;
-    const auto     SkyCopy         = ShowcaseBundle->Scene.SkyRadiance;
-    const uint64_t TargetGen       = RtxLatticeGeneration;
-
-    RtxLatticeReady.store(false, std::memory_order_release);
-    RtxLatticeInFlight.store(true, std::memory_order_release);
-
-    RtxLatticeThread = std::thread(
-        [this, ConfigCopy, TreeCopy, SummariesCopy, SunCopy, SkyCopy, TargetGen]()
-        {
-            GeometricRaster::IrradianceLatticeSequence Baked {};
-            Baked.PropagateRtxIrradianceLattice(ConfigCopy, TreeCopy, SummariesCopy, SunCopy, SkyCopy);
-            {
-                std::lock_guard<std::mutex> Guard(RtxLatticeMutex);
-                PendingRtxLattice    = std::move(Baked);
-                PendingRtxLatticeGen = TargetGen;
-            }
-            RtxLatticeReady.store(true, std::memory_order_release);
-            RtxLatticeInFlight.store(false, std::memory_order_release);
-        });
-}
-
-bool EditorLifecycle::ConsumeCompletedRtxLatticeBake()
-{
-    if (!RtxLatticeReady.load(std::memory_order_acquire))
-    {
-        return false;
-    }
-    if (RtxLatticeThread.joinable())
-    {
-        RtxLatticeThread.join();
-    }
-
-    GeometricRaster::IrradianceLatticeSequence Completed {};
-    uint64_t CompletedGen = 0ull;
-    {
-        std::lock_guard<std::mutex> Guard(RtxLatticeMutex);
-        Completed    = std::move(PendingRtxLattice);
-        CompletedGen = PendingRtxLatticeGen;
-    }
-    RtxLatticeReady.store(false, std::memory_order_release);
-
-    if (ShowcaseRenderer != nullptr)
-    {
-        ShowcaseRenderer->AssignIrradianceLattice(std::move(Completed));
-        if (GpuWorldRenderer != nullptr && GpuWorldRenderer->QueryReady())
-        {
-            GpuWorldRenderer->UploadIrradianceLattice(ShowcaseRenderer->InspectIrradianceLattice());
-        }
-    }
-
-    if (CompletedGen == RtxLatticeGeneration)
-    {
-        RtxLatticePrepared = true;
-    }
-    return true;
-}
-
 void EditorLifecycle::RefreshShowcaseViewportRaster()
 {
     WorkspaceSessionPanes* Panes = Workspaces.AccessActivePanes();
@@ -2403,107 +2299,17 @@ void EditorLifecycle::RefreshShowcaseViewportRaster()
     ShowcaseBundle->EditorCamera.ViewportHeightPx = UseGpuViewport ? TargetH : TraceH;
 
     const uint32_t QTier = std::min(4u, DisplayCfg.QualityTier);
-    constexpr std::array<uint32_t, 5u> TierBounces = {{ 2u, 3u, 4u, 5u, 6u }};
-    constexpr std::array<uint32_t, 5u> TierSamples = {{ 1u, 1u, 1u, 2u, 2u }};
 
     GeometricRaster::WorldRenderConfiguration RenderConfig {};
-    RenderConfig.Engine = static_cast<GeometricRaster::WorldRenderEngine>(std::min(4u, DisplayCfg.RenderEngineIndex));
-    if (!DisplayCfg.RaytracingEnabled && RenderConfig.Engine == GeometricRaster::WorldRenderEngine::DdgiRaytracing)
-    {
-        RenderConfig.Engine = GeometricRaster::WorldRenderEngine::SdfGlobalIllumination;
-    }
-    if (!DisplayCfg.GlobalIllumination &&
-        (RenderConfig.Engine == GeometricRaster::WorldRenderEngine::DdgiRaytracing ||
-         RenderConfig.Engine == GeometricRaster::WorldRenderEngine::SdfGlobalIllumination))
-    {
-        RenderConfig.Engine = GeometricRaster::WorldRenderEngine::OpenPbrDirect;
-    }
-    RenderConfig.ShadowAlgorithm           = static_cast<GeometricRaster::SolarShadowAlgorithm>(std::min(4u, DisplayCfg.ShadowAlgorithmIndex));
-    RenderConfig.ReflectionSource          = (DisplayCfg.ReflectionsEnabled && DisplayCfg.RaytracingEnabled && DisplayCfg.ReflectionSourceIndex == 0u)
+    RenderConfig.Engine           = static_cast<GeometricRaster::WorldRenderEngine>(std::min(1u, DisplayCfg.RenderEngineIndex));
+    RenderConfig.ShadowAlgorithm  = static_cast<GeometricRaster::SolarShadowAlgorithm>(std::min(4u, DisplayCfg.ShadowAlgorithmIndex));
+    RenderConfig.ReflectionSource = (DisplayCfg.ReflectionsEnabled && DisplayCfg.RaytracingEnabled && DisplayCfg.ReflectionSourceIndex == 0u)
         ? GeometricRaster::SpecularReflectionSource::WideTreeRaytrace
         : GeometricRaster::SpecularReflectionSource::SkyEnvironment;
-    RenderConfig.DebugChannel              = DisplayCfg.DebugChannelIndex;
-    RenderConfig.QualityTier               = QTier;
-    RenderConfig.PathTraceMaxBounces       = TierBounces[QTier];
-    RenderConfig.PathTraceSamples          = CameraInteractiveDrag ? 1u : (HwGpu ? TierSamples[QTier] : 1u);
-    RenderConfig.PathTraceDenoise          = DisplayCfg.AntiAliasingEnabled;
-    RenderConfig.SdfGiBilateral            = DisplayCfg.AntiAliasingEnabled;
-    RenderConfig.GlobalIlluminationEnabled = DisplayCfg.GlobalIllumination;
-    RenderConfig.ReflectionsEnabled        = DisplayCfg.ReflectionsEnabled;
-    RenderConfig.RaytracingEnabled         = DisplayCfg.RaytracingEnabled;
-
-    if (RenderConfig.Engine == GeometricRaster::WorldRenderEngine::DdgiRaytracing ||
-        RenderConfig.Engine == GeometricRaster::WorldRenderEngine::SdfGlobalIllumination)
-    {
-        if (GpuReady && GpuWorldRenderer->QueryIrradianceLatticeUploaded())
-        {
-            RtxLatticePrepared = true;
-        }
-        else
-        {
-            (void)ConsumeCompletedRtxLatticeBake();
-            if (!RtxLatticePrepared)
-            {
-                if (GpuReady)
-                {
-                    // Propagate multi-bounce DDGI lattice off the UI thread only when GPU lattice is absent
-                    BeginAsyncRtxLatticeBake();
-                }
-                else
-                {
-                    ShowcaseRenderer->PrepareWorldScene(ShowcaseBundle->Scene);
-                    RtxLatticePrepared = true;
-                }
-            }
-        }
-    }
-
-    const float CamDelta =
-        Mathematics::EvaluateLength(ShowcaseBundle->EditorCamera.CameraOrigin - LastPtCameraOrigin) +
-        Mathematics::EvaluateLength(ShowcaseBundle->EditorCamera.TargetPoint  - LastPtCameraTarget);
-    const bool ResetPathAccum =
-        CamDelta > 1.0e-4f ||
-        CameraInteractiveDrag ||
-        TraceW != LastPtWidthPx ||
-        TraceH != LastPtHeightPx ||
-        TraceResIdx != LastPtTraceResIdx ||
-        DisplayCfg.RenderEngineIndex != LastPtEngineIndex ||
-        DisplayCfg.ShadowAlgorithmIndex != LastPtShadowAlg ||
-        DisplayCfg.ReflectionSourceIndex != LastPtReflSrc ||
-        DisplayCfg.DebugChannelIndex != LastPtDebugChan ||
-        DisplayCfg.QualityTier != LastPtQualityTier ||
-        DisplayCfg.GlobalIllumination != LastPtGi ||
-        DisplayCfg.ReflectionsEnabled != LastPtRefl ||
-        DisplayCfg.AntiAliasingEnabled != LastPtAa ||
-        DisplayCfg.RaytracingEnabled != LastPtRt ||
-        DisplayCfg.AtmosphereSkyEnabled != LastPtAtmoSky ||
-        DisplayCfg.VolumetricCloudsEnabled != LastPtClouds ||
-        DisplayCfg.CelestialStarsEnabled != LastPtCelestials ||
-        std::fabs(DisplayCfg.SolarTimeOfDayHours - LastPtSolarHours) > 1.0e-3f ||
-        std::fabs(DisplayCfg.CloudFraction - LastPtCloudFraction) > 1.0e-3f;
-    if (ResetPathAccum)
-    {
-        PathTraceAccumIndex = 0u;
-    }
-    LastPtCameraOrigin   = ShowcaseBundle->EditorCamera.CameraOrigin;
-    LastPtCameraTarget   = ShowcaseBundle->EditorCamera.TargetPoint;
-    LastPtWidthPx        = TraceW;
-    LastPtHeightPx       = TraceH;
-    LastPtTraceResIdx    = TraceResIdx;
-    LastPtEngineIndex    = DisplayCfg.RenderEngineIndex;
-    LastPtShadowAlg      = DisplayCfg.ShadowAlgorithmIndex;
-    LastPtReflSrc        = DisplayCfg.ReflectionSourceIndex;
-    LastPtDebugChan      = DisplayCfg.DebugChannelIndex;
-    LastPtQualityTier    = DisplayCfg.QualityTier;
-    LastPtGi             = DisplayCfg.GlobalIllumination;
-    LastPtRefl           = DisplayCfg.ReflectionsEnabled;
-    LastPtAa             = DisplayCfg.AntiAliasingEnabled;
-    LastPtRt             = DisplayCfg.RaytracingEnabled;
-    LastPtAtmoSky        = DisplayCfg.AtmosphereSkyEnabled;
-    LastPtClouds         = DisplayCfg.VolumetricCloudsEnabled;
-    LastPtCelestials     = DisplayCfg.CelestialStarsEnabled;
-    LastPtSolarHours     = DisplayCfg.SolarTimeOfDayHours;
-    LastPtCloudFraction  = DisplayCfg.CloudFraction;
+    RenderConfig.DebugChannel       = std::min(11u, DisplayCfg.DebugChannelIndex);
+    RenderConfig.QualityTier        = QTier;
+    RenderConfig.ReflectionsEnabled = DisplayCfg.ReflectionsEnabled;
+    RenderConfig.RaytracingEnabled  = DisplayCfg.RaytracingEnabled;
 
     std::vector<uint8_t> CleanWorldRgba {};
     uint32_t             OutWidthPx     = TraceW;
@@ -2521,7 +2327,7 @@ void EditorLifecycle::RefreshShowcaseViewportRaster()
         uint32_t    TracedH   = 0u;
         if (GpuWorldRenderer->RenderWorldViewportToGpuImage(
                 RenderConfig,
-                PathTraceAccumIndex,
+                0u,
                 TraceCam,
                 ShowcaseBundle->Scene,
                 WorldView,
@@ -2536,12 +2342,6 @@ void EditorLifecycle::RefreshShowcaseViewportRaster()
             const float SavedTickMs = LatestViewportTiming.EditorTickMs;
             LatestViewportTiming = GpuWorldRenderer->QueryLastTimingBreakdown();
             LatestViewportTiming.EditorTickMs = SavedTickMs;
-
-            if (RenderConfig.Engine == GeometricRaster::WorldRenderEngine::DeterministicPathTrace && !CameraInteractiveDrag)
-            {
-                const uint32_t SamplesRan = HwGpu ? std::clamp(RenderConfig.PathTraceSamples, 1u, 4u) : 1u;
-                PathTraceAccumIndex += SamplesRan;
-            }
 
             const auto ForceStart = std::chrono::steady_clock::now();
             bool ForceUpdated = false;
@@ -2604,7 +2404,7 @@ void EditorLifecycle::RefreshShowcaseViewportRaster()
     {
         RenderedOnGpu = GpuWorldRenderer->RenderWorldViewportWithEngine(
             RenderConfig,
-            PathTraceAccumIndex,
+            0u,
             ShowcaseBundle->EditorCamera,
             ShowcaseBundle->Scene,
             CleanWorldRgba);
@@ -2613,11 +2413,6 @@ void EditorLifecycle::RefreshShowcaseViewportRaster()
             const float SavedTickMs = LatestViewportTiming.EditorTickMs;
             LatestViewportTiming = GpuWorldRenderer->QueryLastTimingBreakdown();
             LatestViewportTiming.EditorTickMs = SavedTickMs;
-        }
-        if (RenderedOnGpu && RenderConfig.Engine == GeometricRaster::WorldRenderEngine::DeterministicPathTrace && !CameraInteractiveDrag)
-        {
-            const uint32_t SamplesRan = HwGpu ? std::clamp(RenderConfig.PathTraceSamples, 1u, 4u) : 1u;
-            PathTraceAccumIndex += SamplesRan;
         }
     }
 
@@ -2679,14 +2474,11 @@ void EditorLifecycle::RefreshShowcaseViewportRaster()
     }
 
     OutlinerFooterReadings Footer {};
-    const char* EngineShortTag = "SDF GI";
+    const char* EngineShortTag = "OpenPBR";
     switch (RenderConfig.Engine)
     {
-    case GeometricRaster::WorldRenderEngine::MatCap:                 EngineShortTag = "MatCap"; break;
-    case GeometricRaster::WorldRenderEngine::OpenPbrDirect:          EngineShortTag = "OpenPBR"; break;
-    case GeometricRaster::WorldRenderEngine::DdgiRaytracing:         EngineShortTag = "DDGI RT"; break;
-    case GeometricRaster::WorldRenderEngine::SdfGlobalIllumination:  EngineShortTag = "SDF GI"; break;
-    case GeometricRaster::WorldRenderEngine::DeterministicPathTrace: EngineShortTag = "PathTrace"; break;
+    case GeometricRaster::WorldRenderEngine::MatCap:        EngineShortTag = "MatCap"; break;
+    case GeometricRaster::WorldRenderEngine::OpenPbrDirect: EngineShortTag = "OpenPBR"; break;
     }
     if (RenderedOnGpu)
     {
@@ -2757,15 +2549,12 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
                 GeometricRaster::CelestialEphemerisSolver::AdvanceDayCycleHours(Atmo.Solar, SafeStep);
                 DisplayCfg.SolarTimeOfDayHours = Atmo.Solar.LocalHours;
             }
-            const bool ActivePathTraceFrozen =
-                (DisplayCfg.RenderEngineIndex == 4u) && !DisplayCfg.DayCyclePlaying;
             const bool CloudsMoving =
                 DisplayCfg.VolumetricCloudsEnabled &&
                 Atmo.Clouds.FollowWindEnabled &&
                 Atmo.Clouds.WindSpeedMetersPerSecond > 0.01f;
             const bool AtmoAnimTick =
                 DisplayCfg.AtmosphereSkyEnabled &&
-                !ActivePathTraceFrozen &&
                 (DisplayCfg.DayCyclePlaying || CloudsMoving) &&
                 SafeStep > 0.0;
             if (AtmoAnimTick)
@@ -2870,7 +2659,6 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
                 DisplayCfg.ShadowAlgorithmIndex != LastShadowAlgorithm ||
                 DisplayCfg.ReflectionSourceIndex != LastReflectionSource ||
                 DisplayCfg.TraceResolutionIndex != LastTraceResolutionIdx ||
-                DisplayCfg.GlobalIllumination != LastGiEnabled ||
                 DisplayCfg.ReflectionsEnabled != LastReflectionsEnabled ||
                 DisplayCfg.AntiAliasingEnabled != LastAaEnabled ||
                 DisplayCfg.RaytracingEnabled != LastRtEnabled ||
@@ -2907,7 +2695,6 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
             LastShadowAlgorithm    = DisplayCfg.ShadowAlgorithmIndex;
             LastReflectionSource   = DisplayCfg.ReflectionSourceIndex;
             LastTraceResolutionIdx = DisplayCfg.TraceResolutionIndex;
-            LastGiEnabled          = DisplayCfg.GlobalIllumination;
             LastReflectionsEnabled = DisplayCfg.ReflectionsEnabled;
             LastAaEnabled          = DisplayCfg.AntiAliasingEnabled;
             LastRtEnabled          = DisplayCfg.RaytracingEnabled;
@@ -2933,44 +2720,36 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
 
             SynchronizeComponentPlacementOverrides();
 
-            const bool LatticeUpdated = ConsumeCompletedRtxLatticeBake();
             bool       NeedsPrep = false;
             const bool SceneMutated = GeometricRaster::SynchronizeShowcaseGallerySceneLive(
                 Panes->Outliner,
                 *ShowcaseBundle,
-                NeedsPrep,
-                !GpuReady && !WorldTransformGizmo.QueryDragging() && !InteractionFastDrag);
+                NeedsPrep);
             if (InteractionSceneSync && !NeedsPrep && !InteractionFastDrag && !WorldTransformGizmo.QueryDragging())
             {
                 if (!GpuReady)
                 {
-                    GeometricRaster::RebuildShowcaseSceneAcceleration(*ShowcaseBundle, true);
+                    GeometricRaster::RebuildShowcaseSceneAcceleration(*ShowcaseBundle);
                 }
                 NeedsPrep = true;
             }
             if (NeedsPrep)
             {
-                PathTraceAccumIndex = 0u;
-                InvalidateRtxLattice();
                 if (GpuReady)
                 {
                     GpuWorldRenderer->SynchronizeSceneResources(
                         ShowcaseBundle->Scene,
-                        nullptr,
                         !WorldTransformGizmo.QueryDragging() && !InteractionFastDrag);
                 }
                 else if (ShowcaseRenderer != nullptr)
                 {
                     ShowcaseRenderer->PrepareWorldScene(ShowcaseBundle->Scene);
-                    RtxLatticePrepared = true;
                 }
             }
-            const bool ProgressivePathTraceTick =
-                GpuReady && DisplayCfg.RenderEngineIndex == 4u && PathTraceAccumIndex < 64u && !CameraInteractiveDrag;
             const auto TickPrepEnd = std::chrono::steady_clock::now();
             LatestViewportTiming.EditorTickMs = static_cast<float>(
                 std::chrono::duration<double, std::milli>(TickPrepEnd - TickStart).count());
-            if (InteractionWorldRefresh || SceneMutated || DisplayChanged || LatticeUpdated || ProgressivePathTraceTick)
+            if (InteractionWorldRefresh || SceneMutated || DisplayChanged)
             {
                 RefreshShowcaseViewportRaster();
             }
@@ -3181,7 +2960,6 @@ void EditorLifecycle::RequestTermination() noexcept
 
 void EditorLifecycle::Finalize() noexcept
 {
-    JoinRtxLatticeThread();
     if (!Initialized)
     {
         EditorSequence.Finalize();

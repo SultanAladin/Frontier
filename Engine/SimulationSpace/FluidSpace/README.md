@@ -17,8 +17,8 @@
 | `FluidGiLightExtractor.h` | Reduces hot combustion voxels into dynamic blackbody GI emissive point/sphere light proxies for OpenPBR, DDGI & PathTrace |
 | `FluidGridBuffers.cpp` | Allocation, indexing, and trilinear sampling for Hero Pyro Grid & Continuous World Drift Smoke Grid |
 | `FluidGridBuffers.h` | Dual-tier 3D Eulerian fluid voxel buffers (Hero Pyro Grid + Sliding World Smoke Drift Grid) for CPU & Vulkan GPU compute |
-| `FluidObstacleVoxelizer.cpp` | Voxelizes GI SignedDistanceVolume + WideBoundingTree + 5 analytical colliders into +Z-Up fluid solid masks |
-| `FluidObstacleVoxelizer.h` | Voxelizes GI SignedDistanceVolume, WideBoundingTree & analytical FluidObstacle primitives into solid fluid collision masks |
+| `FluidObstacleVoxelizer.cpp` | Voxelizes WideBoundingTree + 5 analytical colliders into +Z-Up fluid solid collision masks (Zero SDF) |
+| `FluidObstacleVoxelizer.h` | Voxelizes WideBoundingTree & analytical FluidObstacle primitives into solid fluid collision masks |
 | `FluidParticleCoupler.cpp` | Fluid-driven Ember/Ash advection in ParticleSlots & ballistic Shrapnel smoke/fire injection into Fluid grids |
 | `FluidParticleCoupler.h` | Bidirectional ParticleSpace <-> FluidSpace bridge: Fluid-advected Ember/Ash ParticleSlots & ballistic shrapnel fluid splats |
 | `FluidPresets.cpp` | Built-in Fire/Smoke/Explosion presets & 6 physical/stylized blackbody palettes |

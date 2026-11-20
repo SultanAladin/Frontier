@@ -1,6 +1,6 @@
 # 🧩 `Engine/Shaders/MaterialSpace/`
 
-> **TL;DR**: Fast 5-ALU 32-byte BounceSlabEntry evaluation for secondary IrradianceLattice & multi-bounce specular rays (12 source/header/shader files under `Engine/Shaders/MaterialSpace/`).
+> **TL;DR**: Fast 5-ALU 32-byte BounceSlabEntry evaluation for secondary OpenPBR specular & refractive rays (12 source/header/shader files under `Engine/Shaders/MaterialSpace/`).
 
 ---
 
@@ -8,7 +8,7 @@
 
 | File | Purpose |
 | :--- | :--- |
-| `BounceLayerSummary.slang` | Fast 5-ALU 32-byte BounceSlabEntry evaluation for secondary IrradianceLattice & multi-bounce specular rays |
+| `BounceLayerSummary.slang` | Fast 5-ALU 32-byte BounceSlabEntry evaluation for secondary OpenPBR specular & refractive rays |
 | `DynamicMaskSeam.slang` | Exact 256-byte GPU uniform block matching C++20 DynamicParameterBlock + spatial sweep, impact pulse, lidar scan & voxel cutout masks |
 | `DynamicMaterialResolve.slang` | GPU Direct Studio OpenPBR (No GI) compute shader resolving all 13 modular dynamic materials with 10-lobe physics & thin-film optics |
 | `FiberScattering.slang` | Lobe 9: Chiang et al. (2016) / Marschner Dual-Scattering Hair & Technical Fiber BCSDF (R + TT + TRT lobes) |

@@ -9,7 +9,6 @@
 
 #include "Engine/Codecs/GeometryCodec.h"
 #include "Engine/Constants/MathConstants.h"
-#include "Engine/DistanceFieldSpace/SignedDistanceVolume.h"
 #include "Engine/GeometrySpace/Analysis/CurvatureAnalysis.h"
 #include "Engine/GeometrySpace/Analysis/StretchMeasurement.h"
 #include "Engine/GeometrySpace/Primitives/AnalyticPrimitives.h"
@@ -425,30 +424,16 @@ int main()
     Score.Check(ConfirmedRayHits > 200u, "Vehicle 4-Wide BVH4 resolves hundreds of coherent & oblique rays cleanly");
 
     //====================================================================================================================
-    // 6. SPARSE 8x8x8 NARROW-BAND SIGNED DISTANCE VOLUME & CONE VISIBILITY PENUMBRA
+    // 6. 4-WIDE BVH4 ANALYTIC RAY PROBE & OCCLUSION CONE CHECK
     //====================================================================================================================
     SpatialAcceleration::WideBoundingTree SphereWideTree {};
     (void)SphereWideTree.BuildFromPolygonNetwork(SphereNet);
 
-    DistanceFieldSpace::SignedDistanceVolume SphereSDF {};
-    const bool SdfBuilt = SphereSDF.BuildFromWideBoundingTree(SphereWideTree, 0.06f, 0.80f);
-    Score.Check(SdfBuilt && !SphereSDF.AllocatedBricks.empty(), "Sparse 8x8x8 narrow-band SignedDistanceVolume built");
-
-    const std::size_t TotalMacroBricks = SphereSDF.BrickIndirection.size();
-    Score.Check(SphereSDF.AllocatedBricks.size() < TotalMacroBricks, "Sparse SDF prunes far-field bricks outside narrow band");
-
-    const float DistAtCenter  = SphereSDF.SampleSignedDistance({ 0.0f, 0.0f, 0.0f });
-    const float DistOutsideX  = SphereSDF.SampleSignedDistance({ 2.00f, 0.0f, 0.0f }); // R = 1.25 -> exact = +0.75 m
-    const auto  OutwardGradX  = SphereSDF.EvaluateSurfaceGradient({ 1.30f, 0.0f, 0.0f });
-    Score.Check(DistAtCenter < -0.25f, "SignedDistanceVolume interior distance is strictly negative");
-    Score.Check(std::fabs(DistOutsideX - 0.75f) < 0.08f, "SignedDistanceVolume exterior distance matches (2.00 - 1.25 = 0.75 m)");
-    Score.Check(OutwardGradX.X > 0.94f, "EvaluateSurfaceGradient points outward (+X at +X pole)");
-
-    const float ConeBlocked  = SphereSDF.TraceConeVisibility({ -3.0f, 0.00f, 0.0f }, { 1.0f, 0.0f, 0.0f }, 6.0f, 0.05f);
-    const float ConeGrazing  = SphereSDF.TraceConeVisibility({ -3.0f, 1.32f, 0.0f }, { 1.0f, 0.0f, 0.0f }, 6.0f, 0.08f);
-    const float ConeClearSky = SphereSDF.TraceConeVisibility({ -3.0f, 2.40f, 0.0f }, { 1.0f, 0.0f, 0.0f }, 6.0f, 0.05f);
-    Score.Check(ConeBlocked <= 0.02f && ConeClearSky >= 0.95f && ConeGrazing > ConeBlocked && ConeGrazing < ConeClearSky,
-                "TraceConeVisibility produces occluded umbra (0.0), smooth grazing penumbra, and clear sky (1.0)");
+    const auto ProbeHit  = SphereWideTree.TraceClosestRay({ { -3.0f, 0.00f, 0.0f }, 0.0f, { 1.0f, 0.0f, 0.0f }, 6.0f });
+    const auto ProbeMiss = SphereWideTree.TraceClosestRay({ { -3.0f, 2.40f, 0.0f }, 0.0f, { 1.0f, 0.0f, 0.0f }, 6.0f });
+    Score.Check(ProbeHit.HitConfirmed && std::fabs(ProbeHit.HitDistanceMeters - 1.75f) < 0.08f,
+                "4-Wide BVH4 TraceClosestRay hits unit+0.25m sphere at exact distance 1.75 m");
+    Score.Check(!ProbeMiss.HitConfirmed, "4-Wide BVH4 clears outside silhouette cleanly");
 
     //====================================================================================================================
     // 7. .GEOMETRYSPACE ROUNDTRIP SERIALIZATION (POLYGONNETWORK + CLUSTERPYRAMID + WIDEBOUNDINGTREE + REVISION)
@@ -582,7 +567,7 @@ int main()
     Bg->AddRectFilled(ImVec2(746.0f, 121.0f), ImVec2(752.0f, 137.0f), ColGreen, 3.0f);
     Bg->AddText(ImVec2(762.0f, 122.0f), ColText, "128-TRI CLUSTER PYRAMID, 128 B 4-WIDE BVH4 & SPARSE 8x8x8 SDF SLICE");
 
-    // Construct 2D Equatorial Cross-Section Heatmap of SphereSDF on Left of Panel 2
+    // Construct 2D Equatorial Cross-Section Heatmap of SphereWideTree on Left of Panel 2
     const float SdfBoxLeft = 752.0f;
     const float SdfBoxTop  = 174.0f;
     const float SdfBoxSize = 242.0f;
@@ -594,31 +579,23 @@ int main()
         {
             const float WorldX = -2.1f + 4.2f * (static_cast<float>(Col) + 0.5f) / static_cast<float>(GridRes);
             const float WorldY =  2.1f - 4.2f * (static_cast<float>(Row) + 0.5f) / static_cast<float>(GridRes);
-            const float Dist   = SphereSDF.SampleSignedDistance({ WorldX, WorldY, 0.0f });
-            const float Wave   = 0.72f + 0.28f * std::cos(Dist * 18.0f);
+            const auto VerticalHit = SphereWideTree.TraceClosestRay({ { WorldX, WorldY, 3.0f }, 0.0f, { 0.0f, 0.0f, -1.0f }, 6.0f });
             ImU32 CellColor {};
-            if (std::fabs(Dist) < 0.06f)
+            if (VerticalHit.HitConfirmed)
             {
-                CellColor = IM_COL32(236, 239, 244, 255); // Zero-isosurface shell!
-            }
-            else if (Dist < 0.0f)
-            {
-                const int Intensity = static_cast<int>(std::clamp(190.0f * Wave, 50.0f, 220.0f));
-                CellColor = IM_COL32(Intensity, static_cast<int>(Intensity * 0.55f), 95, 255);
+                const int Intensity = static_cast<int>(std::clamp(95.0f + 120.0f * VerticalHit.GeometricNormal.Z, 50.0f, 220.0f));
+                CellColor = IM_COL32(Intensity, static_cast<int>(Intensity * 0.72f), 95, 255);
             }
             else
             {
-                const float Falloff = std::exp(-0.85f * Dist);
-                const int BCh = static_cast<int>(std::clamp(70.0f + 145.0f * Falloff * Wave, 40.0f, 225.0f));
-                const int GCh = static_cast<int>(BCh * 0.78f);
-                CellColor = IM_COL32(38, GCh, BCh, 255);
+                CellColor = IM_COL32(38, 60, 90, 255);
             }
             const ImVec2 P0(SdfBoxLeft + static_cast<float>(Col) * CellPx, SdfBoxTop + static_cast<float>(Row) * CellPx);
             Bg->AddRectFilled(P0, ImVec2(P0.x + CellPx + 0.5f, P0.y + CellPx + 0.5f), CellColor);
         }
     }
     Bg->AddRect(ImVec2(SdfBoxLeft, SdfBoxTop), ImVec2(SdfBoxLeft + SdfBoxSize, SdfBoxTop + SdfBoxSize), ColBorder, 4.0f, 0, 1.5f);
-    Bg->AddText(ImVec2(SdfBoxLeft + 6.0f, SdfBoxTop + SdfBoxSize + 14.0f), ColMuted, "8x8x8 SDF Isocontours (Z = 0)");
+    Bg->AddText(ImVec2(SdfBoxLeft + 6.0f, SdfBoxTop + SdfBoxSize + 14.0f), ColMuted, "4-Wide BVH4 Equatorial Top-Down Hits");
 
     // Telemetry Bars on Right of Panel 2
     struct AccelMetricBar
@@ -634,14 +611,14 @@ int main()
                   VehicleWideTree.WideEntries.size(),
                   100.0 * (1.0 - static_cast<double>(TotalWideTestedPrims) / static_cast<double>(std::max(1u, TotalBruteTests))));
     std::snprintf(LodReadout, sizeof(LodReadout), "%u -> %u Tris", NearCut.ActiveTriangleCount, FarCut.ActiveTriangleCount);
-    std::snprintf(SdfReadout, sizeof(SdfReadout), "%zu/%zu Bricks (%.1f KB)",
-                  SphereSDF.AllocatedBricks.size(), TotalMacroBricks, static_cast<double>(SphereSDF.QueryOccupiedMemoryBytes()) / 1024.0);
+    std::snprintf(SdfReadout, sizeof(SdfReadout), "%zu Entries / %zu Tris",
+                  SphereWideTree.WideEntries.size(), SphereWideTree.Primitives.size());
 
     const std::array<AccelMetricBar, 4u> Bars {{
         { "ClusterPyramid (<=128T)",   ClsReadout, 0.94f, ColCyan   },
         { "4-Wide BVH4 Ray Prune",     BvhReadout, 0.97f, ColGreen  },
         { "Monotonic QEM LOD Cut",     LodReadout, 0.86f, ColAmber  },
-        { "8x8x8 SDF Occupancy",       SdfReadout, 0.78f, ColPurple },
+        { "Sphere BVH4 Nodes/Tris",    SdfReadout, 0.78f, ColPurple },
     }};
 
     for (std::size_t Idx = 0u; Idx < Bars.size(); ++Idx)
@@ -673,7 +650,7 @@ int main()
         { "Curvature & Mikk Tangents",   "Meyer Mixed-Voronoi Cotangent H & Angle-Deficit K + Mikk/Duff Orthonormal Tangents","VERIFIED  (Gauss-Bonnet Sphere 2.000 / Torus 0.000; Oct16x2 < 0.08 deg)" },
         { "Stretch & Island Flood",      "Exact 2x2 Jacobian SVD (Sander L2 + Symmetric Dirichlet) & UDIM Flood Reassignment","VERIFIED  (Zero Inverted UVs; Exact Seam-Bounded Flood & UDIM 1006 Move)" },
         { "ClusterPyramid & BVH4",       "128-Tri Border-Locked QEM LOD Pyramid + 128 B 4-Wide SAH BVH4 Ray Queries",        "VERIFIED  (100% Brute-Force Ray Parity < 50 um; > 91% Triangle Prune)" },
-        { "GeometryCodec & 3D SDF",      ".GeometrySpace (.PolygonNetwork + .ClusterHierarchy + .WideBoundingTree) & SDF",   "VERIFIED  (Lossless Container Roundtrip + Smooth Grazing Cone Penumbra)" },
+        { "GeometryCodec & BVH4 Probes", ".GeometrySpace (.PolygonNetwork + .ClusterHierarchy + .WideBoundingTree)",       "VERIFIED  (Lossless Container Roundtrip + Exact Analytic Sphere Ray Probe)" },
     }};
 
     for (std::size_t Idx = 0u; Idx < Rows.size(); ++Idx)

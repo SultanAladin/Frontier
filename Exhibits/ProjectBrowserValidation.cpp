@@ -472,9 +472,7 @@ int main()
 
             GeometricRaster::ShowcaseWorldSceneBundle GpuGallery {};
             GeometricRaster::BuildShowcaseGalleryScene(GpuGallery, 160u, 96u);
-            GeometricRaster::TieredWorldRenderSequence LatticeSequence {};
-            LatticeSequence.PrepareWorldScene(GpuGallery.Scene);
-            GpuWorldSeq.SynchronizeSceneResources(GpuGallery.Scene, &LatticeSequence.InspectIrradianceLattice(), true);
+            GpuWorldSeq.SynchronizeSceneResources(GpuGallery.Scene, true);
 
             std::vector<uint8_t> RgbaTier1 {};
             if (!GpuWorldSeq.RenderWorldViewportRgba8(
@@ -485,7 +483,7 @@ int main()
                     RgbaTier1) ||
                 RgbaTier1.size() != 160u * 96u * 4u)
             {
-                std::fprintf(stderr, "[FAIL] VulkanWorldRenderSequence Tier 1 GTX dispatch failed.\n");
+                std::fprintf(stderr, "[FAIL] VulkanWorldRenderSequence Tier 1 dispatch failed.\n");
                 GpuWorldSeq.TeardownSequence();
                 VkDevice.TeardownInterchange();
                 return 1;
@@ -507,7 +505,7 @@ int main()
                 return 1;
             }
 
-            // Verify Tier 2 RTX + dynamic resolution resize (200x120) + Normal debug channel (channel 3)
+            // Verify Tier 2 + dynamic resolution resize (200x120) + Normal debug channel (channel 3)
             GpuGallery.EditorCamera.ViewportWidthPx  = 200u;
             GpuGallery.EditorCamera.ViewportHeightPx = 120u;
             std::vector<uint8_t> RgbaTier2 {};
@@ -520,14 +518,14 @@ int main()
                     RgbaTier2) ||
                 RgbaTier2.size() != 200u * 120u * 4u ||
                 !GpuWorldSeq.RenderWorldViewportRgba8(
-                    GeometricRaster::WorldRenderTier::Tier1GtxCalibrated,
+                    GeometricRaster::WorldRenderTier::Tier2RtxDeterministic,
                     GpuGallery.EditorCamera,
                     GpuGallery.Scene,
                     3u,
                     RgbaNormal) ||
                 RgbaNormal.size() != 200u * 120u * 4u)
             {
-                std::fprintf(stderr, "[FAIL] VulkanWorldRenderSequence Tier 2 RTX or Normal debug dispatch failed.\n");
+                std::fprintf(stderr, "[FAIL] VulkanWorldRenderSequence Tier 2 or Normal debug dispatch failed.\n");
                 GpuWorldSeq.TeardownSequence();
                 VkDevice.TeardownInterchange();
                 return 1;

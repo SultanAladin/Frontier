@@ -516,8 +516,7 @@ void BuildCameraRay(
 void BuildShowcaseGalleryScene(
     ShowcaseWorldSceneBundle& OutBundle,
     uint32_t                  ViewportWidthPx,
-    uint32_t                  ViewportHeightPx,
-    bool                      BuildCpuSdf)
+    uint32_t                  ViewportHeightPx)
 {
     OutBundle = {};
 
@@ -784,12 +783,12 @@ void BuildShowcaseGalleryScene(
         SlotGlass,
         true);
 
-    RebuildShowcaseSceneAcceleration(OutBundle, BuildCpuSdf);
+    RebuildShowcaseSceneAcceleration(OutBundle);
 
     OutBundle.Scene.Sun.DirectionToSun          = Mathematics::NormalizeAxis({ 0.42f, -0.55f, 0.72f });
     OutBundle.Scene.Sun.SunAngularRadiusRadians = 0.018f;
     OutBundle.Scene.Sun.SolarIrradiance         = { 5.40f, 5.10f, 4.65f };
-    OutBundle.Scene.Sun.RtxSamplesPerPixel      = 6u;
+    OutBundle.Scene.Sun.RtxSamplesPerPixel      = 8u;
     OutBundle.Scene.SkyRadiance                 = { 0.16f, 0.23f, 0.36f };
 
     PolygonalAreaQuadLight CeilingSoftbox {};
@@ -800,25 +799,6 @@ void BuildShowcaseGalleryScene(
     CeilingSoftbox.HalfHeightMeters = 0.65f;
     CeilingSoftbox.EmittedRadiance  = { 7.5f, 6.6f, 5.4f };
     OutBundle.Scene.AreaLights.push_back(CeilingSoftbox);
-
-    OutBundle.Scene.LatticeConfig.GridMinimumWorld  = { -2.02f, -1.20f, -0.58f };
-    OutBundle.Scene.LatticeConfig.GridMaximumWorld  = {  2.02f,  2.15f,  1.75f };
-    OutBundle.Scene.LatticeConfig.CountX            = 7u;
-    OutBundle.Scene.LatticeConfig.CountY            = 6u;
-    OutBundle.Scene.LatticeConfig.CountZ            = 4u;
-    OutBundle.Scene.LatticeConfig.FibonacciRayCount = 64u;
-    OutBundle.Scene.LatticeConfig.BouncePasses      = 2u;
-
-    if (BuildCpuSdf)
-    {
-        OutBundle.Scene.ClipmapConfig.Clip0CenterWorld      = { 0.0f, 0.45f, 0.55f };
-        OutBundle.Scene.ClipmapConfig.Clip1CenterWorld      = { 0.0f, 0.45f, 0.55f };
-        OutBundle.Scene.ClipmapConfig.Clip0HalfExtentMeters = 2.8f;
-        OutBundle.Scene.ClipmapConfig.Clip1HalfExtentMeters = 5.6f;
-        OutBundle.Scene.ClipmapConfig.Clip0Resolution       = 48u;
-        OutBundle.Scene.ClipmapConfig.Clip1Resolution       = 48u;
-        OutBundle.Scene.ClipmapConfig.RadiosityBounces      = 2u;
-    }
 
     OutBundle.EditorCamera.CameraOrigin       = { 0.00f, -3.55f, 0.42f };
     OutBundle.EditorCamera.TargetPoint        = { 0.00f,  0.55f, 0.15f };
@@ -966,7 +946,7 @@ void RegisterShowcaseGalleryInOutliner(
         SunEntry->Title             = "Sun";
         SunEntry->CategoryLabel     = "World / Solar Light";
         SunEntry->Subtitle          = "Solar ephemeris & direct disc";
-        SunEntry->AuthorNotes       = "3.91 mm/tx GTX Contact-Clip + SDF Cone Penumbra directional sun and physical SkyView LUT driver.";
+        SunEntry->AuthorNotes       = "3.91 mm/tx GTX Contact-Clip + BVH4 Penumbra directional sun and physical SkyView LUT driver.";
         SunEntry->PositionX         = InOutBundle.Scene.Sun.DirectionToSun.X;
         SunEntry->PositionY         = InOutBundle.Scene.Sun.DirectionToSun.Y;
         SunEntry->PositionZ         = InOutBundle.Scene.Sun.DirectionToSun.Z;
@@ -1079,9 +1059,7 @@ void RegisterShowcaseGalleryInOutliner(
     }
 }
 
-void RebuildShowcaseSceneAcceleration(
-    ShowcaseWorldSceneBundle& InOutBundle,
-    bool                      RebuildSdfVolume)
+void RebuildShowcaseSceneAcceleration(ShowcaseWorldSceneBundle& InOutBundle)
 {
     std::size_t TotalTriangleCount = 0u;
     for (ShowcaseWorldAssetEntry& Obj : InOutBundle.Objects)
@@ -1165,17 +1143,11 @@ void RebuildShowcaseSceneAcceleration(
     {
         (void)InOutBundle.Scene.SceneTree.BuildFromTrianglePrimitivesWithNormals(WorldPrims, WorldNormals);
     }
-
-    if (RebuildSdfVolume)
-    {
-        (void)InOutBundle.Scene.SceneSdf.BuildFromWideBoundingTree(InOutBundle.Scene.SceneTree, 0.09f, 0.45f);
-    }
 }
 
 bool SynchronizeShowcaseGalleryFromOutliner(
     const OutlinerPanel&      SourceOutliner,
-    ShowcaseWorldSceneBundle& InOutBundle,
-    bool                      RebuildSdfVolume)
+    ShowcaseWorldSceneBundle& InOutBundle)
 {
     bool Changed         = false;
     bool AccelInvalidated = false;
@@ -1339,7 +1311,7 @@ bool SynchronizeShowcaseGalleryFromOutliner(
 
     if (AccelInvalidated)
     {
-        RebuildShowcaseSceneAcceleration(InOutBundle, RebuildSdfVolume);
+        RebuildShowcaseSceneAcceleration(InOutBundle);
     }
 
     return Changed;
@@ -1348,8 +1320,7 @@ bool SynchronizeShowcaseGalleryFromOutliner(
 bool SynchronizeShowcaseGallerySceneLive(
     OutlinerPanel&            InOutOutliner,
     ShowcaseWorldSceneBundle& InOutBundle,
-    bool&                     OutRequiresAccelerationRebuild,
-    bool                      RebuildSdfVolume)
+    bool&                     OutRequiresAccelerationRebuild)
 {
     OutRequiresAccelerationRebuild = false;
     bool Changed                   = false;
@@ -1569,11 +1540,11 @@ bool SynchronizeShowcaseGallerySceneLive(
 
     if (AccelInvalidated || OutRequiresAccelerationRebuild)
     {
-        RebuildShowcaseSceneAcceleration(InOutBundle, RebuildSdfVolume);
+        RebuildShowcaseSceneAcceleration(InOutBundle);
         OutRequiresAccelerationRebuild = true;
     }
 
-    if (SynchronizeShowcaseGalleryFromOutliner(InOutOutliner, InOutBundle, RebuildSdfVolume))
+    if (SynchronizeShowcaseGalleryFromOutliner(InOutOutliner, InOutBundle))
     {
         Changed                        = true;
         OutRequiresAccelerationRebuild = true;
@@ -1586,8 +1557,7 @@ OutlinerSlotToken ConstructShowcasePrimitiveInOutliner(
     OutlinerPanel&            InOutOutliner,
     ShowcaseWorldSceneBundle& InOutBundle,
     ShowcasePrimitiveShape    Shape,
-    Mathematics::Axis3D       WorldPosition,
-    bool                      BuildCpuSdf)
+    Mathematics::Axis3D       WorldPosition)
 {
     const OutlinerSlotToken ParentFolder = InOutBundle.ShowcaseFolderToken.Valid()
         ? InOutBundle.ShowcaseFolderToken
@@ -1627,7 +1597,7 @@ OutlinerSlotToken ConstructShowcasePrimitiveInOutliner(
     }
 
     bool NeedsRebuild = false;
-    (void)SynchronizeShowcaseGallerySceneLive(InOutOutliner, InOutBundle, NeedsRebuild, BuildCpuSdf);
+    (void)SynchronizeShowcaseGallerySceneLive(InOutOutliner, InOutBundle, NeedsRebuild);
     InOutOutliner.SelectSingle(Slot);
     return Slot;
 }
@@ -1746,8 +1716,7 @@ OutlinerSlotToken ConstructShowcaseModelInOutliner(
     std::string_view          DisplayTitle,
     ColorRgba                 PreviewTint,
     Mathematics::Axis3D       WorldPosition,
-    OutlinerSlotToken         ExplicitEnclosure,
-    bool                      BuildCpuSdf)
+    OutlinerSlotToken         ExplicitEnclosure)
 {
     const OutlinerRecordEntry* ExplicitFolder = ExplicitEnclosure.Valid() ? InOutOutliner.FindEntry(ExplicitEnclosure) : nullptr;
     OutlinerSlotToken TargetEnclosure = {};
@@ -1792,7 +1761,7 @@ OutlinerSlotToken ConstructShowcaseModelInOutliner(
             Entry->VisibilityEnabled = true;
         }
         bool NeedsRebuild = false;
-        (void)SynchronizeShowcaseGallerySceneLive(InOutOutliner, InOutBundle, NeedsRebuild, BuildCpuSdf);
+        (void)SynchronizeShowcaseGallerySceneLive(InOutOutliner, InOutBundle, NeedsRebuild);
         if (!InOutBundle.AreaLightBindings.empty())
         {
             auto& Binding = InOutBundle.AreaLightBindings.back();
@@ -1900,8 +1869,7 @@ OutlinerSlotToken ConstructShowcaseModelInOutliner(
         InOutOutliner,
         InOutBundle,
         Shape,
-        FloorPlaced,
-        BuildCpuSdf);
+        FloorPlaced);
 
     if (TargetEnclosure.Valid() && TargetEnclosure != InOutBundle.ShowcaseFolderToken)
     {

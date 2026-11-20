@@ -20,7 +20,7 @@ namespace Frontier::MaterialSpace
 //                                                       STRUCTURES
 //------------------------------------------------------------------------------------------------------------------------
 
-// 📝 Exact 32-byte (two float4 registers) bindless summary indexed by uint16 MaterialSlot for IrradianceLattice & 2nd/3rd bounces
+// 📝 Exact 32-byte (two float4 registers) bindless summary indexed by uint16 MaterialSlot for multi-bounce specular rays
 struct alignas(16) BounceSlabEntry
 {
     // Bytes 0..15

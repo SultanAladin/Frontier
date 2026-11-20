@@ -44,15 +44,9 @@ namespace
     }
 }
 
-[[nodiscard]] const char* QueryRenderModeCaption(PreviewRenderMode Mode) noexcept
+[[nodiscard]] const char* QueryRenderModeCaption(PreviewRenderMode /*Mode*/) noexcept
 {
-    switch (Mode)
-    {
-        case PreviewRenderMode::DirectStudioOpenPbr:     return "Direct OpenPBR (No GI)";
-        case PreviewRenderMode::RealTimeGiSequence:      return "Real-Time GI";
-        case PreviewRenderMode::DeterministicPathTracer: return "Path Tracer";
-        default:                                         return "Direct OpenPBR (No GI)";
-    }
+    return "Direct OpenPBR (No GI)";
 }
 
 } // namespace
@@ -575,23 +569,20 @@ void MaterialViewportHost::Render(
 
     if (LightingDropdownOpen)
     {
-        static constexpr const char* ModeLabels[3] { "Direct OpenPBR (No GI)", "Real-Time GI", "Path Tracer" };
+        static constexpr const char* ModeLabels[1] { "Direct OpenPBR (No GI)" };
         RenderFittedDropdownSheet(
             Surface,
             LightingAnchor,
             Bounds,
             ModeLabels,
-            3u,
-            static_cast<uint32_t>(Session->ActiveRenderMode),
+            1u,
+            0u,
             LightingDropdownOpen,
             Input,
-            [this](uint32_t Picked)
+            [this](uint32_t /*Picked*/)
             {
-                if (Picked < 3u)
-                {
-                    Session->ActiveRenderMode = static_cast<PreviewRenderMode>(Picked);
-                    Session->DirtyPreviewRequested = true;
-                }
+                Session->ActiveRenderMode = PreviewRenderMode::DirectStudioOpenPbr;
+                Session->DirtyPreviewRequested = true;
             },
             &SheetScrollY);
     }

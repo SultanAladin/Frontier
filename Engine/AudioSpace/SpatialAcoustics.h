@@ -20,9 +20,9 @@ namespace Frontier::Components
 struct CameraPosture;
 }
 
-namespace Frontier::DistanceFieldSpace
+namespace Frontier::SpatialAcceleration
 {
-class SignedDistanceVolume;
+class WideBoundingTree;
 }
 
 namespace Frontier::SimulationSpace::PhysicsSpace
@@ -116,10 +116,10 @@ public:
         Mathematics::Axis3D                                    OriginPositionMeters,
         uint32_t                                               CollisionChannelMask = 0xFFFFFFFFu) noexcept;
 
-    [[nodiscard]] static SdfAcousticFieldReading EvaluateSdfAcousticField(
-        const DistanceFieldSpace::SignedDistanceVolume& SdfVolume,
-        Mathematics::Axis3D                             ReceiverPositionMeters,
-        Mathematics::Axis3D                             OriginPositionMeters) noexcept;
+    [[nodiscard]] static SdfAcousticFieldReading EvaluateRayAcousticField(
+        const SpatialAcceleration::WideBoundingTree& SceneTree,
+        Mathematics::Axis3D                          ReceiverPositionMeters,
+        Mathematics::Axis3D                          OriginPositionMeters) noexcept;
 };
 
 } // namespace Frontier::AudioSpace

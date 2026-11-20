@@ -205,10 +205,6 @@ private:
     void SynchronizeShowcaseRendererAfterEdit(bool RebuildGeometry = false);
     void HandleContentDropOnViewport(const ContentRepositoryEntry& Entry, Point2D DropLogicalPos, Rectangle2D ViewportDropBounds);
     void HandleContentDropOnOutliner(const ContentRepositoryEntry& Entry, Point2D DropLogicalPos, Rectangle2D OutlinerDropBounds);
-    void InvalidateRtxLattice() noexcept;
-    void BeginAsyncRtxLatticeBake();
-    [[nodiscard]] bool ConsumeCompletedRtxLatticeBake();
-    void JoinRtxLatticeThread() noexcept;
 
     EditorStartupConfiguration                 StartupConfig          {};     // [-]     - Applied editor startup settings
     Components::HeadlessWorkspaceDockContainer DockContainer          {};     // [-]     - Intra-app trapezoidal docking container
@@ -219,7 +215,7 @@ private:
     Input::InputExtension                      InputParticipant       {};     // [-]     - Hardware input & OS feedback participant
     LifecycleSequence                          EditorSequence         {};     // [-]     - Registered GPU .slang overlay & editor hooks
     std::unique_ptr<GeometricRaster::ShowcaseWorldSceneBundle>       ShowcaseBundle       {}; // [-] - Mounted Cornell-Studio Gallery scene & Outliner tokens
-    std::unique_ptr<GeometricRaster::TieredWorldRenderSequence>      ShowcaseRenderer     {}; // [-] - Calibrated Tier 1 GTX / Tier 2 RTX world renderer
+    std::unique_ptr<GeometricRaster::TieredWorldRenderSequence>      ShowcaseRenderer     {}; // [-] - Calibrated MatCap / OpenPBR Direct world renderer
     std::unique_ptr<GeometricRaster::VulkanWorldRenderSequence>      GpuWorldRenderer     {}; // [-] - Hardware Vulkan .slang compute world render sequence
     std::unique_ptr<GeometricRaster::WorldGizmoOverlayRasterization> WorldGizmoRasterizer {}; // [-] - Vulkan .slang 3D Gizmo overlay rasterizer
     std::unique_ptr<Editor::Simulation::VectorFieldOverlaySequence>  ForceOverlayRasterizer{}; // [-] - Vulkan 1.3 dynamic-rendering ForceField debug overlay
@@ -237,7 +233,6 @@ private:
     uint32_t                                                         LastShadowAlgorithm  = UINT32_MAX;
     uint32_t                                                         LastReflectionSource = UINT32_MAX;
     uint32_t                                                         LastTraceResolutionIdx = UINT32_MAX;
-    bool                                                             LastGiEnabled        = true;
     bool                                                             LastReflectionsEnabled = true;
     bool                                                             LastAaEnabled        = true;
     bool                                                             LastRtEnabled        = true;
@@ -250,36 +245,8 @@ private:
     float                                                            LastCloudWindSpeedMps  = 7.0f;
     SimulationSpace::ForceFields::ForceOverlaySettings               LastForceOverlaySettings {};
     uint32_t                                                         LastForceSourceCount   = 0u;
-    uint32_t                                                         PathTraceAccumIndex  = 0u;
-    uint32_t                                                         LastPtEngineIndex    = UINT32_MAX;
-    uint32_t                                                         LastPtShadowAlg      = UINT32_MAX;
-    uint32_t                                                         LastPtReflSrc        = UINT32_MAX;
-    uint32_t                                                         LastPtDebugChan      = UINT32_MAX;
-    uint32_t                                                         LastPtQualityTier    = UINT32_MAX;
-    uint32_t                                                         LastPtTraceResIdx    = UINT32_MAX;
-    uint32_t                                                         LastPtWidthPx        = 0u;
-    uint32_t                                                         LastPtHeightPx       = 0u;
-    bool                                                             LastPtAtmoSky        = true;
-    bool                                                             LastPtClouds         = true;
-    bool                                                             LastPtCelestials     = true;
-    bool                                                             LastPtGi             = true;
-    bool                                                             LastPtRefl           = true;
-    bool                                                             LastPtAa             = true;
-    bool                                                             LastPtRt             = true;
-    float                                                            LastPtSolarHours     = 10.5f;
-    float                                                            LastPtCloudFraction  = 0.34f;
     ViewportProjectionPreset                                         LastPrimaryProjection = ViewportProjectionPreset::Perspective;
-    Mathematics::Axis3D                                              LastPtCameraOrigin   {};
-    Mathematics::Axis3D                                              LastPtCameraTarget   {};
     int32_t                                                          LastRenderScalePct   = 100;
-    bool                                                             RtxLatticePrepared   = false;
-    std::thread                                                      RtxLatticeThread     {};
-    std::mutex                                                       RtxLatticeMutex      {};
-    GeometricRaster::IrradianceLatticeSequence                       PendingRtxLattice    {};
-    std::atomic<bool>                                                RtxLatticeReady      { false };
-    std::atomic<bool>                                                RtxLatticeInFlight   { false };
-    uint64_t                                                         RtxLatticeGeneration = 0ull;
-    uint64_t                                                         PendingRtxLatticeGen = 0ull;
     Editor::TransformGizmo                                           WorldTransformGizmo  {}; // [-] - 13-handle 3D Slate GizmoPRO manipulator
     Mathematics::SpatialTransform                                    GizmoActiveTransform {}; // [-] - Working SpatialTransform during active drag
     OutlinerSlotToken                                                LastGizmoSlot        {}; // [id]- Slot currently anchored by WorldTransformGizmo

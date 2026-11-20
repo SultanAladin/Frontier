@@ -238,11 +238,10 @@ void FluidSimulationSequence::StepSimulation(
     }
     WorldPartition.UpdateAdaptiveHeroBounds(Document.Domain, DynamicSurge01, Dt, HeroGrid);
 
-    // 2. Bake GI SignedDistanceVolume / WideBoundingTree / Analytical obstacle occupancy
+    // 2. Bake WideBoundingTree / Analytical obstacle occupancy
     if (!ObstaclesBakedOnce || Document.Obstacle.AutoMove || Context.BakeGiObstaclesNow)
     {
-        FluidObstacleVoxelizer::BakeSceneGiCollisionMask(
-            Context.SceneSdf,
+        FluidObstacleVoxelizer::BakeSceneCollisionMask(
             Context.SceneTree,
             Document.Obstacle,
             ElapsedSeconds,

@@ -190,7 +190,7 @@ struct FluidObstacleSettings
     float               RadiusMeters        = 0.16f;               // [m] - Collider radius
     bool                AutoMove            = false;               // [-] - Oscillating collider animation
     float               MoveSpeed           = 1.25f;               // [rad/s]
-    bool                VoxelizeSceneGiSdf  = true;                // [-] - Sample GI SignedDistanceVolume / WideBoundingTree as solid walls
+    bool                VoxelizeSceneGiSdf  = true;                // [-] - Sample WideBoundingTree as solid collision walls
 };
 
 struct FluidShadingSettings
@@ -244,13 +244,13 @@ struct FluidParticleCouplingSettings
 
 struct FluidGiCouplingSettings
 {
-    bool     CollideWithGiScene     = true;  // [-]   - Collide fluid against WorldSceneSpecification::SceneSdf & SceneTree
-    bool     CastGiShadows          = true;  // [-]   - Smoke casts volumetric shadows onto GI Sun/Area/DDGI rays
-    bool     EmitGiLights           = true;  // [-]   - Extract hot fire voxels into dynamic GI point/area lights
-    bool     InjectDdgiRadiance     = true;  // [-]   - Sample fluid emission/extinction along DDGI & PathTrace rays
+    bool     CollideWithGiScene     = true;  // [-]   - Collide fluid against WorldSceneSpecification::SceneTree
+    bool     CastGiShadows          = true;  // [-]   - Smoke casts volumetric shadows onto sun-lit world geometry
+    bool     EmitGiLights           = true;  // [-]   - Extract hot fire voxels into dynamic direct point lights
+    bool     InjectDdgiRadiance     = true;  // [-]   - Legacy coupling flag kept for TOML/binary document compatibility
     uint32_t MaxEmissiveProxyLights = 4u;    // [cnt] - Max reduced dynamic fire lights per domain [0..8]
-    float    EmissiveLightIntensity = 1.45f; // [x]   - Fire GI illumination multiplier
-    float    GiShadowStrength       = 1.0f;  // [x]   - Volumetric smoke shadow density multiplier on GI surfaces
+    float    EmissiveLightIntensity = 1.45f; // [x]   - Fire direct illumination multiplier
+    float    GiShadowStrength       = 1.0f;  // [x]   - Volumetric smoke shadow density multiplier on world surfaces
 };
 
 struct FluidEmissiveLightProxy

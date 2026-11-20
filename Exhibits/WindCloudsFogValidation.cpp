@@ -231,14 +231,6 @@ struct OutdoorProofScene
         AddBox(FarPillar,    FarStoneMat,  {  20.0f, 84.0f, 21.0f }, {  3.8f,  3.8f, 22.0f });
 
         (void)Scene.SceneTree.BuildFromPolygonNetwork(UnifiedNet);
-        (void)Scene.SceneSdf.BuildFromWideBoundingTree(Scene.SceneTree, 2.0f, 3.0f);
-        Scene.LatticeConfig.GridMinimumWorld  = { -12.0f, 0.0f, 0.2f };
-        Scene.LatticeConfig.GridMaximumWorld  = {  12.0f, 40.0f, 12.0f };
-        Scene.LatticeConfig.CountX            = 3u;
-        Scene.LatticeConfig.CountY            = 3u;
-        Scene.LatticeConfig.CountZ            = 2u;
-        Scene.LatticeConfig.FibonacciRayCount = 16u;
-        Scene.LatticeConfig.BouncePasses      = 1u;
 
         Scene.Atmosphere.Medium.AtmosphereEnabled       = true;
         Scene.Atmosphere.Medium.SkyBrightnessMultiplier = 1.0f;
@@ -596,7 +588,7 @@ int main()
             VulkanWorldRenderSequence WorldGpu {};
             if (WorldGpu.InitializeSequence(VkDevice, ShaderDir))
             {
-                WorldGpu.SynchronizeSceneResources(S.Scene, nullptr, true);
+                WorldGpu.SynchronizeSceneResources(S.Scene, true);
                 std::vector<uint8_t> GpuPixels {};
                 const bool GpuOk = WorldGpu.RenderWorldViewportWithEngine(Cfg, 0u, S.CamFrame, S.Scene, GpuPixels);
                 Score.Verify(GpuOk && GpuPixels.size() == TileW * TileH * 4u, "Vulkan GPU rendered full wind+clouds+fog frame");
@@ -743,7 +735,7 @@ int main()
             VulkanWorldRenderSequence WorldGpu {};
             if (WorldGpu.InitializeSequence(VkDevice, ShaderDir))
             {
-                WorldGpu.SynchronizeSceneResources(S.Scene, nullptr, true);
+                WorldGpu.SynchronizeSceneResources(S.Scene, true);
                 const bool GpuOk = WorldGpu.RenderWorldViewportWithEngine(Cfg, 0u, S.CamFrame, S.Scene, GpuGodRayPixels);
                 Score.Verify(GpuOk && GpuGodRayPixels.size() == TileW * TileH * 4u,
                              "Vulkan GPU rendered HalfSphere Fog + ForceFields + Clouds + GodRays frame");

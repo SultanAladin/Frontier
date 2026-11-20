@@ -202,7 +202,7 @@ void FluidOutlinerPanel::Render(
         { FluidOutlinerRow::HeroVolume,     "Gas domain",       "VOLUME", FluidOutlinerFilter::Gas,      0u },
         { FluidOutlinerRow::EmitterSource,  "Fire emitter",     "SOURCE", FluidOutlinerFilter::Gas,      1u },
         { FluidOutlinerRow::GiLighting,     "Directional light","LIGHT",  FluidOutlinerFilter::Lights,   2u },
-        { FluidOutlinerRow::SceneObstacle,  "Scene collider",   "SDF",    FluidOutlinerFilter::Geometry, 0u },
+        { FluidOutlinerRow::SceneObstacle,  "Scene collider",   "BVH",    FluidOutlinerFilter::Geometry, 0u },
         { FluidOutlinerRow::ForceFields,    "ForceFields wind", "WIND",   FluidOutlinerFilter::Gas,      3u },
         { FluidOutlinerRow::WorldDriftGrid, "World drift grid", "DRIFT",  FluidOutlinerFilter::Gas,      0u },
         { FluidOutlinerRow::ParticleEmbers, "Embers & GI",      "FX",     FluidOutlinerFilter::Lights,   1u },

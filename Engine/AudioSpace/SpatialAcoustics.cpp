@@ -10,8 +10,8 @@
 #include "Engine/AudioSpace/SpatialAcoustics.h"
 #include "Engine/Components/Camera/CameraPosture.h"
 #include "Engine/Constants/MathConstants.h"
-#include "Engine/DistanceFieldSpace/SignedDistanceVolume.h"
 #include "Engine/SimulationSpace/PhysicsSpace/PhysicsExtension.h"
+#include "Engine/SpatialAcceleration/WideBoundingTree.h"
 
 #include <algorithm>
 #include <cmath>
@@ -716,10 +716,10 @@ float SpatialAcoustics::EvaluatePhysicsOcclusion(
     return std::clamp(0.45f + 0.47f * (1.0f - ClampedFrac), 0.0f, 0.92f);
 }
 
-SdfAcousticFieldReading SpatialAcoustics::EvaluateSdfAcousticField(
-    const DistanceFieldSpace::SignedDistanceVolume& SdfVolume,
-    Mathematics::Axis3D                             ReceiverPositionMeters,
-    Mathematics::Axis3D                             OriginPositionMeters) noexcept
+SdfAcousticFieldReading SpatialAcoustics::EvaluateRayAcousticField(
+    const SpatialAcceleration::WideBoundingTree& SceneTree,
+    Mathematics::Axis3D                          ReceiverPositionMeters,
+    Mathematics::Axis3D                          OriginPositionMeters) noexcept
 {
     SdfAcousticFieldReading Reading{};
 
@@ -728,16 +728,18 @@ SdfAcousticFieldReading SpatialAcoustics::EvaluateSdfAcousticField(
     if (Dist > 0.25f)
     {
         const Mathematics::Axis3D UnitDir = Delta * (1.0f / Dist);
-        const float Visibility = SdfVolume.TraceConeVisibility(
-            ReceiverPositionMeters,
-            UnitDir,
-            std::max(0.1f, Dist - 0.1f),
-            0.05f,
-            32u);
-        Reading.OcclusionFactor = std::clamp(1.0f - Visibility, 0.0f, 1.0f);
+        SpatialAcceleration::RaySegmentQuery Ray {};
+        Ray.Origin          = ReceiverPositionMeters;
+        Ray.UnitDirection   = UnitDir;
+        Ray.MinimumDistance = 0.05f;
+        Ray.MaximumDistance = std::max(0.1f, Dist - 0.1f);
+        const auto Hit      = SceneTree.TraceClosestRay(Ray, false);
+        Reading.OcclusionFactor = Hit.HitConfirmed
+            ? std::clamp(0.55f + 0.35f * (1.0f - Hit.HitDistanceMeters / std::max(0.25f, Dist)), 0.0f, 0.92f)
+            : 0.0f;
     }
 
-    // Query 6 orthogonal axes around receiver to detect corridor/tunnel wall enclosure from geometry SDF
+    // Query 6 orthogonal axes around receiver via BVH4 rays to detect corridor/tunnel wall enclosure
     constexpr std::array<Mathematics::Axis3D, 6u> CardinalDirs = {{
         {  1.0f,  0.0f,  0.0f },
         { -1.0f,  0.0f,  0.0f },
@@ -754,22 +756,13 @@ SdfAcousticFieldReading SpatialAcoustics::EvaluateSdfAcousticField(
     std::array<float, 6u> ClearDistances {};
     for (std::size_t DirIdx = 0u; DirIdx < CardinalDirs.size(); ++DirIdx)
     {
-        float RayDist = 0.0f;
-        for (int Step = 0; Step < 12; ++Step)
-        {
-            const Mathematics::Axis3D SamplePt = ReceiverPositionMeters + CardinalDirs[DirIdx] * RayDist;
-            const float               SdfDist  = SdfVolume.SampleSignedDistance(SamplePt);
-            if (SdfDist <= 0.08f)
-            {
-                break;
-            }
-            RayDist += std::max(0.25f, std::min(SdfDist, 4.0f));
-            if (RayDist >= 16.0f)
-            {
-                break;
-            }
-        }
-        ClearDistances[DirIdx] = std::min(RayDist, 16.0f);
+        SpatialAcceleration::RaySegmentQuery AxisRay {};
+        AxisRay.Origin          = ReceiverPositionMeters;
+        AxisRay.UnitDirection   = CardinalDirs[DirIdx];
+        AxisRay.MinimumDistance = 0.05f;
+        AxisRay.MaximumDistance = 16.0f;
+        const auto Hit          = SceneTree.TraceClosestRay(AxisRay, false);
+        ClearDistances[DirIdx]  = Hit.HitConfirmed ? std::min(Hit.HitDistanceMeters, 16.0f) : 16.0f;
         if (ClearDistances[DirIdx] < 12.0f)
         {
             EnclosedAxesCount += 1.0f;

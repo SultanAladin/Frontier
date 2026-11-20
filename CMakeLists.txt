@@ -338,14 +338,9 @@ frontier_compile_slang_shader(StretchRelaxCompute.slang               ComputeEnt
 frontier_compile_slang_shader(ConcaveSkylineCompute.slang             ComputeEntry  compute  ConcaveSkylineCompute.comp.spv)
 frontier_compile_slang_shader(CameraVisualEffects.slang               ComputeEntry  compute  CameraVisualEffects.comp.spv)
 frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   ComputeEntry              compute  WorldViewportRadiometricCompute.comp.spv)
-frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   ComputePathTraceEntry     compute  WorldViewportPathTraceCompute.comp.spv)
 frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   CloudComputeEntry         compute  WorldViewportCloudCompute.comp.spv)
 frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   DenoiseCompositeEntry     compute  WorldViewportDenoiseCompute.comp.spv)
 frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   ShadowCascadeComputeEntry compute  WorldViewportShadowCascadeCompute.comp.spv)
-frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   SdfRadiosityComputeEntry  compute  WorldViewportSdfRadiosityCompute.comp.spv)
-frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   DdgiLatticeComputeEntry    compute  WorldViewportDdgiLatticeCompute.comp.spv)
-frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   ImportanceSpatialReuseEntry compute  WorldViewportImportanceReuseCompute.comp.spv)
-frontier_compile_slang_shader(SignedDistanceGridCompute.slang         ComputeEntry          compute  SignedDistanceGridCompute.comp.spv)
 
 set(FRONTIER_MODULAR_SHADER_DIR "${CMAKE_SOURCE_DIR}/Engine/Shaders")
 
@@ -428,36 +423,10 @@ frontier_compile_modular_slang_shader(Visibility/HardwareVisibilityRasterization
 frontier_compile_modular_slang_shader(Visibility/MicroFaceSoftwareRasterization.slang            MicroFaceComputeEntry           compute  MicroFaceSoftwareRasterization.comp.spv)
 frontier_compile_modular_slang_shader(Visibility/AnalyticBarycentricResolve.slang                AnalyticResolveComputeEntry     compute  AnalyticBarycentricResolve.comp.spv)
 frontier_compile_modular_slang_shader(DirectLighting/SolarFrustumShadow.slang                    SolarShadowComputeEntry         compute  SolarFrustumShadow.comp.spv)
-frontier_compile_modular_slang_shader(DirectLighting/ContactClipShadow.slang                     ContactClipComputeEntry         compute  ContactClipShadow.comp.spv)
 frontier_compile_modular_slang_shader(DirectLighting/PlaneAwareShadowFilter.slang                PlaneFilterComputeEntry         compute  PlaneAwareShadowFilter.comp.spv)
-frontier_compile_modular_slang_shader(GlobalIllumination/DynamicIrradianceCache.slang             DynamicIrradianceCacheComputeEntry     compute  DynamicIrradianceCache.comp.spv)
-frontier_compile_modular_slang_shader(GlobalIllumination/WeightedPathReplay.slang           WeightedPathReplayComputeEntry   compute  WeightedPathReplay.comp.spv)
-frontier_compile_modular_slang_shader(GlobalIllumination/WeightedTemporalFilter.slang       WeightedTemporalFilterComputeEntry compute WeightedTemporalFilter.comp.spv)
-frontier_compile_modular_slang_shader(GlobalIllumination/VoxelSdfClipmapCompute.slang            ComposeDynamicLocalSdfClip0Entry      compute  VoxelSdfClipmapCompose.comp.spv)
-frontier_compile_modular_slang_shader(GlobalIllumination/VoxelSdfClipmapCompute.slang            PropagateClipmapRadiosityBounceEntry  compute  VoxelSdfClipmapRadiosity.comp.spv)
-frontier_compile_modular_slang_shader(GlobalIllumination/VoxelSdfClipmapCompute.slang            EvaluateClipmapConeGiEntry            compute  VoxelSdfClipmapConeGi.comp.spv)
 frontier_compile_modular_slang_shader(GlobalIllumination/SpecularGlassRaytrace.slang          SpecularRaytraceComputeEntry    compute  SpecularGlassRaytrace.comp.spv)
 frontier_compile_modular_slang_shader(Atmosphere/SkyViewTransmittanceCompute.slang              TransmittanceLutComputeEntry    compute  TransmittanceLutCompute.comp.spv)
 frontier_compile_modular_slang_shader(Atmosphere/SkyViewTransmittanceCompute.slang              MultiScatterLutComputeEntry     compute  MultiScatterLutCompute.comp.spv)
-
-foreach(FRONTIER_DE_ENTRY BakeLocalDistance FillClipmap EvaluateDistanceProbes RelightVehicleCache GatherVehicleCache ClearVehicleCache)
-    set(FRONTIER_DE_OUT "${FRONTIER_COMPILED_SHADER_DIR}/DistanceEvaluation.${FRONTIER_DE_ENTRY}.comp.spv")
-    add_custom_command(
-        OUTPUT "${FRONTIER_DE_OUT}"
-        COMMAND "${FRONTIER_SLANGC_BIN}"
-            "${FRONTIER_MODULAR_SHADER_DIR}/GlobalIllumination/DistanceEvaluation.slang"
-            -entry "${FRONTIER_DE_ENTRY}"
-            -target spirv
-            -profile glsl_450
-            -fp-mode precise
-            -O0
-            -o "${FRONTIER_DE_OUT}"
-        DEPENDS "${FRONTIER_MODULAR_SHADER_DIR}/GlobalIllumination/DistanceEvaluation.slang"
-        COMMENT "[Slang] Compiling GlobalIllumination/DistanceEvaluation.slang (${FRONTIER_DE_ENTRY}) -> DistanceEvaluation.${FRONTIER_DE_ENTRY}.comp.spv"
-        VERBATIM
-    )
-    list(APPEND FRONTIER_SPV_OUTPUTS "${FRONTIER_DE_OUT}")
-endforeach()
 frontier_compile_modular_slang_shader(Atmosphere/SkyViewTransmittanceCompute.slang              ComputeEntry                    compute  SkyViewTransmittanceCompute.comp.spv)
 frontier_compile_modular_slang_shader(Atmosphere/VolumetricCloudCompute.slang                   ComputeEntry                    compute  VolumetricCloudCompute.comp.spv)
 frontier_compile_modular_slang_shader(Atmosphere/VolumetricFogCompute.slang                     ComputeEntry                    compute  VolumetricFogCompute.comp.spv)
@@ -726,9 +695,6 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/GeometricRaster/Visibility/VisibilityMaterialResolve.cpp
     Engine/GeometricRaster/DirectLighting/SolarShadowSequence.cpp
     Engine/GeometricRaster/DirectLighting/LinearCosineLightIntegration.cpp
-    Engine/GeometricRaster/GlobalIllumination/DynamicIrradianceCacheSequence.cpp
-    Engine/GeometricRaster/GlobalIllumination/IrradianceLatticeSequence.cpp
-    Engine/GeometricRaster/GlobalIllumination/WeightedPathReplaySequence.cpp
     Engine/GeometricRaster/GlobalIllumination/SpecularReflectionSequence.cpp
     Engine/GeometricRaster/GlobalIllumination/TieredWorldRenderSequence.cpp
     Engine/GeometricRaster/GlobalIllumination/VulkanWorldRenderSequence.cpp
@@ -861,8 +827,11 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/Workspaces/ParametricSketcher/Document/SketcherSpecimen.cpp
     Engine/SpatialAcceleration/ClusterPyramid.cpp
     Engine/SpatialAcceleration/WideBoundingTree.cpp
-    Engine/DistanceFieldSpace/SignedDistanceVolume.cpp
-    Engine/DistanceFieldSpace/VoxelSdfClipmap.cpp
+    Engine/AudioSpace/AudioBusAccumulator.cpp
+    Engine/AudioSpace/AudioExtension.cpp
+    Engine/AudioSpace/AudioHardwareOutput.cpp
+    Engine/AudioSpace/SpatialAcoustics.cpp
+    Engine/AudioSpace/WaveformDecoder.cpp
     Engine/ColourSpace/TransferFunction.cpp
     Engine/ColourSpace/WhitePointAdaptation.cpp
     Engine/ColourSpace/ChromaticitySpace.cpp
@@ -906,18 +875,13 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/Threading/Tasks/TaskChannel.cpp
     Engine/Threading/Tasks/ExecutionChannels.cpp
     Engine/Threading/Tasks/TaskScheduler.cpp
+    Engine/Threading/Threads/Audio/AudioThread.cpp
     Engine/Threading/Threads/Workspace/WorkspaceThread.cpp
     Engine/Threading/Threads/Streaming/AssetStreamThread.cpp
-    Engine/Threading/Threads/Audio/AudioThread.cpp
-    Engine/AudioSpace/WaveformDecoder.cpp
-    Engine/AudioSpace/SpatialAcoustics.cpp
-    Engine/AudioSpace/AudioBusAccumulator.cpp
-    Engine/AudioSpace/AudioHardwareOutput.cpp
-    Engine/AudioSpace/AudioExtension.cpp
+    Engine/Codecs/AcousticCodec.cpp
     Engine/Codecs/SpaceContainerCodec.cpp
     Engine/Codecs/RevisionCodec.cpp
     Engine/Codecs/ProjectCodec.cpp
-    Engine/Codecs/AcousticCodec.cpp
     Engine/Codecs/InputCodec.cpp
     Engine/Codecs/ColourCodec.cpp
     Engine/Codecs/GeometryCodec.cpp
@@ -1067,7 +1031,7 @@ target_compile_definitions(FrontierEngine PUBLIC
 target_link_libraries(FrontierEngine PUBLIC FrontierCompileSettings thorvg_static Threads::Threads ${CMAKE_DL_LIBS})
 target_link_libraries(FrontierEngine PRIVATE Jolt)
 if(WIN32)
-    target_link_libraries(FrontierEngine PUBLIC ws2_32 ole32)
+    target_link_libraries(FrontierEngine PUBLIC ws2_32)
 endif()
 if(FRONTIER_PROFILE STREQUAL "Editor")
     target_link_libraries(FrontierEngine PUBLIC FrontierImGui)
@@ -1236,9 +1200,7 @@ if(BUILD_TESTING)
     frontier_register_exhibit(VisibilityRasterValidation     Exhibits/VisibilityRasterValidation.cpp)
     frontier_register_exhibit(SolarShadowValidation          Exhibits/SolarShadowValidation.cpp)
     frontier_register_exhibit(TieredWorldRenderValidation    Exhibits/TieredWorldRenderValidation.cpp)
-    frontier_register_exhibit(VoxelSdfClipmapGiValidation    Exhibits/VoxelSdfClipmapGiValidation.cpp)
-    frontier_register_exhibit(CleanEmissiveGiValidation      Exhibits/CleanEmissiveGiValidation.cpp)
-    frontier_register_exhibit(CleanEmissiveShadowValidation  Exhibits/CleanEmissiveShadowValidation.cpp)
+    frontier_register_exhibit(AudioSpaceValidation           Exhibits/AudioSpaceValidation.cpp)
     frontier_register_exhibit(CelestialCloudsValidation      Exhibits/CelestialCloudsValidation.cpp)
     frontier_register_exhibit(AtmosphereAuditProof           Exhibits/AtmosphereAuditProof.cpp)
     frontier_register_exhibit(LensFlareValidation            Exhibits/LensFlareValidation.cpp)
@@ -1257,7 +1219,6 @@ if(BUILD_TESTING)
     frontier_register_exhibit(UVInteractiveAuthoringValidation  Exhibits/UVInteractiveAuthoringValidation.cpp)
     frontier_register_exhibit(UVBoundaryValidation              Exhibits/UVBoundaryValidation.cpp)
     frontier_register_exhibit(UVAuthoringChaosValidation        Exhibits/UVAuthoringChaosValidation.cpp)
-    frontier_register_exhibit(AudioSpaceValidation              Exhibits/AudioSpaceValidation.cpp)
     frontier_register_exhibit(NetworkingSpaceValidation         Exhibits/NetworkingSpaceValidation.cpp)
     if(FRONTIER_PROFILE STREQUAL "Editor")
         frontier_register_exhibit(VectorFieldValidation             Exhibits/VectorFieldValidation.cpp)

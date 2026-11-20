@@ -35,9 +35,7 @@ enum class PreviewSpecimenGeometry : uint8_t
 
 enum class PreviewRenderMode : uint8_t
 {
-    DirectStudioOpenPbr     = 0u, // [-] - Default fast mode: full 10-lobe OpenPBR + Studio Softboxes + IBL (NO GI)
-    RealTimeGiSequence      = 1u, // [-] - Hooks into VulkanWorldRenderSequence Tier 1/2 real-time GI when requested
-    DeterministicPathTracer = 2u, // [-] - Hooks into Deterministic Path Tracer reference when requested
+    DirectStudioOpenPbr = 0u, // [-] - Full 10-lobe OpenPBR + Studio Softboxes + IBL (NO GI)
 };
 
 //------------------------------------------------------------------------------------------------------------------------

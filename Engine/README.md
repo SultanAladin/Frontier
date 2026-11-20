@@ -1,6 +1,6 @@
 # 🧩 `Engine/`
 
-> **TL;DR**: Subsystem umbrella grouping 23 child modules under `Engine/`.
+> **TL;DR**: Subsystem umbrella grouping 22 child modules under `Engine/`.
 
 ---
 
@@ -8,13 +8,13 @@
 
 | Directory | Summary |
 | :--- | :--- |
+| [`AudioSpace/`](AudioSpace/README.md) | Lock-free real-time 3D spatial audio unit with waveform codecs, HRTF spatialization, BVH4 ray acoustics, and hardware endpoints |
 | [`Codecs/`](Codecs/README.md) | .ColourSpace, .ColourRamp & .ColourSwatch encoder/decoder persisting radiometric swatches, modular ramps, spectra & 64B-aligned LUTs |
 | [`ColourSpace/`](ColourSpace/README.md) | Colorimetric transforms between CIE XYZ, Linear Rec.709/sRGB, ACEScg, Rec.2020, Display P3, Oklab/Oklch, HSL, CMYK & Hex strings |
 | [`ComponentClass/`](ComponentClass/README.md) | Top-level ComponentClass asset encapsulating title, simulation role, revision, baked RGBA thumbnail & ComponentInstanceStorage |
 | [`Components/`](Components/README.md) | Logical-to-physical 2D canvas surface for reusable engine UI controls, panels, and overlays |
 | [`Configuration/`](Configuration/README.md) | Compile-time build-profile policy: enforces mutually exclusive Editor, Development, and Shipping profiles across all targets |
 | [`Constants/`](Constants/README.md) | Shared compile-time engine capacities, 64-byte container alignment, and 215 MiB / 750 MiB revision memory ceilings |
-| [`DistanceFieldSpace/`](DistanceFieldSpace/README.md) | Sparse 8x8x8 narrow-band brick 3D Signed Distance Volume for Tier 1 GTX solar cone penumbra and 6-cone diffuse GI |
 | [`Editor/`](Editor/README.md) | 10 source/shader files |
 | [`GeometricRaster/`](GeometricRaster/README.md) | Headless & desktop Vulkan 1.2+ device interchange using volk, Timeline Semaphores (zero fences), and SwiftShader fallback |
 | [`GeometrySpace/`](GeometrySpace/README.md) | 206 source/shader files |

@@ -16,7 +16,6 @@
 #include "Engine/Codecs/AcousticCodec.h"
 #include "Engine/Components/Camera/CameraPosture.h"
 #include "Engine/Constants/MathConstants.h"
-#include "Engine/DistanceFieldSpace/SignedDistanceVolume.h"
 #include "Engine/Lifecycle/LifecycleSequence.h"
 #include "Engine/SpatialAcceleration/WideBoundingTree.h"
 #include "Engine/Threading/Sync/ThreadProgressionTracker.h"
@@ -959,25 +958,23 @@ int main()
         AddSolidBox({  2.6f, -2.5f, -2.0f }, { 3.4f,  2.5f,  2.0f }); // Solid barrier wall at X ~ +3.0 m
 
         SpatialAcceleration::WideBoundingTree CorridorBvh{};
-        DistanceFieldSpace::SignedDistanceVolume CorridorSdf{};
         Board.Verify(
-            CorridorBvh.BuildFromTrianglePrimitives(CorridorTris) &&
-            CorridorSdf.BuildFromWideBoundingTree(CorridorBvh, 0.25f, 0.5f),
-            "Build corridor WideBoundingTree & SignedDistanceVolume for acoustic SDF probing");
+            CorridorBvh.BuildFromTrianglePrimitives(CorridorTris),
+            "Build corridor WideBoundingTree for acoustic ray probing");
 
-        const SdfAcousticFieldReading ClearFieldReading = SpatialAcoustics::EvaluateSdfAcousticField(
-            CorridorSdf,
+        const SdfAcousticFieldReading ClearFieldReading = SpatialAcoustics::EvaluateRayAcousticField(
+            CorridorBvh,
             { -2.0f, 0.0f, 0.0f },
             {  1.5f, 0.0f, 0.0f });
-        const SdfAcousticFieldReading BlockedFieldReading = SpatialAcoustics::EvaluateSdfAcousticField(
-            CorridorSdf,
+        const SdfAcousticFieldReading BlockedFieldReading = SpatialAcoustics::EvaluateRayAcousticField(
+            CorridorBvh,
             { -2.0f, 0.0f, 0.0f },
             {  5.0f, 0.0f, 0.0f });
         Board.Verify(
             ClearFieldReading.EnclosureTunnelMix > 0.35f &&
             ClearFieldReading.OcclusionFactor < 0.25f &&
             BlockedFieldReading.OcclusionFactor > 0.55f,
-            "EvaluateSdfAcousticField detects corridor enclosure and solid barrier SDF occlusion");
+            "EvaluateRayAcousticField detects corridor enclosure and solid barrier ray occlusion");
     }
 
     //--------------------------------------------------------------------------------------------------------------------

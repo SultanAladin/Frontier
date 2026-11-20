@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                            SOLARSHADOWSEQUENCE.CPP
 ============================================================================================================================================*/
-// 🧩 Tiered Direct Solar Shadows (Zero VSM!): RTX Vogel Solar Frustum + Plane-Aware Filter & GTX 3.9 mm 2-Cascade Contact Clip + SDF Cone
+// 🧩 Tiered Direct Solar Shadows (Zero VSM, Zero SDF!): RTX Vogel Solar Frustum + Plane-Aware Filter & GTX 3.9 mm 2-Cascade Contact Clip
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
@@ -9,7 +9,6 @@
 
 #include "Engine/GeometricRaster/DirectLighting/SolarShadowSequence.h"
 #include "Engine/Constants/MathConstants.h"
-#include "Engine/DistanceFieldSpace/VoxelSdfClipmap.h"
 #include "Engine/GeometrySpace/Analysis/CurvatureAnalysis.h"
 
 #include <algorithm>
@@ -469,16 +468,14 @@ void SolarShadowSequence::BuildTwoCascadeContactClips(
 }
 
 SolarShadowFieldResult SolarShadowSequence::EvaluateSolarShadowFieldWithAlgorithm(
-    SolarShadowAlgorithm                                    Algorithm,
-    const SolarDirectionalSource&                          Sun,
-    uint32_t                                                ViewportWidth,
-    uint32_t                                                ViewportHeight,
-    std::span<const AnalyticResolvedSurfaceSample>          PrimarySamples,
-    const SpatialAcceleration::WideBoundingTree&            SceneTree,
-    const OrthographicShadowCascade*                        OptionalFineClip,
-    const OrthographicShadowCascade*                        OptionalCoarseClip,
-    const DistanceFieldSpace::VoxelSdfClipmapVolume*        OptionalClipmap,
-    std::span<const DistanceFieldSpace::DynamicLocalSdfInstance> DynamicObjects)
+    SolarShadowAlgorithm                           Algorithm,
+    const SolarDirectionalSource&                  Sun,
+    uint32_t                                       ViewportWidth,
+    uint32_t                                       ViewportHeight,
+    std::span<const AnalyticResolvedSurfaceSample> PrimarySamples,
+    const SpatialAcceleration::WideBoundingTree&   SceneTree,
+    const OrthographicShadowCascade*               OptionalFineClip,
+    const OrthographicShadowCascade*               OptionalCoarseClip)
 {
     SolarShadowFieldResult Result {};
     Result.WidthPx  = ViewportWidth;
@@ -565,81 +562,6 @@ SolarShadowFieldResult SolarShadowSequence::EvaluateSolarShadowFieldWithAlgorith
                 {
                     Result.BlockerDistanceMeters[Off] = static_cast<float>(OccludedHits) / HarmonicInvDistS;
                 }
-            }
-            else if (Algorithm == SolarShadowAlgorithm::HybridSdf)
-            {
-                // Exact arena/f2d37e4b-frontier Hybrid SDF Clipmap + Exact Triangle Refinement over Vogel Solar Disc!
-                const uint32_t RayCount = std::clamp(Sun.RtxSamplesPerPixel, 8u, 16u);
-                const float    RotPhi   = static_cast<float>(Seed & 0xFFFFu) * (Constants::TauFloat / 65536.0f);
-                constexpr float GoldenAngle = 2.39996323f;
-
-                const Mathematics::Axis3D RayOrigin = Hit.WorldPosition + Hit.TangentFrame.NormalZ * 1.5e-3f;
-                float    UnoccludedSum     = 0.0f;
-                float    HarmonicInvDistS  = 0.0f;
-                uint32_t OccludedHits      = 0u;
-                const bool UseClipmapHybrid = (OptionalClipmap != nullptr) &&
-                    (!OptionalClipmap->StaticAtlas.Surfaces.empty() || !DynamicObjects.empty());
-
-                for (uint32_t RIdx = 0u; RIdx < RayCount; ++RIdx)
-                {
-                    const float DiscR = std::sqrt((static_cast<float>(RIdx) + 0.5f) / static_cast<float>(RayCount)) * TanSunRadius;
-                    const float Angle = static_cast<float>(RIdx) * GoldenAngle + RotPhi;
-                    const Mathematics::Axis3D JitteredSun = Mathematics::NormalizeAxis(
-                        SunDir + DiscTangentU * (DiscR * std::cos(Angle)) + DiscTangentV * (DiscR * std::sin(Angle)),
-                        SunDir);
-
-                    bool HitOccluded = false;
-                    float HitDistM   = 1.0f;
-                    if (UseClipmapHybrid)
-                    {
-                        HitOccluded = OptionalClipmap->TraceHybridOccluded(
-                            RayOrigin, JitteredSun, 45.0f, DynamicObjects, nullptr, &HitDistM);
-                    }
-                    else
-                    {
-                        SpatialAcceleration::RaySegmentQuery Ray {};
-                        Ray.Origin          = RayOrigin;
-                        Ray.UnitDirection   = JitteredSun;
-                        Ray.MinimumDistance = 1.0e-3f;
-                        Ray.MaximumDistance = 150.0f;
-                        const auto RayHit = SceneTree.TraceClosestRay(Ray, false);
-                        HitOccluded = RayHit.HitConfirmed;
-                        HitDistM    = RayHit.HitDistanceMeters;
-                    }
-
-                    if (HitOccluded)
-                    {
-                        ++OccludedHits;
-                        HarmonicInvDistS += 1.0f / std::max(5.0e-3f, HitDistM);
-                    }
-                    else
-                    {
-                        UnoccludedSum += 1.0f;
-                    }
-                }
-
-                Result.RawVisibility[Off] = UnoccludedSum / static_cast<float>(RayCount);
-                if (OccludedHits > 0u)
-                {
-                    Result.BlockerDistanceMeters[Off] = static_cast<float>(OccludedHits) / HarmonicInvDistS;
-                }
-            }
-            else if (Algorithm == SolarShadowAlgorithm::VoxelSdfPenumbra ||
-                     Algorithm == SolarShadowAlgorithm::VoxelSdfClipmapPenumbra)
-            {
-                float SdfVis = 1.0f;
-                float SdfBlk = 0.0f;
-                if (OptionalClipmap != nullptr)
-                {
-                    const bool ForceCoarse = (Algorithm == SolarShadowAlgorithm::VoxelSdfPenumbra);
-                    const auto SdfRes = OptionalClipmap->TraceClipmapSdfPenumbra(
-                        Hit.WorldPosition, Hit.TangentFrame.NormalZ, SunDir, 24.0f,
-                        std::max(0.020f, TanSunRadius), true, DynamicObjects, ForceCoarse);
-                    SdfVis = SdfRes.Visibility;
-                    SdfBlk = SdfRes.BlockerDistM;
-                }
-                Result.RawVisibility[Off]         = std::clamp(SdfVis, 0.0f, 1.0f);
-                Result.BlockerDistanceMeters[Off] = SdfBlk;
             }
             else if (Algorithm == SolarShadowAlgorithm::PcfBilinear)
             {
@@ -731,17 +653,15 @@ SolarShadowFieldResult SolarShadowSequence::EvaluateSolarShadowFieldWithAlgorith
 }
 
 SolarShadowFieldResult SolarShadowSequence::EvaluateSolarShadowField(
-    DirectShadowTier                                Tier,
+    DirectShadowTier                               Tier,
     const SolarDirectionalSource&                  Sun,
-    uint32_t                                        ViewportWidth,
-    uint32_t                                        ViewportHeight,
-    std::span<const AnalyticResolvedSurfaceSample>  PrimarySamples,
-    const SpatialAcceleration::WideBoundingTree&    SceneTree,
-    const DistanceFieldSpace::SignedDistanceVolume* OptionalSdfVolume,
-    const OrthographicShadowCascade*                OptionalFineClip,
-    const OrthographicShadowCascade*                OptionalCoarseClip)
+    uint32_t                                       ViewportWidth,
+    uint32_t                                       ViewportHeight,
+    std::span<const AnalyticResolvedSurfaceSample> PrimarySamples,
+    const SpatialAcceleration::WideBoundingTree&   SceneTree,
+    const OrthographicShadowCascade*               OptionalFineClip,
+    const OrthographicShadowCascade*               OptionalCoarseClip)
 {
-    (void)OptionalSdfVolume;
     const SolarShadowAlgorithm MappedAlg = (Tier == DirectShadowTier::RtxDeterministicSolarRay)
         ? SolarShadowAlgorithm::WideTreeRayQuery
         : SolarShadowAlgorithm::ContactPcss;

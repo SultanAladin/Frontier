@@ -200,7 +200,6 @@ void BlitTile(
     }
 
     (void)Scene.SceneTree.BuildFromPolygonNetwork(UnifiedNet);
-    (void)Scene.SceneSdf.BuildFromWideBoundingTree(Scene.SceneTree, 0.24f, 0.45f);
 
     Scene.Atmosphere.Medium.AtmosphereEnabled       = true;
     Scene.Atmosphere.Medium.SkyBrightnessMultiplier = 1.0f;
@@ -351,7 +350,7 @@ int main()
     RenderCfg.Engine          = GeometricRaster::WorldRenderEngine::OpenPbrDirect;
     RenderCfg.ShadowAlgorithm = GeometricRaster::SolarShadowAlgorithm::WideTreeRayQuery;
 
-    WorldGpu.SynchronizeSceneResources(Scene, nullptr, true);
+    WorldGpu.SynchronizeSceneResources(Scene, true);
     std::vector<uint8_t> BasePixels {};
     const bool BaseOk = WorldGpu.RenderWorldViewportWithEngine(RenderCfg, 0u, WorldCam, Scene, BasePixels);
     Score.Verify(BaseOk && BasePixels.size() == FrameW * FrameH * 4u, "Rendered crisp base 3D world frame");

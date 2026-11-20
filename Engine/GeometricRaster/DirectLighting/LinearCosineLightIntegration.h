@@ -42,6 +42,15 @@ struct AmbientOcclusionSettings
     uint32_t RaysPerPixel        = 8u;    // [cnt]- Stratified cosine-hemisphere AO rays per pixel
 };
 
+struct DirectPointLightSpec
+{
+    Mathematics::Axis3D    PositionWorld {};                 // [m]   - World point light position
+    float                  RangeMeters   = 8.0f;             // [m]   - Smooth attenuation cutoff radius
+    Mathematics::LinearRGB Color         { 1.0f, 1.0f, 1.0f }; // [-] - Linear RGB tint
+    float                  Intensity     = 1.0f;             // [cd]  - Luminous intensity multiplier
+    float                  RadiusMeters  = 0.10f;            // [m]   - Source sphere radius
+};
+
 struct DirectLightingOutput
 {
     uint32_t                            WidthPx                = 0u; // [px]    - Viewport width
@@ -78,37 +87,35 @@ public:
         float DiffuseAmbientOcclusion,
         float PerceptualRoughness) noexcept;
 
-    // Evaluates full Direct Lighting Frame with explicit Shadow Lab algorithm (supports Clipmap SDF, Hybrid SDF, & Point Lights)
+    // Evaluates full Direct Lighting Frame with explicit Shadow Lab algorithm (BVH4 & Shadow Cascades, Zero GI / Zero SDF)
     [[nodiscard]] static DirectLightingOutput EvaluateDirectLightingFrameWithAlgorithm(
-        SolarShadowAlgorithm                                         Algorithm,
-        const PerspectiveCameraBasis&                                Camera,
-        std::span<const RigidClusterInstance>                        Instances,
-        const VisibilityBufferTargets&                               VisibilityTargets,
-        const MaterialSpace::CompactMaterialRegister&                MaterialRegister,
-        const SpatialAcceleration::WideBoundingTree&                 SceneTree,
-        const SolarDirectionalSource&                               Sun,
-        std::span<const PolygonalAreaQuadLight>                      AreaLights,
-        const OrthographicShadowCascade*                             OptionalFineClip    = nullptr,
-        const OrthographicShadowCascade*                             OptionalCoarseClip  = nullptr,
-        const AmbientOcclusionSettings&                              AoSettings          = {},
-        const DistanceFieldSpace::VoxelSdfClipmapVolume*             OptionalClipmap     = nullptr,
-        std::span<const DistanceFieldSpace::DynamicLocalSdfInstance> DynamicObjects      = {},
-        std::span<const DistanceFieldSpace::VoxelPointLightSpec>     PointLights         = {});
-
-    // Compatibility wrapper mapping DirectShadowTier -> SolarShadowAlgorithm (ignores OptionalSdfVolume)
-    [[nodiscard]] static DirectLightingOutput EvaluateDirectLightingFrame(
-        DirectShadowTier                                Tier,
-        const PerspectiveCameraBasis&                   Camera,
-        std::span<const RigidClusterInstance>           Instances,
-        const VisibilityBufferTargets&                  VisibilityTargets,
-        const MaterialSpace::CompactMaterialRegister&   MaterialRegister,
-        const SpatialAcceleration::WideBoundingTree&    SceneTree,
+        SolarShadowAlgorithm                           Algorithm,
+        const PerspectiveCameraBasis&                  Camera,
+        std::span<const RigidClusterInstance>          Instances,
+        const VisibilityBufferTargets&                 VisibilityTargets,
+        const MaterialSpace::CompactMaterialRegister&  MaterialRegister,
+        const SpatialAcceleration::WideBoundingTree&   SceneTree,
         const SolarDirectionalSource&                  Sun,
-        std::span<const PolygonalAreaQuadLight>         AreaLights,
-        const DistanceFieldSpace::SignedDistanceVolume* OptionalSdfVolume  = nullptr,
-        const OrthographicShadowCascade*                OptionalFineClip   = nullptr,
-        const OrthographicShadowCascade*                OptionalCoarseClip = nullptr,
-        const AmbientOcclusionSettings&                 AoSettings         = {});
+        std::span<const PolygonalAreaQuadLight>        AreaLights,
+        const OrthographicShadowCascade*               OptionalFineClip   = nullptr,
+        const OrthographicShadowCascade*               OptionalCoarseClip = nullptr,
+        const AmbientOcclusionSettings&                AoSettings         = {},
+        std::span<const DirectPointLightSpec>          PointLights        = {},
+        Mathematics::LinearRGB                         SkyFillRadiance    = { 0.14f, 0.19f, 0.28f });
+
+    // Compatibility wrapper mapping DirectShadowTier -> SolarShadowAlgorithm
+    [[nodiscard]] static DirectLightingOutput EvaluateDirectLightingFrame(
+        DirectShadowTier                              Tier,
+        const PerspectiveCameraBasis&                 Camera,
+        std::span<const RigidClusterInstance>         Instances,
+        const VisibilityBufferTargets&                VisibilityTargets,
+        const MaterialSpace::CompactMaterialRegister& MaterialRegister,
+        const SpatialAcceleration::WideBoundingTree&  SceneTree,
+        const SolarDirectionalSource&                 Sun,
+        std::span<const PolygonalAreaQuadLight>       AreaLights,
+        const OrthographicShadowCascade*              OptionalFineClip   = nullptr,
+        const OrthographicShadowCascade*              OptionalCoarseClip = nullptr,
+        const AmbientOcclusionSettings&               AoSettings         = {});
 };
 
 } // namespace Frontier::GeometricRaster

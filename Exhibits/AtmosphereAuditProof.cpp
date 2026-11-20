@@ -162,7 +162,6 @@ void BlitTile(
     Scene.ClusterInstances.push_back(Inst);
     GeometrySpace::AppendBoxPrimitive(Net, { 0.0f, 0.0f, -120.0f }, { 0.05f, 0.05f, 0.05f }, {}, {}, 0u, 0u);
     (void)Scene.SceneTree.BuildFromPolygonNetwork(Net);
-    (void)Scene.SceneSdf.BuildFromWideBoundingTree(Scene.SceneTree, 1.0f, 2.0f);
 
     Scene.Atmosphere.Medium.AtmosphereEnabled       = true;
     Scene.Atmosphere.Medium.SkyBrightnessMultiplier = 1.0f;
@@ -226,7 +225,7 @@ int main()
 
     ProofGeoAsset HiddenBox {};
     WorldSceneSpecification SkyScene = BuildSkyOnlyScene(HiddenBox);
-    Gpu.SynchronizeSceneResources(SkyScene, nullptr, true);
+    Gpu.SynchronizeSceneResources(SkyScene, true);
 
     const uint32_t HeroW = 480u;
     const uint32_t HeroH = 270u;
@@ -600,7 +599,6 @@ int main()
         AddInst(Orb, 1u, { 1.6f, 5.2f, 0.95f });
         GeometrySpace::AppendSpherePrimitive(Net, { 1.6f, 5.2f, 0.95f }, 0.95f, 28u, 16u, {}, {}, 0u, 1u);
         (void)World.SceneTree.BuildFromPolygonNetwork(Net);
-        (void)World.SceneSdf.BuildFromWideBoundingTree(World.SceneTree, 0.35f, 0.60f);
 
         World.Atmosphere.Medium.AtmosphereEnabled       = true;
         World.Atmosphere.Solar.SolarEnabled             = true;
@@ -615,7 +613,7 @@ int main()
         World.Atmosphere.Moons[0] = { true, false, LunarSurfacePreset::Luna, 0.70f, 1.8f, 0.7f, 4.5f, 282.0f, 22.0f, 0.0f, 0.0f,
                                       true, 0.55f, 0.16f, { 0.65f, 0.80f, 1.00f } };
 
-        Gpu.SynchronizeSceneResources(World, nullptr, true);
+        Gpu.SynchronizeSceneResources(World, true);
         const auto Cam = MakeCamera({ 0.0f, -4.0f, 2.0f }, { -0.2f, 6.0f, 2.55f }, HeroW, HeroH, 54.0f);
         std::vector<uint8_t> Pixels {};
         Score.Verify(Gpu.RenderWorldViewportWithEngine(RenderCfg, 0u, Cam, World, Pixels), "Rendered 3D World Integration");

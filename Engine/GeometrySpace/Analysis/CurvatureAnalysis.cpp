@@ -239,6 +239,45 @@ std::vector<CornerTangentBasis> EvaluateContinuousCornerTangents(const PolygonNe
         return CornerBases;
     }
 
+    // 📝 Step 0: Always derive crisp geometric face normals from live vertices (safe even if caller skipped RecomputeNormals())
+    std::vector<Mathematics::Axis3D> FaceNormals(Network.Faces.size(), { 0.0f, 1.0f, 0.0f });
+    for (uint32_t FaceIdx = 0u; FaceIdx < static_cast<uint32_t>(Network.Faces.size()); ++FaceIdx)
+    {
+        const Face& CurrentFace = Network.Faces[FaceIdx];
+        if (CurrentFace.BoundaryLoopEdgeIndex == InvalidNetworkIndex || CurrentFace.CornerCount < 3u)
+        {
+            FaceNormals[FaceIdx] = CurrentFace.GeometricNormal;
+            continue;
+        }
+        const uint32_t E0 = CurrentFace.BoundaryLoopEdgeIndex;
+        const uint32_t E1 = (E0 < Network.Edges.size()) ? Network.Edges[E0].NextEdgeIndex : InvalidNetworkIndex;
+        if (E0 >= Network.Edges.size() || E1 >= Network.Edges.size())
+        {
+            FaceNormals[FaceIdx] = CurrentFace.GeometricNormal;
+            continue;
+        }
+        const Mathematics::Axis3D P0 = Network.Vertices[Network.Edges[E0].OriginVertexIndex].Axes;
+        Mathematics::Axis3D AreaNormal { 0.0f, 0.0f, 0.0f };
+        uint32_t WalkEdge = E1;
+        for (uint16_t Step = 1u; Step + 1u < CurrentFace.CornerCount && WalkEdge < Network.Edges.size(); ++Step)
+        {
+            const uint32_t NextWalk = Network.Edges[WalkEdge].NextEdgeIndex;
+            if (NextWalk >= Network.Edges.size())
+            {
+                break;
+            }
+            const Mathematics::Axis3D P1 = Network.Vertices[Network.Edges[WalkEdge].OriginVertexIndex].Axes;
+            const Mathematics::Axis3D P2 = Network.Vertices[Network.Edges[NextWalk].OriginVertexIndex].Axes;
+            AreaNormal = AreaNormal + Mathematics::EvaluateCross(P1 - P0, P2 - P0);
+            WalkEdge   = NextWalk;
+        }
+        const Mathematics::Axis3D FallbackNorm =
+            (Mathematics::EvaluateLengthSquared(CurrentFace.GeometricNormal) > 1.0e-6f)
+                ? CurrentFace.GeometricNormal
+                : Mathematics::Axis3D{ 0.0f, 1.0f, 0.0f };
+        FaceNormals[FaceIdx] = Mathematics::NormalizeAxis(AreaNormal, FallbackNorm);
+    }
+
     // 📝 Step 1: Compute crease-aware smooth corner normals (hard creases split normal smoothing; smooth seams still share normals!)
     std::vector<Mathematics::Axis3D> CornerNormals(Network.Edges.size(), { 0.0f, 1.0f, 0.0f });
     std::vector<std::vector<uint32_t>> CornersAtVertex(Network.Vertices.size());
@@ -258,7 +297,8 @@ std::vector<CornerTangentBasis> EvaluateContinuousCornerTangents(const PolygonNe
         const auto& IncidentCorners = CornersAtVertex[VIdx];
         for (const uint32_t EdgeA : IncidentCorners)
         {
-            const Face& FaceA = Network.Faces[Network.Edges[EdgeA].EnclosingFaceIndex];
+            const uint32_t FaceIdxA = Network.Edges[EdgeA].EnclosingFaceIndex;
+            const Mathematics::Axis3D NormA = FaceNormals[FaceIdxA];
             const bool HardIncidentA =
                 QueryEdgeAttributeEnabled(Network.Edges[EdgeA].AttributeMask, EdgeAttributeMask::EnableSharpCrease) ||
                 (Network.Edges[EdgeA].PreviousEdgeIndex < Network.Edges.size() &&
@@ -267,9 +307,10 @@ std::vector<CornerTangentBasis> EvaluateContinuousCornerTangents(const PolygonNe
             Mathematics::Axis3D BlendedNormal { 0.0f, 0.0f, 0.0f };
             for (const uint32_t EdgeB : IncidentCorners)
             {
-                const Face& FaceB = Network.Faces[Network.Edges[EdgeB].EnclosingFaceIndex];
-                if (EdgeA != EdgeB && HardIncidentA &&
-                    Mathematics::EvaluateDot(FaceA.GeometricNormal, FaceB.GeometricNormal) < CreaseCosThreshold)
+                const uint32_t FaceIdxB = Network.Edges[EdgeB].EnclosingFaceIndex;
+                const Mathematics::Axis3D NormB = FaceNormals[FaceIdxB];
+                const float FaceDot = Mathematics::EvaluateDot(NormA, NormB);
+                if (EdgeA != EdgeB && ((HardIncidentA && FaceDot < CreaseCosThreshold) || FaceDot < 0.35f))
                 {
                     continue;
                 }
@@ -283,9 +324,9 @@ std::vector<CornerTangentBasis> EvaluateContinuousCornerTangents(const PolygonNe
                     const auto EdgeBack  = Network.Vertices[Network.Edges[PrevB].OriginVertexIndex].Axes - OriginPos;
                     Weight               = std::max(1.0e-5f, SafeInteriorAngle(EdgeFwd, EdgeBack));
                 }
-                BlendedNormal = BlendedNormal + FaceB.GeometricNormal * Weight;
+                BlendedNormal = BlendedNormal + NormB * Weight;
             }
-            CornerNormals[EdgeA] = Mathematics::NormalizeAxis(BlendedNormal, FaceA.GeometricNormal);
+            CornerNormals[EdgeA] = Mathematics::NormalizeAxis(BlendedNormal, NormA);
         }
     }
 

@@ -7,11 +7,9 @@
 //      ContentBrowserPanel (bottom notch + empty top header strip).
 //   2. World Renderer acceleration fixes:
 //      - Per-object cached 49-degree smooth normals transform cleanly into WideBoundingTree without
-//        CPU SDF construction when GPU SDF is available.
-//      - GPU SignedDistanceGridCompute.comp.spv constructs the dense narrow-band SDF directly on
-//        the GPU from uploaded BVH4 + triangles.
-//      - Tier 2 RTX Irradiance Lattice upload is decoupled from SDF rebuilds so background RTX
-//        refinement uploads immediately without stalling or requiring an SDF rebuild.
+//        any SDF or GI lattice state.
+//      - GPU VulkanWorldRenderSequence uploads compact BVH4 + triangle descriptors directly for
+//        non-GI OpenPbrDirect & MatCap compute rendering.
 // =================================================================================================
 
 #include "Engine/Components/Appearance/ThemeRepository.h"
@@ -283,13 +281,11 @@ namespace
     {
         using namespace Frontier::GeometricRaster;
 
-        // 1. Build Showcase Gallery skipping CPU SDF -> cached local smooth triangles & BVH4 smooth normals ready
+        // 1. Build Showcase Gallery -> cached local smooth triangles & BVH4 smooth normals ready
         ShowcaseWorldSceneBundle Bundle {};
-        BuildShowcaseGalleryScene(Bundle, 160u, 90u, false);
+        BuildShowcaseGalleryScene(Bundle, 160u, 90u);
         VerifyCheck(!Bundle.Objects.empty(),
                     "ShowcaseGalleryScene populated opaque objects");
-        VerifyCheck(Bundle.Scene.SceneSdf.BrickCountX == 0u,
-                    "BuildShowcaseGalleryScene(..., BuildCpuSdf = false) skips CPU SDF construction");
         VerifyCheck(!Bundle.Scene.SceneTree.Primitives.empty() &&
                         Bundle.Scene.SceneTree.PrimitiveNormals.size() == Bundle.Scene.SceneTree.Primitives.size(),
                     "WideBoundingTree populated cached per-triangle smooth vertex normals");
@@ -317,75 +313,66 @@ namespace
                 break;
             }
         }
-        RebuildShowcaseSceneAcceleration(Bundle, false);
-        VerifyCheck(Bundle.Scene.SceneSdf.BrickCountX == 0u,
-                    "RebuildShowcaseSceneAcceleration(Bundle, false) preserves GPU-only SDF fast path");
+        RebuildShowcaseSceneAcceleration(Bundle);
         VerifyCheck(Bundle.Scene.SceneTree.Primitives.size() == FirstTriCount &&
                         Bundle.Scene.SceneTree.PrimitiveNormals.size() == FirstTriCount,
                     "Incremental transform rebuild preserves full triangle & smooth-normal count");
 
-        // 3. Standalone RTX irradiance lattice bake for decoupled async path
+        // 3. Standalone CPU TieredWorldRenderSequence prep
         TieredWorldRenderSequence Tiered;
-        Tiered.PrepareRtxIrradianceLatticeOnly(Bundle.Scene);
-        VerifyCheck(!Tiered.InspectIrradianceLattice().InspectCells().empty(),
-                    "PrepareRtxIrradianceLatticeOnly computes Tier 2 RTX lattice independently");
+        Tiered.PrepareWorldScene(Bundle.Scene);
 
-        // 4. GPU Vulkan World Renderer: GPU SDF build + decoupled RTX lattice upload
+        // 4. GPU Vulkan World Renderer: BVH4 Direct + Shadow Lab
         VulkanInterchange Device;
         if (Device.InitializeInterchange(std::filesystem::path(FRONTIER_REPO_ROOT_DIR)))
         {
             VulkanWorldRenderSequence Gpu;
             const bool Ready = Gpu.InitializeSequence(Device, std::filesystem::path(FRONTIER_COMPILED_SHADER_DIR));
-            VerifyCheck(Ready && Gpu.QueryGpuSdfComputeReady(),
-                        "VulkanWorldRenderSequence loaded SignedDistanceGridCompute.comp.spv");
+            VerifyCheck(Ready, "VulkanWorldRenderSequence initialized shaders cleanly");
 
             if (Ready)
             {
-                Gpu.SynchronizeSceneResources(Bundle.Scene, nullptr, true);
-                VerifyCheck(Gpu.QueryCachedSdfVoxelCount() > 0u,
-                            "GPU SDF compute shader generated dense narrow-band SDF directly from BVH4 without CPU SDF");
-                VerifyCheck(Gpu.QueryIrradianceLatticeUploaded() && Gpu.QueryDdgiManagedByGpu(),
-                            "GPU DDGI irradiance lattice builds autonomously before async RTX bake arrives");
+                Gpu.SynchronizeSceneResources(Bundle.Scene, true);
 
-                Gpu.SynchronizeSceneResources(Bundle.Scene, &Tiered.InspectIrradianceLattice(), false);
-                VerifyCheck(Gpu.QueryIrradianceLatticeUploaded() && !Gpu.QueryDdgiManagedByGpu(),
-                            "Decoupled RTX Irradiance Lattice uploads cleanly when RebuildSdfGrid = false");
-
-                std::vector<std::uint8_t> PixelsGtx;
-                std::vector<std::uint8_t> PixelsRtx;
-                const bool RenderedGtx = Gpu.RenderWorldViewportRgba8(
-                    WorldRenderTier::Tier1GtxCalibrated,
+                std::vector<std::uint8_t> PixelsMatCap;
+                std::vector<std::uint8_t> PixelsOpenPbr;
+                WorldRenderConfiguration MatCapCfg {};
+                MatCapCfg.Engine = WorldRenderEngine::MatCap;
+                WorldRenderConfiguration PbrCfg {};
+                PbrCfg.Engine = WorldRenderEngine::OpenPbrDirect;
+                const bool RenderedMatCap = Gpu.RenderWorldViewportWithEngine(
+                    MatCapCfg,
+                    0u,
                     Bundle.EditorCamera,
                     Bundle.Scene,
+                    PixelsMatCap);
+                const bool RenderedOpenPbr = Gpu.RenderWorldViewportWithEngine(
+                    PbrCfg,
                     0u,
-                    PixelsGtx);
-                const bool RenderedRtx = Gpu.RenderWorldViewportRgba8(
-                    WorldRenderTier::Tier2RtxDeterministic,
                     Bundle.EditorCamera,
                     Bundle.Scene,
-                    0u,
-                    PixelsRtx);
+                    PixelsOpenPbr);
 
-                double MeanLumaGtx = 0.0;
-                double DiffSum     = 0.0;
-                if (RenderedGtx && RenderedRtx && PixelsGtx.size() == PixelsRtx.size() && !PixelsGtx.empty())
+                double MeanLumaOpenPbr = 0.0;
+                double DiffSum         = 0.0;
+                if (RenderedMatCap && RenderedOpenPbr && PixelsMatCap.size() == PixelsOpenPbr.size() && !PixelsOpenPbr.empty())
                 {
-                    const std::size_t PixelCount = PixelsGtx.size() / 4u;
+                    const std::size_t PixelCount = PixelsOpenPbr.size() / 4u;
                     for (std::size_t P = 0u; P < PixelCount; ++P)
                     {
                         const std::size_t O = P * 4u;
-                        MeanLumaGtx += (0.2126 * PixelsGtx[O] + 0.7152 * PixelsGtx[O + 1u] + 0.0722 * PixelsGtx[O + 2u]);
-                        DiffSum += std::fabs(static_cast<double>(PixelsRtx[O]) - static_cast<double>(PixelsGtx[O])) +
-                                   std::fabs(static_cast<double>(PixelsRtx[O + 1u]) - static_cast<double>(PixelsGtx[O + 1u])) +
-                                   std::fabs(static_cast<double>(PixelsRtx[O + 2u]) - static_cast<double>(PixelsGtx[O + 2u]));
+                        MeanLumaOpenPbr += (0.2126 * PixelsOpenPbr[O] + 0.7152 * PixelsOpenPbr[O + 1u] + 0.0722 * PixelsOpenPbr[O + 2u]);
+                        DiffSum += std::fabs(static_cast<double>(PixelsOpenPbr[O]) - static_cast<double>(PixelsMatCap[O])) +
+                                   std::fabs(static_cast<double>(PixelsOpenPbr[O + 1u]) - static_cast<double>(PixelsMatCap[O + 1u])) +
+                                   std::fabs(static_cast<double>(PixelsOpenPbr[O + 2u]) - static_cast<double>(PixelsMatCap[O + 2u]));
                     }
-                    MeanLumaGtx /= static_cast<double>(PixelCount);
-                    DiffSum     /= static_cast<double>(PixelCount * 3u);
+                    MeanLumaOpenPbr /= static_cast<double>(PixelCount);
+                    DiffSum         /= static_cast<double>(PixelCount * 3u);
                 }
-                VerifyCheck(RenderedGtx && MeanLumaGtx > 5.0,
-                            "GPU Tier 1 GTX viewport render with GPU-built SDF produced lit image");
-                VerifyCheck(RenderedRtx && DiffSum > 0.25,
-                            "GPU Tier 2 RTX viewport render reflected decoupled Irradiance Lattice");
+                VerifyCheck(RenderedMatCap && RenderedOpenPbr && MeanLumaOpenPbr > 5.0,
+                            "GPU OpenPBR Direct viewport render produced lit image");
+                VerifyCheck(DiffSum > 0.25,
+                            "GPU OpenPBR Direct viewport render differs cleanly from MatCap");
                 Gpu.TeardownSequence();
             }
             Device.TeardownInterchange();

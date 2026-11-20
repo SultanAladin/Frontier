@@ -411,14 +411,14 @@ float AudioExtension::ApplyPhysicsOcclusionQuery(
     return Occlusion;
 }
 
-SdfAcousticFieldReading AudioExtension::ApplySdfAcousticField(
-    const DistanceFieldSpace::SignedDistanceVolume& SdfVolume,
-    AcousticVoiceToken                              Token,
-    Mathematics::Axis3D                             OriginPositionMeters,
-    Mathematics::Axis3D                             OriginVelocityMps) noexcept
+SdfAcousticFieldReading AudioExtension::ApplyRayAcousticField(
+    const SpatialAcceleration::WideBoundingTree& SceneTree,
+    AcousticVoiceToken                           Token,
+    Mathematics::Axis3D                          OriginPositionMeters,
+    Mathematics::Axis3D                          OriginVelocityMps) noexcept
 {
-    const SdfAcousticFieldReading Reading = SpatialAcoustics::EvaluateSdfAcousticField(
-        SdfVolume,
+    const SdfAcousticFieldReading Reading = SpatialAcoustics::EvaluateRayAcousticField(
+        SceneTree,
         CachedReceiver.PositionMeters,
         OriginPositionMeters);
     if (ExtensionInitialized && Token)

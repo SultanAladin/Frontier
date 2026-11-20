@@ -214,14 +214,6 @@ Frontier/
     │   ├── DynamicAABBTree.{h,cpp}                // Self-balancing binary tree for dynamic colliders
     │   └── SpatialGridHash.{h,cpp}                // Sparse spatial hashing structure
     │
-    ├── DistanceFieldSpace/                        // Volumetric SDFs, implicit geometry, and queries
-    │   ├── SignedDistanceField.{h,cpp}            // Voxel-backed signed distance fields
-    │   ├── SignedDistanceVolume.{h,cpp}           // Sparse brick + clip-grid 3D SDF builder for GTX GI & penumbra
-    │   ├── DistanceTransform.{h,cpp}              // Fast sweeping and Maurer distance transforms
-    │   ├── VolumetricDistance.{h,cpp}             // Trilinear volume sampling and gradient reconstruction
-    │   ├── DistanceQuery.{h,cpp}                  // Ray marching and closest-point queries
-    │   └── SDFPrimitiveSolver.{h,cpp}             // Analytic primitive distance solvers
-    │
     ├── ColourSpace/                               // Tristimulus spaces, chromaticity, and transfer curves
     │   ├── ChromaticitySpace.{h,cpp}              // CIE XYZ, Linear sRGB, ACEScg, Rec.2020, and Oklab transforms
     │   ├── TransferFunction.{h,cpp}               // Electro-optical and opto-electronic curves (sRGB, PQ, HLG)
@@ -285,9 +277,6 @@ Frontier/
     │   ├── ClusterPyramid.{h,cpp}                 // 128-triangle Morton LOD pyramid with seam/border-locked QEM collapse
     │   └── WideBoundingTree.{h,cpp}               // Compressed 128 B 4-Wide SAH BVH4 for deterministic GTX + RTX ray queries
     │
-    ├── DistanceFieldSpace/                        // Volumetric signed distance fields for Tier 1 GTX GI & solar penumbra
-    │   └── SignedDistanceVolume.{h,cpp}           // Sparse 8x8x8 narrow-band brick 3D SDF builder, gradient & cone trace
-    │
     ├── Codecs/                                    // Native Frontier .Space container Encoders & Decoders
     │   ├── SpaceContainerCodec.{h,cpp}            // Hybrid TOML + 64B-aligned binary section Encoder/Decoder
     │   ├── RevisionCodec.{h,cpp}                  // .Revision parametric operation stream Encoder/Decoder
@@ -309,7 +298,7 @@ Frontier/
     ├── AudioSpace/                                // Real-time lock-free 3D spatial acoustics, Doppler, surround VBAP & tunnel DSP
     │   ├── AcousticTypes.h                        // Generational tokens, speaker layouts, voice/zone descriptors & lock-free envelopes
     │   ├── WaveformDecoder.{h,cpp}                // RIFF WAV / procedural PCM decoder, cubic resampler & resident slot repository
-    │   ├── SpatialAcoustics.{h,cpp}               // Surround 5.1/7.1 VBAP, Woodworth binaural ITD/ILD, Doppler & SDF occlusion
+    │   ├── SpatialAcoustics.{h,cpp}               // Surround 5.1/7.1 VBAP, Woodworth binaural ITD/ILD, Doppler & BVH4 occlusion
     │   ├── AudioBusAccumulator.{h,cpp}            // Zero-alloc DSP mixer, tunnel waveguide combs, Hadamard FDN, ducking & limiter
     │   ├── AudioHardwareOutput.{h,cpp}            // WASAPI / dynamic Pulse & ALSA / AAudio / HeadlessBuffer sink & WAV export
     │   └── AudioExtension.{h,cpp}                 // SuspendableParticipant audio orchestrator bridging AudioThread & Mixer
@@ -358,9 +347,9 @@ Frontier/
     │   ├── Baking/                                // Surface transfer, channel resolve, dilation, Volume SDF & slice .slang
     │   ├── Colour/                                // GPU colour ramp LUT sampling .slang
     │   ├── Compute/                               // FieldLatticeCompute & shared ForceField .slang
-    │   ├── DirectLighting/                        // Solar shadow, contact clip, plane filter & WideTreeRayQuery .slang
+    │   ├── DirectLighting/                        // Solar shadow, plane filter & WideTreeRayQuery .slang
     │   ├── GeometricRaster/                       // SurfaceShading, MatCap, UVTile, Gizmo, ImGuiOverlay, Picking & Radiometric .slang
-    │   ├── GlobalIllumination/                    // DynamicIrradianceCache, WeightedPathReplay, WeightedTemporalFilter & SpecularGlassRaytrace .slang
+    │   ├── GlobalIllumination/                    // SpecularGlassRaytrace .slang (direct specular/glass bounce compute)
     │   ├── MaterialSpace/                         // 10-lobe OpenPBR, DynamicMaterialResolve, ProceduralFields & SubsurfaceTransmission .slang
     │   ├── Particles/                             // 21 Vulkan 1.3 particle compute & raster .slang shaders
     │   ├── Vector/                                // Vector modifier expand, stencil fill, cover, layer stack & PBR .slang
@@ -387,15 +376,12 @@ Frontier/
     │   │   └── VisibilityMaterialResolve.{h,cpp}  // Analytic ray-differential barycentrics & LobeMask tile resolve
     │   │
     │   ├── DirectLighting/                        // First-hit solar shadows, analytic area lights & chassis AO
-    │   │   ├── SolarShadowSequence.{h,cpp}        // RTX deterministic solar frustum + GTX 2-cascade contact clip + SDF
+    │   │   ├── SolarShadowSequence.{h,cpp}        // RTX deterministic solar frustum + GTX tight 2-cascade contact clip
     │   │   └── LinearCosineLightIntegration.{h,cpp}// Visibility-gated analytic polygonal lights + 2.2 m chassis AO
     │   │
-    │   ├── GlobalIllumination/                    // Multi-bounce GI, DynamicIrradianceCache, ReSTIR path replay & RT reflections
-    │   │   ├── DynamicIrradianceCacheSequence.{h,cpp}  // 8x8 octahedral 1/pi probe cache + 16x16 Chebyshev depth + backface gating
-    │   │   ├── WeightedPathReplaySequence.{h,cpp}// Hybrid ReSTIR path replay (4-cand RIS + temporal/spatial reuse + 5-pass SVGF)
-    │   │   ├── IrradianceLatticeSequence.{h,cpp}  // Compatibility facade over DynamicIrradianceCacheSequence + Mode-7 debug radiosity volume
+    │   ├── GlobalIllumination/                    // Specular reflections, glass refraction & tiered world composition
     │   │   ├── SpecularReflectionSequence.{h,cpp} // Coherent WideBoundingTree multi-bounce specular & glass refraction
-    │   │   └── TieredWorldRenderSequence.{h,cpp}  // Complete ordered GTX/RTX world sequence bound to viewports
+    │   │   └── TieredWorldRenderSequence.{h,cpp}  // Complete ordered MatCap & OpenPbrDirect GTX/RTX world sequence bound to viewports
     │   │
     │   ├── Atmosphere/                            // 3-LUT physical sky, Neckel & Labs solar optics, 6 exosphere moons & BSC5 starfield
     │   │   ├── CelestialEphemerisSolver.{h,cpp}   // Solar/orbital ephemeris, Kelvin blackbody & azimuth/elevation basis
@@ -428,15 +414,11 @@ Frontier/
     │   │   ├── HardwareVisibilityRasterization.slang// >=4 px indirect cluster rasterization + 2-layer glass peel
     │   │   ├── MicroFaceSoftwareRasterization.slang// <4 px compute atomicMax64 sub-pixel face rasterization
     │   │   └── AnalyticBarycentricResolve.slang   // Ray-plane barycentrics, UV Jacobians & wave-uniform material shade
-    │   ├── DirectLighting/                        // WideTreeRayQuery, solar frustum, contact clip & shadow filter
+    │   ├── DirectLighting/                        // WideTreeRayQuery, solar frustum & shadow filter
     │   │   ├── WideTreeRayQuery.slang             // Shared 4-Wide BVH4 & VK_KHR_ray_query intersection routines
     │   │   ├── SolarFrustumShadow.slang           // Deterministic Vogel solar disc trace + chassis 2-scale AO
-    │   │   ├── ContactClipShadow.slang            // GTX 2-cascade tight contact shadow + SDF cone penumbra blend
     │   │   └── PlaneAwareShadowFilter.slang       // Coplanar dilation + 3-step continuous-sigma edge-preserving filter
-    │   ├── GlobalIllumination/                    // DynamicIrradianceCache, ReSTIR path replay, SVGF temporal filter & specular/glass raytrace
-    │   │   ├── DynamicIrradianceCache.slang            // 8x8 octahedral 1/pi probe cache, 16x16 Chebyshev moments & backface validity
-    │   │   ├── WeightedPathReplay.slang          // 4-candidate Owen-Sobol RIS + BVH4 1-bounce replay + DynamicIrradianceCache 2nd bounce
-    │   │   ├── WeightedTemporalFilter.slang      // Temporal/spatial reservoir reuse + 5-pass edge-aware A-Trous SVGF
+    │   ├── GlobalIllumination/                    // Specular/glass raytrace compute shader
     │   │   └── SpecularGlassRaytrace.slang        // Coherent cone-footprint multi-bounce specular & dielectric glass
     │   ├── UV/                                    // GPU UVTile, wireframe, ground plane & shadow shaders
     │   │   ├── UVTileRasterization.slang          // 2D UVTile coordinates, checker patterns & stretch heat

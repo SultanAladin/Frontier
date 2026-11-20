@@ -12,9 +12,9 @@
 | [`Baking/`](Baking/README.md) | Dual GTX SAH-BVH4 + optional RTX VK_KHR_acceleration_structure (BLAS + TLAS) upload & synchronization for GPU baking |
 | [`ComponentEditor/`](ComponentEditor/README.md) | Procedural & compiled geometry vertex builders for Component Editor .slang pipelines (surface channels, constraints, shells, beams) |
 | [`Compute/`](Compute/README.md) | Modular Vulkan .slang compute pipeline registry and descriptor encoder shared across UV, Geometry, Texture, Material & Simulation |
-| [`DirectLighting/`](DirectLighting/README.md) | Visibility-Gated Clipped-Polygon Linearly Transformed Cosine (LTC) Quad Area Lights + 2-Scale (0.25 m / 2.2 m) Chassis & Specular AO |
+| [`DirectLighting/`](DirectLighting/README.md) | Visibility-Gated Clipped-Polygon Linearly Transformed Cosine (LTC) Quad Area Lights, Shadow Lab, & 2-Scale (0.25 m / 2.2 m) Chassis & Specular AO |
 | [`Gizmo/`](Gizmo/README.md) | Modular 3D & 2D Slate GizmoPRO manipulator reusable across UV, Geometry, Material, Vector & Simulation workspaces |
-| [`GlobalIllumination/`](GlobalIllumination/README.md) | Shared Bit-Exact Owen-Scrambled Sobol (0,2) Quadrature & Dupuy-Benyoub (2023) Spherical-Cap GGX VNDF (Zero RNG, Zero Denoiser) |
+| [`GlobalIllumination/`](GlobalIllumination/README.md) | Dual-Engine Non-GI World Render Sequence (`MatCap` & `OpenPbrDirect`) + Shadow Lab + BVH4 / Sky Specular Reflections & Abbe Glass |
 | [`Picking/`](Picking/README.md) | Unified 3D & 2D GPU R32G32B32A32_UINT visibility pick query supporting 1x1 cursor readback and marquee/brush VRAM reduction |
 | [`Rasterization/`](Rasterization/README.md) | Native Vulkan 1.2+ swapchain & offscreen presenter executing ImGuiOverlayRasterization.slang over GLFW OS windows or headless targets |
 | [`Simulation/`](Simulation/README.md) | Editor-only Vulkan 1.3 dynamic-rendering overlay sequence executing all 6 .slang ForceField rasterization pipelines + MRT PickID |

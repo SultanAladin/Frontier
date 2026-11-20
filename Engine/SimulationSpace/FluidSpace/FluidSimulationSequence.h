@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                          FLUIDSIMULATIONSEQUENCE.H
 ============================================================================================================================================*/
-// 🧩 Fixed-step 3D Eulerian Fire/Smoke solver + Dual-tier World Drift Grid + ForceFields/Particle/GI coupling (CPU & Vulkan Compute)
+// 🧩 Fixed-step 3D Eulerian Fire/Smoke solver + Dual-tier World Drift Grid + ForceFields/Particle/Direct-lighting coupling (CPU & Vulkan Compute)
 
 #pragma once
 
@@ -9,7 +9,6 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/DistanceFieldSpace/SignedDistanceVolume.h"
 #include "Engine/Mathematics/LinearColors.h"
 #include "Engine/ParticleSpace/ParticleBuffers.h"
 #include "Engine/SimulationSpace/FluidSpace/FluidDescriptors.h"
@@ -43,12 +42,11 @@ struct FluidStepInput
 {
     const ForceFields::ForceFieldAccumulator*      ForceFieldSource   = nullptr;
     ForceFields::ForceFieldAccumulator*            MutableForceFields = nullptr;
-    const ForceFields::FieldLatticeCascade*        WindLatticeCascade = nullptr;
-    const DistanceFieldSpace::SignedDistanceVolume* SceneSdf          = nullptr;
-    const SpatialAcceleration::WideBoundingTree*   SceneTree          = nullptr;
-    std::span<ParticleSpace::ParticleSlot>         ExternalParticles  {};
-    Mathematics::Axis3D                            WorldFocusPoint    { 0.0f, 0.0f, 0.0f };
-    bool                                           BakeGiObstaclesNow = false;
+    const ForceFields::FieldLatticeCascade*      WindLatticeCascade = nullptr;
+    const SpatialAcceleration::WideBoundingTree* SceneTree          = nullptr;
+    std::span<ParticleSpace::ParticleSlot>       ExternalParticles  {};
+    Mathematics::Axis3D                          WorldFocusPoint    { 0.0f, 0.0f, 0.0f };
+    bool                                         BakeGiObstaclesNow = false;
 };
 
 //------------------------------------------------------------------------------------------------------------------------

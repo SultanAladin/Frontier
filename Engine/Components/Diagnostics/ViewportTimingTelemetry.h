@@ -27,8 +27,8 @@ struct ViewportTimingBreakdown
     uint64_t    FrameIndex          = 0ull;  // [idx] - Monotonic desktop frame index
     uint32_t    RenderWidthPx       = 0u;    // [px]  - Active world render width
     uint32_t    RenderHeightPx      = 0u;    // [px]  - Active world render height
-    uint32_t    EngineMode          = 3u;    // [idx] - 0=MatCap, 1=OpenPBR, 2=DDGI, 3=SDF GI, 4=PathTrace
-    uint32_t    ShadowAlgorithm     = 0u;    // [idx] - 0=ContactPCSS, 1=PlanePCSS, 2=SMRT, 3=PCF, 4=RayQuery
+    uint32_t    EngineMode          = 1u;    // [idx] - 0=MatCap, 1=OpenPBR
+    uint32_t    ShadowAlgorithm     = 4u;    // [idx] - 0=ContactPCSS, 1=PlanePCSS, 2=SMRT, 3=PCF, 4=RayQuery
     uint32_t    QualityTier         = 2u;    // [idx] - 0=Low..4=Ultra
     bool        HardwareGpuActive   = false; // [-]   - True when running on hardware GPU (discrete/iGPU)
     bool        GpuTimestampsValid  = false; // [-]   - True when VkQueryPool timestamps populated GPU pass times
@@ -40,7 +40,7 @@ struct ViewportTimingBreakdown
     float TotalFrameMs              = 0.0f;  // [ms] - Full frame wall-clock delta
     float DesktopPollAndUiMs        = 0.0f;  // [ms] - GLFW poll + ImGui frame build
     float EditorTickMs              = 0.0f;  // [ms] - Scene/outliner/force tick before render
-    float SceneSyncGpuMs            = 0.0f;  // [ms] - GPU scene upload, cascades, SDF, DDGI prep
+    float SceneSyncGpuMs            = 0.0f;  // [ms] - GPU scene upload & shadow cascade sync
     float ForceOverlayMs            = 0.0f;  // [ms] - ForceViz overlay render & composite
     float GizmoOverlayMs            = 0.0f;  // [ms] - 3D Transform gizmo raster & composite
     float SwapchainPresentMs        = 0.0f;  // [ms] - ImGui draw + texture upload + vkQueuePresentKHR
@@ -49,8 +49,8 @@ struct ViewportTimingBreakdown
     float GpuTotalPassMs            = 0.0f;  // [ms] - VkQueryPool total GPU time across world passes
     float GpuSkyLutMs               = 0.0f;  // [ms] - SkyView transmittance LUT compute pass
     float GpuCloudsMs               = 0.0f;  // [ms] - Downsampled volumetric cloud deck compute pass
-    float GpuPrimaryTraceMs         = 0.0f;  // [ms] - Primary raytrace/shade/shadow/GI/PT pass
-    float GpuDenoiseMs              = 0.0f;  // [ms] - A-Trous denoise & composite passes
+    float GpuPrimaryTraceMs         = 0.0f;  // [ms] - Primary raytrace/shade/shadow pass
+    float GpuDenoiseMs              = 0.0f;  // [ms] - Spatial shadow denoise & composite passes
     float GpuReadbackCopyMs         = 0.0f;  // [ms] - VRAM -> host-cached staging copy
     float GpuHostSubmitWaitMs       = 0.0f;  // [ms] - CPU uniform pack, cmd encode, timeline wait & memcpy
 };
@@ -61,10 +61,7 @@ struct ViewportTimingBreakdown
     {
     case 0u: return "MatCap";
     case 1u: return "OpenPBR";
-    case 2u: return "DDGI";
-    case 3u: return "SDF_GI";
-    case 4u: return "PathTrace";
-    default: return "Unknown";
+    default: return "OpenPBR";
     }
 }
 

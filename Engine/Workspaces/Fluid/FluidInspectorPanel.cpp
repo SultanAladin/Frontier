@@ -232,13 +232,13 @@ void FluidInspectorPanel::Render(
         break;
     case FluidOutlinerRow::GiLighting:
         EntityTitle = "Directional light";
-        EntityType  = "GI & SHADOWS";
+        EntityType  = "DIRECT & SHADOWS";
         TogglePtr   = &Doc.GiCoupling.EmitGiLights;
         IconInk     = ColorRgba { 240u, 198u, 96u, 255u };
         break;
     case FluidOutlinerRow::SceneObstacle:
         EntityTitle = "Scene collider";
-        EntityType  = "ANALYTIC SDF";
+        EntityType  = "BVH COLLIDER";
         TogglePtr   = &Doc.Domain.WorldGridEnabled;
         IconInk     = ColorRgba { 170u, 178u, 192u, 255u };
         break;
@@ -460,13 +460,13 @@ void FluidInspectorPanel::Render(
 
         Y = ShadeCard.Bottom() + 12.0f;
 
-        // Card 2: Directional light & GI & Tornado Debris Array
+        // Card 2: Directional light & shadows & Tornado Debris Array
         const Rectangle2D GiCard { Bounds.X + PadX, Y, InnerW, 198.0f };
-        BeginPropertyCard(Surface, GiCard, "Directional light & GI", "LIGHT");
+        BeginPropertyCard(Surface, GiCard, "Directional light & shadows", "LIGHT");
         CY = GiCard.Y + 42.0f;
-        Edited |= DrawToggleRow(Surface, { CX, CY, CW, 24.0f }, "Emit GI fire lights", Doc.GiCoupling.EmitGiLights, Pointer);
+        Edited |= DrawToggleRow(Surface, { CX, CY, CW, 24.0f }, "Emit direct fire lights", Doc.GiCoupling.EmitGiLights, Pointer);
         CY += 26.0f;
-        Edited |= DrawToggleRow(Surface, { CX, CY, CW, 24.0f }, "Cast volumetric GI shadows", Doc.GiCoupling.CastGiShadows, Pointer);
+        Edited |= DrawToggleRow(Surface, { CX, CY, CW, 24.0f }, "Cast volumetric sun shadows", Doc.GiCoupling.CastGiShadows, Pointer);
         CY += 26.0f;
         Edited |= DrawToggleRow(Surface, { CX, CY, CW, 24.0f }, "Fluid-advected embers & debris", Doc.Particles.ShowEmbers, Pointer);
         CY += 28.0f;

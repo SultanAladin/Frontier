@@ -207,7 +207,6 @@ void BlitScaledRegion(
     }
 
     (void)Scene.SceneTree.BuildFromPolygonNetwork(UnifiedWorldNet);
-    (void)Scene.SceneSdf.BuildFromWideBoundingTree(Scene.SceneTree, 0.25f, 0.45f);
 
     Scene.Atmosphere.Medium.AtmosphereEnabled       = true;
     Scene.Atmosphere.Medium.SkyBrightnessMultiplier = 1.0f;
@@ -375,7 +374,7 @@ int main()
     GpuCfg.ShadowAlgorithm = SolarShadowAlgorithm::WideTreeRayQuery;
 
     CpuRenderer.PrepareWorldScene(OpenScene);
-    GpuRenderer.SynchronizeSceneResources(OpenScene, nullptr, true);
+    GpuRenderer.SynchronizeSceneResources(OpenScene, true);
 
     // 3A. Anamorphic Cinema Flare (GPU + CPU parity + PNG)
     std::vector<uint8_t> GpuAnamorphic {};

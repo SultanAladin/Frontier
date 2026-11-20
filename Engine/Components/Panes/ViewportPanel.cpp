@@ -75,16 +75,12 @@ namespace
 
 [[nodiscard]] const char* QueryDebugChannelName(uint32_t Channel) noexcept
 {
-    constexpr std::array<const char*, 16> Names = {{
+    constexpr std::array<const char*, 12> Names = {{
         "Off",
         "Depth",
         "Albedo",
         "Shading Nrm",
         "Roughness",
-        "GDF Iso",
-        "GDF Slice",
-        "GDF Rad",
-        "Indirect GI",
         "Metalness",
         "Cluster ID",
         "Geom Nrm",
@@ -98,7 +94,7 @@ namespace
 
 [[nodiscard]] const char* QueryRenderEngineName(uint32_t EngineIdx) noexcept
 {
-    constexpr std::array<const char*, 5> Names = {{ "MatCap", "OpenPBR Direct", "DDGI Raytracing", "SDF GI", "Path Tracer" }};
+    constexpr std::array<const char*, 2> Names = {{ "MatCap", "OpenPBR Direct" }};
     return Names[std::min<std::size_t>(EngineIdx, Names.size() - 1u)];
 }
 
@@ -1514,7 +1510,6 @@ void ViewportPanel::RenderSettingsSheet(
         RowY += 32.0f;
     };
 
-    ConstructToggleRow("Global Illumination", DisplaySettings.GlobalIllumination);
     ConstructToggleRow("Reflections",         DisplaySettings.ReflectionsEnabled);
     ConstructToggleRow("Anti-aliasing",       DisplaySettings.AntiAliasingEnabled);
     ConstructToggleRow("Raytracing",          DisplaySettings.RaytracingEnabled);
@@ -1734,15 +1729,12 @@ void ViewportPanel::RenderSettingsSheet(
     // Active Option Sheet rendered last for clean z-ordering
     if (EngineDropdownOpen)
     {
-        constexpr std::array<const char*, 5> EngineOptions = {{
+        constexpr std::array<const char*, 2> EngineOptions = {{
             "Engine: MatCap",
             "Engine: OpenPBR Direct",
-            "Engine: DDGI Raytracing",
-            "Engine: SDF GI",
-            "Engine: Path Tracer",
         }};
         const Rectangle2D DropBounds = DropdownSelector::QuerySheetBounds(EngineBtn, static_cast<uint32_t>(EngineOptions.size()));
-        const uint32_t    CurIdx     = DisplaySettings.RenderEngineIndex % 5u;
+        const uint32_t    CurIdx     = DisplaySettings.RenderEngineIndex % 2u;
         uint32_t          ChosenIdx  = CurIdx;
         if (DropdownSelector::ConstructOptionSheet(
                 Overlay, EngineBtn, EngineOptions.data(), static_cast<uint32_t>(EngineOptions.size()),
@@ -1782,16 +1774,12 @@ void ViewportPanel::RenderSettingsSheet(
     }
     else if (DebugDropdownOpen)
     {
-        constexpr std::array<const char*, 16> DebugOptions = {{
+        constexpr std::array<const char*, 12> DebugOptions = {{
             "Debug View: Off",
             "Debug View: Depth",
             "Debug View: Albedo",
             "Debug View: Shading Normal",
             "Debug View: Roughness",
-            "Debug View: GDF Iso-Surface",
-            "Debug View: GDF Slice & Isolines",
-            "Debug View: GDF Radiosity Volume",
-            "Debug View: Indirect GI",
             "Debug View: Metalness",
             "Debug View: Material / Cluster ID",
             "Debug View: Geometric Normal",
@@ -1801,7 +1789,7 @@ void ViewportPanel::RenderSettingsSheet(
             "Debug View: Specular & Reflections",
         }};
         const Rectangle2D DropBounds = DropdownSelector::QuerySheetBounds(DebugBtn, static_cast<uint32_t>(DebugOptions.size()));
-        const uint32_t    CurrentIdx = DisplaySettings.DebugChannelIndex % 16u;
+        const uint32_t    CurrentIdx = DisplaySettings.DebugChannelIndex % 12u;
         uint32_t          ChosenIdx  = CurrentIdx;
         if (DropdownSelector::ConstructOptionSheet(
                 Overlay,
@@ -2459,27 +2447,23 @@ void ViewportPanel::Render(
 
     if (HeaderDebugDropdownOpen)
     {
-        constexpr std::array<const char*, 16> HeaderDebugOptions = {{
+        constexpr std::array<const char*, 12> HeaderDebugOptions = {{
             "00 · Lit (Off)",
             "01 · Depth",
             "02 · Albedo",
             "03 · Shading Normal",
             "04 · Roughness",
-            "05 · GDF Iso-Surface",
-            "06 · GDF Slice & Isolines",
-            "07 · GDF Radiosity Volume",
-            "08 · Indirect GI",
-            "09 · Metalness",
-            "10 · Material / Cluster ID",
-            "11 · Geometric Normal",
-            "12 · Solar Shadow",
-            "13 · Ambient Occlusion",
-            "14 · Direct Lighting",
-            "15 · Specular & Reflections",
+            "05 · Metalness",
+            "06 · Material / Cluster ID",
+            "07 · Geometric Normal",
+            "08 · Solar Shadow",
+            "09 · Ambient Occlusion",
+            "10 · Direct Lighting",
+            "11 · Specular & Reflections",
         }};
         const Rectangle2D DropSheet = DropdownSelector::QuerySheetBounds(
             HeaderDebugButtonBounds, static_cast<uint32_t>(HeaderDebugOptions.size()));
-        const uint32_t CurIdx    = DisplaySettings.DebugChannelIndex % 16u;
+        const uint32_t CurIdx    = DisplaySettings.DebugChannelIndex % 12u;
         uint32_t       ChosenIdx = CurIdx;
         if (DropdownSelector::ConstructOptionSheet(
                 ActiveOverlay, HeaderDebugButtonBounds, HeaderDebugOptions.data(),
@@ -2517,9 +2501,9 @@ void ViewportPanel::Render(
             const float SheetH = std::min(716.0f, std::max(426.0f, Bounds.Height - 22.0f));
             const float SheetX = std::clamp(SettingsBtn.Right() - SheetW, Bounds.X + 10.0f, std::max(Bounds.X + 10.0f, Bounds.Right() - SheetW - 10.0f));
             const Rectangle2D SheetRect{ SheetX, SettingsBtn.Bottom() + 6.0f, SheetW, SheetH };
-            const Rectangle2D EngineSheetRect = DropdownSelector::QuerySheetBounds(EngineButtonBounds, 5u);
+            const Rectangle2D EngineSheetRect = DropdownSelector::QuerySheetBounds(EngineButtonBounds, 2u);
             const Rectangle2D ShadowSheetRect = DropdownSelector::QuerySheetBounds(ShadowButtonBounds, 5u);
-            const Rectangle2D DebugSheetRect  = DropdownSelector::QuerySheetBounds(DebugButtonBounds, 16u);
+            const Rectangle2D DebugSheetRect  = DropdownSelector::QuerySheetBounds(DebugButtonBounds, 12u);
             const bool InDropdown =
                 (EngineDropdownOpen && EngineSheetRect.Contains(Cursor)) ||
                 (ShadowDropdownOpen && ShadowSheetRect.Contains(Cursor)) ||

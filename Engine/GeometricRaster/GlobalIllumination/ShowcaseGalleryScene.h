@@ -114,8 +114,7 @@ struct ShowcaseWorldSceneBundle
 void BuildShowcaseGalleryScene(
     ShowcaseWorldSceneBundle& OutBundle,
     uint32_t                  ViewportWidthPx  = 640u,
-    uint32_t                  ViewportHeightPx = 336u,
-    bool                      BuildCpuSdf      = true);
+    uint32_t                  ViewportHeightPx = 336u);
 
 // Registers all Showcase Gallery folders, 10 geometry entries, EditorCamera, Sun, and Ceiling Softbox in OutlinerPanel
 void RegisterShowcaseGalleryInOutliner(
@@ -126,28 +125,23 @@ void RegisterShowcaseGalleryInOutliner(
 // Synchronizes OutlinerPanel visibility, shadow-caster switches, and transforms back into ShowcaseWorldSceneBundle
 bool SynchronizeShowcaseGalleryFromOutliner(
     const OutlinerPanel&      SourceOutliner,
-    ShowcaseWorldSceneBundle& InOutBundle,
-    bool                      RebuildSdfVolume = true);
+    ShowcaseWorldSceneBundle& InOutBundle);
 
-// Live bidirectional sync: adopts newly constructed Outliner entries, prunes deleted entries, and reports SDF/BVH rebuild need
+// Live bidirectional sync: adopts newly constructed Outliner entries, prunes deleted entries, and reports BVH rebuild need
 bool SynchronizeShowcaseGallerySceneLive(
     OutlinerPanel&            InOutOutliner,
     ShowcaseWorldSceneBundle& InOutBundle,
-    bool&                     OutRequiresAccelerationRebuild,
-    bool                      RebuildSdfVolume = true);
+    bool&                     OutRequiresAccelerationRebuild);
 
-// Rebuilds SceneTree (WideBoundingTree) and optionally SceneSdf (SignedDistanceVolume) across all visible opaque geometry
-void RebuildShowcaseSceneAcceleration(
-    ShowcaseWorldSceneBundle& InOutBundle,
-    bool                      RebuildSdfVolume = true);
+// Rebuilds SceneTree (WideBoundingTree) across all visible opaque geometry
+void RebuildShowcaseSceneAcceleration(ShowcaseWorldSceneBundle& InOutBundle);
 
 // Constructs a new analytical primitive directly in Showcase folder + OutlinerPanel and compiles its geometry
 OutlinerSlotToken ConstructShowcasePrimitiveInOutliner(
     OutlinerPanel&            InOutOutliner,
     ShowcaseWorldSceneBundle& InOutBundle,
     ShowcasePrimitiveShape    Shape,
-    Mathematics::Axis3D       WorldPosition,
-    bool                      BuildCpuSdf = true);
+    Mathematics::Axis3D       WorldPosition);
 
 // Assigns an sRGB ColourCodex swatch to the target entry's OpenPBR BaseColor (or FolderTint on folders)
 bool AssignShowcaseEntryBaseColor(
@@ -177,8 +171,7 @@ OutlinerSlotToken ConstructShowcaseModelInOutliner(
     std::string_view          DisplayTitle,
     ColorRgba                 PreviewTint,
     Mathematics::Axis3D       WorldPosition,
-    OutlinerSlotToken         ExplicitEnclosure = {},
-    bool                      BuildCpuSdf = true);
+    OutlinerSlotToken         ExplicitEnclosure = {});
 
 // Analytical 3D ray pick against visible Showcase geometry and area lights for NormalizedU/V in [0, 1]
 [[nodiscard]] OutlinerSlotToken PickShowcaseGalleryEntryAtUv(

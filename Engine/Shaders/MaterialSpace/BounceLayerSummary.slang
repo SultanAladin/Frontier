@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                            BOUNCELAYERSUMMARY.SLANG
 ============================================================================================================================================*/
-// 🧩 Fast 5-ALU 32-byte BounceSlabEntry evaluation for secondary IrradianceLattice & multi-bounce specular rays
+// 🧩 Fast 5-ALU 32-byte BounceSlabEntry evaluation for multi-bounce specular rays
 
 module BounceLayerSummary;
 

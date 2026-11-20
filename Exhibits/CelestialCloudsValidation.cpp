@@ -204,14 +204,6 @@ void BlitTile(
     AddSphereInstance(GlassSphere, 2u, { -1.1f, 2.2f,  1.86f }, 0.42f, 28u, 18u, true);
 
     (void)Scene.SceneTree.BuildFromPolygonNetwork(UnifiedWorldNet);
-    (void)Scene.SceneSdf.BuildFromWideBoundingTree(Scene.SceneTree, 0.20f, 0.45f);
-    Scene.LatticeConfig.GridMinimumWorld  = { -3.5f, -2.0f, 0.1f };
-    Scene.LatticeConfig.GridMaximumWorld  = {  3.5f,  4.0f, 3.0f };
-    Scene.LatticeConfig.CountX            = 5u;
-    Scene.LatticeConfig.CountY            = 5u;
-    Scene.LatticeConfig.CountZ            = 3u;
-    Scene.LatticeConfig.FibonacciRayCount = 48u;
-    Scene.LatticeConfig.BouncePasses      = 1u;
 
     Scene.Atmosphere.Medium.AtmosphereEnabled = true;
     Scene.Atmosphere.Solar.SolarEnabled       = true;
@@ -397,12 +389,12 @@ int main()
             CpuRenderer.PrepareWorldScene(Scene);
             if (GpuOk)
             {
-                GpuRenderer.SynchronizeSceneResources(Scene, &CpuRenderer.InspectIrradianceLattice(), Idx == 0u);
+                GpuRenderer.SynchronizeSceneResources(Scene, Idx == 0u);
             }
 
             std::vector<uint8_t> TileRgba;
             WorldRenderConfiguration Cfg {};
-            Cfg.Engine           = WorldRenderEngine::DdgiRaytracing;
+            Cfg.Engine           = WorldRenderEngine::OpenPbrDirect;
             Cfg.ShadowAlgorithm  = SolarShadowAlgorithm::WideTreeRayQuery;
             Cfg.ReflectionSource = SpecularReflectionSource::WideTreeRaytrace;
 
@@ -539,7 +531,7 @@ int main()
 
         CpuRenderer.PrepareWorldScene(Scene);
         WorldRenderConfiguration Cfg {};
-        Cfg.Engine           = WorldRenderEngine::DdgiRaytracing;
+        Cfg.Engine           = WorldRenderEngine::OpenPbrDirect;
         Cfg.ShadowAlgorithm  = SolarShadowAlgorithm::WideTreeRayQuery;
         Cfg.ReflectionSource = SpecularReflectionSource::WideTreeRaytrace;
 
@@ -547,7 +539,7 @@ int main()
         std::vector<uint8_t> GpuOut;
         if (GpuOk)
         {
-            GpuRenderer.SynchronizeSceneResources(Scene, &CpuRenderer.InspectIrradianceLattice(), true);
+            GpuRenderer.SynchronizeSceneResources(Scene, true);
         }
         const bool GpuDone = GpuOk && GpuRenderer.RenderWorldViewportWithEngine(Cfg, 0u, HeroCam, Scene, GpuOut);
         Score.Verify(GpuDone && GpuOut.size() == CpuOut.DisplayRgba8.size(),
@@ -604,7 +596,7 @@ int main()
         CpuRenderer.PrepareWorldScene(SkyOnlyScene);
         if (GpuOk)
         {
-            GpuRenderer.SynchronizeSceneResources(SkyOnlyScene, &CpuRenderer.InspectIrradianceLattice(), true);
+            GpuRenderer.SynchronizeSceneResources(SkyOnlyScene, true);
         }
 
         double MaxSkyColumnJump = 0.0;
@@ -620,7 +612,7 @@ int main()
             CpuRenderer.SynchronizeWorldAtmosphere(SkyOnlyScene);
             if (GpuOk)
             {
-                GpuRenderer.SynchronizeSceneResources(SkyOnlyScene, nullptr, false);
+                GpuRenderer.SynchronizeSceneResources(SkyOnlyScene, false);
             }
 
             std::vector<uint8_t> FrameRgba;
@@ -721,7 +713,7 @@ int main()
             CpuRenderer.SynchronizeWorldAtmosphere(StarScene);
             if (GpuOk)
             {
-                GpuRenderer.SynchronizeSceneResources(StarScene, &CpuRenderer.InspectIrradianceLattice(), true);
+                GpuRenderer.SynchronizeSceneResources(StarScene, true);
             }
 
             std::vector<uint8_t> StarRgba;

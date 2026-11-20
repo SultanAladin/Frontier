@@ -7,7 +7,6 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/DistanceFieldSpace/SignedDistanceVolume.h"
 #include "Engine/GeometricRaster/DirectLighting/LinearCosineLightIntegration.h"
 #include "Engine/GeometricRaster/DirectLighting/SolarShadowSequence.h"
 #include "Engine/GeometricRaster/Visibility/ClusterCullEncoder.h"
@@ -113,7 +112,7 @@ int main()
     }
 
     //====================================================================================================================
-    // 2. CONSTRUCT UNIFIED ARCHITECTURAL GNOMON, CHASSIS ARCH & OCCLUDER SCENE (CLUSTER PYRAMIDS + BVH4 + 3D SDF)
+    // 2. CONSTRUCT UNIFIED ARCHITECTURAL GNOMON, CHASSIS ARCH & OCCLUDER SCENE (CLUSTER PYRAMIDS + BVH4)
     //====================================================================================================================
     MaterialSpace::CompactMaterialRegister MatReg {};
     const uint16_t SlotStage    = MatReg.RegisterMaterial(MaterialSpace::ConstructMaterialPreset(MaterialSpace::MaterialPresetCategory::RoughPorousConcrete));
@@ -154,7 +153,7 @@ int main()
     GeometrySpace::AppendSpherePrimitive(GoldReceiverAsset.Net, { 1.92f, -0.15f, -0.22f }, 0.42f, 40u, 22u, {}, {});
     (void)GoldReceiverAsset.Pyr.BuildFromPolygonNetwork(GoldReceiverAsset.Net, 3u);
 
-    // Merge all world primitives into unified world PolygonNetwork for WideBoundingTree & 3D SignedDistanceVolume!
+    // Merge all world primitives into unified world PolygonNetwork for WideBoundingTree BVH4!
     GeometrySpace::PolygonNetwork UnifiedWorldNet {};
     GeometrySpace::AppendBoxPrimitive(UnifiedWorldNet,    {  0.00f,  0.35f, -0.78f }, { 4.20f, 3.60f, 0.14f }, {}, {});
     GeometrySpace::AppendBoxPrimitive(UnifiedWorldNet,    { -0.95f, -0.35f,  0.26f }, { 0.16f, 0.16f, 0.92f }, {}, {});
@@ -168,10 +167,6 @@ int main()
     SpatialAcceleration::WideBoundingTree WorldBvh4 {};
     Score.Verify(WorldBvh4.BuildFromPolygonNetwork(UnifiedWorldNet) && !WorldBvh4.WideEntries.empty(),
                  "Built 128 B 4-Wide BVH4 over unified architectural shadow & chassis scene");
-
-    DistanceFieldSpace::SignedDistanceVolume WorldSdf {};
-    Score.Verify(WorldSdf.BuildFromWideBoundingTree(WorldBvh4, 0.09f, 0.45f) && !WorldSdf.AllocatedBricks.empty(),
-                 "Built sparse 8x8x8 narrow-band 3D SignedDistanceVolume for Tier 1 GTX solar penumbras");
 
     std::vector<GeometricRaster::RigidClusterInstance> Instances {
         { &FloorAsset.Pyr,          {}, {}, 1.0f, SlotStage,    false },
@@ -255,12 +250,12 @@ int main()
     const auto RtxFrame = GeometricRaster::LinearCosineLightIntegration::EvaluateDirectLightingFrame(
         GeometricRaster::DirectShadowTier::RtxDeterministicSolarRay,
         Camera, Instances, VisTargets, MatReg, WorldBvh4, Sun, StudioLights,
-        &WorldSdf, &FineCascade, &CoarseCascade, AoCfg);
+        &FineCascade, &CoarseCascade, AoCfg);
 
     const auto GtxFrame = GeometricRaster::LinearCosineLightIntegration::EvaluateDirectLightingFrame(
-        GeometricRaster::DirectShadowTier::GtxContactClipSdfCone,
+        GeometricRaster::DirectShadowTier::GtxContactClip,
         Camera, Instances, VisTargets, MatReg, WorldBvh4, Sun, StudioLights,
-        &WorldSdf, &FineCascade, &CoarseCascade, AoCfg);
+        &FineCascade, &CoarseCascade, AoCfg);
 
     Score.Verify(std::fabs(GtxFrame.SolarShadows.CascadeZeroTexelMm - 3.90625f) < 0.02f,
                  "GTX Cascade 0 achieves exact 3.91 mm/texel contact shadow resolution (zero VSM washout)");
@@ -283,7 +278,7 @@ int main()
 
     const double MeanShadowParityDiff = ShadowParityDiffSum / static_cast<double>(ViewW * ViewH);
     Score.Verify(RtxSoftPenumbraPixels > 400u && GtxSoftPenumbraPixels > 300u,
-                 "Both RTX Vogel + Plane-Aware Filter and GTX Contact Clip + SDF Cone produce continuous soft penumbras");
+                 "Both RTX Vogel + Plane-Aware Filter and GTX Contact Clip + BVH4 Fallback produce continuous soft penumbras");
     Score.Verify(UnderbodyDarkAoPixels > 350u,
                  "2-Scale (0.25 m Contact + 2.20 m Chassis) AO grounds underbody arch cavities (< 0.45)");
     Score.Verify(MeanShadowParityDiff < 0.085,
@@ -388,7 +383,7 @@ int main()
     Bg->AddRectFilled(ImVec2(732.0f, 102.0f), ImVec2(1416.0f, 470.0f), ColPanel, 9.0f);
     Bg->AddRect(ImVec2(732.0f, 102.0f), ImVec2(1416.0f, 470.0f), ColBorder, 9.0f, 0, 1.4f);
     Bg->AddRectFilled(ImVec2(732.0f, 102.0f), ImVec2(1416.0f, 134.0f), ColSurface, 9.0f);
-    Bg->AddText(ImVec2(748.0f, 111.0f), ColCyan, "02 // TIER 1 GTX: 3.91 MM CONTACT CLIP + 3D SDF CONE PENUMBRA + LTC AREA QUAD");
+    Bg->AddText(ImVec2(748.0f, 111.0f), ColCyan, "02 // TIER 1 GTX: 3.91 MM CONTACT CLIP + BVH4 FALLBACK + LTC AREA QUAD");
 
     Bg->AddRectFilled(ImVec2(24.0f, 486.0f), ImVec2(708.0f, 776.0f), ColPanel, 9.0f);
     Bg->AddRect(ImVec2(24.0f, 486.0f), ImVec2(708.0f, 776.0f), ColBorder, 9.0f, 0, 1.4f);

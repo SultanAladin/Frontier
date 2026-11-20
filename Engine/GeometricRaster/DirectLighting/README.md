@@ -10,13 +10,13 @@
 | :--- | :--- |
 | `LinearCosineLightIntegration.cpp` | Visibility-Gated Clipped-Polygon Linearly Transformed Cosine (LTC) Quad Area Lights + 2-Scale (0.25 m / 2.2 m) Chassis & Specular AO |
 | `LinearCosineLightIntegration.h` | Visibility-Gated Clipped-Polygon Linearly Transformed Cosine (LTC) Quad Area Lights + 2-Scale (0.25 m / 2.2 m) Chassis & Specular AO |
-| `SolarShadowSequence.cpp` | Tiered Direct Solar Shadows (Zero VSM!): RTX Vogel Solar Frustum + Plane-Aware Filter & GTX 3.9 mm 2-Cascade Contact Clip + SDF Cone |
+| `SolarShadowSequence.cpp` | Direct Solar Shadows (Zero VSM, Zero SDF!): RTX Vogel Solar Frustum + Plane-Aware Filter & GTX 3.9 mm 2-Cascade Contact Clip |
 | `SolarShadowSequence.h` | Direct Solar Shadows (Zero SDF Shadows!): Shadow Lab Modes (ContactPCSS, PCSS+PlaneAware, SMRT, PCF, BVH4 Ray Query) |
 
 ## Namespaces & Primary Types
 
-- **Namespaces**: `Frontier::GeometricRaster`, `Frontier::DistanceFieldSpace`
-- **Primary Types**: `PolygonalAreaQuadLight`, `AmbientOcclusionSettings`, `DirectLightingOutput`, `LinearCosineLightIntegration`, `CascadeSampleOutcome`, `DirectShadowTier`, `SolarShadowAlgorithm`, `SolarDirectionalSource`, `OrthographicShadowCascade`, `SolarShadowFieldResult`, `SolarShadowSequence`
+- **Namespaces**: `Frontier::GeometricRaster`
+- **Primary Types**: `DirectPointLightSpec`, `PolygonalAreaQuadLight`, `AmbientOcclusionSettings`, `DirectLightingOutput`, `LinearCosineLightIntegration`, `CascadeSampleOutcome`, `DirectShadowTier`, `SolarShadowAlgorithm`, `SolarDirectionalSource`, `OrthographicShadowCascade`, `SolarShadowFieldResult`, `SolarShadowSequence`
 
 ## Usage
 

@@ -315,7 +315,7 @@ void ProjectBrowser::AttachVulkanWorldRenderer(
         GpuPreviewRenderer = std::move(Candidate);
         if (PreviewSceneBundle != nullptr)
         {
-            GpuPreviewRenderer->SynchronizeSceneResources(PreviewSceneBundle->Scene, nullptr, true);
+            GpuPreviewRenderer->SynchronizeSceneResources(PreviewSceneBundle->Scene, true);
         }
     }
 }
@@ -339,7 +339,7 @@ void ProjectBrowser::EnsurePreviewRendererReady()
         GeometricRaster::BuildShowcaseGalleryScene(*PreviewSceneBundle, 320u, 194u);
         if (GpuPreviewRenderer != nullptr && GpuPreviewRenderer->QueryReady())
         {
-            GpuPreviewRenderer->SynchronizeSceneResources(PreviewSceneBundle->Scene, nullptr, true);
+            GpuPreviewRenderer->SynchronizeSceneResources(PreviewSceneBundle->Scene, true);
         }
         else
         {

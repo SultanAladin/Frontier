@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometricRaster/GlobalIllumination/SpecularReflectionSequence.h"
+#include "Engine/GeometrySpace/Analysis/CurvatureAnalysis.h"
 #include "Engine/MaterialSpace/EnergyCompensation/DirectionalAlbedoIntegral.h"
 
 #include <algorithm>
@@ -62,9 +63,10 @@ namespace
 
 [[nodiscard]] Mathematics::LinearRGB ShadeSecondaryRayHit(
     const SpatialAcceleration::WideBoundingTree&    SceneTree,
+    const MaterialSpace::CompactMaterialRegister&   MaterialRegister,
     std::span<const MaterialSpace::BounceSlabEntry> BounceSummaries,
-    const IrradianceLatticeSequence&                GiLattice,
-    const SolarDirectionalSource&                  Sun,
+    const SolarDirectionalSource&                   Sun,
+    std::span<const PolygonalAreaQuadLight>         AreaLights,
     Mathematics::Axis3D                             RayOrigin,
     Mathematics::Axis3D                             RayDirection,
     Mathematics::LinearRGB                          SkyRadiance,
@@ -81,7 +83,7 @@ namespace
     {
         OutHitGeometry = false;
         const float Up = std::clamp(RayDirection.Z * 0.5f + 0.5f, 0.0f, 1.0f);
-        return SkyRadiance * (0.65f + 0.70f * Up);
+        return SkyRadiance * (0.45f + 0.55f * Up);
     }
 
     OutHitGeometry = true;
@@ -114,13 +116,33 @@ namespace
         OutRad = UnpackBounceEmissive(Slab);
     }
 
+    if (!AreaLights.empty() && Slot < MaterialRegister.QuerySlotCount())
+    {
+        const auto& Mat         = MaterialRegister.InspectAuthoredMaterial(Slot);
+        const uint32_t LobeMask = MaterialRegister.InspectCompactEntry(Slot).ActiveLobeMask;
+        AnalyticResolvedSurfaceSample SecSample {};
+        SecSample.ValidHit           = true;
+        SecSample.MaterialSlot       = Slot;
+        SecSample.WorldPosition      = HitPos;
+        SecSample.WorldViewDirection = RayDirection * -1.0f;
+        SecSample.TangentFrame.NormalZ = HitNrm;
+        GeometrySpace::ConstructDuffOrthonormalBasis(
+            HitNrm, SecSample.TangentFrame.TangentX, SecSample.TangentFrame.BitangentY);
+
+        for (const auto& Light : AreaLights)
+        {
+            const auto AreaRad = LinearCosineLightIntegration::EvaluateVisibilityGatedQuadLight(
+                Light, SecSample, Mat, LobeMask, SceneTree);
+            OutRad = OutRad + AreaRad;
+        }
+    }
+
     const auto DiffAlb = UnpackBounceDiffuse(Slab);
-    const auto IndirectOverPi = !GiLattice.InspectCells().empty()
-        ? GiLattice.SampleChebyshevIrradianceOverPi(HitPos, HitNrm, RayDirection * -1.0f)
-        : (SkyRadiance * 0.45f);
-    OutRad.R += IndirectOverPi.R * DiffAlb.R;
-    OutRad.G += IndirectOverPi.G * DiffAlb.G;
-    OutRad.B += IndirectOverPi.B * DiffAlb.B;
+    const float SkyUp  = std::clamp(HitNrm.Z * 0.5f + 0.5f, 0.0f, 1.0f);
+    const Mathematics::LinearRGB SkyFill = SkyRadiance * (0.45f + 0.55f * SkyUp) * 0.22f;
+    OutRad.R += SkyFill.R * DiffAlb.R;
+    OutRad.G += SkyFill.G * DiffAlb.G;
+    OutRad.B += SkyFill.B * DiffAlb.B;
     return OutRad;
 }
 
@@ -165,9 +187,9 @@ SpecularReflectionBuffer SpecularReflectionSequence::EvaluateSpecularRefractionW
     const MaterialSpace::CompactMaterialRegister&   MaterialRegister,
     std::span<const MaterialSpace::BounceSlabEntry> BounceSummaries,
     const SpatialAcceleration::WideBoundingTree&    SceneTree,
-    const IrradianceLatticeSequence&                GiLattice,
-    const SolarDirectionalSource&                  Sun,
-    Mathematics::LinearRGB                          SkyRadiance)
+    const SolarDirectionalSource&                   Sun,
+    Mathematics::LinearRGB                          SkyRadiance,
+    std::span<const PolygonalAreaQuadLight>         AreaLights)
 {
     if (Source == SpecularReflectionSource::WideTreeRaytrace)
     {
@@ -179,9 +201,9 @@ SpecularReflectionBuffer SpecularReflectionSequence::EvaluateSpecularRefractionW
             MaterialRegister,
             BounceSummaries,
             SceneTree,
-            GiLattice,
             Sun,
-            SkyRadiance);
+            SkyRadiance,
+            AreaLights);
     }
 
     // SkyEnvironment: Analytical Sky Dome gradient + Fresnel directional albedo weight (Zero SDF Reflections!)
@@ -254,9 +276,9 @@ SpecularReflectionBuffer SpecularReflectionSequence::EvaluateRtxSpecularRefracti
     const MaterialSpace::CompactMaterialRegister&   MaterialRegister,
     std::span<const MaterialSpace::BounceSlabEntry> BounceSummaries,
     const SpatialAcceleration::WideBoundingTree&    SceneTree,
-    const IrradianceLatticeSequence&                GiLattice,
-    const SolarDirectionalSource&                  Sun,
-    Mathematics::LinearRGB                          SkyRadiance)
+    const SolarDirectionalSource&                   Sun,
+    Mathematics::LinearRGB                          SkyRadiance,
+    std::span<const PolygonalAreaQuadLight>         AreaLights)
 {
     SpecularReflectionBuffer Out {};
     Out.WidthPx  = VisibilityTargets.WidthPx;
@@ -285,7 +307,7 @@ SpecularReflectionBuffer SpecularReflectionSequence::EvaluateRtxSpecularRefracti
                         ? std::min(Mat.Clearcoat.CoatRoughness, Mat.Specular.Roughness)
                         : Mat.Specular.Roughness;
 
-                    // Glossy/Mirror surfaces (Roughness < 0.38) trace crisp BVH4 VNDF rays; rough walls sample smooth GiLattice!
+                    // Glossy/Mirror surfaces (Roughness < 0.38) trace crisp BVH4 VNDF rays; rough walls sample analytical sky dome
                     Mathematics::LinearRGB IncomingRad {};
                     if (EffRough < 0.38f)
                     {
@@ -312,7 +334,7 @@ SpecularReflectionBuffer SpecularReflectionSequence::EvaluateRtxSpecularRefracti
                                 const Mathematics::Axis3D WorldReflDir = Hit.TangentFrame.LocalToWorld(LocalWi);
                                 bool HitGeom = false;
                                 const auto Rad = ShadeSecondaryRayHit(
-                                    SceneTree, BounceSummaries, GiLattice, Sun,
+                                    SceneTree, MaterialRegister, BounceSummaries, Sun, AreaLights,
                                     Hit.WorldPosition + Hit.TangentFrame.NormalZ * 2.5e-3f,
                                     WorldReflDir, SkyRadiance, HitGeom);
                                 IncomingRad = IncomingRad + Rad;
@@ -329,8 +351,8 @@ SpecularReflectionBuffer SpecularReflectionSequence::EvaluateRtxSpecularRefracti
                     {
                         const Mathematics::Axis3D MirrorDir =
                             Hit.TangentFrame.NormalZ * (2.0f * LocalWo.Z) - Hit.WorldViewDirection;
-                        IncomingRad = GiLattice.SampleChebyshevIrradianceOverPi(
-                            Hit.WorldPosition, MirrorDir, Hit.WorldViewDirection);
+                        const float Up = std::clamp(MirrorDir.Z * 0.5f + 0.5f, 0.0f, 1.0f);
+                        IncomingRad = SkyRadiance * (0.65f + 0.70f * Up);
                     }
 
                     const auto SpecW = EvaluateSpecularDirectionalWeight(Mat, LocalWo.Z);
@@ -362,17 +384,53 @@ SpecularReflectionBuffer SpecularReflectionSequence::EvaluateRtxSpecularRefracti
 
                     const auto TraceDispersedBand = [&](float BandIor) noexcept -> Mathematics::LinearRGB
                     {
-                        const float Eta   = 1.0f / std::max(1.01f, BandIor);
-                        const float Sin2T = Eta * Eta * std::max(0.0f, 1.0f - CosI * CosI);
-                        Mathematics::Axis3D RefrDir = Inc + Nrm * (2.0f * CosI);
-                        if (Sin2T < 1.0f)
+                        const float EtaIn  = 1.0f / std::max(1.01f, BandIor);
+                        const float Sin2In = EtaIn * EtaIn * std::max(0.0f, 1.0f - CosI * CosI);
+                        Mathematics::Axis3D ExitOrig = GlassHit.WorldPosition - Nrm * 3.0e-3f;
+                        Mathematics::Axis3D ExitDir  = Inc + Nrm * (2.0f * CosI);
+                        if (Sin2In < 1.0f)
                         {
-                            RefrDir = Mathematics::NormalizeAxis(Inc * Eta + Nrm * (Eta * CosI - std::sqrt(1.0f - Sin2T)));
+                            const Mathematics::Axis3D InsideDir = Mathematics::NormalizeAxis(
+                                Inc * EtaIn + Nrm * (EtaIn * CosI - std::sqrt(1.0f - Sin2In)));
+                            ExitDir = InsideDir;
+
+                            if (GlassHit.InstanceOrdinal < Instances.size())
+                            {
+                                const Mathematics::Axis3D Center = Instances[GlassHit.InstanceOrdinal].WorldTranslation;
+                                const float Radius = std::max(0.02f, Mathematics::EvaluateLength(GlassHit.WorldPosition - Center));
+                                const Mathematics::Axis3D StartP = GlassHit.WorldPosition + InsideDir * 2.0e-3f;
+                                const Mathematics::Axis3D Oc     = StartP - Center;
+                                const float B                    = Mathematics::EvaluateDot(Oc, InsideDir);
+                                const float C                    = Mathematics::EvaluateDot(Oc, Oc) - Radius * Radius;
+                                const float Disc                 = B * B - C;
+                                if (Disc > 0.0f)
+                                {
+                                    const float TOut = -B + std::sqrt(Disc);
+                                    if (TOut > 0.0f)
+                                    {
+                                        const Mathematics::Axis3D ExitPos = StartP + InsideDir * TOut;
+                                        const Mathematics::Axis3D OutNrm  = Mathematics::NormalizeAxis(ExitPos - Center, Nrm);
+                                        const float CosOut  = std::clamp(Mathematics::EvaluateDot(InsideDir, OutNrm), 0.0f, 1.0f);
+                                        const float EtaOut  = std::max(1.01f, BandIor);
+                                        const float Sin2Out = EtaOut * EtaOut * std::max(0.0f, 1.0f - CosOut * CosOut);
+                                        if (Sin2Out < 1.0f)
+                                        {
+                                            ExitDir = Mathematics::NormalizeAxis(
+                                                InsideDir * EtaOut + OutNrm * (std::sqrt(1.0f - Sin2Out) - EtaOut * CosOut));
+                                        }
+                                        else
+                                        {
+                                            ExitDir = InsideDir - OutNrm * (2.0f * Mathematics::EvaluateDot(InsideDir, OutNrm));
+                                        }
+                                        ExitOrig = ExitPos + OutNrm * 3.0e-3f;
+                                    }
+                                }
+                            }
                         }
                         bool Dummy = false;
                         return ShadeSecondaryRayHit(
-                            SceneTree, BounceSummaries, GiLattice, Sun,
-                            GlassHit.WorldPosition - Nrm * 3.0e-3f, RefrDir, SkyRadiance, Dummy);
+                            SceneTree, MaterialRegister, BounceSummaries, Sun, AreaLights,
+                            ExitOrig, ExitDir, SkyRadiance, Dummy);
                     };
 
                     const auto RadR = TraceDispersedBand(DispIor.X);
@@ -382,7 +440,7 @@ SpecularReflectionBuffer SpecularReflectionSequence::EvaluateRtxSpecularRefracti
                     bool DummyRefl = false;
                     const Mathematics::Axis3D ReflDir = Inc + Nrm * (2.0f * CosI);
                     const auto ReflRad = ShadeSecondaryRayHit(
-                        SceneTree, BounceSummaries, GiLattice, Sun,
+                        SceneTree, MaterialRegister, BounceSummaries, Sun, AreaLights,
                         GlassHit.WorldPosition + Nrm * 3.0e-3f, ReflDir, SkyRadiance, DummyRefl);
 
                     Out.RefractedGlassHdr[Off] = {

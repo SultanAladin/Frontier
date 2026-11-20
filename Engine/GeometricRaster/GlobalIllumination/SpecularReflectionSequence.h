@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                          SPECULARREFLECTIONSEQUENCE.H
 ============================================================================================================================================*/
-// 🧩 Specular & Abbe Glass Refraction: BVH4 WideBoundingTree Raytrace or Analytical Sky Environment (Zero SDF Reflections!)
+// 🧩 Specular & Abbe Glass Refraction: BVH4 WideBoundingTree Raytrace or Analytical Sky Environment (Zero GI / Zero SDF!)
 
 #pragma once
 
@@ -9,10 +9,11 @@
 //                                                        INCLUDES
 //------------------------------------------------------------------------------------------------------------------------
 
-#include "Engine/GeometricRaster/GlobalIllumination/IrradianceLatticeSequence.h"
+#include "Engine/GeometricRaster/DirectLighting/LinearCosineLightIntegration.h"
 #include "Engine/GeometricRaster/Visibility/DepthPyramidSequence.h"
 #include "Engine/GeometricRaster/Visibility/VisibilityMaterialResolve.h"
 #include "Engine/MaterialSpace/CompactMaterialRegister.h"
+#include "Engine/MaterialSpace/MaterialSurfaceLayer/BounceLayerSummary.h"
 
 #include <cstdint>
 #include <span>
@@ -52,7 +53,7 @@ struct SpecularReflectionBuffer
 class SpecularReflectionSequence
 {
 public:
-    // Evaluates specular & Abbe glass refraction strictly through SpecularReflectionSource (Zero SDF Reflections!)
+    // Evaluates specular & Abbe glass refraction strictly through SpecularReflectionSource (Zero GI / Zero SDF)
     [[nodiscard]] static SpecularReflectionBuffer EvaluateSpecularRefractionWithSource(
         SpecularReflectionSource                        Source,
         const PerspectiveCameraBasis&                   Camera,
@@ -62,11 +63,11 @@ public:
         const MaterialSpace::CompactMaterialRegister&   MaterialRegister,
         std::span<const MaterialSpace::BounceSlabEntry> BounceSummaries,
         const SpatialAcceleration::WideBoundingTree&    SceneTree,
-        const IrradianceLatticeSequence&                GiLattice,
-        const SolarDirectionalSource&                  Sun,
-        Mathematics::LinearRGB                          SkyRadiance = { 0.16f, 0.22f, 0.34f });
+        const SolarDirectionalSource&                   Sun,
+        Mathematics::LinearRGB                          SkyRadiance = { 0.16f, 0.22f, 0.34f },
+        std::span<const PolygonalAreaQuadLight>         AreaLights  = {});
 
-    // Evaluates Tier 2 RTX VNDF-jittered BVH4 reflections + solid Abbe glass refraction
+    // Evaluates VNDF-jittered BVH4 reflections + solid Abbe glass refraction
     [[nodiscard]] static SpecularReflectionBuffer EvaluateRtxSpecularRefraction(
         const PerspectiveCameraBasis&                   Camera,
         std::span<const RigidClusterInstance>           Instances,
@@ -75,9 +76,9 @@ public:
         const MaterialSpace::CompactMaterialRegister&   MaterialRegister,
         std::span<const MaterialSpace::BounceSlabEntry> BounceSummaries,
         const SpatialAcceleration::WideBoundingTree&    SceneTree,
-        const IrradianceLatticeSequence&                GiLattice,
-        const SolarDirectionalSource&                  Sun,
-        Mathematics::LinearRGB                          SkyRadiance = { 0.16f, 0.22f, 0.34f });
+        const SolarDirectionalSource&                   Sun,
+        Mathematics::LinearRGB                          SkyRadiance = { 0.16f, 0.22f, 0.34f },
+        std::span<const PolygonalAreaQuadLight>         AreaLights  = {});
 
     // Evaluates Tier 1 GTX DepthPyramid Hi-Z screen-space reflection march + direct lit buffer fallback + 2-layer glass peel
     [[nodiscard]] static SpecularReflectionBuffer EvaluateGtxHiZSpecularRefraction(

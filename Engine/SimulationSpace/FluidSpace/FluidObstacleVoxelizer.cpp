@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                          FLUIDOBSTACLEVOXELIZER.CPP
 ============================================================================================================================================*/
-// 🧩 Voxelizes GI SignedDistanceVolume + WideBoundingTree + 5 analytical colliders into +Z-Up fluid solid masks
+// 🧩 Voxelizes WideBoundingTree + 5 analytical colliders into +Z-Up fluid solid masks
 
 #include "Engine/SimulationSpace/FluidSpace/FluidObstacleVoxelizer.h"
 
@@ -52,12 +52,11 @@ float FluidObstacleVoxelizer::EvaluateAnalyticalObstacleMask(
     }
 }
 
-void FluidObstacleVoxelizer::BakeSceneGiCollisionMask(
-    const DistanceFieldSpace::SignedDistanceVolume* OptionalSdf,
-    const SpatialAcceleration::WideBoundingTree*    OptionalTree,
-    const FluidObstacleSettings&                    Obstacle,
-    float                                           ElapsedSeconds,
-    FluidGridVolume&                                InOutHeroGrid) noexcept
+void FluidObstacleVoxelizer::BakeSceneCollisionMask(
+    const SpatialAcceleration::WideBoundingTree* OptionalTree,
+    const FluidObstacleSettings&                 Obstacle,
+    float                                        ElapsedSeconds,
+    FluidGridVolume&                             InOutHeroGrid) noexcept
 {
     const uint32_t R = InOutHeroGrid.Resolution;
     if (R == 0u) return;
@@ -66,8 +65,7 @@ void FluidObstacleVoxelizer::BakeSceneGiCollisionMask(
     const Mathematics::Axis3D Span = InOutHeroGrid.BoxMaxWorld - InOutHeroGrid.BoxMinWorld;
     const float VoxelRadius = 0.55f * std::max({ Span.X, Span.Y, Span.Z }) / FR;
 
-    const bool HasSdf  = (Obstacle.VoxelizeSceneGiSdf && OptionalSdf != nullptr && !OptionalSdf->BrickIndirection.empty());
-    const bool HasTree = (!HasSdf && Obstacle.VoxelizeSceneGiSdf && OptionalTree != nullptr && !OptionalTree->WideEntries.empty());
+    const bool HasTree = (Obstacle.VoxelizeSceneGiSdf && OptionalTree != nullptr && !OptionalTree->WideEntries.empty());
 
     for (uint32_t IZ = 0u; IZ < R; ++IZ)
     {
@@ -81,18 +79,9 @@ void FluidObstacleVoxelizer::BakeSceneGiCollisionMask(
                 const Mathematics::Axis3D P { WX, WY, WZ };
 
                 float Solid = EvaluateAnalyticalObstacleMask(P, Obstacle, ElapsedSeconds);
-                if (Solid < 0.5f && HasSdf)
+                if (Solid < 0.5f && HasTree)
                 {
-                    // Sample SignedDistanceVolume (inside or within voxel half-width counts as solid wall)
-                    const float Dist = OptionalSdf->SampleSignedDistance(P);
-                    if (Dist <= VoxelRadius * 0.45f)
-                    {
-                        Solid = 1.0f;
-                    }
-                }
-                else if (Solid < 0.5f && HasTree)
-                {
-                    // Fallback 6-ray parity / short probe test when SDF wasn't baked
+                    // Short 6-direction BVH4 occupancy check around voxel center
                     SpatialAcceleration::RaySegmentQuery Q {};
                     Q.Origin          = P;
                     Q.UnitDirection   = { 0.0f, 0.0f, 1.0f };

@@ -66,7 +66,7 @@ int FrontierRunShippingProjectLoop(const FrontierProjectLaunchDescriptor* Descri
         if (TickIdx == 0u)
         {
             const auto Frame = WorldRenderer.RenderWorldFrame(
-                Frontier::GeometricRaster::WorldRenderTier::Tier1GtxCalibrated,
+                Frontier::GeometricRaster::WorldRenderTier::Tier2RtxDeterministic,
                 ShippingCam,
                 ShippingCam,
                 ShippingScene);

@@ -109,8 +109,18 @@ uint32_t PolygonNetwork::AppendFace(
         }
     }
 
+    Mathematics::Axis3D AreaNormal { 0.0f, 0.0f, 0.0f };
+    const Mathematics::Axis3D P0 = Vertices[VertexLoop[0u]].Axes;
+    for (uint32_t Step = 1u; Step + 1u < Valence; ++Step)
+    {
+        const Mathematics::Axis3D P1 = Vertices[VertexLoop[Step]].Axes;
+        const Mathematics::Axis3D P2 = Vertices[VertexLoop[Step + 1u]].Axes;
+        AreaNormal = AreaNormal + Mathematics::EvaluateCross(P1 - P0, P2 - P0);
+    }
+
     Face NewFace {};
     NewFace.BoundaryLoopEdgeIndex = FirstEdgeIndex;
+    NewFace.GeometricNormal       = Mathematics::NormalizeAxis(AreaNormal, { 0.0f, 1.0f, 0.0f });
     NewFace.Shading               = InitialShading;
     NewFace.CornerCount           = static_cast<uint16_t>(Valence);
     NewFace.PriorityLayerOrdinal  = PriorityLayerOrdinal;

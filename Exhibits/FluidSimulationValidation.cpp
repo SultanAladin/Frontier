@@ -660,14 +660,6 @@ int main()
         AddBox(PillarBox, PillarMat, { 1.55f, 1.25f, 2.5f }, { 0.45f, 0.45f, 2.5f });
 
         (void)Scene.SceneTree.BuildFromPolygonNetwork(Net);
-        (void)Scene.SceneSdf.BuildFromWideBoundingTree(Scene.SceneTree, 0.35f, 1.0f);
-        Scene.LatticeConfig.GridMinimumWorld  = { -4.0f, -4.0f, 0.2f };
-        Scene.LatticeConfig.GridMaximumWorld  = {  4.0f,  4.0f, 4.0f };
-        Scene.LatticeConfig.CountX            = 3u;
-        Scene.LatticeConfig.CountY            = 3u;
-        Scene.LatticeConfig.CountZ            = 2u;
-        Scene.LatticeConfig.FibonacciRayCount = 16u;
-        Scene.LatticeConfig.BouncePasses      = 1u;
 
         Scene.Atmosphere.Medium.AtmosphereEnabled       = true;
         Scene.Atmosphere.Medium.SkyBrightnessMultiplier = 1.0f;
@@ -694,7 +686,6 @@ int main()
         GiFluid.Configure(Doc);
 
         FluidStepInput Ctx {};
-        Ctx.SceneSdf           = &Scene.SceneSdf;
         Ctx.SceneTree          = &Scene.SceneTree;
         Ctx.BakeGiObstaclesNow = true;
         for (uint32_t S = 0u; S < 42u; ++S) GiFluid.StepSimulation(1.0f / 60.0f, Ctx);
@@ -754,7 +745,7 @@ int main()
         const std::filesystem::path RepoRoot  = FRONTIER_REPO_ROOT_DIR;
         if (VkDevice.InitializeInterchange(RepoRoot) && VkSeq.InitializeSequence(VkDevice, ShaderDir))
         {
-            VkSeq.SynchronizeSceneResources(Scene, &CpuSeq.InspectIrradianceLattice(), true);
+            VkSeq.SynchronizeSceneResources(Scene, true);
             std::vector<uint8_t> OutGpu {};
             if (VkSeq.RenderWorldViewportWithEngine(GiCfg, 0u, Cam, Scene, OutGpu) &&
                 OutGpu.size() == GiW * GiH * 4u)

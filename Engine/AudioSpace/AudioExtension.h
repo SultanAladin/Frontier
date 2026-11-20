@@ -15,6 +15,7 @@
 #include "Engine/AudioSpace/SpatialAcoustics.h"
 #include "Engine/AudioSpace/WaveformDecoder.h"
 #include "Engine/Lifecycle/LifecycleSequence.h"
+#include "Engine/SpatialAcceleration/WideBoundingTree.h"
 #include "Engine/Threading/Sync/ThreadProgressionTracker.h"
 #include "Engine/Threading/Threads/Audio/AudioThread.h"
 
@@ -132,11 +133,11 @@ public:
         Mathematics::Axis3D                                    OriginVelocityMps,
         uint32_t                                               CollisionChannelMask = 0xFFFFFFFFu) noexcept;
 
-    [[nodiscard]] SdfAcousticFieldReading ApplySdfAcousticField(
-        const DistanceFieldSpace::SignedDistanceVolume& SdfVolume,
-        AcousticVoiceToken                              Token,
-        Mathematics::Axis3D                             OriginPositionMeters,
-        Mathematics::Axis3D                             OriginVelocityMps) noexcept;
+    [[nodiscard]] SdfAcousticFieldReading ApplyRayAcousticField(
+        const SpatialAcceleration::WideBoundingTree& SceneTree,
+        AcousticVoiceToken                           Token,
+        Mathematics::Axis3D                          OriginPositionMeters,
+        Mathematics::Axis3D                          OriginVelocityMps) noexcept;
 
     // Deterministic synchronous mix pump (used for non-threaded CTest verification or offline rendering)
     uint32_t PumpAudioBlocks(uint32_t BlockCount) noexcept;

@@ -13,11 +13,11 @@
 | [`Colour/`](Colour/README.md) | Shared pure .slang GPU colour ramp LUT sampling, wrap/curve math, Oklab/LinearSrgb conversions, Kelvin blackbody & 3D lattice noise |
 | [`ComponentEditor/`](ComponentEditor/README.md) | Compiled geometry shader supporting OpenPbrDirect (Zero GI) plus all 7 Component Editor inspection channels & MRT PickID |
 | [`Compute/`](Compute/README.md) | Runtime & Editor Vulkan 1.3 Compute shader evaluating cascaded 3D velocity + curl lattice voxels from ForceSourceShaderEntry SSBO |
-| [`DirectLighting/`](DirectLighting/README.md) | GTX Tier 1 Calibrated 2-Cascade (3.9 mm / 15.6 mm) Orthographic Contact Clip + 3D Signed Distance Volume Cone Penumbra (Zero VSM!) |
+| [`DirectLighting/`](DirectLighting/README.md) | Coplanar Plane-Aware Shadow Denoiser, Deterministic Vogel Solar Frustum Raytracer + Chassis AO, & Shared 4-Wide BVH4 Query Library |
 | [`Fluid/`](Fluid/README.md) | MacCormack (BFECC + 6-neighbor min/max clamp) advection, Arrhenius combustion, cooling & soot generation |
-| [`GeometricRaster/`](GeometricRaster/README.md) | GPU compute optics unit evaluating Thin-Lens Depth of Field, Chromatic Aberration, Baked 3-Archetype Lens Flare, Vignette & Guides |
-| [`GlobalIllumination/`](GlobalIllumination/README.md) | Native Vulkan local distance baking, toroidal clipmap fill, conservative shadow queries and resident diffuse-cache gathering. |
-| [`MaterialSpace/`](MaterialSpace/README.md) | Fast 5-ALU 32-byte BounceSlabEntry evaluation for secondary IrradianceLattice & multi-bounce specular rays |
+| [`GeometricRaster/`](GeometricRaster/README.md) | Unified 2-Engine (`MatCap` & `OpenPbrDirect`) World Viewport Compute, Camera Visual Effects, Surface/UV/Gizmo Rasterization, & Pick Reduction |
+| [`GlobalIllumination/`](GlobalIllumination/README.md) | Tier 2 RTX Coherent VNDF Specular Reflection & Abbe-Dispersed Dielectric Glass Refraction Compute Pass |
+| [`MaterialSpace/`](MaterialSpace/README.md) | Fast 5-ALU 32-byte BounceSlabEntry evaluation for secondary OpenPBR specular & refractive rays |
 | [`Particles/`](Particles/README.md) | Vulkan 1.3 particle advection compute kernel importing ColourRampSampling & ForceFieldEvaluationShared (zero duplicated physics/colour) |
 | [`Sketcher/`](Sketcher/README.md) | Shared CAD stroke expansion: homogeneous edge clipping, the six-corner pixel-width quad and its coverage ramp. |
 | [`Vector/`](Vector/README.md) | Resolves 2x SSAA SurfacePreviewImage + StackedPick into FinalColorImage (RGBA8) & FinalPickImage (RGBA32UI), plus GPU vector guides/knots/pins/marquee. |
