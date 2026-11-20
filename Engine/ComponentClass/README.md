@@ -13,7 +13,7 @@
 | `ComponentClassToken.h` | Generation-checked identity handles for ComponentClass assets, typed component instances, and world placements |
 | `ComponentClassValidator.cpp` | Implementation of ComponentClass structural checks (assets, Dock key tags, wheel bindings, torque curve monotonicity) |
 | `ComponentClassValidator.h` | Structural and physics validation diagnostics for ComponentClass definitions prior to compilation or world spawning |
-| `ComponentInstanceCategories.h` | Lean POD component instance descriptors: SpatialOrigin, Geometry, Physics Constraints, Particle, Fluid, Light, Camera, Collision, Vehicle |
+| `ComponentInstanceCategories.h` | Lean POD component instance descriptors: SpatialOrigin, Geometry, Physics Constraints, Light, Camera, Collision, Vehicle |
 | `ComponentInstanceStorage.cpp` | Implementation of contiguous ComponentClass instance arrays, unique naming, cycle-free tree links & category lookup |
 | `ComponentInstanceStorage.h` | Cache-contiguous typed component instance storage with EnclosingIndex/FirstNestedIndex/NextPeerIndex hierarchy links |
 | `ComponentWorldPlacement.cpp` | Implementation of ComponentWorldPlacement spawning, sparse per-instance overrides & effective transform resolution |
@@ -24,7 +24,7 @@
 ## Namespaces & Primary Types
 
 - **Namespaces**: `Frontier::ComponentClass`
-- **Primary Types**: `ComponentClassArchetype`, `ComponentClassDefinition`, `ComponentClassToken`, `ComponentInstanceToken`, `WorldPlacementToken`, `DiagnosticSeverity`, `ClassDiagnosticIssue`, `ComponentClassValidator`, `ComponentCategory`, `PhysicsConstraintCategory`, `ConstraintAxis`, `ConstraintDriveMode`, `LightSourceCategory`, `CollisionVolumeCategory`, `GeometryCollisionProfile`, `FluidSourceCategory`, `CurveInterpolationForm`, `ComponentTransform` (+21 more)
+- **Primary Types**: `ComponentClassArchetype`, `ComponentClassDefinition`, `ComponentClassToken`, `ComponentInstanceToken`, `WorldPlacementToken`, `DiagnosticSeverity`, `ClassDiagnosticIssue`, `ComponentClassValidator`, `ComponentCategory`, `PhysicsConstraintCategory`, `ConstraintAxis`, `ConstraintDriveMode`, `LightSourceCategory`, `CollisionVolumeCategory`, `GeometryCollisionProfile`, `CurveInterpolationForm`, `ComponentTransform` (+20 more)
 
 ## Usage
 

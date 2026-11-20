@@ -81,16 +81,14 @@ namespace
 }
 
 [[nodiscard]] float EvaluateSingleLocalFogDensity(
-    const LocalFogVolume&                                    Vol,
-    const Mathematics::Axis3D&                               P,
-    const AtmosphericWindParameters&                         GlobalWind,
-    float                                                    DeckWindSpeedMps,
-    float                                                    DeckWindBearingDeg,
-    float                                                    SimulationSeconds,
-    const ResolvedWindSample&                                CenterWind,
-    const SimulationSpace::ForceFields::ForceFieldAccumulator* OptionalForceFields,
-    const SimulationSpace::ForceFields::FieldLatticeCascade*   OptionalLattice,
-    float&                                                   OutCurlHighlight) noexcept
+    const LocalFogVolume&            Vol,
+    const Mathematics::Axis3D&       P,
+    const AtmosphericWindParameters& GlobalWind,
+    float                            DeckWindSpeedMps,
+    float                            DeckWindBearingDeg,
+    float                            SimulationSeconds,
+    const ResolvedWindSample&        CenterWind,
+    float&                           OutCurlHighlight) noexcept
 {
     OutCurlHighlight = 0.0f;
     const float ShapeMask = AtmosphericWindSolver::EvaluateVolumeShapeMask(
@@ -101,16 +99,7 @@ namespace
         return 0.0f;
     }
 
-    ResolvedWindSample Wind = CenterWind;
-    const bool SpatialForces = (OptionalForceFields != nullptr && OptionalForceFields->QueryActiveSourceCount() > 0u) ||
-                               (OptionalLattice != nullptr);
-    if (Vol.FollowWind && SpatialForces)
-    {
-        Wind = AtmosphericWindSolver::ResolveWindSample(
-            GlobalWind, DeckWindSpeedMps, DeckWindBearingDeg, Vol.WindSource,
-            P, P.Z, SimulationSeconds, OptionalForceFields, OptionalLattice);
-    }
-
+    const ResolvedWindSample& Wind = CenterWind;
     const float Speed = std::sqrt(
         Wind.VelocityMetersPerSec.X * Wind.VelocityMetersPerSec.X +
         Wind.VelocityMetersPerSec.Y * Wind.VelocityMetersPerSec.Y +
@@ -121,7 +110,7 @@ namespace
     const Mathematics::Axis3D AdvP = Vol.FollowWind
         ? AtmosphericWindSolver::AdvectWorldPointBackward(
               GlobalWind, DeckWindSpeedMps, DeckWindBearingDeg, Vol.WindSource,
-              P, P.Z, SimulationSeconds * 0.72f, OptionalForceFields, OptionalLattice, &LocalCurl)
+              P, P.Z, SimulationSeconds * 0.72f, &LocalCurl)
         : P;
     const float EffCurl = std::max(Wind.CurlScalar, LocalCurl);
 
@@ -130,8 +119,8 @@ namespace
     const float Thresh = 1.0f - std::clamp(Vol.Coverage, 0.0f, 1.0f);
     float BaseDen = std::max(0.0f, (N - Thresh) / std::max(0.15f, Vol.Coverage));
 
-    // ForceField & wind-stream internal sculpting: carves wake/eye channels in fast jets & condenses curl filaments
-    if (Vol.FollowWind && (SpatialForces || Speed > 0.25f))
+    // Wind-stream internal sculpting: carves wake channels in fast jets & condenses curl filaments
+    if (Vol.FollowWind && Speed > 0.25f)
     {
         const float FilamentNoise = SmoothFogNoise3(AdvP.X * LScale * 1.85f, AdvP.Y * LScale * 1.85f, AdvP.Z * LScale * 1.45f);
         const float CurlBoost     = 1.0f + std::clamp(EffCurl * 0.26f, 0.0f, 1.15f) * (0.55f + 0.90f * FilamentNoise);
@@ -184,14 +173,12 @@ float VolumetricFogSequence::ComputeTwoPercentVisibilityRangeMeters(
 }
 
 float VolumetricFogSequence::EvaluateFogMediumDensityAtPoint(
-    const Mathematics::Axis3D&                               WorldPoint,
-    const AtmosphericFogConfiguration&                       FogConfig,
-    const AtmosphericWindParameters&                         GlobalWind,
-    float                                                    DeckWindSpeedMps,
-    float                                                    DeckWindBearingDeg,
-    float                                                    SimulationSeconds,
-    const SimulationSpace::ForceFields::ForceFieldAccumulator* OptionalForceFields,
-    const SimulationSpace::ForceFields::FieldLatticeCascade*   OptionalLattice) noexcept
+    const Mathematics::Axis3D&         WorldPoint,
+    const AtmosphericFogConfiguration& FogConfig,
+    const AtmosphericWindParameters&   GlobalWind,
+    float                              DeckWindSpeedMps,
+    float                              DeckWindBearingDeg,
+    float                              SimulationSeconds) noexcept
 {
     float Sigma = 0.0f;
     if (FogConfig.HeightFog.Enabled && FogConfig.HeightFog.Density > 1.0e-6f)
@@ -220,33 +207,30 @@ float VolumetricFogSequence::EvaluateFogMediumDensityAtPoint(
         const ResolvedWindSample CenterWind = Vol.FollowWind
             ? AtmosphericWindSolver::ResolveWindSample(
                   GlobalWind, DeckWindSpeedMps, DeckWindBearingDeg, Vol.WindSource,
-                  Vol.VolumeCenterMeters, Vol.VolumeCenterMeters.Z, SimulationSeconds,
-                  OptionalForceFields, OptionalLattice)
+                  Vol.VolumeCenterMeters, Vol.VolumeCenterMeters.Z, SimulationSeconds)
             : ResolvedWindSample {};
         float DummyCurl = 0.0f;
         Sigma += EvaluateSingleLocalFogDensity(
             Vol, WorldPoint, GlobalWind, DeckWindSpeedMps, DeckWindBearingDeg,
-            SimulationSeconds, CenterWind, OptionalForceFields, OptionalLattice, DummyCurl);
+            SimulationSeconds, CenterWind, DummyCurl);
     }
 
     return Sigma;
 }
 
 FogEvaluationResult VolumetricFogSequence::EvaluateVolumetricFog(
-    const Mathematics::Axis3D&                               RayOriginWorld,
-    const Mathematics::Axis3D&                               RayDirection,
-    float                                                    MaxDistanceMeters,
-    const Mathematics::Axis3D&                               SunDirection,
-    const Mathematics::LinearRGB&                            SolarIrradiance,
-    const Mathematics::LinearRGB&                            SkyRadiance,
-    const AtmosphericFogConfiguration&                       FogConfig,
-    const AtmosphericWindParameters&                         GlobalWind,
-    float                                                    DeckWindSpeedMps,
-    float                                                    DeckWindBearingDeg,
-    float                                                    SimulationSeconds,
-    const SimulationSpace::ForceFields::ForceFieldAccumulator* OptionalForceFields,
-    const SimulationSpace::ForceFields::FieldLatticeCascade*   OptionalLattice,
-    float                                                    PixelJitter01) noexcept
+    const Mathematics::Axis3D&         RayOriginWorld,
+    const Mathematics::Axis3D&         RayDirection,
+    float                              MaxDistanceMeters,
+    const Mathematics::Axis3D&         SunDirection,
+    const Mathematics::LinearRGB&      SolarIrradiance,
+    const Mathematics::LinearRGB&      SkyRadiance,
+    const AtmosphericFogConfiguration& FogConfig,
+    const AtmosphericWindParameters&   GlobalWind,
+    float                              DeckWindSpeedMps,
+    float                              DeckWindBearingDeg,
+    float                              SimulationSeconds,
+    float                              PixelJitter01) noexcept
 {
     FogEvaluationResult Out {};
     const float SafeDist = std::max(0.0f, MaxDistanceMeters);
@@ -271,7 +255,7 @@ FogEvaluationResult VolumetricFogSequence::EvaluateVolumetricFog(
             const auto W = AtmosphericWindSolver::ResolveWindSample(
                 GlobalWind, DeckWindSpeedMps, DeckWindBearingDeg, FogConfig.HeightFog.WindSource,
                 RayOriginWorld + RayDirection * std::min(SafeDist * 0.35f, 80.0f),
-                RayOriginWorld.Z, SimulationSeconds, OptionalForceFields, OptionalLattice);
+                RayOriginWorld.Z, SimulationSeconds);
             const float Ripple = 0.88f + 0.24f * SmoothFogNoise3(
                 (RayOriginWorld.X - W.VelocityMetersPerSec.X * SimulationSeconds) * 0.03f,
                 (RayOriginWorld.Y - W.VelocityMetersPerSec.Y * SimulationSeconds) * 0.03f,
@@ -346,8 +330,7 @@ FogEvaluationResult VolumetricFogSequence::EvaluateVolumetricFog(
         const ResolvedWindSample Wind = Vol.FollowWind
             ? AtmosphericWindSolver::ResolveWindSample(
                   GlobalWind, DeckWindSpeedMps, DeckWindBearingDeg, Vol.WindSource,
-                  Vol.VolumeCenterMeters, Vol.VolumeCenterMeters.Z, SimulationSeconds,
-                  OptionalForceFields, OptionalLattice)
+                  Vol.VolumeCenterMeters, Vol.VolumeCenterMeters.Z, SimulationSeconds)
             : ResolvedWindSample {};
 
         constexpr uint32_t Steps = 32u;
@@ -362,7 +345,7 @@ FogEvaluationResult VolumetricFogSequence::EvaluateVolumetricFog(
             float CurlHighlight = 0.0f;
             const float Den = EvaluateSingleLocalFogDensity(
                 Vol, P, GlobalWind, DeckWindSpeedMps, DeckWindBearingDeg,
-                SimulationSeconds, Wind, OptionalForceFields, OptionalLattice, CurlHighlight);
+                SimulationSeconds, Wind, CurlHighlight);
             if (Den > 1.0e-5f)
             {
                 const float SegT    = std::exp(-Den * Dt);

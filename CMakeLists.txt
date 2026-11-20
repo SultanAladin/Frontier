@@ -213,12 +213,6 @@ set(FRONTIER_UI_COMPONENT_SOURCES
     Engine/Workspaces/UV/UVViewportInteractor.cpp
     Engine/Workspaces/UV/UVViewportHost.cpp
     Engine/Workspaces/UV/UVWorkspaceHost.cpp
-    Engine/Workspaces/Particle/ParticleExchange.cpp
-    Engine/Workspaces/Particle/ParticleWorkspaceSession.cpp
-    Engine/Workspaces/Particle/ParticleOutlinerPanel.cpp
-    Engine/Workspaces/Particle/ParticleViewportHost.cpp
-    Engine/Workspaces/Particle/ParticleInspectorPanel.cpp
-    Engine/Workspaces/Particle/ParticleWorkspaceHost.cpp
     Engine/Workspaces/Material/MaterialPreviewRenderer.cpp
     Engine/Workspaces/Material/MaterialWorkspaceSession.cpp
     Engine/Workspaces/Material/MaterialViewportHost.cpp
@@ -229,14 +223,6 @@ set(FRONTIER_UI_COMPONENT_SOURCES
     Engine/Workspaces/Fracture/FractureViewportHost.cpp
     Engine/Workspaces/Fracture/FractureInspectorPanel.cpp
     Engine/Workspaces/Fracture/FractureWorkspaceHost.cpp
-    Engine/Workspaces/Fluid/FluidWorkspaceSession.cpp
-    Engine/Workspaces/Fluid/FluidOutlinerPanel.cpp
-    Engine/Workspaces/Fluid/FluidViewportHost.cpp
-    Engine/Workspaces/Fluid/FluidInspectorPanel.cpp
-    Engine/Workspaces/Fluid/FluidPresetBrowser.cpp
-    Engine/Workspaces/Fluid/FluidAtlasMinimap.cpp
-    Engine/Workspaces/Fluid/FluidFlipbookExporter.cpp
-    Engine/Workspaces/Fluid/FluidWorkspaceHost.cpp
     Engine/Workspaces/ParametricSketcher/Interface/SketcherIcons.cpp
     Engine/Workspaces/ParametricSketcher/Interface/SketcherStyleSheet.cpp
     Engine/Workspaces/ParametricSketcher/Interface/SketcherOutliner.cpp
@@ -310,11 +296,13 @@ function(frontier_compile_slang_shader SLANG_FILE ENTRY_NAME SHADER_UNIT OUT_SPV
             "${FRONTIER_SHADER_SRC_DIR}/${SLANG_FILE}"
             "${FRONTIER_SHADER_SRC_DIR}/MatCapEvaluation.slang"
             "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/SkyViewTransmittanceCompute.slang"
+            "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/CloudNoise.slang"
+            "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/CloudDensity.slang"
+            "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/CloudTransport.slang"
+            "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/CloudAerialPerspective.slang"
             "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/VolumetricCloudCompute.slang"
             "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/CelestialDiscStarCompute.slang"
             "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/LensFlareCompute.slang"
-            "${CMAKE_SOURCE_DIR}/Engine/Shaders/Fluid/FluidSolverLayouts.slang"
-            "${CMAKE_SOURCE_DIR}/Engine/Shaders/Fluid/FluidVolumetricRaymarch.slang"
         COMMENT "[Slang] Compiling ${SLANG_FILE} (${SHADER_UNIT}) -> ${OUT_SPV_NAME}"
         VERBATIM
     )
@@ -342,6 +330,30 @@ frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   CloudCompu
 frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   DenoiseCompositeEntry     compute  WorldViewportDenoiseCompute.comp.spv)
 frontier_compile_slang_shader(WorldViewportRadiometricCompute.slang   ShadowCascadeComputeEntry compute  WorldViewportShadowCascadeCompute.comp.spv)
 
+set(FRONTIER_GENERATED_INCLUDE_DIR "${CMAKE_BINARY_DIR}/Generated")
+file(MAKE_DIRECTORY "${FRONTIER_GENERATED_INCLUDE_DIR}")
+set(FRONTIER_PLANETARY_CLOUD_GENERATED "${FRONTIER_GENERATED_INCLUDE_DIR}/PlanetaryCloudGenerated.hpp")
+add_custom_command(
+    OUTPUT "${FRONTIER_PLANETARY_CLOUD_GENERATED}"
+    COMMAND "${FRONTIER_SLANGC_BIN}"
+        "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/CloudCompute.slang"
+        -I "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere"
+        -entry CloudCaptureEntry
+        -target cpp
+        -fp-mode precise
+        -O0
+        -o "${FRONTIER_PLANETARY_CLOUD_GENERATED}"
+    DEPENDS
+        "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/CloudNoise.slang"
+        "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/CloudDensity.slang"
+        "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/CloudTransport.slang"
+        "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/CloudAerialPerspective.slang"
+        "${CMAKE_SOURCE_DIR}/Engine/Shaders/Atmosphere/CloudCompute.slang"
+    COMMENT "[Slang->C++] Generating single-source PlanetaryCloudGenerated.hpp"
+    VERBATIM
+)
+list(APPEND FRONTIER_SPV_OUTPUTS "${FRONTIER_PLANETARY_CLOUD_GENERATED}")
+
 set(FRONTIER_MODULAR_SHADER_DIR "${CMAKE_SOURCE_DIR}/Engine/Shaders")
 
 function(frontier_compile_modular_slang_shader DOMAIN_REL_PATH ENTRY_NAME SHADER_UNIT OUT_SPV_NAME)
@@ -354,8 +366,6 @@ function(frontier_compile_modular_slang_shader DOMAIN_REL_PATH ENTRY_NAME SHADER
         "${FRONTIER_MODULAR_SHADER_DIR}/Atmosphere/*.slang"
         "${FRONTIER_MODULAR_SHADER_DIR}/Colour/*.slang"
         "${FRONTIER_MODULAR_SHADER_DIR}/Compute/*.slang"
-        "${FRONTIER_MODULAR_SHADER_DIR}/Particles/*.slang"
-        "${FRONTIER_MODULAR_SHADER_DIR}/Fluid/*.slang"
     )
     add_custom_command(
         OUTPUT "${OUT_SPV}"
@@ -368,8 +378,6 @@ function(frontier_compile_modular_slang_shader DOMAIN_REL_PATH ENTRY_NAME SHADER
             -I "${FRONTIER_MODULAR_SHADER_DIR}/Atmosphere"
             -I "${FRONTIER_MODULAR_SHADER_DIR}/Colour"
             -I "${FRONTIER_MODULAR_SHADER_DIR}/Compute"
-            -I "${FRONTIER_MODULAR_SHADER_DIR}/Particles"
-            -I "${FRONTIER_MODULAR_SHADER_DIR}/Fluid"
             -I "${FRONTIER_MODULAR_SHADER_DIR}"
             -target spirv
             -profile spirv_1_3+spvGroupNonUniformArithmetic+spvInt64Atomics
@@ -391,27 +399,6 @@ endfunction()
 
 frontier_compile_modular_slang_shader(MaterialSpace/BounceLayerSummary.slang                     BounceSummaryComputeEntry       compute  BounceLayerSummary.comp.spv)
 frontier_compile_modular_slang_shader(Colour/ColourRampSampling.slang                            SampleColourRampLutComputeEntry compute  ColourRampSampling.comp.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleReleaseCompute.slang                     ParticleReleaseComputeEntry         compute  ParticleReleaseCompute.comp.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleAdvectCompute.slang                      ParticleAdvectComputeEntry          compute  ParticleAdvectCompute.comp.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleForceCoupling.slang                      ParticleForceCouplingEntry          compute  ParticleForceCoupling.comp.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleSpatialGridCompute.slang                 ParticleSpatialGridComputeEntry     compute  ParticleSpatialGridCompute.comp.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleReductionCompute.slang                   ParticleReductionComputeEntry       compute  ParticleReductionCompute.comp.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleSpriteRaster.slang                       ParticleSpriteVertexEntry           vertex   ParticleSpriteRaster.vert.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleSpriteRaster.slang                       ParticleSpriteFragmentEntry         fragment ParticleSpriteRaster.frag.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleRibbonRaster.slang                       ParticleRibbonVertexEntry           vertex   ParticleRibbonRaster.vert.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleRibbonRaster.slang                       ParticleRibbonFragmentEntry         fragment ParticleRibbonRaster.frag.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleSolidRasterization.slang                 ParticleSolidVertexEntry            vertex   ParticleSolidRasterization.vert.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleSolidRasterization.slang                 ParticleSolidFragmentEntry          fragment ParticleSolidRasterization.frag.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleWingedRasterization.slang                ParticleWingedVertexEntry           vertex   ParticleWingedRasterization.vert.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleWingedRasterization.slang                ParticleWingedFragmentEntry         fragment ParticleWingedRasterization.frag.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleLineArcRasterization.slang               ParticleLineArcVertexEntry          vertex   ParticleLineArcRasterization.vert.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleLineArcRasterization.slang               ParticleLineArcFragmentEntry        fragment ParticleLineArcRasterization.frag.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleLensRasterization.slang                  ParticleLensVertexEntry             vertex   ParticleLensRasterization.vert.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleLensRasterization.slang                  ParticleLensFragmentEntry           fragment ParticleLensRasterization.frag.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleSurfaceBackingRasterization.slang        ParticleSurfaceBackingVertexEntry   vertex   ParticleSurfaceBackingRasterization.vert.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleSurfaceBackingRasterization.slang        ParticleSurfaceBackingFragmentEntry fragment ParticleSurfaceBackingRasterization.frag.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleOverlayRasterization.slang               ParticleOverlayVertexEntry          vertex   ParticleOverlayRasterization.vert.spv)
-frontier_compile_modular_slang_shader(Particles/ParticleOverlayRasterization.slang               ParticleOverlayFragmentEntry        fragment ParticleOverlayRasterization.frag.spv)
 frontier_compile_modular_slang_shader(MaterialSpace/OpenPbrSurfaceScattering.slang               ComputeEntry                    compute  OpenPbrSurfaceScattering.comp.spv)
 frontier_compile_modular_slang_shader(MaterialSpace/DynamicMaterialResolve.slang                 DynamicStudioPreviewCompute     compute  DynamicMaterialResolve.comp.spv)
 frontier_compile_modular_slang_shader(GeometricRaster/FractureSurfaceResolve.slang               FractureVertexEntry             vertex   FractureSurfaceResolve.vert.spv)
@@ -435,46 +422,6 @@ frontier_compile_modular_slang_shader(Atmosphere/StellarTileCullCompute.slang   
 frontier_compile_modular_slang_shader(Atmosphere/StellarTileCullCompute.slang                 ProjectCullStellarTilesEntry    compute  StellarTileCullCompute.comp.spv)
 frontier_compile_modular_slang_shader(Atmosphere/LensFlareBakeCompute.slang                     ComputeEntry                    compute  LensFlareBakeCompute.comp.spv)
 frontier_compile_modular_slang_shader(Atmosphere/LensFlareCompute.slang                         ComputeEntry                    compute  LensFlareCompute.comp.spv)
-frontier_compile_modular_slang_shader(Fluid/FluidSplatObstacle.slang                            FluidSplatObstacleEntry         compute  FluidSplatObstacle.comp.spv)
-frontier_compile_modular_slang_shader(Fluid/FluidAdvectMacCormack.slang                         FluidAdvectMacCormackEntry      compute  FluidAdvectMacCormack.comp.spv)
-frontier_compile_modular_slang_shader(Fluid/FluidVorticityCombustion.slang                      FluidCurlComputeEntry           compute  FluidCurlCompute.comp.spv)
-frontier_compile_modular_slang_shader(Fluid/FluidVorticityCombustion.slang                      FluidVorticityForcesEntry       compute  FluidVorticityForces.comp.spv)
-frontier_compile_modular_slang_shader(Fluid/FluidDivergencePressure.slang                       FluidDivergenceEntry            compute  FluidDivergence.comp.spv)
-frontier_compile_modular_slang_shader(Fluid/FluidDivergencePressure.slang                       FluidJacobiPressureEntry        compute  FluidJacobiPressure.comp.spv)
-frontier_compile_modular_slang_shader(Fluid/FluidDivergencePressure.slang                       FluidGradientSubtractEntry      compute  FluidGradientSubtract.comp.spv)
-frontier_compile_modular_slang_shader(Fluid/FluidLightReduction.slang                           FluidLightReductionEntry        compute  FluidLightReduction.comp.spv)
-
-function(frontier_compile_slang_shader_unit SLANG_REL_PATH ENTRY_NAME SHADER_UNIT OUT_SPV_NAME)
-    set(IN_SLANG "${CMAKE_SOURCE_DIR}/${SLANG_REL_PATH}")
-    set(OUT_SPV "${FRONTIER_COMPILED_SHADER_DIR}/${OUT_SPV_NAME}")
-    add_custom_command(
-        OUTPUT "${OUT_SPV}"
-        COMMAND "${FRONTIER_SLANGC_BIN}"
-            -profile spirv_1_3
-            -target spirv
-            -emit-spirv-directly
-            -O0
-            -I "${CMAKE_SOURCE_DIR}"
-            -entry "${ENTRY_NAME}"
-            -stage "${SHADER_UNIT}"
-            "${IN_SLANG}"
-            -o "${OUT_SPV}"
-        DEPENDS
-            "${IN_SLANG}"
-            "${CMAKE_SOURCE_DIR}/Engine/Shaders/Compute/ForceFieldEvaluationShared.slang"
-            "${CMAKE_SOURCE_DIR}/Engine/Shaders/VectorField/VectorFieldRenderingShared.slang"
-        COMMENT "[Slang] Compiling ${SLANG_REL_PATH} (${SHADER_UNIT}:${ENTRY_NAME}) -> ${OUT_SPV_NAME}"
-        VERBATIM
-    )
-    set(FRONTIER_SPV_OUTPUTS ${FRONTIER_SPV_OUTPUTS} "${OUT_SPV}" PARENT_SCOPE)
-endfunction()
-
-frontier_compile_slang_shader_unit(
-    "Engine/Shaders/Compute/FieldLatticeCompute.slang"
-    "ComputeFieldLatticeVoxel"
-    "compute"
-    "FieldLatticeCompute.spv"
-)
 
 function(frontier_compile_sketcher_slang_shader SLANG_FILE ENTRY_NAME SHADER_UNIT OUT_SPV_NAME)
     set(IN_SLANG "${CMAKE_SOURCE_DIR}/Engine/Shaders/Sketcher/${SLANG_FILE}")
@@ -610,29 +557,6 @@ frontier_compile_baking_slang_shader(BakeVolumeSdfCompute.slang      ComputeEntr
 frontier_compile_baking_slang_shader(ExtractSdfSectionCompute.slang  ComputeEntry  compute  ExtractSdfSectionCompute.comp.spv  FALSE)
 frontier_compile_baking_slang_shader(BakeViewportPreview.slang       VertexEntry   vertex   BakeViewportPreview.vert.spv       FALSE)
 frontier_compile_baking_slang_shader(BakeViewportPreview.slang       FragmentEntry fragment BakeViewportPreview.frag.spv       FALSE)
-
-if(FRONTIER_PROFILE STREQUAL "Editor")
-    foreach(VF_SHADER_STEM
-        LitBackdropRasterization
-        CrossSectionHeatmapRasterization
-        InfluenceEnvelopeRasterization
-        VectorArrowRasterization
-        StreamlineRasterization
-        ForcePathBeaconRasterization)
-        frontier_compile_slang_shader_unit(
-            "Engine/Shaders/VectorField/${VF_SHADER_STEM}.slang"
-            "VertexMain"
-            "vertex"
-            "${VF_SHADER_STEM}.vert.spv"
-        )
-        frontier_compile_slang_shader_unit(
-            "Engine/Shaders/VectorField/${VF_SHADER_STEM}.slang"
-            "FragmentMain"
-            "fragment"
-            "${VF_SHADER_STEM}.frag.spv"
-        )
-    endforeach()
-endif()
 
 function(frontier_compile_component_editor_slang_shader SLANG_STEM ENTRY_NAME SHADER_UNIT OUT_SPV_NAME)
     set(IN_SLANG "${CMAKE_SOURCE_DIR}/Engine/Shaders/ComponentEditor/${SLANG_STEM}.slang")
@@ -845,7 +769,6 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/Interchange/ColourInterchange.cpp
     Engine/Interchange/GeometryInterchange.cpp
     Engine/Interchange/IndexedTriangleStreamInterchange.cpp
-    Engine/Interchange/ParticleInterchange.cpp
     Engine/GeometricRaster/Gizmo/TransformGizmo.cpp
     Engine/Components/Camera/ViewportProjection.cpp
     Engine/GeometricRaster/VulkanInterchange.cpp
@@ -892,55 +815,12 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/Codecs/MaterialCodec.cpp
     Engine/Codecs/VectorCodec.cpp
     Engine/Codecs/NetworkCodec.cpp
-    Engine/Codecs/VectorFieldCodec.cpp
-    Engine/Codecs/ForceModelPresetCodec.cpp
-    Engine/Codecs/ParticleCodec.cpp
     Engine/Codecs/ComponentSpaceCodec.cpp
     Engine/ComponentClass/ComponentInstanceStorage.cpp
     Engine/ComponentClass/ComponentClassDefinition.cpp
     Engine/ComponentClass/ComponentClassValidator.cpp
     Engine/ComponentClass/ComponentWorldPlacement.cpp
     Engine/ComponentClass/ControlVehicleClassBuilder.cpp
-    Engine/ParticleSpace/ParticleTintDriver.cpp
-    Engine/ParticleSpace/Origins/AnalyticOrigins.cpp
-    Engine/ParticleSpace/Origins/ControlVehicleSurfaceLoader.cpp
-    Engine/ParticleSpace/Origins/SurfaceAnchorSampler.cpp
-    Engine/ParticleSpace/Origins/FireworkPatternSampler.cpp
-    Engine/ParticleSpace/Dynamics/CurlManifoldDynamics.cpp
-    Engine/ParticleSpace/Dynamics/DynamicStrandSolver.cpp
-    Engine/ParticleSpace/Dynamics/EffectorGridSolver.cpp
-    Engine/ParticleSpace/Dynamics/VehicleDissolveSolver.cpp
-    Engine/ParticleSpace/Dynamics/SplineEnsembleSolver.cpp
-    Engine/ParticleSpace/Sprites/ProceduralSpriteSynthesizer.cpp
-    Engine/ParticleSpace/Dynamics/OrbitalElectromagneticDynamics.cpp
-    Engine/ParticleSpace/Dynamics/SwarmFlockingDynamics.cpp
-    Engine/ParticleSpace/Dynamics/FluidGranularDynamics.cpp
-    Engine/ParticleSpace/Dynamics/MolecularReactionDynamics.cpp
-    Engine/ParticleSpace/Dynamics/SpecialEffectsDynamics.cpp
-    Engine/ParticleSpace/Simulation/ParticleMetricsCollector.cpp
-    Engine/ParticleSpace/Simulation/ParticleStrandRenderer.cpp
-    Engine/ParticleSpace/Simulation/ParticleSoftwareExecutor.cpp
-    Engine/GeometricRaster/Compute/ParticleVulkanExecutor.cpp
-    Engine/ParticleSpace/Presets/ParticlePresetRepository.cpp
-    Engine/ParticleSpace/ParticleRig.cpp
-    Engine/ParticleSpace/ParticleDocument.cpp
-    Engine/ParticleSpace/ParticleSimulationSession.cpp
-    Engine/SimulationSpace/ForceFields/ForceMotionPath.cpp
-    Engine/SimulationSpace/ForceFields/VectorField.cpp
-    Engine/SimulationSpace/ForceFields/StreamTransportField.cpp
-    Engine/SimulationSpace/ForceFields/TurbulenceField.cpp
-    Engine/SimulationSpace/ForceFields/FieldFormulaCompiler.cpp
-    Engine/SimulationSpace/ForceFields/ForceFieldAccumulator.cpp
-    Engine/SimulationSpace/ForceFields/FieldLatticeCascade.cpp
-    Engine/SimulationSpace/FluidSpace/FluidPresets.cpp
-    Engine/SimulationSpace/FluidSpace/FluidCodec.cpp
-    Engine/SimulationSpace/FluidSpace/FluidGridBuffers.cpp
-    Engine/SimulationSpace/FluidSpace/FluidWorldGridPartition.cpp
-    Engine/SimulationSpace/FluidSpace/FluidObstacleVoxelizer.cpp
-    Engine/SimulationSpace/FluidSpace/FluidForceCoupler.cpp
-    Engine/SimulationSpace/FluidSpace/FluidParticleCoupler.cpp
-    Engine/SimulationSpace/FluidSpace/FluidGiLightExtractor.cpp
-    Engine/SimulationSpace/FluidSpace/FluidSimulationSequence.cpp
     Engine/SimulationSpace/PhysicsSpace/RigidBodyDynamics.cpp
     Engine/SimulationSpace/PhysicsSpace/BroadphaseSolver.cpp
     Engine/SimulationSpace/PhysicsSpace/CollisionDetection.cpp
@@ -948,7 +828,6 @@ set(FRONTIER_ENGINE_SOURCES
     Engine/SimulationSpace/PhysicsSpace/PhysicsExtension.cpp
     Engine/SimulationSpace/PhysicsSpace/FractureSimulationRunner.cpp
     Engine/SimulationSpace/PhysicsSpace/VehicleDynamicsSolver.cpp
-    Engine/GeometricRaster/Compute/FieldLatticeVulkanExecutor.cpp
     Engine/NetworkingSpace/PacketSerializer.cpp
     Engine/NetworkingSpace/NetworkEndpointRegister.cpp
     Engine/NetworkingSpace/DifferentialWorldEncoder.cpp
@@ -997,10 +876,6 @@ if(FRONTIER_PROFILE STREQUAL "Editor")
     list(APPEND FRONTIER_ENGINE_SOURCES
         Engine/Editor/Explorer/ContentBrowser.cpp
         Engine/Editor/Explorer/ProjectBrowser.cpp
-        Engine/Editor/Workspaces/Simulation/ForcePresetBrowserPanel.cpp
-        Engine/Editor/Workspaces/Simulation/ForceInspectorView.cpp
-        Engine/GeometricRaster/Simulation/VectorFieldOverlaySequence.cpp
-        Engine/Editor/Workspaces/Simulation/VectorFieldViewportSession.cpp
         Engine/Lifecycle/EditorLifecycle.cpp
     )
 endif()
@@ -1019,6 +894,7 @@ add_dependencies(FrontierEngine FrontierShaders thorvg_static Jolt)
 
 target_include_directories(FrontierEngine PUBLIC
     "${CMAKE_SOURCE_DIR}"
+    "${FRONTIER_GENERATED_INCLUDE_DIR}"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/volk"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include"
@@ -1119,10 +995,7 @@ endforeach()
     frontier_register_desktop_app(FrontierPattern    Engine/Lifecycle/FrontierPatternLaunch.cpp)
     frontier_register_desktop_app(FrontierStamp      Engine/Lifecycle/FrontierStampLaunch.cpp)
     frontier_register_desktop_app(FrontierMaterial   Engine/Lifecycle/FrontierMaterialLaunch.cpp)
-    frontier_register_desktop_app(FrontierParticle   Engine/Lifecycle/FrontierParticleLaunch.cpp)
     frontier_register_desktop_app(FrontierFracture   Engine/Lifecycle/FrontierFractureLaunch.cpp)
-    frontier_register_desktop_app(FrontierForceField Engine/Lifecycle/FrontierForceFieldLaunch.cpp)
-    frontier_register_desktop_app(FrontierFluid      Engine/Lifecycle/FrontierFluidLaunch.cpp)
     frontier_register_desktop_app(FrontierSketcher   Engine/Lifecycle/FrontierSketcherLaunch.cpp)
 endif()
 
@@ -1171,18 +1044,6 @@ if(BUILD_TESTING)
     if(FRONTIER_PROFILE STREQUAL "Editor")
         frontier_register_exhibit(ColourComponentsValidation     Exhibits/ColourComponentsValidation.cpp)
     endif()
-    if(FRONTIER_PROFILE STREQUAL "Editor")
-        frontier_register_exhibit(ParticleWorkspaceUIValidation       Exhibits/ParticleWorkspaceUIValidation.cpp)
-    endif()
-    frontier_register_exhibit(ParticleFoundationValidation        Exhibits/ParticleFoundationValidation.cpp)
-    frontier_register_exhibit(ParticleCodecInterchangeValidation  Exhibits/ParticleCodecInterchangeValidation.cpp)
-    frontier_register_exhibit(ParticleDynamicsValidation          Exhibits/ParticleDynamicsValidation.cpp)
-    frontier_register_exhibit(ParticleVulkanValidation            Exhibits/ParticleVulkanValidation.cpp)
-    frontier_register_exhibit(ParticlePresetParityValidation      Exhibits/ParticlePresetParityValidation.cpp)
-    frontier_register_exhibit(ParticleFirstFiveParityValidation   Exhibits/ParticleFirstFiveParityValidation.cpp)
-    frontier_register_exhibit(ParticleSplineBatchValidation       Exhibits/ParticleSplineBatchValidation.cpp)
-    frontier_register_exhibit(ParticleMotionGridValidation        Exhibits/ParticleMotionGridValidation.cpp)
-    frontier_register_exhibit(ParticleVehicleDissolveValidation   Exhibits/ParticleVehicleDissolveValidation.cpp)
     frontier_register_exhibit(PhysicsSpaceValidation              Exhibits/PhysicsSpaceValidation.cpp)
     frontier_register_exhibit(ComponentClassPhysicsValidation     Exhibits/ComponentClassPhysicsValidation.cpp)
     frontier_register_exhibit(FractureGeometryValidation          Exhibits/FractureGeometryValidation.cpp)
@@ -1221,21 +1082,16 @@ if(BUILD_TESTING)
     frontier_register_exhibit(UVAuthoringChaosValidation        Exhibits/UVAuthoringChaosValidation.cpp)
     frontier_register_exhibit(NetworkingSpaceValidation         Exhibits/NetworkingSpaceValidation.cpp)
     if(FRONTIER_PROFILE STREQUAL "Editor")
-        frontier_register_exhibit(VectorFieldValidation             Exhibits/VectorFieldValidation.cpp)
-    endif()
-    if(FRONTIER_PROFILE STREQUAL "Editor")
         frontier_register_exhibit(ProjectBrowserValidation          Exhibits/ProjectBrowserValidation.cpp)
     endif()
     frontier_register_exhibit(VectorGraphicsGPUValidation       Exhibits/VectorGraphicsGPUValidation.cpp)
     frontier_register_exhibit(BakingGPUValidation               Exhibits/BakingGPUValidation.cpp)
     frontier_register_exhibit(WindCloudsFogValidation           Exhibits/WindCloudsFogValidation.cpp)
-    frontier_register_exhibit(FluidSimulationValidation         Exhibits/FluidSimulationValidation.cpp)
     frontier_register_exhibit(SketcherKernelValidation          Exhibits/ParametricSketcher/SketcherKernelValidation.cpp)
     frontier_register_exhibit(SketcherDocumentValidation        Exhibits/ParametricSketcher/SketcherDocumentValidation.cpp)
     frontier_register_exhibit(SketcherViewportValidation        Exhibits/ParametricSketcher/SketcherViewportValidation.cpp)
     frontier_register_exhibit(ComponentEditorRenderValidation   Exhibits/ComponentEditorRenderValidation.cpp)
     if(FRONTIER_PROFILE STREQUAL "Editor")
-        frontier_register_exhibit(FluidWorkspaceUIValidation        Exhibits/FluidWorkspaceUIValidation.cpp)
         frontier_register_exhibit(BakingWorkspaceUIValidation       Exhibits/BakingWorkspaceUIValidation.cpp)
         frontier_register_exhibit(SketcherWorkspaceValidation       Exhibits/ParametricSketcher/SketcherWorkspaceValidation.cpp)
     endif()
@@ -1266,20 +1122,8 @@ if(BUILD_TESTING)
             COMMAND FrontierMaterial --frames=3
         )
         add_test(
-            NAME FrontierParticleExecutableSmoke
-            COMMAND FrontierParticle --frames=3
-        )
-        add_test(
             NAME FrontierFractureExecutableSmoke
             COMMAND FrontierFracture --frames=3
-        )
-        add_test(
-            NAME FrontierForceFieldExecutableSmoke
-            COMMAND FrontierForceField --frames=1
-        )
-        add_test(
-            NAME FrontierFluidExecutableSmoke
-            COMMAND FrontierFluid --frames=1
         )
         add_test(
             NAME FrontierSketcherExecutableSmoke

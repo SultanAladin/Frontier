@@ -20,8 +20,8 @@
 | `UVDistortionInspection.slang` | Parallel GPU UV distortion, signed UV area, winding-flip & exact 2D SAT triangle-overlap evaluator feeding TimelineTransferRegister |
 | `UVTileRasterization.slang` | 2D UDIM UVTile parameter canvas shader rendering checker/custom backdrops, authored-polygon UV edges, GPU seam/pin/selection & 2D Pick IDs |
 | `ViewportPickReduction.slang` | GPU marquee-box & circular-brush reduction scanning R32G32B32A32_UINT pick buffer and atomically setting VRAM SelectionBitmask bits |
-| `WorldViewportBlit.slang` | Fullscreen GPU viewport blit + ForceField overlay composite running in the Gizmo render pass (zero CPU readback) |
-| `WorldViewportRadiometricCompute.slang` | Unified Dual-Engine Non-GI Compute Shader (`MatCap` & `OpenPbrDirect`, 5 Shadow Lab algorithms, BVH4/Sky reflections, Abbe glass, Atmosphere & Clouds) |
+| `WorldViewportBlit.slang` | Fullscreen GPU viewport blit compositing the resolved world framebuffer in the swapchain render pass |
+| `WorldViewportRadiometricCompute.slang` | Unified Dual-Engine Non-GI Compute Shader (`MatCap` & `OpenPbrDirect`, 5 Shadow Lab algorithms, BVH4/Sky reflections, Abbe glass, Atmosphere & `PlanetaryClouds` with 4x4 Cubic B-Spline upsample) |
 
 ## Shader Entry Points & Compilation
 

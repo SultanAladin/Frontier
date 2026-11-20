@@ -12,7 +12,6 @@
 #include "Engine/Codecs/VectorCodec.h"
 #include "Engine/Components/PixelSpace.h"
 #include "Engine/GeometricRaster/Vector/VulkanVectorRenderMethod.h"
-#include "Engine/ParticleSpace/Sprites/ProceduralSpriteSynthesizer.h"
 
 #include <array>
 #include <cstdint>
@@ -450,11 +449,6 @@ public:
     [[nodiscard]] std::string ExportDocumentToSvgString() const;
     [[nodiscard]] Codecs::VectorSpaceDocumentModel BuildVectorSpaceModel() const;
     [[nodiscard]] bool                           LoadFromVectorSpaceModel(const Codecs::VectorSpaceDocumentModel& Model);
-    [[nodiscard]] ProceduralSpriteChannelSet     SynthesizeParticleSpriteAtlas(
-        ProceduralSpriteArchetype Archetype,
-        uint32_t                  TileResolutionPx = 128u,
-        uint32_t                  AtlasColumns     = 1u,
-        uint32_t                  Seed             = 1337u) const;
 
     void RecomputeSummaryMetrics() noexcept;
 

@@ -164,38 +164,6 @@ DiagnosticInfographicResult DiagnosticInfographicCanvas::Construct(
         Surface.TextCentered({ Center.X - 10.0f, Center.Y - Radius - 13.0f, 20.0f, 12.0f }, 8.5f, MutedInk, "N");
         Surface.TextCentered({ Center.X + Radius + 3.0f, Center.Y - 6.0f, 14.0f, 12.0f }, 8.5f, MutedInk, "E");
     }
-    else if (Spec.Archetype == InfographicArchetype::ForceFieldReach)
-    {
-        const Point2D Center = BodyRect.Center();
-        const float   MaxR   = std::min(BodyRect.Width, BodyRect.Height) * 0.45f;
-        for (int Ring = 1; Ring <= 3; ++Ring)
-        {
-            const float R = MaxR * (static_cast<float>(Ring) / 3.0f);
-            Surface.StrokeCircle(Center, R, ColorRgba { 232u, 194u, 122u, static_cast<uint8_t>(110 - Ring * 25) }, 1.1f);
-        }
-        for (int S = 0; S < 8; ++S)
-        {
-            const float A = static_cast<float>(S) * (3.14159265f * 0.25f) + static_cast<float>(Spec.AnimationTimeSec) * 0.35f;
-            const Point2D P0 { Center.X + std::cos(A) * (MaxR * 0.32f), Center.Y + std::sin(A) * (MaxR * 0.32f) };
-            const Point2D P1 { Center.X + std::cos(A) * (MaxR * 0.92f), Center.Y + std::sin(A) * (MaxR * 0.92f) };
-            Surface.StrokeLine(P0, P1, Emerald.ScaledAlpha(0.75f), 1.3f);
-            Surface.FillCircle(P1, 2.2f, WarmEdge);
-        }
-        Surface.FillCircle(Center, 4.0f, WarmEdge);
-    }
-    else // ReleaseConeEnvelope
-    {
-        const Point2D Origin { BodyRect.Center().X, BodyRect.Bottom() - 8.0f };
-        const float   Spread = std::clamp(Spec.PrimaryAngleDeg, 10.0f, 75.0f) * 3.14159265f / 180.0f;
-        const float   SpanH  = BodyRect.Height - 16.0f;
-        const Point2D Left   { Origin.X - std::sin(Spread) * SpanH, Origin.Y - std::cos(Spread) * SpanH };
-        const Point2D Right  { Origin.X + std::sin(Spread) * SpanH, Origin.Y - std::cos(Spread) * SpanH };
-        const std::array<Point2D, 3> Cone = {{ Origin, Left, Right }};
-        Surface.FillPolygon(Cone, ColorRgba { 232u, 194u, 122u, 28u });
-        Surface.StrokeLine(Origin, Left, WarmEdge, 1.3f);
-        Surface.StrokeLine(Origin, Right, WarmEdge, 1.3f);
-        Surface.FillCircle(Origin, 4.2f, Emerald);
-    }
 
     // Footer hint caption
     if (Spec.FooterHint != nullptr && Spec.FooterHint[0] != '\0')

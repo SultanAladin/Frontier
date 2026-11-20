@@ -248,60 +248,6 @@ bool WorldGizmoOverlayRasterization::InitializeOverlay(
         }
     }
 
-    FallbackTransparentImage = DeviceInterchange->AllocateImage2D(
-        1u,
-        1u,
-        VK_FORMAT_R8G8B8A8_UNORM,
-        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        VK_IMAGE_ASPECT_COLOR_BIT);
-    if (FallbackTransparentImage.ImageHandle == VK_NULL_HANDLE)
-    {
-        TeardownOverlay();
-        return false;
-    }
-    {
-        VkCommandBuffer InitCmd = DeviceInterchange->BeginSingleTimeCommands();
-        if (InitCmd == VK_NULL_HANDLE)
-        {
-            TeardownOverlay();
-            return false;
-        }
-        VkImageMemoryBarrier ToClear {};
-        ToClear.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        ToClear.srcAccessMask       = 0u;
-        ToClear.dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
-        ToClear.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
-        ToClear.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        ToClear.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        ToClear.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        ToClear.image               = FallbackTransparentImage.ImageHandle;
-        ToClear.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
-        vkCmdPipelineBarrier(InitCmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, 0u, nullptr, 0u, nullptr, 1u, &ToClear);
-
-        const VkClearColorValue ZeroClear {{ 0.0f, 0.0f, 0.0f, 0.0f }};
-        const VkImageSubresourceRange Range { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
-        vkCmdClearColorImage(InitCmd, FallbackTransparentImage.ImageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ZeroClear, 1u, &Range);
-
-        VkImageMemoryBarrier ToSampled {};
-        ToSampled.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        ToSampled.srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
-        ToSampled.dstAccessMask       = VK_ACCESS_SHADER_READ_BIT;
-        ToSampled.oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        ToSampled.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        ToSampled.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        ToSampled.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        ToSampled.image               = FallbackTransparentImage.ImageHandle;
-        ToSampled.subresourceRange    = Range;
-        vkCmdPipelineBarrier(InitCmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0u, 0u, nullptr, 0u, nullptr, 1u, &ToSampled);
-        const uint64_t InitSig = DeviceInterchange->DispatchCommandBufferAsync(InitCmd);
-        if (!DeviceInterchange->AwaitTimelineTick(InitSig))
-        {
-            TeardownOverlay();
-            return false;
-        }
-        DeviceInterchange->FreeCommandBuffer(InitCmd);
-    }
-
     ReadbackPickPatchBuffer = DeviceInterchange->AllocateBuffer(
         25ull * 16ull,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -348,9 +294,6 @@ void WorldGizmoOverlayRasterization::TeardownOverlay()
         FlushPreviousCompositeCmd();
         vkDeviceWaitIdle(DeviceHandle);
         ReleaseRenderTargets();
-        DeviceInterchange->ReleaseImage2D(FallbackTransparentImage);
-        DeviceInterchange->ReleaseImage2D(ForceOverlayImage);
-        ForceOverlayImageValid = false;
         if (BlitLinearSampler != VK_NULL_HANDLE)
         {
             vkDestroySampler(DeviceHandle, BlitLinearSampler, nullptr);
@@ -361,7 +304,6 @@ void WorldGizmoOverlayRasterization::TeardownOverlay()
         DeviceInterchange->ReleaseBuffer(UploadReadbackRgbaBuffer);
         DeviceInterchange->ReleaseBuffer(ReadbackPickBuffer);
         DeviceInterchange->ReleaseBuffer(ReadbackPickPatchBuffer);
-        DeviceInterchange->ReleaseBuffer(ForceOverlayStagingBuffer);
         DestroyProgramUnit(DeviceHandle, GizmoDepthProgram);
         DestroyProgramUnit(DeviceHandle, GizmoTranslucentProgram);
         DestroyProgramUnit(DeviceHandle, ViewportBlitProgram);
@@ -612,9 +554,8 @@ bool WorldGizmoOverlayRasterization::ConstructBlitProgram(
         return false;
     }
 
-    const std::array<VkDescriptorSetLayoutBinding, 2u> LayoutBindings {{
+        const std::array<VkDescriptorSetLayoutBinding, 1u> LayoutBindings {{
         { 0u, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1u, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
-        { 1u, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1u, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
     }};
     VkDescriptorSetLayoutCreateInfo SetLayoutSpec {};
     SetLayoutSpec.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -625,17 +566,10 @@ bool WorldGizmoOverlayRasterization::ConstructBlitProgram(
         return false;
     }
 
-    VkPushConstantRange PushRange {};
-    PushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    PushRange.offset     = 0u;
-    PushRange.size       = 16u;
-
     VkPipelineLayoutCreateInfo PipeLayoutSpec {};
-    PipeLayoutSpec.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    PipeLayoutSpec.setLayoutCount         = 1u;
-    PipeLayoutSpec.pSetLayouts            = &OutUnit.SlotLayout;
-    PipeLayoutSpec.pushConstantRangeCount = 1u;
-    PipeLayoutSpec.pPushConstantRanges    = &PushRange;
+    PipeLayoutSpec.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    PipeLayoutSpec.setLayoutCount = 1u;
+    PipeLayoutSpec.pSetLayouts    = &OutUnit.SlotLayout;
     if (vkCreatePipelineLayout(DeviceHandle, &PipeLayoutSpec, nullptr, &OutUnit.ProgramLayout) != VK_SUCCESS)
     {
         return false;
@@ -1074,55 +1008,6 @@ bool WorldGizmoOverlayRasterization::CompositeOntoGpuViewport(
         std::memcpy(UniformBuffer.HostAddress, &Uniforms, sizeof(Uniforms));
     }
 
-    // Check if force-overlay texture needs allocation/upload
-    const bool HasForceOverlayData = Request.ForceOverlayEnabled && Request.ForceOverlayRgba != nullptr &&
-                                     Request.ForceOverlayWidthPx > 0u && Request.ForceOverlayHeightPx > 0u;
-    bool UploadForceOverlay = false;
-    if (HasForceOverlayData)
-    {
-        if (ForceOverlayImage.ImageHandle == VK_NULL_HANDLE ||
-            ForceOverlayImage.WidthPx != Request.ForceOverlayWidthPx ||
-            ForceOverlayImage.HeightPx != Request.ForceOverlayHeightPx)
-        {
-            DeviceInterchange->ReleaseImage2D(ForceOverlayImage);
-            ForceOverlayImage = DeviceInterchange->AllocateImage2D(
-                Request.ForceOverlayWidthPx,
-                Request.ForceOverlayHeightPx,
-                VK_FORMAT_R8G8B8A8_UNORM,
-                VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-                VK_IMAGE_ASPECT_COLOR_BIT);
-            ForceOverlayImageValid = false;
-            UploadForceOverlay = (ForceOverlayImage.ImageHandle != VK_NULL_HANDLE);
-        }
-        else if (Request.ForceOverlayUpdated || !ForceOverlayImageValid)
-        {
-            UploadForceOverlay = true;
-        }
-    }
-
-    const uint64_t OverlayBytes = UploadForceOverlay
-        ? static_cast<uint64_t>(Request.ForceOverlayWidthPx) * Request.ForceOverlayHeightPx * 4ull
-        : 0ull;
-    if (UploadForceOverlay)
-    {
-        if (ForceOverlayStagingBuffer.ByteCapacity < OverlayBytes)
-        {
-            DeviceInterchange->ReleaseBuffer(ForceOverlayStagingBuffer);
-            ForceOverlayStagingBuffer = DeviceInterchange->AllocateBuffer(
-                OverlayBytes,
-                VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        }
-        if (ForceOverlayStagingBuffer.HostAddress != nullptr)
-        {
-            std::memcpy(ForceOverlayStagingBuffer.HostAddress, Request.ForceOverlayRgba, static_cast<std::size_t>(OverlayBytes));
-        }
-        else
-        {
-            UploadForceOverlay = false;
-        }
-    }
-
     VkDevice DeviceHandle = DeviceInterchange->AccessDevice();
     vkResetDescriptorPool(DeviceHandle, OverlayDescriptorAllocator, 0u);
 
@@ -1133,25 +1018,15 @@ bool WorldGizmoOverlayRasterization::CompositeOntoGpuViewport(
         {
             return false;
         }
-        const VkImageView OverlayView = (Request.ForceOverlayEnabled && ForceOverlayImageValid && ForceOverlayImage.ViewHandle != VK_NULL_HANDLE)
-            ? ForceOverlayImage.ViewHandle
-            : FallbackTransparentImage.ViewHandle;
-
-        const std::array<VkDescriptorImageInfo, 2u> ImgInfos {{
-            { BlitLinearSampler, Request.WorldSourceView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
-            { BlitLinearSampler, OverlayView,             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
-        }};
-        std::array<VkWriteDescriptorSet, 2u> BlitWrites {};
-        for (uint32_t Idx = 0u; Idx < 2u; ++Idx)
-        {
-            BlitWrites[Idx].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            BlitWrites[Idx].dstSet          = BlitSet;
-            BlitWrites[Idx].dstBinding      = Idx;
-            BlitWrites[Idx].descriptorCount = 1u;
-            BlitWrites[Idx].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            BlitWrites[Idx].pImageInfo      = &ImgInfos[Idx];
-        }
-        vkUpdateDescriptorSets(DeviceHandle, static_cast<uint32_t>(BlitWrites.size()), BlitWrites.data(), 0u, nullptr);
+        const VkDescriptorImageInfo ImgInfo { BlitLinearSampler, Request.WorldSourceView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+        VkWriteDescriptorSet BlitWrite {};
+        BlitWrite.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        BlitWrite.dstSet          = BlitSet;
+        BlitWrite.dstBinding      = 0u;
+        BlitWrite.descriptorCount = 1u;
+        BlitWrite.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        BlitWrite.pImageInfo      = &ImgInfo;
+        vkUpdateDescriptorSets(DeviceHandle, 1u, &BlitWrite, 0u, nullptr);
     }
 
     VkDescriptorSet GizmoSet = VK_NULL_HANDLE;
@@ -1185,39 +1060,6 @@ bool WorldGizmoOverlayRasterization::CompositeOntoGpuViewport(
         return false;
     }
 
-    if (UploadForceOverlay)
-    {
-        VkImageMemoryBarrier ToDst {};
-        ToDst.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        ToDst.srcAccessMask       = 0u;
-        ToDst.dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
-        ToDst.oldLayout           = ForceOverlayImageValid ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
-        ToDst.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        ToDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        ToDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        ToDst.image               = ForceOverlayImage.ImageHandle;
-        ToDst.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
-        vkCmdPipelineBarrier(Cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, 0u, nullptr, 0u, nullptr, 1u, &ToDst);
-
-        VkBufferImageCopy CopyOverlay {};
-        CopyOverlay.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
-        CopyOverlay.imageExtent      = { Request.ForceOverlayWidthPx, Request.ForceOverlayHeightPx, 1u };
-        vkCmdCopyBufferToImage(Cmd, ForceOverlayStagingBuffer.BufferHandle, ForceOverlayImage.ImageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &CopyOverlay);
-
-        VkImageMemoryBarrier ToSampled {};
-        ToSampled.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        ToSampled.srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
-        ToSampled.dstAccessMask       = VK_ACCESS_SHADER_READ_BIT;
-        ToSampled.oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        ToSampled.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        ToSampled.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        ToSampled.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        ToSampled.image               = ForceOverlayImage.ImageHandle;
-        ToSampled.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
-        vkCmdPipelineBarrier(Cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0u, 0u, nullptr, 0u, nullptr, 1u, &ToSampled);
-        ForceOverlayImageValid = true;
-    }
-
     std::array<VkClearValue, 3u> Clears {};
     Clears[2].depthStencil = { 1.0f, 0u };
 
@@ -1236,15 +1078,8 @@ bool WorldGizmoOverlayRasterization::CompositeOntoGpuViewport(
     vkCmdSetViewport(Cmd, 0u, 1u, &Vp);
     vkCmdSetScissor(Cmd, 0u, 1u, &Sc);
 
-    struct BlitPushConstants
-    {
-        uint32_t OverlayEnabled;
-        uint32_t Pad[3];
-    } Push { (Request.ForceOverlayEnabled && ForceOverlayImageValid) ? 1u : 0u, { 0u, 0u, 0u } };
-
     vkCmdBindPipeline(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ViewportBlitProgram.ProgramHandle);
     vkCmdBindDescriptorSets(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ViewportBlitProgram.ProgramLayout, 0u, 1u, &BlitSet, 0u, nullptr);
-    vkCmdPushConstants(Cmd, ViewportBlitProgram.ProgramLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(Push), &Push);
     vkCmdDraw(Cmd, 3u, 1u, 0u, 0u);
 
     if (!OrderedVertices.empty())

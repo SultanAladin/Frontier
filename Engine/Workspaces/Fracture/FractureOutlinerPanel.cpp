@@ -7,8 +7,8 @@
 
 #include "Engine/Components/Controls/DropdownSelector.h"
 #include "Engine/Components/Controls/TextInputField.h"
+#include "Engine/Components/Panes/StudioPaneAppearance.h"
 #include "Engine/Workspaces/Fracture/FractureIcons.h"
-#include "Engine/Workspaces/Particle/ParticlePaneAppearance.h"
 
 #include <algorithm>
 #include <array>
@@ -23,7 +23,7 @@ namespace Frontier::Workspaces::Fracture
 namespace
 {
 
-using namespace ParticleAppearance;
+using namespace StudioAppearance;
 
 [[nodiscard]] bool MatchesSearch(const std::string& Text, const std::string& Query) noexcept
 {

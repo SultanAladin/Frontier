@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                             PHYSICSEXTENSION.H
 ============================================================================================================================================*/
-// 🧩 Deterministic JoltPhysics v5.6.0 lifecycle participant satisfying SuspendableParticipant, ForceFields coupling & ParticleSpace colliders
+// 🧩 Deterministic JoltPhysics v5.6.0 lifecycle participant satisfying SuspendableParticipant, constraints & collider proxies
 
 #pragma once
 
@@ -11,7 +11,6 @@
 
 #include "Engine/Lifecycle/LifecycleSequence.h"
 #include "Engine/Mathematics/AxisCoordinates.h"
-#include "Engine/SimulationSpace/ForceFields/ForceFieldAccumulator.h"
 #include "Engine/SimulationSpace/PhysicsSpace/BroadphaseSolver.h"
 #include "Engine/SimulationSpace/PhysicsSpace/CollisionDetection.h"
 #include "Engine/SimulationSpace/PhysicsSpace/ConstraintSolver.h"
@@ -66,12 +65,9 @@ public:
     [[nodiscard]] bool QueryInitialized() const noexcept;
     [[nodiscard]] bool QuerySuspended() const noexcept;
 
-    // Simulation configuration & ForceFields coupling
+    // Simulation configuration
     void AssignGravity(const Mathematics::Axis3D& GravityMps2) noexcept;
     void ConfigureFixedStepHz(float FixedStepHz) noexcept;
-    void AttachForceAccumulator(const ForceFields::ForceFieldAccumulator* Accumulator) noexcept;
-    void ConfigureForceCoupling(bool Enabled, float AerodynamicScale = 1.0f) noexcept;
-    void EvaluateForceFieldsOnce(const ForceFields::ForceFieldAccumulator& Accumulator, double ElapsedSeconds) noexcept;
 
     // Rigid body lifecycle & actuation
     [[nodiscard]] RigidBodyToken    IssueRigidBody(const RigidBodyDescriptor& Descriptor) noexcept;
@@ -86,10 +82,6 @@ public:
         RigidBodyToken             Token,
         const Mathematics::Axis3D& ImpulseNs,
         const Mathematics::Axis3D& WorldPointMeters) noexcept;
-    void ApplyParticleImpactImpulse(
-        uint32_t                   BodySlotIndex,
-        const Mathematics::Axis3D& WorldPointMeters,
-        const Mathematics::Axis3D& ImpulseNs) noexcept;
     void AssignBodyVelocity(
         RigidBodyToken             Token,
         const Mathematics::Axis3D& LinearVelocityMps,
@@ -106,7 +98,7 @@ public:
     bool                            AssignConstraintMotorTarget(ConstraintToken Token, float TargetCoordinateOrVelocity) noexcept;
     [[nodiscard]] ConstraintReading InspectConstraintReading(ConstraintToken Token) const noexcept;
 
-    // Queries, ParticleSpace collider proxy export & contact telemetry
+    // Queries, collider proxy export & contact telemetry
     [[nodiscard]] RayCastHitReading ExecuteRayCast(const RayCastQuery& Query) const noexcept;
     void QuerySphereOverlaps(const SphereOverlapQuery& Query, std::vector<RigidBodyToken>& OutBodies) const;
     void ExportRigidColliderProxies(

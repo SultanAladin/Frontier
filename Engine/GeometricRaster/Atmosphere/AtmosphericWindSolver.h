@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                           ATMOSPHERICWINDSOLVER.H
 ============================================================================================================================================*/
-// 🧩 Unified atmospheric wind solver bridging authored Wind parameters & SimulationSpace::ForceFields / FieldLatticeCascade to Clouds & Fog
+// 🧩 Unified atmospheric wind solver computing procedural wind advection, Ekman veer/gusts, and eddy curl for Clouds & Fog
 
 #pragma once
 
@@ -11,8 +11,6 @@
 
 #include "Engine/Constants/MathConstants.h"
 #include "Engine/Mathematics/AxisCoordinates.h"
-#include "Engine/SimulationSpace/ForceFields/FieldLatticeCascade.h"
-#include "Engine/SimulationSpace/ForceFields/ForceFieldAccumulator.h"
 
 #include <cstdint>
 
@@ -25,13 +23,12 @@ namespace Frontier::GeometricRaster
 
 enum class WindCouplingSource : uint8_t
 {
-    GlobalWind        = 0u, // [-] - Master AtmosphericWindParameters (plus optional ForceFields weather tier)
-    CloudWind         = 1u, // [-] - Cloud deck Speed / Bearing / Shear
-    LocalCloudWind    = 2u, // [-] - Local cloud domain wind (Global + spatial ForceFields Tier 1/2)
-    LocalFogWind      = 3u, // [-] - Local fog domain wind (Global + spatial ForceFields Tier 1/2)
-    HeightFogWind     = 4u, // [-] - Exponential height fog boundary-layer drift
-    AerialFogWind     = 5u, // [-] - Aerial perspective haze drift
-    ForceFieldCascade = 6u, // [-] - Pure ForceFieldAccumulator / FieldLatticeCascade 3D sampling
+    GlobalWind     = 0u, // [-] - Master AtmosphericWindParameters
+    CloudWind      = 1u, // [-] - Cloud deck Speed / Bearing / Shear
+    LocalCloudWind = 2u, // [-] - Local cloud domain wind
+    LocalFogWind   = 3u, // [-] - Local fog domain wind
+    HeightFogWind  = 4u, // [-] - Exponential height fog boundary-layer drift
+    AerialFogWind  = 5u, // [-] - Aerial perspective haze drift
 };
 
 enum class AtmosphericVolumeShape : uint8_t
@@ -88,30 +85,26 @@ public:
         uint32_t                     PrismSides,
         float                        EdgeSoftness) noexcept;
 
-    // Resolves wind velocity + curl at WorldPoint by combining authored AtmosphericWindParameters & ForceFields
+    // Resolves wind velocity + curl at WorldPoint from authored AtmosphericWindParameters & altitude Ekman veer
     [[nodiscard]] static ResolvedWindSample ResolveWindSample(
-        const AtmosphericWindParameters&                         GlobalWind,
-        float                                                    DeckWindSpeedMps,
-        float                                                    DeckWindBearingDeg,
-        WindCouplingSource                                        Source,
-        const Mathematics::Axis3D&                               WorldPoint,
-        float                                                    AltitudeMeters,
-        float                                                    TimeSeconds,
-        const SimulationSpace::ForceFields::ForceFieldAccumulator* OptionalForceFields = nullptr,
-        const SimulationSpace::ForceFields::FieldLatticeCascade*   OptionalLattice     = nullptr) noexcept;
+        const AtmosphericWindParameters& GlobalWind,
+        float                            DeckWindSpeedMps,
+        float                            DeckWindBearingDeg,
+        WindCouplingSource               Source,
+        const Mathematics::Axis3D&       WorldPoint,
+        float                            AltitudeMeters,
+        float                            TimeSeconds) noexcept;
 
-    // 4-step RK2 Semi-Lagrangian backward streamline advection through Wind + ForceField WindField + Ekman veer
+    // 4-step RK2 Semi-Lagrangian backward streamline advection through Wind + Ekman veer
     [[nodiscard]] static Mathematics::Axis3D AdvectWorldPointBackward(
-        const AtmosphericWindParameters&                           GlobalWind,
-        float                                                      DeckWindSpeedMps,
-        float                                                      DeckWindBearingDeg,
-        WindCouplingSource                                          Source,
-        const Mathematics::Axis3D&                                 WorldPoint,
-        float                                                      AltitudeMeters,
-        float                                                      TotalSeconds,
-        const SimulationSpace::ForceFields::ForceFieldAccumulator* OptionalForceFields = nullptr,
-        const SimulationSpace::ForceFields::FieldLatticeCascade*   OptionalLattice     = nullptr,
-        float*                                                     OutCurlScalar       = nullptr) noexcept;
+        const AtmosphericWindParameters& GlobalWind,
+        float                            DeckWindSpeedMps,
+        float                            DeckWindBearingDeg,
+        WindCouplingSource               Source,
+        const Mathematics::Axis3D&       WorldPoint,
+        float                            AltitudeMeters,
+        float                            TotalSeconds,
+        float*                           OutCurlScalar = nullptr) noexcept;
 };
 
 } // namespace Frontier::GeometricRaster

@@ -1,6 +1,6 @@
 # 🧩 `Engine/SimulationSpace/`
 
-> **TL;DR**: Subsystem umbrella grouping 3 child modules under `Engine/SimulationSpace/`.
+> **TL;DR**: Subsystem umbrella grouping `PhysicsSpace/` under `Engine/SimulationSpace/`.
 
 ---
 
@@ -8,9 +8,7 @@
 
 | Directory | Summary |
 | :--- | :--- |
-| [`FluidSpace/`](FluidSpace/README.md) | Pure TOML serializer & deserializer for FluidSceneDocument (.fluid.toml & legacy Y-up .gasscene.toml conversion) |
-| [`ForceFields/`](ForceFields/README.md) | VectorFieldLang lexer, AST parser, type validator, CPU bytecode generator, and .slang GPU shader expression emitter |
-| [`PhysicsSpace/`](PhysicsSpace/README.md) | Broadphase collision channels, raycast/overlap queries, and 80-byte GPU/CPU RigidColliderProxy particle collision solver |
+| [`PhysicsSpace/`](PhysicsSpace/README.md) | JoltPhysics v5.6.0 rigid dynamics, breakable constraints, vehicle powertrain, broadphase collision channels & raycast/overlap queries |
 
 ## Build & Verification
 

@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                            PHYSICSEXTENSION.CPP
 ============================================================================================================================================*/
-// 🧩 JoltPhysics v5.6.0 Pimpl runtime implementing rigid dynamics, breakable strain bonds, ForceFields forces & ParticleSpace proxies
+// 🧩 JoltPhysics v5.6.0 Pimpl runtime implementing rigid dynamics, breakable strain bonds, constraints & collider proxies
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
@@ -257,10 +257,6 @@ struct PhysicsExtension::JoltSimulationRuntime final : public JPH::ContactListen
     CollisionDetection               ContactJournal       {};
     std::mutex                       ContactMutex         {};
 
-    const ForceFields::ForceFieldAccumulator* ForceAccumulator = nullptr;
-    bool                                      ForceCoupling    = true;
-    float                                     ForceAeroScale   = 1.0f;
-
     bool     Initialized        = false;
     bool     Suspended          = false;
     double   AccumulatedSeconds = 0.0;
@@ -338,71 +334,6 @@ struct PhysicsExtension::JoltSimulationRuntime final : public JPH::ContactListen
             BodySlots[Reading.BodyB.SlotIndex - 1u].PeakImpulseNs = std::max(
                 BodySlots[Reading.BodyB.SlotIndex - 1u].PeakImpulseNs,
                 MaxNormalImpulse);
-        }
-    }
-
-    void ApplyForceFieldStep(double TimeSeconds) noexcept
-    {
-        if (!ForceCoupling || ForceAccumulator == nullptr || ForceAccumulator->QueryActiveSourceCount() == 0u)
-        {
-            return;
-        }
-
-        JPH::BodyInterface& Bodies = JoltWorld->GetBodyInterface();
-        for (const BodySlotEntry& Entry : BodySlots)
-        {
-            if (!Entry.Occupied || Entry.Descriptor.MotionCategory != RigidMotionCategory::Dynamic)
-            {
-                continue;
-            }
-            if (Entry.Descriptor.ForceSensitivity <= 1.0e-5f)
-            {
-                continue;
-            }
-
-            const JPH::RVec3 PosR = Bodies.GetCenterOfMassPosition(Entry.JoltId);
-            const JPH::Vec3  VelJ = Bodies.GetLinearVelocity(Entry.JoltId);
-
-            const ForceFields::SpatialVector3 Point {
-                static_cast<float>(PosR.GetX()),
-                static_cast<float>(PosR.GetY()),
-                static_cast<float>(PosR.GetZ())
-            };
-            const ForceFields::SpatialVector3 Velocity {
-                VelJ.GetX(),
-                VelJ.GetY(),
-                VelJ.GetZ()
-            };
-            const ForceFields::SpatialForceSample Sample = ForceAccumulator->QueryForceFieldSample(Point, Velocity, TimeSeconds);
-
-            const float Scale = Entry.EffectiveMassKg * Entry.Descriptor.ForceSensitivity;
-            const bool HasAdvection = (std::abs(Sample.AdvectionVelocity.X) + std::abs(Sample.AdvectionVelocity.Y) + std::abs(Sample.AdvectionVelocity.Z)) > 1.0e-5f;
-            const float AeroCoupling = (Sample.DragDecayRate > 1.0e-5f)
-                ? (Sample.DragDecayRate * ForceAeroScale)
-                : (HasAdvection ? (1.2f * ForceAeroScale) : 0.0f);
-            const ForceFields::SpatialVector3 AerodynamicForce {
-                (Sample.AdvectionVelocity.X - Velocity.X) * AeroCoupling,
-                (Sample.AdvectionVelocity.Y - Velocity.Y) * AeroCoupling,
-                (Sample.AdvectionVelocity.Z - Velocity.Z) * AeroCoupling
-            };
-
-            const JPH::Vec3 TotalForce(
-                (Sample.LinearAcceleration.X + AerodynamicForce.X) * Scale,
-                (Sample.LinearAcceleration.Y + AerodynamicForce.Y) * Scale,
-                (Sample.LinearAcceleration.Z + AerodynamicForce.Z) * Scale);
-            const JPH::Vec3 TotalTorque(
-                Sample.AngularTorque.X * Scale,
-                Sample.AngularTorque.Y * Scale,
-                Sample.AngularTorque.Z * Scale);
-
-            if (TotalForce.LengthSq() > 1.0e-8f)
-            {
-                Bodies.AddForce(Entry.JoltId, TotalForce);
-            }
-            if (TotalTorque.LengthSq() > 1.0e-8f)
-            {
-                Bodies.AddTorque(Entry.JoltId, TotalTorque);
-            }
         }
     }
 
@@ -593,7 +524,6 @@ void PhysicsExtension::Tick(double Δt) noexcept
     const uint32_t MaxSteps = std::max(Config.MaxSubstepsPerTick, 1u);
     while (Runtime->AccumulatedSeconds + 1.0e-9 >= FixedStep && Substeps < MaxSteps)
     {
-        Runtime->ApplyForceFieldStep(Runtime->SimulatedSeconds);
         Runtime->JoltWorld->Update(
             static_cast<float>(FixedStep),
             1,
@@ -689,40 +619,6 @@ void PhysicsExtension::AssignGravity(const Mathematics::Axis3D& GravityMps2) noe
 void PhysicsExtension::ConfigureFixedStepHz(float FixedStepHz) noexcept
 {
     Config.FixedStepHz = std::clamp(FixedStepHz, 15.0f, 480.0f);
-}
-
-void PhysicsExtension::AttachForceAccumulator(const ForceFields::ForceFieldAccumulator* Accumulator) noexcept
-{
-    if (Runtime)
-    {
-        Runtime->ForceAccumulator = Accumulator;
-    }
-}
-
-void PhysicsExtension::ConfigureForceCoupling(bool Enabled, float AerodynamicScale) noexcept
-{
-    if (Runtime)
-    {
-        Runtime->ForceCoupling  = Enabled;
-        Runtime->ForceAeroScale = std::max(AerodynamicScale, 0.0f);
-    }
-}
-
-void PhysicsExtension::EvaluateForceFieldsOnce(
-    const ForceFields::ForceFieldAccumulator& Accumulator,
-    double                                    ElapsedSeconds) noexcept
-{
-    if (!Runtime || !Runtime->Initialized || !Runtime->JoltWorld)
-    {
-        return;
-    }
-    const ForceFields::ForceFieldAccumulator* Previous = Runtime->ForceAccumulator;
-    const bool PrevEnabled = Runtime->ForceCoupling;
-    Runtime->ForceAccumulator = &Accumulator;
-    Runtime->ForceCoupling    = true;
-    Runtime->ApplyForceFieldStep(ElapsedSeconds);
-    Runtime->ForceAccumulator = Previous;
-    Runtime->ForceCoupling    = PrevEnabled;
 }
 
 RigidBodyToken PhysicsExtension::IssueRigidBody(const RigidBodyDescriptor& Descriptor) noexcept
@@ -1096,26 +992,6 @@ void PhysicsExtension::ApplyImpulseAtPoint(
     }
     Runtime->JoltWorld->GetBodyInterface().AddImpulse(
         Runtime->BodySlots[Token.SlotIndex - 1u].JoltId,
-        ToJoltVec3(ImpulseNs),
-        ToJoltRVec3(WorldPointMeters));
-}
-
-void PhysicsExtension::ApplyParticleImpactImpulse(
-    uint32_t                   BodySlotIndex,
-    const Mathematics::Axis3D& WorldPointMeters,
-    const Mathematics::Axis3D& ImpulseNs) noexcept
-{
-    if (!Runtime || !Runtime->Initialized || BodySlotIndex == 0u || BodySlotIndex > Runtime->BodySlots.size())
-    {
-        return;
-    }
-    const BodySlotEntry& Entry = Runtime->BodySlots[BodySlotIndex - 1u];
-    if (!Entry.Occupied || Entry.Descriptor.MotionCategory != RigidMotionCategory::Dynamic)
-    {
-        return;
-    }
-    Runtime->JoltWorld->GetBodyInterface().AddImpulse(
-        Entry.JoltId,
         ToJoltVec3(ImpulseNs),
         ToJoltRVec3(WorldPointMeters));
 }
@@ -1580,7 +1456,7 @@ void PhysicsExtension::ExportRigidColliderProxies(
     for (uint32_t I = 0u; I < Runtime->BodySlots.size(); ++I)
     {
         const BodySlotEntry& Entry = Runtime->BodySlots[I];
-        if (!Entry.Occupied || !Entry.Descriptor.ParticleCollision)
+        if (!Entry.Occupied || !Entry.Descriptor.ColliderProxyEnabled)
         {
             continue;
         }

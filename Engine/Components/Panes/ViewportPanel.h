@@ -14,7 +14,6 @@
 #include "Engine/Components/Diagnostics/DiagnosticsOverlay.h"
 #include "Engine/Components/Diagnostics/ViewportTimingTelemetry.h"
 #include "Engine/Components/Panes/OutlinerPanel.h"
-#include "Engine/SimulationSpace/ForceFields/ForceFieldDescriptors.h"
 
 #include <imgui.h>
 
@@ -49,33 +48,14 @@ enum class DiagnosticsTabCategory : uint8_t
 
 enum class ConstructCategoryRail : uint8_t
 {
-    All          = 0, // [-] - All constructable templates and folders
+    All             = 0, // [-] - All constructable templates and folders
     ScenePrimitives = 1, // [-] - Generic constructable entries (generic construct slots)
-    Organization = 2, // [-] - Organizational folders
-};
-
-enum class ForceConstructCategory : uint8_t
-{
-    All             = 0, // [-] - All 19 ForceModel laws, presets, & scene entries
-    VectorFieldModels      = 1, // [-] - VectorField analytic spatial laws (Linear, Buoyancy, Radial, Attractor, Repulsor, Axis, Containment)
-    StreamTransportModels        = 2, // [-] - StreamTransport & transport laws (Rotation, Torque, Drag, Vorticity, Lorentz, Dipole, Stream, Spline, Adhesion)
-    TurbulenceModels  = 3, // [-] - CurlNoise, AtmosphericGust, BrownianNoise
-    Presets         = 4, // [-] - Curated .ForceModel & Formula presets
-    SceneFolders = 5, // [-] - Static geometry, lights & folders
+    Organization    = 2, // [-] - Organizational folders
 };
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                       STRUCTURES
 //------------------------------------------------------------------------------------------------------------------------
-
-struct ViewportConstructPresetEntry
-{
-    std::string Title           {};          // [-] - Preset display title
-    std::string Subtitle        {};          // [-] - Short parameter caption
-    uint32_t    ForceModelOrdinal = 0u;          // [id]- ForceModel ordinal [0..18]
-    bool        FormulaOverride = false;       // [-] - Symbolic formula preset indicator
-    uint32_t    DomainOrdinal   = 0u;          // [id]- 0=VectorField, 1=StreamTransport, 2=TurbulenceField
-};
 
 struct ViewportDisplaySettings
 {
@@ -101,22 +81,19 @@ struct ViewportDisplaySettings
 
 struct ViewportPaneSurfaceSpecification
 {
-    uint32_t                                        PaneIndex     = 0u;
-    uint32_t                                        WidthPx       = 0u;
-    uint32_t                                        HeightPx      = 0u;
-    ViewportProjectionPreset                        Projection    = ViewportProjectionPreset::Perspective;
-    ViewportExecutionMode                           ExecutionMode = ViewportExecutionMode::Edit;
-    bool                                            PlayPaused    = false;
-    ViewportDisplaySettings                         Display       {};
-    SimulationSpace::ForceFields::ForceOverlaySettings ForceOverlay{};
-    double                                          TimeSeconds   = 0.0;
+    uint32_t                 PaneIndex     = 0u;
+    uint32_t                 WidthPx       = 0u;
+    uint32_t                 HeightPx      = 0u;
+    ViewportProjectionPreset Projection    = ViewportProjectionPreset::Perspective;
+    ViewportExecutionMode    ExecutionMode = ViewportExecutionMode::Edit;
+    bool                     PlayPaused    = false;
+    ViewportDisplaySettings  Display       {};
 };
 
 struct ViewportRasterSurface
 {
     const void* SoftwareTextureData = nullptr; // [-] - Optional ImTextureData* for headless / CPU readback display
     uint64_t    NativeTextureHandle = 0ull;    // [-] - Optional GPU ImTextureID handle
-    uint32_t    ActiveForceCount    = 0u;      // [count] - Contributing active forces in scene
 };
 
 using ViewportPaneRasterCallback      = std::function<ViewportRasterSurface(const ViewportPaneSurfaceSpecification&)>;
@@ -143,16 +120,10 @@ public:
     void AssignCanvasRasterImage(const uint8_t* RgbaPixels, uint32_t WidthPx, uint32_t HeightPx);
     void AssignCanvasGpuTexture(uint64_t NativeTextureHandle, uint32_t WidthPx, uint32_t HeightPx) noexcept;
     void ClearCanvasRasterImage() noexcept;
-    void ConfigureConstructPresets(std::vector<ViewportConstructPresetEntry> Presets);
-    void ConfigureConstructPresetCallback(std::function<void(uint32_t PresetIndex)> Callback);
     void ConfigureConstructCanvasDropCallback(ConstructCanvasDropCallback Callback);
     void ConfigureOpenContentBrowserCallback(std::function<void()> Callback);
     void ConfigureRasterCallback(ViewportPaneRasterCallback Callback);
     void ConfigureInteractionCallback(ViewportPaneInteractionCallback Callback);
-    void ConfigureForceOverlayToolsVisible(bool Visible) noexcept;
-    void ConfigureForceOverlaySheetOpen(bool Open) noexcept;
-    void ConfigureForceOverlaySettings(const SimulationSpace::ForceFields::ForceOverlaySettings& Settings) noexcept;
-    void ConfigureSimulationTimeSeconds(double TimeSeconds) noexcept;
     void ConfigureViewportTimingBreakdown(const ViewportTimingBreakdown& Breakdown) noexcept;
     void ConfigureProbeReadoutText(std::string_view ReadoutText);
     void ConfigureSceneTitle(std::string_view Title);
@@ -188,15 +159,9 @@ public:
     [[nodiscard]] float                          QueryViewportZoomScale() const noexcept;
     [[nodiscard]] Rectangle2D                    QueryLastCanvasPaneBounds() const noexcept;
     [[nodiscard]] Rectangle2D                    QueryLastCanvasPhysicalBounds() const noexcept;
-    [[nodiscard]] const ViewportDisplaySettings&                           QueryDisplaySettings() const noexcept;
-    [[nodiscard]] ViewportDisplaySettings&                                 AccessDisplaySettings() noexcept;
-    [[nodiscard]] bool                                                     QueryForceOverlayToolsVisible() const noexcept;
-    [[nodiscard]] bool                                                     QueryForceOverlaySheetOpen() const noexcept;
-    [[nodiscard]] const SimulationSpace::ForceFields::ForceOverlaySettings& QueryForceOverlaySettings() const noexcept;
-    [[nodiscard]] SimulationSpace::ForceFields::ForceOverlaySettings&       AccessForceOverlaySettings() noexcept;
-    [[nodiscard]] const ImTextureData&                                     QueryCanvasRasterTexture() const noexcept { return CanvasRasterTexture; }
-    [[nodiscard]] double                                                   QuerySimulationTimeSeconds() const noexcept;
-    [[nodiscard]] bool                                                     ConsumeRewindRequested() noexcept;
+    [[nodiscard]] const ViewportDisplaySettings& QueryDisplaySettings() const noexcept;
+    [[nodiscard]] ViewportDisplaySettings&       AccessDisplaySettings() noexcept;
+    [[nodiscard]] const ImTextureData&           QueryCanvasRasterTexture() const noexcept { return CanvasRasterTexture; }
 
 private:
     void PushDiagnosticsSample(double Δt) noexcept;
@@ -208,18 +173,12 @@ private:
         uint32_t                 ConstructedCount,
         const PaneInputReading&  Input,
         bool                     OverlayCoversCanvas);
-    void RenderForceOverlaySheet(
-        PixelSpace&             Overlay,
-        Rectangle2D             Bounds,
-        Point2D                 ButtonBottomLeft,
-        const PaneInputReading& Input);
     void RenderDiagnosticsPanel(
         PixelSpace&             Surface,
         Rectangle2D             CanvasBounds,
         uint32_t                ConstructedCount,
         uint32_t                VisibleCount,
         const PaneInputReading& Input);
-    [[nodiscard]] bool        QueryForceConstructAvailable() const noexcept;
     [[nodiscard]] Rectangle2D QueryConstructDialogBounds(Rectangle2D Bounds) const noexcept;
     void RenderConstructDialog(
         PixelSpace&             Overlay,
@@ -259,40 +218,28 @@ private:
     uint32_t                   HistoryWriteCursor      = 0u;                                      // [idx] - Ring buffer write cursor
     ViewportTimingBreakdown       LastViewportTiming     {};                                        // [ms]  - Latest per-stage GPU/CPU telemetry
     ConstructCategoryRail      ConstructRail           = ConstructCategoryRail::All;              // [-]   - Active Construct category rail
-    ForceConstructCategory     ForceConstructTab       = ForceConstructCategory::All;             // [-]   - Active Force Construct rail tab
     float                      ConstructGridScrollY    = 0.0f;                                    // [px]  - Construct tile grid scroll offset
     TextEditBuffer             ConstructSearchEditor   {};                                        // [-]   - Construct search filter buffer
     float                      ViewportZoomScale       = 1.0f;                                    // [x]   - Interactive canvas zoom multiplier
     Rectangle2D                LastCanvasPaneBounds    {};                                        // [px]  - Last rendered active sub-viewport rect
     Rectangle2D                LastCanvasPhysicalBounds{};                                        // [px]  - Last rendered active sub-viewport physical rect
     NavigationCallback         OnNavigationDirective   {};                                        // [-]   - Optional callback when + / - / Fit triggers
-    std::vector<ViewportConstructPresetEntry> ConstructPresets {};                                // [-]   - Optional Force presets shown in Construct dialog
-    std::function<void(uint32_t)>             ConstructPresetCallback {};                         // [-]   - Callback invoked when preset tile chosen
-    ConstructCanvasDropCallback               OnConstructCanvasDrop {};                           // [-]   - Optional drag-to-canvas Construct drop callback
-    std::function<void()>                     OpenContentBrowserCallback {};                      // [-]   - Callback invoked by Content Browser button
-    bool                                      ConstructTilePressed        = false;                // [-]   - Tile pressed inside Construct dialog
-    bool                                      ConstructDragActive         = false;                // [-]   - Tile dragged onto 3D canvas
-    Point2D                                   ConstructDragOrigin         {};                     // [px]  - Press position for Construct drag deadzone
-    int32_t                                   ConstructDragTemplateIndex  = -1;                   // [idx] - Template index being dragged/clicked
-    int32_t                                   ConstructDragPresetIndex    = -1;                   // [idx] - Preset index being dragged/clicked
-    ConstructSlotCategory                     ConstructDragCategory       = ConstructSlotCategory::GeometryVolume;
-    uint32_t                                  ConstructDragForceOrdinal   = 0xFFFFFFFFu;
-    bool                                      ConstructDragFormulaOverride = false;
-    std::string                               ConstructDragLabel          {};                     // [-]   - Label shown on floating Construct ghost
+    ConstructCanvasDropCallback OnConstructCanvasDrop  {};                                        // [-]   - Optional drag-to-canvas Construct drop callback
+    std::function<void()>      OpenContentBrowserCallback {};                                     // [-]   - Callback invoked by Content Browser button
+    bool                       ConstructTilePressed    = false;                                   // [-]   - Tile pressed inside Construct dialog
+    bool                       ConstructDragActive     = false;                                   // [-]   - Tile dragged onto 3D canvas
+    Point2D                    ConstructDragOrigin     {};                                        // [px]  - Press position for Construct drag deadzone
+    int32_t                    ConstructDragTemplateIndex = -1;                                   // [idx] - Template index being dragged/clicked
+    ConstructSlotCategory      ConstructDragCategory   = ConstructSlotCategory::GeometryVolume;
+    std::string                ConstructDragLabel      {};                                        // [-]   - Label shown on floating Construct ghost
 
     ViewportPaneRasterCallback      RasterCallback          {};                                        // [-]   - Optional GPU / software surface feeder
     ViewportPaneInteractionCallback InteractionCallback     {};                                        // [-]   - Optional canvas pointer router
-    bool                            ForceOverlayToolsVisible = false;                                  // [-]   - Show Force Viz pill & Rewind controls
-    bool                            ForceOverlaySheetOpen    = false;                                  // [-]   - Force Viz overlay sheet open
-    bool                            RewindRequested          = false;                                  // [-]   - Pulse triggered by Rewind button
-    double                          SimulationTimeSeconds    = 0.0;                                    // [s]   - Active simulation clock readout
-    uint32_t                        LastReportedForceCount   = 0u;                                     // [count]- Last force count from raster feed
-    std::string                     ProbeReadoutText         {};                                       // [-]   - Optional bottom anemometer strip
-    SimulationSpace::ForceFields::ForceOverlaySettings ForceOverlay{};                                 // [-]   - Editor Force Viz overlay parameters
-    ImTextureData                   CanvasRasterTexture      {};                                       // [-]   - Optional live GTX/RTX viewport texture
-    uint64_t                        CanvasGpuTextureHandle   = 0ull;                                   // [-]   - GPU-resident ImTextureID (zero-copy viewport)
-    uint32_t                        CanvasGpuWidthPx         = 0u;                                     // [px]  - GPU-resident viewport width
-    uint32_t                        CanvasGpuHeightPx        = 0u;                                     // [px]  - GPU-resident viewport height
+    std::string                     ProbeReadoutText        {};                                        // [-]   - Optional bottom strip readout
+    ImTextureData                   CanvasRasterTexture     {};                                        // [-]   - Optional live GTX/RTX viewport texture
+    uint64_t                        CanvasGpuTextureHandle  = 0ull;                                    // [-]   - GPU-resident ImTextureID (zero-copy viewport)
+    uint32_t                        CanvasGpuWidthPx        = 0u;                                      // [px]  - GPU-resident viewport width
+    uint32_t                        CanvasGpuHeightPx       = 0u;                                      // [px]  - GPU-resident viewport height
 };
 
 //------------------------------------------------------------------------------------------------------------------------

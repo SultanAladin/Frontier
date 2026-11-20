@@ -29,12 +29,11 @@ namespace Frontier
 
 enum class ConstructSlotCategory : uint8_t
 {
-    Folder        = 0, // [-] - Organizational Showcase folder container
+    Folder         = 0, // [-] - Organizational Showcase folder container
     GeometryVolume = 1, // [-] - Generic constructible slot category 1 (Cube icon)
     LayerGroup     = 2, // [-] - Generic constructible slot category 2 (Stacked layers icon)
     PointLuminaire = 3, // [-] - Generic constructible slot category 3 (Point light icon)
     OpticsCamera   = 4, // [-] - Generic constructible slot category 4 (Camera icon)
-    ForceField    = 5, // [-] - Volumetric/Vector ForceField slot category (Wind stream icon)
 };
 
 enum class VisualTokenShape : uint8_t
@@ -272,16 +271,6 @@ void ConstructSlotCategoryIcon(
     float                 Extent,
     ColorRgba             FolderTint = WorkspaceSurfaceColors::SageCollection,
     float                 Opacity    = 1.0f) noexcept;
-
-[[nodiscard]] ColorRgba QueryForceModelTint(uint32_t LawOrdinal) noexcept;
-
-void ConstructForceModelIcon(
-    PixelSpace& Surface,
-    uint32_t    LawOrdinal,
-    Point2D     TopLeft,
-    float       Extent,
-    ColorRgba   AccentInk,
-    float       Opacity = 1.0f) noexcept;
 
 void ConstructCameraIcon(
     PixelSpace& Surface,

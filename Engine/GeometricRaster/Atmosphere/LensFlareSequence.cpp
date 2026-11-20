@@ -490,11 +490,28 @@ ProjectedLensFlareSlice LensFlareSequence::ResolveSolarFlareProjection(
     const auto  SolarTrans = AtmosphericSkySequence::ComputeSolarTransmittance(SunDir, Atmosphere.Medium);
     const float HorizonVis = SmoothStep(-0.02f, 0.14f, SunDir.Z);
     const float CloudVis   = Atmosphere.Clouds.CloudsEnabled
-        ? VolumetricCloudSequence::EvaluateSolarCloudTransmittance(
-              CameraOrigin, SunDir, Atmosphere.Clouds, Atmosphere.Medium.PlanetRadiusMeters, Atmosphere.SimulationSeconds)
+        ? VolumetricCloudSequence::EvaluateAllSolarCloudTransmittance(CameraOrigin, SunDir, Atmosphere)
         : 1.0f;
 
-    Out.EffectiveGain = Atmosphere.LensFlare.FlareIntensity * ScreenFade * GeomVis * HorizonVis *
+    // Account for lunar angular eclipse attenuation over the solar disc
+    float EclipseVis = 1.0f;
+    const float SunR = std::max(0.002f, Atmosphere.Solar.AngularDiameterDegrees * 0.5f * Constants::DegToRadFloat);
+    for (std::size_t MIdx = 0u; MIdx < std::min<std::size_t>(Atmosphere.Moons.size(), LunarStarfieldSequence::MaxMoonSlots); ++MIdx)
+    {
+        const auto& M = Atmosphere.Moons[MIdx];
+        if (!M.Visible) continue;
+        const auto  MDir = LunarStarfieldSequence::ResolveMoonWorldDirection(M, SunDir);
+        const float AngR = std::max(0.001f, M.AngularDiameterDegrees * 0.5f * Constants::DegToRadFloat);
+        const float Sep  = std::acos(std::clamp(Mathematics::EvaluateDot(SunDir, MDir), -1.0f, 1.0f));
+        if (Sep < AngR + SunR)
+        {
+            const float AreaRatio = std::min(1.0f, (AngR * AngR) / std::max(1.0e-8f, SunR * SunR));
+            const float Overlap   = 1.0f - SmoothStep(std::max(0.0f, AngR - SunR), AngR + SunR, Sep);
+            EclipseVis *= std::clamp(1.0f - Overlap * AreaRatio, 0.0f, 1.0f);
+        }
+    }
+
+    Out.EffectiveGain = Atmosphere.LensFlare.FlareIntensity * ScreenFade * GeomVis * HorizonVis * EclipseVis *
                         (0.30f + 0.70f * CloudVis) *
                         std::clamp(Atmosphere.Solar.SolarIntensityMultiplier * 0.055f, 0.1f, 2.5f);
     Out.SourceTint = {

@@ -4,7 +4,7 @@
 // 🧩 Physical Bruneton/Hillaire Rayleigh + Mie + Ozone atmospheric transmittance, SkyView LUT, outer-space planetary limb & Eddington solar disc
 
 #include "Engine/GeometricRaster/Atmosphere/AtmosphericSkySequence.h"
-#include "Engine/SimulationSpace/ForceFields/ForceFieldAccumulator.h"
+#include "Engine/GeometricRaster/Atmosphere/VolumetricCloudSequence.h"
 
 #include <algorithm>
 #include <array>
@@ -656,9 +656,9 @@ void AtmosphericSkySequence::BuildSkyViewLut(
                 RadB += TB * GndB;
             }
 
-            const float NightR = 0.0007f + 0.0008f * LimbFactor;
-            const float NightG = 0.0010f + 0.0011f * LimbFactor;
-            const float NightB = 0.0022f + 0.0020f * LimbFactor;
+            const float NightR = 0.00018f + 0.00022f * LimbFactor;
+            const float NightG = 0.00028f + 0.00032f * LimbFactor;
+            const float NightB = 0.00062f + 0.00058f * LimbFactor;
 
             float OutR = (RadR * SolarScale * GlowScale + NightR * (1.0f - DayVis * 0.9f)) * Medium.SkyTint.R * Medium.SkyBrightnessMultiplier;
             float OutG = (RadG * SolarScale * GlowScale + NightG * (1.0f - DayVis * 0.9f)) * Medium.SkyTint.G * Medium.SkyBrightnessMultiplier;
@@ -854,7 +854,9 @@ Mathematics::LinearRGB AtmosphericSkySequence::EvaluateSolarCoronaRadiance(
     const Mathematics::LinearRGB&         EffectiveSolarTint,
     bool                                  AllowBelowHorizon,
     const AtmosphericMediumConfiguration* OptionalMedium,
-    float                                 PixelAngularSizeRad) noexcept
+    float                                 PixelAngularSizeRad,
+    const Mathematics::LinearRGB&         ForegroundOcclusion,
+    float                                 GlareEclipseVis) noexcept
 {
     if (!SolarConfig.SolarEnabled || SolarConfig.SolarIntensityMultiplier <= 0.0f)
     {
@@ -880,135 +882,133 @@ Mathematics::LinearRGB AtmosphericSkySequence::EvaluateSolarCoronaRadiance(
     const float PlanetR = (OptionalMedium != nullptr) ? std::max(500000.0f, OptionalMedium->PlanetRadiusMeters) : 6360000.0f;
     const float ObsAlt  = (OptionalMedium != nullptr) ? std::max(5.0f, OptionalMedium->ObserverAltitudeMeters) : 100.0f;
     const float ViewerR = PlanetR + ObsAlt;
-
-    auto QueryGroundBlocked = [ViewerR, PlanetR](float DirZ) noexcept -> bool
+    const float Ratio   = std::clamp(PlanetR / ViewerR, 0.0f, 1.0f);
+    const float LimbZ   = -std::sqrt(std::max(0.0f, 1.0f - Ratio * Ratio));
+    const auto SmoothStepSky = [](float E0, float E1, float X) noexcept -> float
     {
-        if (DirZ >= 0.0f)
-        {
-            return false;
-        }
-        const float Disc = ViewerR * ViewerR * (DirZ * DirZ - 1.0f) + PlanetR * PlanetR;
-        return Disc >= 0.0f;
+        const float T = std::clamp((X - E0) / std::max(1.0e-6f, E1 - E0), 0.0f, 1.0f);
+        return T * T * (3.0f - 2.0f * T);
     };
 
     const float PixelSizeRad   = std::max(0.0f, PixelAngularSizeRad);
     const float MaxDiscCoronaR = std::max(HalfRad * 48.0f, PixelSizeRad * 8.0f);
+    const float HorizonBand    = std::max(0.00035f, 0.65f * std::max(PixelSizeRad, 1.0e-4f));
+    const float HorizonVis     = OrbitalView ? 1.0f : SmoothStepSky(LimbZ - HorizonBand, LimbZ + HorizonBand, UnitRay.Z);
 
     Mathematics::LinearRGB OutRadiance { 0.0f, 0.0f, 0.0f };
-    if (Separation <= MaxDiscCoronaR)
+    if (Separation <= MaxDiscCoronaR && HorizonVis > 1.0e-5f &&
+        (ForegroundOcclusion.R + ForegroundOcclusion.G + ForegroundOcclusion.B) > 1.0e-5f)
     {
-        const bool RayGroundBlocked = (!OrbitalView) && QueryGroundBlocked(UnitRay.Z);
-        if (!RayGroundBlocked)
+        const Mathematics::LinearRGB LineTransmittance = (!OrbitalView && OptionalMedium != nullptr)
+            ? ComputeSolarTransmittance(
+                  { UnitRay.X, UnitRay.Y, std::max(UnitRay.Z, LimbZ + 1.0e-4f) }, *OptionalMedium, ObsAlt)
+            : SolarTransmittance;
+
+        if (LineTransmittance.R + LineTransmittance.G + LineTransmittance.B > 1.0e-6f)
         {
-            const Mathematics::LinearRGB LineTransmittance = (!OrbitalView && OptionalMedium != nullptr)
-                ? ComputeSolarTransmittance(UnitRay, *OptionalMedium, ObsAlt)
-                : SolarTransmittance;
+            const float NormalizedRadius = Separation / HalfRad;
 
-            if (LineTransmittance.R + LineTransmittance.G + LineTransmittance.B > 1.0e-6f)
+            float SmallWeight = 0.0f;
+            if (PixelSizeRad > 1.0e-6f)
             {
-                const float NormalizedRadius = Separation / HalfRad;
-
-                float SmallWeight = 0.0f;
-                if (PixelSizeRad > 1.0e-6f)
-                {
-                    const float RadiusPixels = HalfRad / PixelSizeRad;
-                    const float Blend        = std::clamp((6.0f - RadiusPixels) / 3.0f, 0.0f, 1.0f);
-                    SmallWeight              = Blend * Blend * (3.0f - 2.0f * Blend);
-                }
-
-                Mathematics::LinearRGB ResolvedPhotosphere { 0.0f, 0.0f, 0.0f };
-                if (SmallWeight < 1.0f && NormalizedRadius < 1.32f)
-                {
-                    const float ClampedR = std::min(1.0f, NormalizedRadius);
-                    const float MuSun    = std::sqrt(std::max(0.0f, 1.0f - ClampedR * ClampedR));
-                    const auto  LimbDark = EvaluateNeckelLabsLimbDarkening(MuSun);
-                    const float EdgeErfc = 0.5f * (1.0f - EvaluateSolarErf((NormalizedRadius - 0.997f) / 0.012f));
-                    const float PhotoMag = EdgeErfc * DiscIntensity;
-                    ResolvedPhotosphere = {
-                        LimbDark.R * PhotoMag,
-                        LimbDark.G * PhotoMag,
-                        LimbDark.B * PhotoMag,
-                    };
-                }
-
-                Mathematics::LinearRGB SubPixelPhotosphere { 0.0f, 0.0f, 0.0f };
-                if (SmallWeight > 0.0f && Mathematics::EvaluateDot(UnitRay, UnitSun) > 0.0f)
-                {
-                    const Mathematics::Axis3D RefAxis = (std::abs(UnitSun.Z) < 0.98f)
-                        ? Mathematics::Axis3D{ 0.0f, 0.0f, 1.0f }
-                        : Mathematics::Axis3D{ 1.0f, 0.0f, 0.0f };
-                    const Mathematics::Axis3D TangentT = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(RefAxis, UnitSun));
-                    const Mathematics::Axis3D TangentB = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(UnitSun, TangentT));
-                    const float DeltaX        = Mathematics::EvaluateDot(UnitRay, TangentT);
-                    const float DeltaY        = Mathematics::EvaluateDot(UnitRay, TangentB);
-                    const float SmallSigma    = std::sqrt(0.25f * HalfRad * HalfRad + 0.20f * PixelSizeRad * PixelSizeRad);
-                    const float InvSqrt2Sigma = 1.0f / (1.4142135623730951f * std::max(1.0e-6f, SmallSigma));
-                    const float LowX          = (DeltaX - 0.5f * PixelSizeRad) * InvSqrt2Sigma;
-                    const float HighX         = (DeltaX + 0.5f * PixelSizeRad) * InvSqrt2Sigma;
-                    const float LowY          = (DeltaY - 0.5f * PixelSizeRad) * InvSqrt2Sigma;
-                    const float HighY         = (DeltaY + 0.5f * PixelSizeRad) * InvSqrt2Sigma;
-                    const float XMass         = std::max(0.0f, 0.5f * (EvaluateSolarErf(HighX) - EvaluateSolarErf(LowX)));
-                    const float YMass         = std::max(0.0f, 0.5f * (EvaluateSolarErf(HighY) - EvaluateSolarErf(LowY)));
-                    const float SinHalf       = std::sin(0.5f * HalfRad);
-                    const float SolidAngle    = 4.0f * Constants::PiFloat * SinHalf * SinHalf;
-                    const float PixelArea     = std::max(1.0e-12f, PixelSizeRad * PixelSizeRad);
-                    const float SubGain       = (SolidAngle / PixelArea) * XMass * YMass * DiscIntensity;
-                    // Exact disk-integrated Neckel & Labs (1994) * erfc PSF factors: int_0^inf 2*r*Ld(mu(r))*erfc_psf(r) dr = (0.83276, 0.77447, 0.69061)
-                    SubPixelPhotosphere = {
-                        0.83276f * SubGain,
-                        0.77447f * SubGain,
-                        0.69061f * SubGain,
-                    };
-                }
-
-                const Mathematics::LinearRGB Photosphere {
-                    ResolvedPhotosphere.R + (SubPixelPhotosphere.R - ResolvedPhotosphere.R) * SmallWeight,
-                    ResolvedPhotosphere.G + (SubPixelPhotosphere.G - ResolvedPhotosphere.G) * SmallWeight,
-                    ResolvedPhotosphere.B + (SubPixelPhotosphere.B - ResolvedPhotosphere.B) * SmallWeight,
-                };
-
-                Mathematics::LinearRGB CoronaColour { 0.0f, 0.0f, 0.0f };
-                const float CoronaBlurAngle = 0.30f * PixelSizeRad * SmallWeight;
-                const float CoronaNormR     = std::sqrt(Separation * Separation + CoronaBlurAngle * CoronaBlurAngle) / HalfRad;
-                if (CoronaNormR < 48.0f)
-                {
-                    const float R1         = CoronaNormR / 1.18f;
-                    const float R2         = CoronaNormR / 3.40f;
-                    const float R3         = CoronaNormR / 11.5f;
-                    const float InnerTerm  = 1.0f / std::pow(1.0f + R1 * R1, 1.85f);
-                    const float MiddleTerm = 1.0f / std::pow(1.0f + R2 * R2, 1.38f);
-                    const float OuterTerm  = 1.0f / std::pow(1.0f + R3 * R3, 1.22f);
-
-                    const float ScatterFactor = OrbitalView
-                        ? 0.38f
-                        : std::clamp(0.55f + 0.85f * (1.0f - LineTransmittance.B), 0.55f, 1.35f);
-                    const float CoronaProfile = DiscIntensity * (0.042f * InnerTerm + 0.0085f * ScatterFactor * MiddleTerm + 0.0014f * ScatterFactor * OuterTerm);
-                    const float WindowFade    = std::clamp(1.0f - CoronaNormR / 48.0f, 0.0f, 1.0f);
-                    const float SmoothWindow  = WindowFade * WindowFade;
-                    CoronaColour = {
-                        CoronaProfile * SmoothWindow * 1.04f,
-                        CoronaProfile * SmoothWindow * 0.99f,
-                        CoronaProfile * SmoothWindow * 0.91f,
-                    };
-                }
-
-                OutRadiance.R += (Photosphere.R + CoronaColour.R) * LineTransmittance.R * EffectiveSolarTint.R;
-                OutRadiance.G += (Photosphere.G + CoronaColour.G) * LineTransmittance.G * EffectiveSolarTint.G;
-                OutRadiance.B += (Photosphere.B + CoronaColour.B) * LineTransmittance.B * EffectiveSolarTint.B;
+                const float RadiusPixels = HalfRad / PixelSizeRad;
+                const float Blend        = std::clamp((6.0f - RadiusPixels) / 3.0f, 0.0f, 1.0f);
+                SmallWeight              = Blend * Blend * (3.0f - 2.0f * Blend);
             }
+
+            Mathematics::LinearRGB ResolvedPhotosphere { 0.0f, 0.0f, 0.0f };
+            if (SmallWeight < 1.0f && NormalizedRadius < 1.32f)
+            {
+                const float ClampedR = std::min(1.0f, NormalizedRadius);
+                const float MuSun    = std::sqrt(std::max(0.0f, 1.0f - ClampedR * ClampedR));
+                const auto  LimbDark = EvaluateNeckelLabsLimbDarkening(MuSun);
+                const float EdgeErfc = 0.5f * (1.0f - EvaluateSolarErf((NormalizedRadius - 0.997f) / 0.012f));
+                const float PhotoMag = EdgeErfc * DiscIntensity;
+                ResolvedPhotosphere = {
+                    LimbDark.R * PhotoMag,
+                    LimbDark.G * PhotoMag,
+                    LimbDark.B * PhotoMag,
+                };
+            }
+
+            Mathematics::LinearRGB SubPixelPhotosphere { 0.0f, 0.0f, 0.0f };
+            if (SmallWeight > 0.0f && Mathematics::EvaluateDot(UnitRay, UnitSun) > 0.0f)
+            {
+                const Mathematics::Axis3D RefAxis = (std::abs(UnitSun.Z) < 0.98f)
+                    ? Mathematics::Axis3D{ 0.0f, 0.0f, 1.0f }
+                    : Mathematics::Axis3D{ 1.0f, 0.0f, 0.0f };
+                const Mathematics::Axis3D TangentT = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(RefAxis, UnitSun));
+                const Mathematics::Axis3D TangentB = Mathematics::NormalizeAxis(Mathematics::EvaluateCross(UnitSun, TangentT));
+                const float DeltaX        = Mathematics::EvaluateDot(UnitRay, TangentT);
+                const float DeltaY        = Mathematics::EvaluateDot(UnitRay, TangentB);
+                const float SmallSigma    = std::sqrt(0.25f * HalfRad * HalfRad + 0.20f * PixelSizeRad * PixelSizeRad);
+                const float InvSqrt2Sigma = 1.0f / (1.4142135623730951f * std::max(1.0e-6f, SmallSigma));
+                const float LowX          = (DeltaX - 0.5f * PixelSizeRad) * InvSqrt2Sigma;
+                const float HighX         = (DeltaX + 0.5f * PixelSizeRad) * InvSqrt2Sigma;
+                const float LowY          = (DeltaY - 0.5f * PixelSizeRad) * InvSqrt2Sigma;
+                const float HighY         = (DeltaY + 0.5f * PixelSizeRad) * InvSqrt2Sigma;
+                const float XMass         = std::max(0.0f, 0.5f * (EvaluateSolarErf(HighX) - EvaluateSolarErf(LowX)));
+                const float YMass         = std::max(0.0f, 0.5f * (EvaluateSolarErf(HighY) - EvaluateSolarErf(LowY)));
+                const float SinHalf       = std::sin(0.5f * HalfRad);
+                const float SolidAngle    = 4.0f * Constants::PiFloat * SinHalf * SinHalf;
+                const float PixelArea     = std::max(1.0e-12f, PixelSizeRad * PixelSizeRad);
+                const float SubGain       = (SolidAngle / PixelArea) * XMass * YMass * DiscIntensity;
+                SubPixelPhotosphere = {
+                    0.83276f * SubGain,
+                    0.77447f * SubGain,
+                    0.69061f * SubGain,
+                };
+            }
+
+            const Mathematics::LinearRGB Photosphere {
+                ResolvedPhotosphere.R + (SubPixelPhotosphere.R - ResolvedPhotosphere.R) * SmallWeight,
+                ResolvedPhotosphere.G + (SubPixelPhotosphere.G - ResolvedPhotosphere.G) * SmallWeight,
+                ResolvedPhotosphere.B + (SubPixelPhotosphere.B - ResolvedPhotosphere.B) * SmallWeight,
+            };
+
+            Mathematics::LinearRGB CoronaColour { 0.0f, 0.0f, 0.0f };
+            const float CoronaBlurAngle = 0.30f * PixelSizeRad * SmallWeight;
+            const float CoronaNormR     = std::sqrt(Separation * Separation + CoronaBlurAngle * CoronaBlurAngle) / HalfRad;
+            if (CoronaNormR < 48.0f)
+            {
+                const float R1         = CoronaNormR / 1.18f;
+                const float R2         = CoronaNormR / 3.40f;
+                const float R3         = CoronaNormR / 11.5f;
+                const float InnerTerm  = 1.0f / std::pow(1.0f + R1 * R1, 1.85f);
+                const float MiddleTerm = 1.0f / std::pow(1.0f + R2 * R2, 1.38f);
+                const float OuterTerm  = 1.0f / std::pow(1.0f + R3 * R3, 1.22f);
+
+                const float ScatterFactor = OrbitalView
+                    ? 0.38f
+                    : std::clamp(0.55f + 0.85f * (1.0f - LineTransmittance.B), 0.55f, 1.35f);
+                const float CoronaProfile = DiscIntensity * (0.042f * InnerTerm + 0.0085f * ScatterFactor * MiddleTerm + 0.0014f * ScatterFactor * OuterTerm);
+                const float WindowFade    = std::clamp(1.0f - CoronaNormR / 48.0f, 0.0f, 1.0f);
+                const float SmoothWindow  = WindowFade * WindowFade;
+                CoronaColour = {
+                    CoronaProfile * SmoothWindow * 1.04f,
+                    CoronaProfile * SmoothWindow * 0.99f,
+                    CoronaProfile * SmoothWindow * 0.91f,
+                };
+            }
+
+            OutRadiance.R += ForegroundOcclusion.R * (Photosphere.R + CoronaColour.R) * LineTransmittance.R * EffectiveSolarTint.R * HorizonVis;
+            OutRadiance.G += ForegroundOcclusion.G * (Photosphere.G + CoronaColour.G) * LineTransmittance.G * EffectiveSolarTint.G * HorizonVis;
+            OutRadiance.B += ForegroundOcclusion.B * (Photosphere.B + CoronaColour.B) * LineTransmittance.B * EffectiveSolarTint.B * HorizonVis;
         }
     }
 
-    // Optical glare veil (Radiant vs Muted): bounded 30 deg spread tinted by solar-axis transmittance
-    if (SolarConfig.AppearanceMode == SolarAppearanceMode::Radiant && SolarConfig.SunGlareStrength > 0.0f)
+    // Optical glare veil (Radiant vs Muted): bounded 30 deg spread tinted by solar-axis transmittance + eclipse visibility
+    if (SolarConfig.AppearanceMode == SolarAppearanceMode::Radiant && SolarConfig.SunGlareStrength > 0.0f && GlareEclipseVis > 1.0e-4f)
     {
         const float Spread = EvaluateSolarGlareSpread(Separation, HalfRad);
         if (Spread > 0.0f)
         {
-            const bool SunAxisBlocked = (!OrbitalView) && QueryGroundBlocked(UnitSun.Z);
-            if (!SunAxisBlocked)
+            const float SunAxisHorizonVis = OrbitalView
+                ? 1.0f
+                : SmoothStepSky(LimbZ - std::max(0.001f, HalfRad), LimbZ + std::max(0.001f, HalfRad), UnitSun.Z);
+            if (SunAxisHorizonVis > 1.0e-4f)
             {
-                const float GlareScale = std::max(0.0f, SolarConfig.SunGlareStrength) * Spread * (0.045f * DiscIntensity);
+                const float GlareScale = std::max(0.0f, SolarConfig.SunGlareStrength) * Spread * (0.045f * DiscIntensity) * SunAxisHorizonVis * GlareEclipseVis;
                 OutRadiance.R += EffectiveSolarTint.R * SolarTransmittance.R * GlareScale * 1.02f;
                 OutRadiance.G += EffectiveSolarTint.G * SolarTransmittance.G * GlareScale * 1.00f;
                 OutRadiance.B += EffectiveSolarTint.B * SolarTransmittance.B * GlareScale * 0.96f;
@@ -1020,281 +1020,145 @@ Mathematics::LinearRGB AtmosphericSkySequence::EvaluateSolarCoronaRadiance(
 }
 
 Mathematics::LinearRGB AtmosphericSkySequence::EvaluateOrbitalSpaceRadiance(
-    const Mathematics::Axis3D&                               CameraLocalOriginMeters,
-    const Mathematics::Axis3D&                               RayDirection,
-    const Mathematics::Axis3D&                               SunDirection,
-    const SolarCelestialConfiguration&                       SolarConfig,
-    const AtmosphericMediumConfiguration&                    Medium,
-    bool                                                     IncludeOrbitalClouds,
-    float                                                    CloudCoverage01,
-    float                                                    SimulationSeconds,
-    const SimulationSpace::ForceFields::ForceFieldAccumulator* OptionalForceFields) noexcept
+    const Mathematics::Axis3D&            CameraLocalOriginMeters,
+    const Mathematics::Axis3D&            RayDirection,
+    const Mathematics::Axis3D&            SunDirection,
+    const SolarCelestialConfiguration&    SolarConfig,
+    const AtmosphericMediumConfiguration& Medium,
+    bool                                  IncludeOrbitalClouds,
+    float                                 CloudCoverage01,
+    float                                 SimulationSeconds,
+    const CloudDeckConfiguration*         OptionalDeck,
+    Mathematics::LinearRGB*               OutSpaceTransmittance) noexcept
 {
-    const float PlanetR  = std::max(500000.0f, Medium.PlanetRadiusMeters);
-    const float AtmoTop  = std::max(15000.0f, Medium.AtmosphereThicknessMeters);
-    const float AtmoR    = PlanetR + AtmoTop;
-    const float RayMul   = std::max(0.0f, Medium.RayleighStrength);
-    const float MieMul   = std::max(0.0f, Medium.MieStrength);
-    const float MieG     = std::clamp(Medium.MieAnisotropy, 0.0f, 0.99f);
-    const float OzoneMul = std::max(0.0f, Medium.OzoneStrength);
-    const float RayH     = std::max(500.0f, Medium.RayleighScaleHeightMeters);
-    const float MieH     = std::max(200.0f, Medium.MieScaleHeightMeters);
-
-    // Resolve planet-centered camera position seamlessly whether passed in orbital space or scene + altitude
-    const float CamMag = std::sqrt(CameraLocalOriginMeters.X * CameraLocalOriginMeters.X +
-                                   CameraLocalOriginMeters.Y * CameraLocalOriginMeters.Y +
-                                   CameraLocalOriginMeters.Z * CameraLocalOriginMeters.Z);
+    const float PlanetR = std::max(500000.0f, Medium.PlanetRadiusMeters);
+    const float AtmoTop = std::max(15000.0f, Medium.AtmosphereThicknessMeters);
+    const float CamMag  = std::sqrt(CameraLocalOriginMeters.X * CameraLocalOriginMeters.X +
+                                    CameraLocalOriginMeters.Y * CameraLocalOriginMeters.Y +
+                                    CameraLocalOriginMeters.Z * CameraLocalOriginMeters.Z);
     const bool AlreadyPlanetary = (CamMag > PlanetR * 0.5f);
-    const float CamX = AlreadyPlanetary ? CameraLocalOriginMeters.X : CameraLocalOriginMeters.X;
-    const float CamY = AlreadyPlanetary ? CameraLocalOriginMeters.Y : CameraLocalOriginMeters.Y;
-    const float CamZ = AlreadyPlanetary
-        ? CameraLocalOriginMeters.Z
-        : (PlanetR + std::max(100.0f, Medium.ObserverAltitudeMeters) + CameraLocalOriginMeters.Z);
+    const Mathematics::Axis3D CamPos {
+        CameraLocalOriginMeters.X,
+        CameraLocalOriginMeters.Y,
+        AlreadyPlanetary ? CameraLocalOriginMeters.Z : (PlanetR + std::max(AtmoTop + 5000.0f, Medium.ObserverAltitudeMeters) + CameraLocalOriginMeters.Z),
+    };
 
-    const auto [ANear, AFar] = IntersectVecSphere(CamX, CamY, CamZ, RayDirection.X, RayDirection.Y, RayDirection.Z, AtmoR);
-    const auto [PNear, _PF]  = IntersectVecSphere(CamX, CamY, CamZ, RayDirection.X, RayDirection.Y, RayDirection.Z, PlanetR);
-
-    const bool HitsPlanet = (PNear > 0.0f);
-    const float TStart    = std::max(0.0f, ANear);
-    const float TEnd      = HitsPlanet ? PNear : AFar;
-
-    // 1. Evaluate unoccluded solar disc/corona in space when ray misses planet
-    Mathematics::LinearRGB SpaceSun { 0.0f, 0.0f, 0.0f };
-    if (!HitsPlanet && SolarConfig.SolarEnabled)
+    const auto SolvedSun = CelestialEphemerisSolver::SolveSolarEphemeris(SolarConfig);
+    CloudDeckConfiguration EffDeck = (OptionalDeck != nullptr) ? *OptionalDeck : CloudDeckConfiguration{};
+    EffDeck.CloudsEnabled = IncludeOrbitalClouds;
+    EffDeck.CloudFraction = CloudCoverage01;
+    if (OptionalDeck == nullptr)
     {
-        const auto SpaceTrans = (TEnd > TStart)
-            ? IntegrateRayTransmittance(
-                  CamX + RayDirection.X * TStart,
-                  CamY + RayDirection.Y * TStart,
-                  CamZ + RayDirection.Z * TStart,
-                  RayDirection.X, RayDirection.Y, RayDirection.Z,
-                  TEnd - TStart, PlanetR, RayMul, MieMul, OzoneMul, RayH, MieH, 16u)
-            : std::array<float, 3>{ 1.0f, 1.0f, 1.0f };
-        const auto SolvedSun = CelestialEphemerisSolver::SolveSolarEphemeris(SolarConfig);
-        SpaceSun = EvaluateSolarCoronaRadiance(
-            RayDirection,
-            SunDirection,
-            SolarConfig,
-            { SpaceTrans[0], SpaceTrans[1], SpaceTrans[2] },
-            SolvedSun.EffectiveSolarTint,
-            true,
-            &Medium,
-            0.0f);
+        VolumetricCloudSequence::ApplyCloudCategoryPreset(EffDeck, CloudCategoryType::Cumulus);
+        EffDeck.CloudsEnabled = IncludeOrbitalClouds;
+        EffDeck.CloudFraction = CloudCoverage01;
     }
 
-    if (TEnd <= TStart)
+    const auto OrbClouds = VolumetricCloudSequence::EvaluateOrbitalPlanetClouds(
+        CamPos, RayDirection, SunDirection, SolvedSun.EffectiveSolarTint,
+        SolarConfig.SolarIntensityMultiplier, Medium, EffDeck, SimulationSeconds);
+
+    const bool HitsPlanet = (OrbClouds.GroundDistanceM < 1.0e8f);
+    Mathematics::LinearRGB Behind = OrbClouds.AirRadianceHdr;
+    if (HitsPlanet)
     {
-        return SpaceSun;
-    }
+        const float HX   = CamPos.X + RayDirection.X * OrbClouds.GroundDistanceM;
+        const float HY   = CamPos.Y + RayDirection.Y * OrbClouds.GroundDistanceM;
+        const float HZ   = CamPos.Z + RayDirection.Z * OrbClouds.GroundDistanceM;
+        const float InvR = 1.0f / std::max(1.0f, std::sqrt(HX * HX + HY * HY + HZ * HZ));
+        const float NX = HX * InvR, NY = HY * InvR, NZ = HZ * InvR;
 
-    // 2. Ray-march Rayleigh + Mie + Ozone scattering through curved planetary shell
-    const float CosTheta = RayDirection.X * SunDirection.X + RayDirection.Y * SunDirection.Y + RayDirection.Z * SunDirection.Z;
-    const float PhaseR   = (3.0f / (16.0f * Constants::PiFloat)) * (1.0f + CosTheta * CosTheta);
-    const float G2       = MieG * MieG;
-    const float Denom    = std::max(1.0e-3f, 1.0f + G2 - 2.0f * MieG * CosTheta);
-    const float PhaseM   = (3.0f / (8.0f * Constants::PiFloat)) * ((1.0f - G2) * (1.0f + CosTheta * CosTheta)) /
-                           ((2.0f + G2) * std::pow(Denom, 1.5f));
-    const float SolarGain = std::max(0.0f, SolarConfig.SolarIntensityMultiplier) * 0.30f * Medium.SkyBrightnessMultiplier;
+        const float NdotL_raw = NX * SunDirection.X + NY * SunDirection.Y + NZ * SunDirection.Z;
+        const float NdotL     = std::max(0.0f, NdotL_raw);
+        const float LatAbs    = std::abs(NZ);
 
-    float TR = 1.0f, TG = 1.0f, TB = 1.0f;
-    float RadR = 0.0f, RadG = 0.0f, RadB = 0.0f;
-    constexpr uint32_t AtmoSteps = 20u;
-    const float Step = (TEnd - TStart) / static_cast<float>(AtmoSteps);
+        const float ContNoise = FbmOrbit3(NX * 3.1f + 4.1f, NY * 3.1f - 1.8f, NZ * 3.1f + 0.9f, 6u);
+        const float LandMask  = std::clamp((ContNoise - 0.495f) / 0.035f, 0.0f, 1.0f);
+        const float Shelf     = std::clamp((ContNoise - 0.435f) / 0.065f, 0.0f, 1.0f) * (1.0f - LandMask);
+        const float PolarIce  = std::clamp((LatAbs - (0.83f + 0.06f * ContNoise)) / 0.09f, 0.0f, 1.0f);
 
-    for (uint32_t S = 0u; S < AtmoSteps; ++S)
-    {
-        const float T   = TStart + (static_cast<float>(S) + 0.5f) * Step;
-        const float PX  = CamX + RayDirection.X * T;
-        const float PY  = CamY + RayDirection.Y * T;
-        const float PZ  = CamZ + RayDirection.Z * T;
-        const float R   = std::sqrt(PX * PX + PY * PY + PZ * PZ);
-        const float Alt = std::max(0.0f, R - PlanetR);
-
-        const float DenR = std::exp(-Alt / RayH) * RayMul;
-        const float DenM = std::exp(-Alt / MieH) * MieMul;
-        const float DenO = std::max(0.0f, 1.0f - std::abs(Alt - 25000.0f) / 15000.0f) * OzoneMul;
-
-        const float SRayR = SeaLevelRayleighScatter[0] * DenR;
-        const float SRayG = SeaLevelRayleighScatter[1] * DenR;
-        const float SRayB = SeaLevelRayleighScatter[2] * DenR;
-        const float SMie  = SeaLevelMieScatter * DenM;
-        const float EMie  = SeaLevelMieExtinction * DenM;
-
-        const float ExtR = std::max(1.0e-7f, SRayR + EMie + PeakOzoneAbs[0] * DenO);
-        const float ExtG = std::max(1.0e-7f, SRayG + EMie + PeakOzoneAbs[1] * DenO);
-        const float ExtB = std::max(1.0e-7f, SRayB + EMie + PeakOzoneAbs[2] * DenO);
-
-        const float SegTR = std::exp(-ExtR * Step);
-        const float SegTG = std::exp(-ExtG * Step);
-        const float SegTB = std::exp(-ExtB * Step);
-
-        const float IntR = (1.0f - SegTR) / ExtR;
-        const float IntG = (1.0f - SegTG) / ExtG;
-        const float IntB = (1.0f - SegTB) / ExtB;
-
-        const auto [EarthHit, _S] = IntersectVecSphere(PX, PY, PZ, SunDirection.X, SunDirection.Y, SunDirection.Z, PlanetR);
-        std::array<float, 3> SunT { 0.0f, 0.0f, 0.0f };
-        if (EarthHit <= 0.0f)
+        float AlbR = 0.012f + 0.018f * Shelf;
+        float AlbG = 0.042f + 0.058f * Shelf;
+        float AlbB = 0.135f + 0.055f * Shelf;
+        if (LandMask > 0.0f)
         {
-            const auto [_N, ExitS] = IntersectVecSphere(PX, PY, PZ, SunDirection.X, SunDirection.Y, SunDirection.Z, AtmoR);
-            if (ExitS > 0.0f)
-            {
-                SunT = IntegrateRayTransmittance(
-                    PX, PY, PZ, SunDirection.X, SunDirection.Y, SunDirection.Z,
-                    std::min(ExitS, 380000.0f), PlanetR, RayMul, MieMul, OzoneMul, RayH, MieH, 8u);
-            }
+            const float Moisture = FbmOrbit3(NX * 7.5f - 2.3f, NY * 7.5f + 5.1f, NZ * 7.5f, 4u);
+            const float Elev     = std::clamp((ContNoise - 0.50f) / 0.25f, 0.0f, 1.0f);
+            const float Arid     = std::clamp((Moisture - 0.44f) / 0.24f, 0.0f, 1.0f);
+            const float LR = (0.055f + (0.350f - 0.055f) * Arid) * (0.85f + 0.35f * Elev);
+            const float LG = (0.145f + (0.265f - 0.145f) * Arid) * (0.85f + 0.35f * Elev);
+            const float LB = (0.048f + (0.165f - 0.048f) * Arid) * (0.85f + 0.35f * Elev);
+            AlbR = AlbR * (1.0f - LandMask) + LR * LandMask;
+            AlbG = AlbG * (1.0f - LandMask) + LG * LandMask;
+            AlbB = AlbB * (1.0f - LandMask) + LB * LandMask;
+        }
+        if (PolarIce > 0.0f)
+        {
+            AlbR = AlbR * (1.0f - PolarIce) + 0.72f * PolarIce;
+            AlbG = AlbG * (1.0f - PolarIce) + 0.76f * PolarIce;
+            AlbB = AlbB * (1.0f - PolarIce) + 0.82f * PolarIce;
         }
 
-        const float ScR = SRayR * PhaseR + SMie * PhaseM;
-        const float ScG = SRayG * PhaseR + SMie * PhaseM;
-        const float ScB = SRayB * PhaseR + SMie * PhaseM;
-        RadR += TR * ScR * SunT[0] * IntR;
-        RadG += TG * ScG * SunT[1] * IntG;
-        RadB += TB * ScB * SunT[2] * IntB;
+        const float VX = -RayDirection.X, VY = -RayDirection.Y, VZ = -RayDirection.Z;
+        float HVecX = SunDirection.X + VX, HVecY = SunDirection.Y + VY, HVecZ = SunDirection.Z + VZ;
+        const float HLen = std::max(1.0e-5f, std::sqrt(HVecX * HVecX + HVecY * HVecY + HVecZ * HVecZ));
+        HVecX /= HLen; HVecY /= HLen; HVecZ /= HLen;
+        const float NdotH = std::max(0.0f, NX * HVecX + NY * HVecY + NZ * HVecZ);
+        const float OceanSpec = (1.0f - LandMask) * (1.0f - PolarIce) * std::pow(NdotH, 42.0f) * 0.45f * (0.2f + 0.8f * NdotL);
 
-        TR *= SegTR;
-        TG *= SegTG;
-        TB *= SegTB;
-    }
+        const float TermWarm  = std::exp(-std::abs(NdotL_raw) * 14.0f) * std::clamp((NdotL_raw + 0.08f) / 0.16f, 0.0f, 1.0f);
+        const float SVBase    = 0.35f + 0.65f * std::clamp((NdotL_raw + 0.04f) / 0.25f, 0.0f, 1.0f);
+        const float SunVisR   = SVBase * (1.0f + 0.65f * TermWarm);
+        const float SunVisG   = SVBase * (1.0f + 0.22f * TermWarm);
+        const float SunVisB   = SVBase * (1.0f - 0.10f * TermWarm);
 
-    float OutR = RadR * SolarGain * Medium.SkyTint.R + SpaceSun.R * TR;
-    float OutG = RadG * SolarGain * Medium.SkyTint.G + SpaceSun.G * TG;
-    float OutB = RadB * SolarGain * Medium.SkyTint.B + SpaceSun.B * TB;
+        const float DiffBoost = 0.28f * std::max(0.0f, SolarConfig.SolarIntensityMultiplier) * Medium.SkyBrightnessMultiplier / 22.0f;
+        float SurfR = (AlbR * NdotL * OrbClouds.SurfaceCloudShadow + OceanSpec) * SunVisR * DiffBoost;
+        float SurfG = (AlbG * NdotL * OrbClouds.SurfaceCloudShadow + OceanSpec) * SunVisG * DiffBoost;
+        float SurfB = (AlbB * NdotL * OrbClouds.SurfaceCloudShadow + OceanSpec) * SunVisB * DiffBoost;
 
-    if (!HitsPlanet)
-    {
-        return { std::max(0.0f, OutR), std::max(0.0f, OutG), std::max(0.0f, OutB) };
-    }
-
-    // 3. Shade planetary continents, polar caps, Fresnel ocean glint, night city lights & ForceField hurricane cloud shell
-    const float HX = CamX + RayDirection.X * PNear;
-    const float HY = CamY + RayDirection.Y * PNear;
-    const float HZ = CamZ + RayDirection.Z * PNear;
-    const float InvR = 1.0f / std::max(1.0f, std::sqrt(HX * HX + HY * HY + HZ * HZ));
-    const float NX = HX * InvR;
-    const float NY = HY * InvR;
-    const float NZ = HZ * InvR;
-
-    const float NdotL_raw = NX * SunDirection.X + NY * SunDirection.Y + NZ * SunDirection.Z;
-    const float NdotL     = std::max(0.0f, NdotL_raw);
-    const float LatAbs    = std::abs(NZ);
-
-    // Multi-octave continents + coastal shelf + mountain relief
-    const float ContNoise = FbmOrbit3(NX * 3.1f + 4.1f, NY * 3.1f - 1.8f, NZ * 3.1f + 0.9f, 6u);
-    const float LandMask  = std::clamp((ContNoise - 0.495f) / 0.035f, 0.0f, 1.0f);
-    const float Shelf     = std::clamp((ContNoise - 0.435f) / 0.065f, 0.0f, 1.0f) * (1.0f - LandMask);
-    const float PolarIce  = std::clamp((LatAbs - (0.83f + 0.06f * ContNoise)) / 0.09f, 0.0f, 1.0f);
-
-    float AlbR = 0.012f + 0.018f * Shelf;
-    float AlbG = 0.042f + 0.058f * Shelf;
-    float AlbB = 0.135f + 0.055f * Shelf; // Deep ocean + turquoise coastal shelf
-    if (LandMask > 0.0f)
-    {
-        const float Moisture = FbmOrbit3(NX * 7.5f - 2.3f, NY * 7.5f + 5.1f, NZ * 7.5f, 4u);
-        const float Elev     = std::clamp((ContNoise - 0.50f) / 0.25f, 0.0f, 1.0f);
-        const float ForestR = 0.055f, ForestG = 0.145f, ForestB = 0.048f;
-        const float DesertR = 0.350f, DesertG = 0.265f, DesertB = 0.165f;
-        const float Arid = std::clamp((Moisture - 0.44f) / 0.24f, 0.0f, 1.0f);
-        const float LR = (ForestR + (DesertR - ForestR) * Arid) * (0.85f + 0.35f * Elev);
-        const float LG = (ForestG + (DesertG - ForestG) * Arid) * (0.85f + 0.35f * Elev);
-        const float LB = (ForestB + (DesertB - ForestB) * Arid) * (0.85f + 0.35f * Elev);
-        AlbR = AlbR * (1.0f - LandMask) + LR * LandMask;
-        AlbG = AlbG * (1.0f - LandMask) + LG * LandMask;
-        AlbB = AlbB * (1.0f - LandMask) + LB * LandMask;
-    }
-    if (PolarIce > 0.0f)
-    {
-        AlbR = AlbR * (1.0f - PolarIce) + 0.72f * PolarIce;
-        AlbG = AlbG * (1.0f - PolarIce) + 0.76f * PolarIce;
-        AlbB = AlbB * (1.0f - PolarIce) + 0.82f * PolarIce;
-    }
-
-    // Ocean specular sun glint
-    const float VX = -RayDirection.X;
-    const float VY = -RayDirection.Y;
-    const float VZ = -RayDirection.Z;
-    float HVecX = SunDirection.X + VX, HVecY = SunDirection.Y + VY, HVecZ = SunDirection.Z + VZ;
-    const float HLen = std::max(1.0e-5f, std::sqrt(HVecX * HVecX + HVecY * HVecY + HVecZ * HVecZ));
-    HVecX /= HLen; HVecY /= HLen; HVecZ /= HLen;
-    const float NdotH = std::max(0.0f, NX * HVecX + NY * HVecY + NZ * HVecZ);
-    const float OceanSpec = (1.0f - LandMask) * (1.0f - PolarIce) * std::pow(NdotH, 42.0f) * 0.45f * (0.2f + 0.8f * NdotL);
-
-    // Planetary terminator warmth & ForceField cyclone cloud shell
-    const float TermWarm = std::exp(-std::abs(NdotL_raw) * 14.0f) * std::clamp((NdotL_raw + 0.08f) / 0.16f, 0.0f, 1.0f);
-    const float SunVisR = (0.35f + 0.65f * std::clamp((NdotL_raw + 0.04f) / 0.25f, 0.0f, 1.0f)) * (1.0f + 0.65f * TermWarm);
-    const float SunVisG = (0.35f + 0.65f * std::clamp((NdotL_raw + 0.04f) / 0.25f, 0.0f, 1.0f)) * (1.0f + 0.22f * TermWarm);
-    const float SunVisB = (0.35f + 0.65f * std::clamp((NdotL_raw + 0.04f) / 0.25f, 0.0f, 1.0f)) * (1.0f - 0.10f * TermWarm);
-
-    float CloudMask = 0.0f;
-    if (IncludeOrbitalClouds && CloudCoverage01 > 0.01f)
-    {
-        float CX = NX, CY = NY, CZ = NZ;
-        // Drift orbital cloud shell eastward with planetary zonal jet + optional ForceField cyclone curl
-        const float JetLon = SimulationSeconds * 0.0022f;
-        const float CosJ = std::cos(JetLon), SinJ = std::sin(JetLon);
-        CX = NX * CosJ + NY * SinJ;
-        CY = -NX * SinJ + NY * CosJ;
-
-        if (OptionalForceFields != nullptr && OptionalForceFields->QueryActiveSourceCount() > 0u)
+        const float NightMask = std::clamp((-NdotL_raw - 0.04f) / 0.14f, 0.0f, 1.0f) * LandMask * (1.0f - PolarIce);
+        if (NightMask > 0.01f)
         {
-            const auto WF = OptionalForceFields->QueryWindFieldSample(
-                { HX * 0.0001f, HY * 0.0001f, 1500.0f, 0.0f },
-                static_cast<double>(SimulationSeconds),
-                true);
-            CX -= WF.AdvectionVelocity.X * 0.003f;
-            CY -= WF.AdvectionVelocity.Y * 0.003f;
+            const float Urban = FbmOrbit3(NX * 16.0f, NY * 16.0f, NZ * 16.0f, 3u);
+            const float City  = std::clamp((Urban - 0.60f) / 0.12f, 0.0f, 1.0f) * NightMask * (0.35f + 0.65f * OrbClouds.SurfaceCloudShadow);
+            SurfR += City * 0.38f;
+            SurfG += City * 0.22f;
+            SurfB += City * 0.06f;
         }
-        // Embedded mesoscale spiral bands for cyclonic realism
-        const float Lon = std::atan2(CY, CX);
-        const float Lat = std::asin(std::clamp(CZ, -1.0f, 1.0f));
-        const float SpiralTheta = std::sqrt((Lon - 0.35f) * (Lon - 0.35f) + (Lat - 0.38f) * (Lat - 0.38f));
-        if (SpiralTheta < 0.45f)
+        Behind.R += OrbClouds.AirTransmittance.R * SurfR;
+        Behind.G += OrbClouds.AirTransmittance.G * SurfG;
+        Behind.B += OrbClouds.AirTransmittance.B * SurfB;
+        if (OutSpaceTransmittance != nullptr)
         {
-            const float SwirlA = (1.0f - SpiralTheta / 0.45f) * 1.45f;
-            const float DLon = Lon - 0.35f, DLat = Lat - 0.38f;
-            const float CS = std::cos(SwirlA), SS = std::sin(SwirlA);
-            CX += (DLon * CS - DLat * SS - DLon) * 0.45f;
-            CY += (DLon * SS + DLat * CS - DLat) * 0.45f;
+            *OutSpaceTransmittance = { 0.0f, 0.0f, 0.0f };
         }
-
-        const float RawC = FbmOrbit3(CX * 4.2f + 1.3f, CY * 4.2f - 2.1f, CZ * 4.2f + 3.7f, 5u);
-        const float Thresh = 0.62f - 0.25f * std::clamp(CloudCoverage01, 0.0f, 1.0f);
-        CloudMask = std::clamp((RawC - Thresh) / 0.18f, 0.0f, 1.0f);
     }
-
-    const float CloudShadow = 1.0f - 0.48f * CloudMask;
-    const float DiffBoost = 0.28f * std::max(0.0f, SolarConfig.SolarIntensityMultiplier) * Medium.SkyBrightnessMultiplier;
-    float SurfR = ((AlbR * NdotL * CloudShadow + OceanSpec) * SunVisR * DiffBoost);
-    float SurfG = ((AlbG * NdotL * CloudShadow + OceanSpec) * SunVisG * DiffBoost);
-    float SurfB = ((AlbB * NdotL * CloudShadow + OceanSpec) * SunVisB * DiffBoost);
-
-    // Night-side city lights on continents when solar elevation is well below terminator
-    const float NightMask = std::clamp((-NdotL_raw - 0.04f) / 0.14f, 0.0f, 1.0f) * LandMask * (1.0f - PolarIce);
-    if (NightMask > 0.01f)
+    else
     {
-        const float Urban = FbmOrbit3(NX * 16.0f, NY * 16.0f, NZ * 16.0f, 3u);
-        const float City  = std::clamp((Urban - 0.60f) / 0.12f, 0.0f, 1.0f) * NightMask * (1.0f - 0.65f * CloudMask);
-        SurfR += City * 0.38f;
-        SurfG += City * 0.22f;
-        SurfB += City * 0.06f;
-    }
-
-    // Composite orbital cloud deck on top of planet albedo with sunset terminator glow
-    if (CloudMask > 0.001f)
-    {
-        const float CloudLit = std::max(0.015f, NdotL * 1.15f + 0.04f) * DiffBoost * 0.85f;
-        const float CR = CloudLit * SunVisR;
-        const float CG = CloudLit * SunVisG;
-        const float CB = CloudLit * SunVisB;
-        SurfR = SurfR * (1.0f - CloudMask * 0.88f) + CR * (CloudMask * 0.88f);
-        SurfG = SurfG * (1.0f - CloudMask * 0.88f) + CG * (CloudMask * 0.88f);
-        SurfB = SurfB * (1.0f - CloudMask * 0.88f) + CB * (CloudMask * 0.88f);
+        const Mathematics::LinearRGB SpaceTrans {
+            OrbClouds.AirTransmittance.R * OrbClouds.Transmittance,
+            OrbClouds.AirTransmittance.G * OrbClouds.Transmittance,
+            OrbClouds.AirTransmittance.B * OrbClouds.Transmittance,
+        };
+        if (OutSpaceTransmittance != nullptr)
+        {
+            *OutSpaceTransmittance = SpaceTrans;
+        }
+        if (SolarConfig.SolarEnabled)
+        {
+            const auto SpaceSun = EvaluateSolarCoronaRadiance(
+                RayDirection, SunDirection, SolarConfig, { 1.0f, 1.0f, 1.0f }, SolvedSun.EffectiveSolarTint, true, &Medium, 0.0f);
+            Behind.R += SpaceSun.R * OrbClouds.AirTransmittance.R;
+            Behind.G += SpaceSun.G * OrbClouds.AirTransmittance.G;
+            Behind.B += SpaceSun.B * OrbClouds.AirTransmittance.B;
+        }
     }
 
     return {
-        std::max(0.0f, OutR + SurfR * TR),
-        std::max(0.0f, OutG + SurfG * TG),
-        std::max(0.0f, OutB + SurfB * TB),
+        std::max(0.0f, Behind.R * OrbClouds.Transmittance + OrbClouds.RadianceHdr.R),
+        std::max(0.0f, Behind.G * OrbClouds.Transmittance + OrbClouds.RadianceHdr.G),
+        std::max(0.0f, Behind.B * OrbClouds.Transmittance + OrbClouds.RadianceHdr.B),
     };
 }
 

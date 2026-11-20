@@ -19,11 +19,11 @@ const char* LogStreamDrawer::QueryChannelTag(LogChannelCategory Channel) noexcep
 {
     switch (Channel)
     {
-    case LogChannelCategory::All:       return "ALL";
-    case LogChannelCategory::Particles: return "PARTICLES";
-    case LogChannelCategory::Forces:    return "FORCES";
-    case LogChannelCategory::Wind:      return "WIND";
-    case LogChannelCategory::Viewport:  return "VIEW";
+    case LogChannelCategory::All:      return "ALL";
+    case LogChannelCategory::Physics:  return "PHYSICS";
+    case LogChannelCategory::Render:   return "RENDER";
+    case LogChannelCategory::Wind:     return "WIND";
+    case LogChannelCategory::Viewport: return "VIEW";
     }
     return "LOG";
 }
@@ -32,11 +32,11 @@ ColorRgba LogStreamDrawer::QueryChannelAccent(LogChannelCategory Channel) noexce
 {
     switch (Channel)
     {
-    case LogChannelCategory::Particles: return { 62u,  196u, 109u, 255u };
-    case LogChannelCategory::Forces:    return { 86u,  208u, 168u, 255u };
-    case LogChannelCategory::Wind:      return { 232u, 194u, 122u, 255u };
-    case LogChannelCategory::Viewport:  return { 130u, 180u, 255u, 255u };
-    case LogChannelCategory::All:       return { 220u, 220u, 220u, 255u };
+    case LogChannelCategory::Physics:  return { 62u,  196u, 109u, 255u };
+    case LogChannelCategory::Render:   return { 86u,  208u, 168u, 255u };
+    case LogChannelCategory::Wind:     return { 232u, 194u, 122u, 255u };
+    case LogChannelCategory::Viewport: return { 130u, 180u, 255u, 255u };
+    case LogChannelCategory::All:      return { 220u, 220u, 220u, 255u };
     }
     return { 200u, 200u, 200u, 255u };
 }
@@ -65,8 +65,8 @@ void LogStreamDrawer::Construct(
     // Filter chip header row
     constexpr LogChannelCategory Channels[5] = {
         LogChannelCategory::All,
-        LogChannelCategory::Particles,
-        LogChannelCategory::Forces,
+        LogChannelCategory::Physics,
+        LogChannelCategory::Render,
         LogChannelCategory::Wind,
         LogChannelCategory::Viewport,
     };

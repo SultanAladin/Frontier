@@ -370,30 +370,6 @@ bool ControlVehicleClassBuilder::ConstructControlVehicle(
         Col->TriggerOverlapOnly = true;
     }
 
-    // Typed Particle & Fluid showcase instances
-    const ComponentInstanceToken Exhaust = Def.Storage.AppendInstance(
-        ComponentCategory::ParticleInstance,
-        "ExhaustPlume",
-        Body,
-        ComponentTransform{ { -3.05f, -0.04f, -0.58f }, { 0.0f, 180.0f, 0.0f }, { 1.0f, 1.0f, 1.0f } });
-    if (ParticleComponentSettings* P = Def.Storage.ResolveParticle(Exhaust))
-    {
-        P->PresetIdentifier  = "ExhaustSparkPlume";
-        P->EmissionRateScale = 1.0f;
-    }
-
-    const ComponentInstanceToken TyreSmoke = Def.Storage.AppendInstance(
-        ComponentCategory::FluidInstance,
-        "RearTyreSmoke",
-        Body,
-        ComponentTransform{ { -1.75f, -0.10f, 0.0f }, { 0.0f, 0.0f, 0.0f }, { 1.0f, 1.0f, 1.0f } });
-    if (FluidComponentSettings* F = Def.Storage.ResolveFluid(TyreSmoke))
-    {
-        F->VolumeIdentifier   = "TyreSmokePlume";
-        F->EmissionMode       = FluidSourceCategory::Smoke;
-        F->BoundsExtentMeters = { 0.65f, 0.55f, 1.25f };
-    }
-
     // VehicleDynamics behaviour
     const ComponentInstanceToken Vehicle = Def.Storage.AppendInstance(
         ComponentCategory::VehicleDynamics,

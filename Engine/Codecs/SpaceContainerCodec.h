@@ -39,21 +39,18 @@ enum class SpaceSuffixCategory : uint8_t
     VectorSpace     = 7,  // [-] - .VectorSpace resolution-independent Bezier/spline vector graphics
     SimulationSpace = 8,  // [-] - .SimulationSpace deterministic physics/solver setup
     VolumetricSpace = 9,  // [-] - .VolumetricSpace sparse density/temperature fields
-    ParticleSpace   = 10, // [-] - .ParticleSpace procedural particle dynamics
-    UVSpace         = 11, // [-] - .UVSpace UDIM & UVTile parameterization
-    Pigment         = 12, // [-] - .Pigment Option 1A natural pigment preset
-    Sketch          = 13, // [-] - .Sketch Option 1A natural 2D drafting preset
-    Assembly        = 14, // [-] - .Assembly Option 1A natural multi-instance layout
-    Motion          = 15, // [-] - .Motion Option 1A natural animation curves
-    Render          = 16, // [-] - .Render Option 1A natural camera/output target
-    Photometry      = 17, // [-] - .Photometry Option 1A natural IES luminaire profile
-    Terrain         = 18, // [-] - .Terrain Option 1A natural heightfield tile
-    Acoustic        = 19, // [-] - .Acoustic Option 1A natural impulse/propagation setup
-    NetworkSpace    = 20, // [-] - .NetworkSpace distributed session routing & replication policies
-    VectorFieldSpace= 21, // [-] - .VectorFieldSpace multi-source vector field rig, curves, & formulas
-    ForceModel      = 22, // [-] - .ForceModel Option A single-force preset configuration
-    InputSpace      = 23, // [-] - .InputSpace hardware chord registers, navigation presets & axis calibration
-    ComponentSpace  = 24  // [-] - .ComponentSpace modular ComponentClass hierarchy, physics constraints & behaviours
+    UVSpace         = 10, // [-] - .UVSpace UDIM & UVTile parameterization
+    Pigment         = 11, // [-] - .Pigment Option 1A natural pigment preset
+    Sketch          = 12, // [-] - .Sketch Option 1A natural 2D drafting preset
+    Assembly        = 13, // [-] - .Assembly Option 1A natural multi-instance layout
+    Motion          = 14, // [-] - .Motion Option 1A natural animation curves
+    Render          = 15, // [-] - .Render Option 1A natural camera/output target
+    Photometry      = 16, // [-] - .Photometry Option 1A natural IES luminaire profile
+    Terrain         = 17, // [-] - .Terrain Option 1A natural heightfield tile
+    Acoustic        = 18, // [-] - .Acoustic Option 1A natural impulse/propagation setup
+    NetworkSpace    = 19, // [-] - .NetworkSpace distributed session routing & replication policies
+    InputSpace      = 20, // [-] - .InputSpace hardware chord registers, navigation presets & axis calibration
+    ComponentSpace  = 21  // [-] - .ComponentSpace modular ComponentClass hierarchy, physics constraints & behaviours
 };
 
 //------------------------------------------------------------------------------------------------------------------------

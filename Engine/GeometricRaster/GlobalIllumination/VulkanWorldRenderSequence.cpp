@@ -8,6 +8,7 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 #include "Engine/GeometricRaster/GlobalIllumination/VulkanWorldRenderSequence.h"
+#include "Engine/GeometricRaster/Atmosphere/CloudNoiseVolume.h"
 #include "Engine/GeometricRaster/Atmosphere/J2000BrightStarRepository.h"
 #include "Engine/GeometricRaster/Atmosphere/LensFlareSequence.h"
 #include "Engine/GeometrySpace/Analysis/CurvatureAnalysis.h"
@@ -51,35 +52,29 @@ struct GpuLocalCloudVolumeStd140
 
 static_assert(sizeof(GpuLocalCloudVolumeStd140) == 80u, "GpuLocalCloudVolumeStd140 must equal 80 bytes.");
 
-struct GpuCloudWindForceSensorStd140
-{
-    float PosRadius[4]       {};
-    float ForwardStrength[4] {};
-    float Params[4]          {};
-};
-
-static_assert(sizeof(GpuCloudWindForceSensorStd140) == 48u, "GpuCloudWindForceSensorStd140 must equal 48 bytes.");
-
 struct VolumetricCloudUniformStd140
 {
-    float                         OriginTimeVector[4]    {};
-    float                         SunAxisToggle[4]       {};
-    float                         SolarIrradianceExt[4]  {};
-    float                         SkyColorWind[4]        {};
-    float                         DeckGeometry[4]        {};
-    float                         DeckOptics[4]          {};
-    float                         WindVectorOcclude[4]   {};
-    float                         LocalCenterExt[4]      {};
-    float                         LocalExtentFraction[4] {};
-    float                         LocalDensityPhase[4]   {};
-    float                         FormationOptics[4]     {};
-    float                         CloudShadowOptics[4]   {};
-    float                         CloudPassControl[4]    {};
-    float                         WindForceMeta[4]       {};
-    GpuLocalCloudVolumeStd140     LocalClouds[8]         {};
-    GpuCloudWindForceSensorStd140 WindProbes[8]          {};
+    float                         OriginTimeVector[4]      {};
+    float                         SunAxisToggle[4]         {};
+    float                         SolarIrradianceExt[4]    {};
+    float                         SkyColorWind[4]          {};
+    float                         DeckGeometry[4]          {};
+    float                         DeckOptics[4]            {};
+    float                         WindVectorOcclude[4]     {};
+    float                         LocalCenterExt[4]        {};
+    float                         LocalExtentFraction[4]   {};
+    float                         LocalDensityPhase[4]     {};
+    float                         FormationOptics[4]       {};
+    float                         CloudShadowOptics[4]     {};
+    float                         CloudPassControl[4]      {};
+    float                         WindForceMeta[4]         {};
+    float                         CloudToaSolarIrrad[4]    {};
+    float                         CloudSkyAmbient[4]       {};
+    float                         CloudAtmoStrengths[4]    {};
+    float                         CloudAirScalesCyclone[4] {};
+    GpuLocalCloudVolumeStd140     LocalClouds[8]           {};
 };
-static_assert(sizeof(VolumetricCloudUniformStd140) == 1248u, "VolumetricCloudUniformStd140 must equal 1248 bytes.");
+static_assert(sizeof(VolumetricCloudUniformStd140) == 928u, "VolumetricCloudUniformStd140 must equal 928 bytes.");
 
 struct GpuLocalFogVolumeStd140
 {
@@ -103,10 +98,9 @@ struct VolumetricFogUniformStd140
     float                         GodRayParams1[4] {};
     float                         GodRayTint[4]    {};
     GpuLocalFogVolumeStd140       LocalFogs[8]     {};
-    GpuCloudWindForceSensorStd140 ForceProbes[8]   {};
 };
 
-static_assert(sizeof(VolumetricFogUniformStd140) == 1152u, "VolumetricFogUniformStd140 must equal 1152 bytes.");
+static_assert(sizeof(VolumetricFogUniformStd140) == 768u, "VolumetricFogUniformStd140 must equal 768 bytes.");
 
 struct GpuMoonDescriptorStd140
 {
@@ -172,30 +166,6 @@ struct GpuRawStarSpecStd140
 
 static_assert(sizeof(GpuRawStarSpecStd140) == 32u, "GpuRawStarSpecStd140 must equal 32 bytes.");
 
-struct FluidEmissiveLightStd140
-{
-    float PositionRadius[4]  {};
-    float ColorIrradiance[4] {};
-};
-
-struct FluidRenderUniformStd140
-{
-    float                    HeroBoxMinFade[4]   {};
-    float                    HeroBoxMaxRes[4]    {};
-    float                    WorldCenterSpan[4]  {};
-    float                    SunDirRaySteps[4]   {};
-    float                    SolarIrradiance[4]  {};
-    float                    SkyRadiance[4]      {};
-    float                    ShadingCore[4]      {};
-    float                    ShadingScatter[4]   {};
-    float                    ShadingMode[4]      {};
-    float                    CrossSectionCfg[4]  {};
-    float                    ShockwaveCenter[4]  {};
-    FluidEmissiveLightStd140 EmissiveLights[8]   {};
-};
-
-static_assert(sizeof(FluidRenderUniformStd140) == 432u, "FluidRenderUniformStd140 must equal 432 bytes.");
-
 struct WorldViewportUniformBlockStd140
 {
     float                        CameraOriginTanX[4]        {};
@@ -221,10 +191,9 @@ struct WorldViewportUniformBlockStd140
     VolumetricFogUniformStd140   FogParams                  {};
     CelestialFieldUniformStd140  CelestialParams            {};
     LensFlareUniformStd140       LensFlareParams            {};
-    FluidRenderUniformStd140     FluidParams                {};
 };
 
-static_assert(sizeof(WorldViewportUniformBlockStd140) == 4048u, "WorldViewportUniformBlockStd140 must equal 4048 bytes.");
+static_assert(sizeof(WorldViewportUniformBlockStd140) == 2912u, "WorldViewportUniformBlockStd140 must equal 2912 bytes.");
 
 struct GpuShadedTriangle96
 {
@@ -350,18 +319,18 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 7:  AtmosphericSkyViewLut
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 8:  LunarSurfaceAtlasTexels
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 9:  BakedLensFlareAtlasTexels
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 10: FluidHeroThermoTexels
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 11: FluidWorldThermoTexels
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 12: GBufPosMask
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 13: GBufNormAo
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 14: GBufDirectBase
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 15: GBufSunContrib
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 16: GBufAlbedo
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 17: PingShadowAo
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 18: PongShadowAo
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 19: CloudRadiometricBuffer
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 20: ProjectedCatalogStars
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 21: StellarTileBins
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 10: GBufPosMask
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 11: GBufNormAo
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 12: GBufDirectBase
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 13: GBufSunContrib
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 14: GBufAlbedo
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 15: PingShadowAo
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 16: PongShadowAo
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 17: CloudRadiometricBuffer
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 18: ProjectedCatalogStars
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 19: StellarTileBins
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 20: PlanetaryCloudNoise
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // 21: RawCatalogStars
     }};
 
     const std::filesystem::path ShaderBinaryPath = CompiledShaderDirectory / "WorldViewportRadiometricCompute.comp.spv";
@@ -485,6 +454,10 @@ bool VulkanWorldRenderSequence::InitializeSequence(
             Dst.ColorSeed[3] = std::fmod(static_cast<float>(I) * 0.61803398875f, 1.0f);
             RawStars.push_back(Dst);
         }
+        std::sort(RawStars.begin(), RawStars.end(), [](const GpuRawStarSpecStd140& A, const GpuRawStarSpecStd140& B)
+        {
+            return A.EqDirMag[3] < B.EqDirMag[3];
+        });
         UploadedCatalogStarCount = static_cast<uint32_t>(RawStars.size());
         const uint64_t RawBytes  = std::max<uint64_t>(32ull, static_cast<uint64_t>(RawStars.size()) * sizeof(GpuRawStarSpecStd140));
         if (!RawStars.empty())
@@ -498,6 +471,19 @@ bool VulkanWorldRenderSequence::InitializeSequence(
         }
         EnsureDeviceBufferCapacity(ProjectedCatalogStarBuffer, RawBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         EnsureDeviceBufferCapacity(StellarTileBinsBuffer, 4096ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    }
+    {
+        const auto& NoiseTexels = CondensateNoise::QueryTexels();
+        const uint64_t NoiseBytes = std::max<uint64_t>(4ull, static_cast<uint64_t>(NoiseTexels.size()) * sizeof(uint32_t));
+        if (!NoiseTexels.empty())
+        {
+            UploadToDeviceBuffer(PlanetaryCloudNoiseBuffer, NoiseTexels.data(), NoiseBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        }
+        else
+        {
+            const uint32_t Zero = 0u;
+            UploadToDeviceBuffer(PlanetaryCloudNoiseBuffer, &Zero, sizeof(Zero), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        }
     }
     constexpr uint64_t SkyLutBytes = static_cast<uint64_t>(AtmosphericSkySequence::TotalPackedLutTexels) * sizeof(float) * 4ull;
     EnsureDeviceBufferCapacity(AtmosphericSkyViewLutBuffer, SkyLutBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
@@ -574,8 +560,6 @@ void VulkanWorldRenderSequence::TeardownSequence() noexcept
         BoundDevice->ReleaseBuffer(AtmosphericSkyViewLutBuffer);
         BoundDevice->ReleaseBuffer(LunarSurfaceAtlasBuffer);
         BoundDevice->ReleaseBuffer(BakedLensFlareAtlasBuffer);
-        BoundDevice->ReleaseBuffer(FluidHeroThermoBuffer);
-        BoundDevice->ReleaseBuffer(FluidWorldThermoBuffer);
         BoundDevice->ReleaseBuffer(GBufPosMaskBuffer);
         BoundDevice->ReleaseBuffer(GBufNormAoBuffer);
         BoundDevice->ReleaseBuffer(GBufDirectBaseBuffer);
@@ -584,6 +568,7 @@ void VulkanWorldRenderSequence::TeardownSequence() noexcept
         BoundDevice->ReleaseBuffer(PingShadowAoBuffer);
         BoundDevice->ReleaseBuffer(PongShadowAoBuffer);
         BoundDevice->ReleaseBuffer(CloudRadiometricBuffer);
+        BoundDevice->ReleaseBuffer(PlanetaryCloudNoiseBuffer);
         BoundDevice->ReleaseBuffer(RawCatalogStarBuffer);
         BoundDevice->ReleaseBuffer(ProjectedCatalogStarBuffer);
         BoundDevice->ReleaseBuffer(StellarTileBinsBuffer);
@@ -815,8 +800,6 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(const WorldSceneSpeci
 
     EnsureDeviceBufferCapacity(OutputPixelBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(AccumulationHdrBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    EnsureDeviceBufferCapacity(FluidHeroThermoBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    EnsureDeviceBufferCapacity(FluidWorldThermoBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(GBufPosMaskBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(GBufNormAoBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     EnsureDeviceBufferCapacity(GBufDirectBaseBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
@@ -902,18 +885,18 @@ bool VulkanWorldRenderSequence::DispatchGpuScenePrecompute(const WorldSceneSpeci
         {  7u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, AtmosphericSkyViewLutBuffer.BufferHandle,VK_WHOLE_SIZE },
         {  8u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, LunarSurfaceAtlasBuffer.BufferHandle,    VK_WHOLE_SIZE },
         {  9u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, BakedLensFlareAtlasBuffer.BufferHandle,  VK_WHOLE_SIZE },
-        { 10u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, FluidHeroThermoBuffer.BufferHandle,      VK_WHOLE_SIZE },
-        { 11u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, FluidWorldThermoBuffer.BufferHandle,     VK_WHOLE_SIZE },
-        { 12u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufPosMaskBuffer.BufferHandle,          VK_WHOLE_SIZE },
-        { 13u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufNormAoBuffer.BufferHandle,           VK_WHOLE_SIZE },
-        { 14u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufDirectBaseBuffer.BufferHandle,       VK_WHOLE_SIZE },
-        { 15u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufSunContribBuffer.BufferHandle,       VK_WHOLE_SIZE },
-        { 16u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufAlbedoBuffer.BufferHandle,           VK_WHOLE_SIZE },
-        { 17u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, PingShadowAoBuffer.BufferHandle,         VK_WHOLE_SIZE },
-        { 18u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, PongShadowAoBuffer.BufferHandle,         VK_WHOLE_SIZE },
-        { 19u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, CloudRadiometricBuffer.BufferHandle,     VK_WHOLE_SIZE },
-        { 20u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ProjectedCatalogStarBuffer.BufferHandle, VK_WHOLE_SIZE },
-        { 21u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, StellarTileBinsBuffer.BufferHandle,      VK_WHOLE_SIZE },
+        { 10u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufPosMaskBuffer.BufferHandle,          VK_WHOLE_SIZE },
+        { 11u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufNormAoBuffer.BufferHandle,           VK_WHOLE_SIZE },
+        { 12u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufDirectBaseBuffer.BufferHandle,       VK_WHOLE_SIZE },
+        { 13u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufSunContribBuffer.BufferHandle,       VK_WHOLE_SIZE },
+        { 14u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufAlbedoBuffer.BufferHandle,           VK_WHOLE_SIZE },
+        { 15u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, PingShadowAoBuffer.BufferHandle,         VK_WHOLE_SIZE },
+        { 16u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, PongShadowAoBuffer.BufferHandle,         VK_WHOLE_SIZE },
+        { 17u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, CloudRadiometricBuffer.BufferHandle,     VK_WHOLE_SIZE },
+        { 18u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ProjectedCatalogStarBuffer.BufferHandle, VK_WHOLE_SIZE },
+        { 19u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, StellarTileBinsBuffer.BufferHandle,      VK_WHOLE_SIZE },
+        { 20u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, PlanetaryCloudNoiseBuffer.BufferHandle,  VK_WHOLE_SIZE },
+        { 21u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, RawCatalogStarBuffer.BufferHandle,       VK_WHOLE_SIZE },
     }};
 
     DispatchEncoder.ResetTransientDescriptors();
@@ -1457,9 +1440,11 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     const auto StartClock = std::chrono::steady_clock::now();
     LastViewportTiming = {};
 
-    const uint32_t WidthPx  = std::max(1u, Camera.ViewportWidthPx);
-    const uint32_t HeightPx = std::max(1u, Camera.ViewportHeightPx);
-    const float    CloudScale = std::clamp(Scene.Atmosphere.Clouds.CloudRenderScale, 0.25f, 1.0f);
+    const uint32_t WidthPx    = std::max(1u, Camera.ViewportWidthPx);
+    const uint32_t HeightPx   = std::max(1u, Camera.ViewportHeightPx);
+    const bool     IsHwGpu    = QueryHardwareGpuActive();
+    const float    MaxScale   = IsHwGpu ? 1.0f : 0.45f;
+    const float    CloudScale = std::clamp(Scene.Atmosphere.Clouds.CloudRenderScale, 0.25f, MaxScale);
     const uint32_t CloudW     = std::max(1u, static_cast<uint32_t>(std::lround(static_cast<float>(WidthPx)  * CloudScale)));
     const uint32_t CloudH     = std::max(1u, static_cast<uint32_t>(std::lround(static_cast<float>(HeightPx) * CloudScale)));
     const uint64_t OutBytes   = static_cast<uint64_t>(WidthPx) * HeightPx * 4ull;
@@ -1670,9 +1655,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
                 Deck.WindSource,
                 { 0.0f, 0.0f, Deck.CloudFloorMeters },
                 Deck.CloudFloorMeters,
-                Atmo.SimulationSeconds,
-                Atmo.ForceFieldSource,
-                Atmo.WindLatticeCascade);
+                Atmo.SimulationSeconds);
         }
 
         auto& C = Uniforms.CloudParams;
@@ -1725,55 +1708,39 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
         C.CloudShadowOptics[3]   = Deck.CloudShadow.ShadowAnvil;
         C.CloudPassControl[0]    = (AtmoActive && Deck.CloudsEnabled) ? static_cast<float>(CloudW) : 0.0f;
         C.CloudPassControl[1]    = (AtmoActive && Deck.CloudsEnabled) ? static_cast<float>(CloudH) : 0.0f;
-        C.CloudPassControl[2]    = static_cast<float>(std::clamp(Deck.CloudMarchSteps, 12u, 96u));
+        const uint32_t EffSteps  = IsHwGpu
+            ? std::clamp(std::max(Deck.CloudMarchSteps, 48u), 32u, 128u)
+            : std::clamp(Deck.CloudMarchSteps, 18u, 28u);
+        C.CloudPassControl[2]    = static_cast<float>(EffSteps);
 
         const auto BaseCloudWind = AtmosphericWindSolver::ResolveWindSample(
             Atmo.Wind, Deck.WindSpeedMetersPerSecond, Deck.WindBearingDegrees,
             Deck.WindSource, { 0.0f, 0.0f, Deck.CloudFloorMeters }, Deck.CloudFloorMeters,
-            Atmo.SimulationSeconds, nullptr, nullptr);
-        uint32_t CloudProbeCount = 0u;
-        float CouplingScaleH = 1600.0f;
-        if (Atmo.ForceFieldSource != nullptr)
-        {
-            const auto Sources = Atmo.ForceFieldSource->QuerySources();
-            bool HasSolo = false;
-            for (const auto& Src : Sources)
-            {
-                if (Src.Enabled && Src.Solo) { HasSolo = true; break; }
-            }
-            for (const auto& Src : Sources)
-            {
-                if (!Src.Enabled || !Src.WindField.DrivesAtmosphereAndClouds ||
-                    (HasSolo && !Src.Solo) || CloudProbeCount >= 8u)
-                {
-                    continue;
-                }
-                const float YawR   = Src.EulerDegrees.Z * Constants::DegToRadFloat;
-                const float PitchR = Src.EulerDegrees.Y * Constants::DegToRadFloat;
-                const float FwdX   = std::cos(YawR) * std::cos(PitchR);
-                const float FwdY   = std::sin(YawR) * std::cos(PitchR);
-                const float FwdZ   = -std::sin(PitchR);
-                CouplingScaleH = std::max(CouplingScaleH, Src.WindField.CouplingScaleHeightMeters);
-                auto& Pr = C.WindProbes[CloudProbeCount++];
-                Pr.PosRadius[0]       = Src.EvaluatedCentreMeters.X;
-                Pr.PosRadius[1]       = Src.EvaluatedCentreMeters.Y;
-                Pr.PosRadius[2]       = Src.EvaluatedCentreMeters.Z;
-                Pr.PosRadius[3]       = Src.RadiusMeters;
-                Pr.ForwardStrength[0] = FwdX;
-                Pr.ForwardStrength[1] = FwdY;
-                Pr.ForwardStrength[2] = FwdZ;
-                Pr.ForwardStrength[3] = Src.Strength;
-                Pr.Params[0]          = static_cast<float>(static_cast<uint32_t>(Src.Model));
-                Pr.Params[1]          = Src.SwirlRatio;
-                Pr.Params[2]          = Src.CoreRadiusMeters;
-                Pr.Params[3]          = Src.WindField.CloudAdvectionGain;
-            }
-        }
-        C.CloudPassControl[3] = static_cast<float>(CloudProbeCount);
-        C.WindForceMeta[0]    = CouplingScaleH;
+            Atmo.SimulationSeconds);
+        C.CloudPassControl[3] = Basis.TanHalfFovY;
+        C.WindForceMeta[0]    = 1600.0f;
         C.WindForceMeta[1]    = BaseCloudWind.VelocityMetersPerSec.X;
         C.WindForceMeta[2]    = BaseCloudWind.VelocityMetersPerSec.Y;
         C.WindForceMeta[3]    = Atmo.Medium.ObserverAltitudeMeters;
+
+        const float CloudSolarScale = std::max(0.0f, Atmo.Solar.SolarIntensityMultiplier * Atmo.Medium.SkyBrightnessMultiplier * 0.72f);
+        C.CloudToaSolarIrrad[0] = SolarSolved.EffectiveSolarTint.R * CloudSolarScale;
+        C.CloudToaSolarIrrad[1] = SolarSolved.EffectiveSolarTint.G * CloudSolarScale;
+        C.CloudToaSolarIrrad[2] = SolarSolved.EffectiveSolarTint.B * CloudSolarScale;
+        C.CloudToaSolarIrrad[3] = 0.04f;
+        const float AmbGain     = CloudSolarScale / 16.0f;
+        C.CloudSkyAmbient[0]    = 0.37f * AmbGain * Atmo.Medium.SkyTint.R;
+        C.CloudSkyAmbient[1]    = 0.46f * AmbGain * Atmo.Medium.SkyTint.G;
+        C.CloudSkyAmbient[2]    = 0.62f * AmbGain * Atmo.Medium.SkyTint.B;
+        C.CloudSkyAmbient[3]    = IsHwGpu ? 8.0f : 4.0f;
+        C.CloudAtmoStrengths[0] = Atmo.Medium.RayleighStrength;
+        C.CloudAtmoStrengths[1] = Atmo.Medium.MieStrength;
+        C.CloudAtmoStrengths[2] = Atmo.Medium.OzoneStrength;
+        C.CloudAtmoStrengths[3] = Atmo.Medium.AtmosphereThicknessMeters;
+        C.CloudAirScalesCyclone[0] = Atmo.Medium.RayleighScaleHeightMeters;
+        C.CloudAirScalesCyclone[1] = Atmo.Medium.MieScaleHeightMeters;
+        C.CloudAirScalesCyclone[2] = 28.0f;
+        C.CloudAirScalesCyclone[3] = 22000.0f;
 
         uint32_t LocalCloudCount = 0u;
         auto PackLocalCloud = [&](const BoundedCloudVolume& Vol)
@@ -1786,7 +1753,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
                 ? AtmosphericWindSolver::ResolveWindSample(
                       Atmo.Wind, Deck.WindSpeedMetersPerSecond, Deck.WindBearingDegrees,
                       Vol.WindSource, Vol.VolumeCenterMeters, Vol.VolumeCenterMeters.Z,
-                      Atmo.SimulationSeconds, Atmo.ForceFieldSource, Atmo.WindLatticeCascade)
+                      Atmo.SimulationSeconds)
                 : ResolvedWindSample {};
             auto& Dst = C.LocalClouds[LocalCloudCount++];
             Dst.CenterShape[0]          = Vol.VolumeCenterMeters.X;
@@ -1839,7 +1806,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
             ? AtmosphericWindSolver::ResolveWindSample(
                   Atmo.Wind, Deck.WindSpeedMetersPerSecond, Deck.WindBearingDegrees,
                   Fg.HeightFog.WindSource, Camera.CameraOrigin, Fg.HeightFog.BaseAltitudeMeters,
-                  Atmo.SimulationSeconds, Atmo.ForceFieldSource, Atmo.WindLatticeCascade)
+                  Atmo.SimulationSeconds)
             : ResolvedWindSample {};
         F.FogWindClock[0] = Fg.HeightFog.FollowWind ? 1.0f : 0.0f;
         F.FogWindClock[1] = HeightWind.VelocityMetersPerSec.X;
@@ -1857,7 +1824,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
                 ? AtmosphericWindSolver::ResolveWindSample(
                       Atmo.Wind, Deck.WindSpeedMetersPerSecond, Deck.WindBearingDegrees,
                       Vol.WindSource, Vol.VolumeCenterMeters, Vol.VolumeCenterMeters.Z,
-                      Atmo.SimulationSeconds, Atmo.ForceFieldSource, Atmo.WindLatticeCascade)
+                      Atmo.SimulationSeconds)
                 : ResolvedWindSample {};
             auto& Dst = F.LocalFogs[LocalFogCount++];
             Dst.CenterShape[0]          = Vol.VolumeCenterMeters.X;
@@ -1881,42 +1848,10 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
             Dst.TintAniso[2]            = Vol.FogTint.B;
             Dst.TintAniso[3]            = Vol.AnisotropyG;
         }
-        uint32_t ForceProbeCount = 0u;
-        if (Atmo.ForceFieldSource != nullptr)
-        {
-            const auto Sources = Atmo.ForceFieldSource->QuerySources();
-            bool HasSolo = false;
-            for (const auto& Src : Sources)
-            {
-                if (Src.Enabled && Src.Solo) { HasSolo = true; break; }
-            }
-            for (const auto& Src : Sources)
-            {
-                if (!Src.Enabled || (HasSolo && !Src.Solo) || ForceProbeCount >= 8u) continue;
-                const float YawR   = Src.EulerDegrees.Z * Constants::DegToRadFloat;
-                const float PitchR = Src.EulerDegrees.Y * Constants::DegToRadFloat;
-                const float FwdX   = std::cos(YawR) * std::cos(PitchR);
-                const float FwdY   = std::sin(YawR) * std::cos(PitchR);
-                const float FwdZ   = -std::sin(PitchR);
-                auto& Pr = F.ForceProbes[ForceProbeCount++];
-                Pr.PosRadius[0]       = Src.EvaluatedCentreMeters.X;
-                Pr.PosRadius[1]       = Src.EvaluatedCentreMeters.Y;
-                Pr.PosRadius[2]       = Src.EvaluatedCentreMeters.Z;
-                Pr.PosRadius[3]       = Src.RadiusMeters;
-                Pr.ForwardStrength[0] = FwdX;
-                Pr.ForwardStrength[1] = FwdY;
-                Pr.ForwardStrength[2] = FwdZ;
-                Pr.ForwardStrength[3] = Src.Strength;
-                Pr.Params[0]          = static_cast<float>(static_cast<uint32_t>(Src.Model));
-                Pr.Params[1]          = Src.SwirlRatio;
-                Pr.Params[2]          = Src.CoreRadiusMeters;
-                Pr.Params[3]          = Src.TurbulenceScaleMeters;
-            }
-        }
         F.FogMeta[0] = static_cast<float>(LocalFogCount);
         F.FogMeta[1] = Fg.AerialFog.ScaleHeightMeters;
         F.FogMeta[2] = (LocalFogCount > 0u) ? Fg.LocalFogs[0].EdgeSoftness : 0.35f;
-        F.FogMeta[3] = static_cast<float>(ForceProbeCount);
+        F.FogMeta[3] = 0.0f;
 
         F.GodRayParams0[0] = Fg.GodRays.Enabled ? 1.0f : 0.0f;
         F.GodRayParams0[1] = Fg.GodRays.Intensity;
@@ -1958,12 +1893,16 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
         const uint32_t ZodiacalQuant = Atmo.Stars.ZodiacalLightEnabled
             ? static_cast<uint32_t>(std::clamp(std::lround(std::max(0.0f, Atmo.Stars.ZodiacalRadianceScale) * 255.0f), 0l, 4095l))
             : 0u;
+        const uint32_t FallbackBrightCnt = Atmo.Stars.EnableBrightStarCatalog
+            ? std::min<uint32_t>(240u, UploadedCatalogStarCount)
+            : 0u;
         const uint32_t AtmoFlags =
             (Atmo.Medium.AtmosphereEnabled ? 1u : 0u) |
             ((Atmo.Medium.OrbitalViewEnabled || (Atmo.Medium.ObserverAltitudeMeters > Atmo.Medium.AtmosphereThicknessMeters)) ? 2u : 0u) |
             (Atmo.Stars.EnableGalacticBand ? 4u : 0u) |
             (Atmo.Stars.ZodiacalLightEnabled ? 8u : 0u) |
-            (ZodiacalQuant << 4u);
+            (ZodiacalQuant << 4u) |
+            ((FallbackBrightCnt & 0xFFu) << 16u);
         Cel.AtmoMediumPack[0] = Atmo.Medium.RayleighStrength;
         Cel.AtmoMediumPack[1] = Atmo.Medium.MieStrength;
         Cel.AtmoMediumPack[2] = Atmo.Medium.OzoneStrength;
@@ -2030,98 +1969,6 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
             LFU.SourceTintAspect[2]  = FlareProj.SourceTint.B;
             LFU.SourceTintAspect[3]  = static_cast<float>(WidthPx) / static_cast<float>(std::max(1u, HeightPx));
         }
-
-        auto& FLU = Uniforms.FluidParams;
-        if (Scene.OptionalFluid != nullptr && Config.DebugChannel == 0u)
-        {
-            const auto& Doc  = Scene.OptionalFluid->InspectDocument();
-            const auto& Hero = Scene.OptionalFluid->InspectHeroGrid();
-            const auto& Wrld = Scene.OptionalFluid->InspectWorldDriftGrid();
-            const auto& Sh   = Doc.Shading;
-            const auto& Gi   = Doc.GiCoupling;
-
-            FLU.HeroBoxMinFade[0]  = Hero.BoxMinWorld.X;
-            FLU.HeroBoxMinFade[1]  = Hero.BoxMinWorld.Y;
-            FLU.HeroBoxMinFade[2]  = Hero.BoxMinWorld.Z;
-            FLU.HeroBoxMinFade[3]  = (Hero.Resolution > 0u) ? 1.0f : 0.0f;
-            FLU.HeroBoxMaxRes[0]   = Hero.BoxMaxWorld.X;
-            FLU.HeroBoxMaxRes[1]   = Hero.BoxMaxWorld.Y;
-            FLU.HeroBoxMaxRes[2]   = Hero.BoxMaxWorld.Z;
-            FLU.HeroBoxMaxRes[3]   = static_cast<float>(Hero.Resolution);
-            FLU.WorldCenterSpan[0] = Wrld.CenterWorld.X;
-            FLU.WorldCenterSpan[1] = Wrld.CenterWorld.Y;
-            FLU.WorldCenterSpan[2] = Wrld.CenterWorld.Z;
-            FLU.WorldCenterSpan[3] = Wrld.SpanMeters;
-            FLU.SunDirRaySteps[0]  = SunDir.X;
-            FLU.SunDirRaySteps[1]  = SunDir.Y;
-            FLU.SunDirRaySteps[2]  = SunDir.Z;
-            FLU.SunDirRaySteps[3]  = static_cast<float>(Sh.RaymarchSteps);
-            FLU.SolarIrradiance[0] = Scene.Sun.SolarIrradiance.R;
-            FLU.SolarIrradiance[1] = Scene.Sun.SolarIrradiance.G;
-            FLU.SolarIrradiance[2] = Scene.Sun.SolarIrradiance.B;
-            FLU.SolarIrradiance[3] = static_cast<float>(Sh.ShadowSteps);
-            FLU.SkyRadiance[0]     = Scene.SkyRadiance.R;
-            FLU.SkyRadiance[1]     = Scene.SkyRadiance.G;
-            FLU.SkyRadiance[2]     = Scene.SkyRadiance.B;
-            FLU.SkyRadiance[3]     = Scene.OptionalFluid->QueryElapsedSeconds();
-            FLU.ShadingCore[0]     = Sh.DensityExtinction;
-            FLU.ShadingCore[1]     = Sh.SmokeAlbedo;
-            FLU.ShadingCore[2]     = Sh.FireIntensity;
-            FLU.ShadingCore[3]     = Sh.TemperatureScale;
-            FLU.ShadingScatter[0]  = Sh.AmbientIntensity;
-            FLU.ShadingScatter[1]  = Sh.PhaseAnisotropy;
-            FLU.ShadingScatter[2]  = Sh.ShadowDensity;
-            FLU.ShadingScatter[3]  = Sh.InternalScattering;
-            FLU.ShadingMode[0]     = static_cast<float>(static_cast<uint32_t>(Sh.ColorPalette));
-            FLU.ShadingMode[1]     = static_cast<float>(static_cast<uint32_t>(Sh.RenderChannel));
-            FLU.ShadingMode[2]     = (Doc.Domain.WorldGridEnabled && Wrld.Resolution > 0u) ? 1.0f : 0.0f;
-            FLU.ShadingMode[3]     = Gi.CastGiShadows ? Gi.GiShadowStrength : 0.0f;
-            FLU.CrossSectionCfg[0] = static_cast<float>(Sh.SliceAxis);
-            FLU.CrossSectionCfg[1] = Sh.SlicePosition;
-            FLU.CrossSectionCfg[2] = Sh.GodRaysIntensity;
-            FLU.CrossSectionCfg[3] = Scene.OptionalFluid->QueryShockwaveAge();
-            FLU.ShockwaveCenter[0] = Scene.OptionalFluid->QueryShockwaveCenter().X;
-            FLU.ShockwaveCenter[1] = Scene.OptionalFluid->QueryShockwaveCenter().Y;
-            FLU.ShockwaveCenter[2] = Scene.OptionalFluid->QueryShockwaveCenter().Z;
-            FLU.ShockwaveCenter[3] = static_cast<float>(Wrld.Resolution);
-
-            const auto& FLights = Scene.OptionalFluid->InspectEmissiveLights();
-            for (uint32_t FI = 0u; FI < 8u; ++FI)
-            {
-                if (FI < FLights.size())
-                {
-                    FLU.EmissiveLights[FI].PositionRadius[0]  = FLights[FI].WorldPosition.X;
-                    FLU.EmissiveLights[FI].PositionRadius[1]  = FLights[FI].WorldPosition.Y;
-                    FLU.EmissiveLights[FI].PositionRadius[2]  = FLights[FI].WorldPosition.Z;
-                    FLU.EmissiveLights[FI].PositionRadius[3]  = FLights[FI].RadiusMeters;
-                    FLU.EmissiveLights[FI].ColorIrradiance[0] = FLights[FI].ColorIrradiance.R;
-                    FLU.EmissiveLights[FI].ColorIrradiance[1] = FLights[FI].ColorIrradiance.G;
-                    FLU.EmissiveLights[FI].ColorIrradiance[2] = FLights[FI].ColorIrradiance.B;
-                    FLU.EmissiveLights[FI].ColorIrradiance[3] = 1.0f;
-                }
-            }
-
-            const auto& HeroTh = Hero.Thermo[Hero.ReadIdx()];
-            const uint64_t HeroBytes = std::max<uint64_t>(16ull, static_cast<uint64_t>(HeroTh.size() * sizeof(SimulationSpace::FluidSpace::FluidVoxelSample4)));
-            EnsureBufferCapacity(FluidHeroThermoBuffer, HeroBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            if (FluidHeroThermoBuffer.HostAddress != nullptr && !HeroTh.empty())
-            {
-                std::memcpy(FluidHeroThermoBuffer.HostAddress, HeroTh.data(), HeroTh.size() * sizeof(SimulationSpace::FluidSpace::FluidVoxelSample4));
-            }
-
-            const uint64_t WorldBytes = std::max<uint64_t>(16ull, static_cast<uint64_t>(Wrld.Thermo.size() * sizeof(SimulationSpace::FluidSpace::FluidVoxelSample4)));
-            EnsureBufferCapacity(FluidWorldThermoBuffer, WorldBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            if (FluidWorldThermoBuffer.HostAddress != nullptr && !Wrld.Thermo.empty())
-            {
-                std::memcpy(FluidWorldThermoBuffer.HostAddress, Wrld.Thermo.data(), Wrld.Thermo.size() * sizeof(SimulationSpace::FluidSpace::FluidVoxelSample4));
-            }
-        }
-        else
-        {
-            FLU.HeroBoxMinFade[3] = 0.0f;
-            EnsureDeviceBufferCapacity(FluidHeroThermoBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            EnsureDeviceBufferCapacity(FluidWorldThermoBuffer, 64ull, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-        }
     }
 
     constexpr uint64_t UniformStrideBytes = 8192ull;
@@ -2176,19 +2023,38 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
             {  7u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, AtmosphericSkyViewLutBuffer.BufferHandle,VK_WHOLE_SIZE },
             {  8u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, LunarSurfaceAtlasBuffer.BufferHandle,    VK_WHOLE_SIZE },
             {  9u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, BakedLensFlareAtlasBuffer.BufferHandle,  VK_WHOLE_SIZE },
-            { 10u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, FluidHeroThermoBuffer.BufferHandle,      VK_WHOLE_SIZE },
-            { 11u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, FluidWorldThermoBuffer.BufferHandle,     VK_WHOLE_SIZE },
-            { 12u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufPosMaskBuffer.BufferHandle,          AccBytes      },
-            { 13u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufNormAoBuffer.BufferHandle,           AccBytes      },
-            { 14u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufDirectBaseBuffer.BufferHandle,       AccBytes      },
-            { 15u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufSunContribBuffer.BufferHandle,       AccBytes      },
-            { 16u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufAlbedoBuffer.BufferHandle,           AccBytes      },
-            { 17u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, InShadow.BufferHandle,                   AccBytes      },
-            { 18u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, OutShadow.BufferHandle,                  AccBytes      },
-            { 19u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, CloudRadiometricBuffer.BufferHandle,     CloudBytes    },
-            { 20u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ProjectedCatalogStarBuffer.BufferHandle, VK_WHOLE_SIZE },
-            { 21u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, StellarTileBinsBuffer.BufferHandle,      VK_WHOLE_SIZE },
+            { 10u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufPosMaskBuffer.BufferHandle,          AccBytes      },
+            { 11u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufNormAoBuffer.BufferHandle,           AccBytes      },
+            { 12u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufDirectBaseBuffer.BufferHandle,       AccBytes      },
+            { 13u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufSunContribBuffer.BufferHandle,       AccBytes      },
+            { 14u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GBufAlbedoBuffer.BufferHandle,           AccBytes      },
+            { 15u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, InShadow.BufferHandle,                   AccBytes      },
+            { 16u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, OutShadow.BufferHandle,                  AccBytes      },
+            { 17u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, CloudRadiometricBuffer.BufferHandle,     CloudBytes    },
+            { 18u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ProjectedCatalogStarBuffer.BufferHandle, VK_WHOLE_SIZE },
+            { 19u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, StellarTileBinsBuffer.BufferHandle,      VK_WHOLE_SIZE },
+            { 20u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, PlanetaryCloudNoiseBuffer.BufferHandle,  VK_WHOLE_SIZE },
+            { 21u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, RawCatalogStarBuffer.BufferHandle,       VK_WHOLE_SIZE },
         }};
+    };
+
+    auto InsertComputeSyncBarrier = [&]()
+    {
+        VkMemoryBarrier Barrier {};
+        Barrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        Barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        Barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        vkCmdPipelineBarrier(
+            Cmd,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0u,
+            1u,
+            &Barrier,
+            0u,
+            nullptr,
+            0u,
+            nullptr);
     };
 
     const uint32_t CloudGroupsX = (CloudW   + 7u) / 8u;
@@ -2203,6 +2069,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
         {
             return false;
         }
+        InsertComputeSyncBarrier();
     }
     WriteStamp(3u, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
@@ -2211,6 +2078,7 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
     {
         return false;
     }
+    InsertComputeSyncBarrier();
     WriteStamp(5u, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
     const uint32_t EngIdx = static_cast<uint32_t>(Config.Engine);
@@ -2234,6 +2102,10 @@ bool VulkanWorldRenderSequence::ExecuteWorldRenderDispatch(
             if (!DispatchEncoder.EncodeComputeDispatch(Cmd, DenoiseProgramHandle, PassSlots, GroupsX, GroupsY, 1u))
             {
                 return false;
+            }
+            if (Pass + 1u < 3u)
+            {
+                InsertComputeSyncBarrier();
             }
         }
     }

@@ -174,16 +174,6 @@ void BuildSequenceBlocks(
             ActionTitle = "Assign Camera";
             DetailLine  = "Optics viewpoint";
         }
-        else if (H.Category == ComponentClass::ComponentCategory::ParticleInstance)
-        {
-            ActionTitle = "Assign Particle";
-            DetailLine  = "GPU Particle effect";
-        }
-        else if (H.Category == ComponentClass::ComponentCategory::FluidInstance)
-        {
-            ActionTitle = "Assign Fluid";
-            DetailLine  = "Eulerian volume";
-        }
 
         const uint32_t CallId = NextId++;
         const uint32_t ChipId = NextId++;

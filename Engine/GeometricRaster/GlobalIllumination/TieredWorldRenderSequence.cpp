@@ -203,35 +203,70 @@ struct CpuDownsampledCloudField
 
         SolarCelestialConfiguration SpaceScatteringConfig = Atmo.Solar;
         SpaceScatteringConfig.SolarEnabled = false;
+        Mathematics::LinearRGB SpaceTrans { 1.0f, 1.0f, 1.0f };
         const auto OrbitalRad = AtmosphericSkySequence::EvaluateOrbitalSpaceRadiance(
             RayOrigin, RayDir, SolarSolved.WorldDirectionToSun, SpaceScatteringConfig, Atmo.Medium,
-            Atmo.Clouds.CloudsEnabled, Atmo.Clouds.CloudFraction, Atmo.SimulationSeconds, Atmo.ForceFieldSource);
+            Atmo.Clouds.CloudsEnabled, Atmo.Clouds.CloudFraction, Atmo.SimulationSeconds, &Atmo.Clouds, &SpaceTrans);
 
         if (HitsPlanet)
         {
             return OrbitalRad;
         }
 
+        Mathematics::LinearRGB MoonOccT { 1.0f, 1.0f, 1.0f };
+        const auto MoonStarRad = LunarStarfieldSequence::EvaluateCelestialField(
+            RayDir, SolarSolved.WorldDirectionToSun, Atmo.Moons, Atmo.Stars, Atmo.SimulationSeconds, &Atmo.Medium, {}, PixelAngularSizeRad, &MoonOccT);
+        float GlareEclipseVis = 1.0f;
+        const float SunR = std::max(0.0008f, Atmo.Solar.AngularDiameterDegrees * 0.5f * Constants::DegToRadFloat);
+        for (std::size_t MIdx = 0u; MIdx < std::min<std::size_t>(Atmo.Moons.size(), LunarStarfieldSequence::MaxMoonSlots); ++MIdx)
+        {
+            if (!Atmo.Moons[MIdx].Visible) continue;
+            const auto MDir = LunarStarfieldSequence::ResolveMoonWorldDirection(Atmo.Moons[MIdx], SolarSolved.WorldDirectionToSun);
+            const float AngR = std::max(0.001f, Atmo.Moons[MIdx].AngularDiameterDegrees * 0.5f * Constants::DegToRadFloat);
+            const float Sep  = std::acos(std::clamp(Mathematics::EvaluateDot(SolarSolved.WorldDirectionToSun, MDir), -1.0f, 1.0f));
+            if (Sep < AngR + SunR)
+            {
+                const float AreaR = std::min(1.0f, (AngR * AngR) / std::max(1.0e-8f, SunR * SunR));
+                const float T     = std::clamp((Sep - std::max(0.0f, AngR - SunR)) / std::max(1.0e-5f, 2.0f * std::min(AngR, SunR)), 0.0f, 1.0f);
+                const float Ovl   = 1.0f - T * T * (3.0f - 2.0f * T);
+                GlareEclipseVis  *= std::clamp(1.0f - Ovl * AreaR, 0.0f, 1.0f);
+            }
+        }
         const auto SunRad = AtmosphericSkySequence::EvaluateSolarCoronaRadiance(
             RayDir, SolarSolved.WorldDirectionToSun, Atmo.Solar, { 1.0f, 1.0f, 1.0f }, SolarSolved.EffectiveSolarTint, true,
-            &Atmo.Medium, PixelAngularSizeRad);
-        const auto MoonStarRad = LunarStarfieldSequence::EvaluateCelestialField(
-            RayDir, SolarSolved.WorldDirectionToSun, Atmo.Moons, Atmo.Stars, Atmo.SimulationSeconds, &Atmo.Medium, {}, PixelAngularSizeRad);
+            &Atmo.Medium, PixelAngularSizeRad, MoonOccT, GlareEclipseVis);
         return {
-            OrbitalRad.R + SunRad.R + MoonStarRad.R,
-            OrbitalRad.G + SunRad.G + MoonStarRad.G,
-            OrbitalRad.B + SunRad.B + MoonStarRad.B,
+            OrbitalRad.R + (SunRad.R + MoonStarRad.R) * SpaceTrans.R,
+            OrbitalRad.G + (SunRad.G + MoonStarRad.G) * SpaceTrans.G,
+            OrbitalRad.B + (SunRad.B + MoonStarRad.B) * SpaceTrans.B,
         };
     }
 
-    const auto SolarTrans  = AtmosphericSkySequence::ComputeSolarTransmittance(
+    const auto SolarTrans = AtmosphericSkySequence::ComputeSolarTransmittance(
         SolarSolved.WorldDirectionToSun, Atmo.Medium, Atmo.Medium.ObserverAltitudeMeters);
-    const auto SkyRad      = SkySeq.SampleSkyViewDirection(RayDir);
-    const auto SunRad      = AtmosphericSkySequence::EvaluateSolarCoronaRadiance(
-        RayDir, SolarSolved.WorldDirectionToSun, Atmo.Solar, SolarTrans, SolarSolved.EffectiveSolarTint, false,
-        &Atmo.Medium, PixelAngularSizeRad);
+    const auto SkyRad = SkySeq.SampleSkyViewDirection(RayDir);
+    Mathematics::LinearRGB MoonOccT { 1.0f, 1.0f, 1.0f };
     const auto MoonStarRad = LunarStarfieldSequence::EvaluateCelestialField(
-        RayDir, SolarSolved.WorldDirectionToSun, Atmo.Moons, Atmo.Stars, Atmo.SimulationSeconds, &Atmo.Medium, {}, PixelAngularSizeRad);
+        RayDir, SolarSolved.WorldDirectionToSun, Atmo.Moons, Atmo.Stars, Atmo.SimulationSeconds, &Atmo.Medium, {}, PixelAngularSizeRad, &MoonOccT);
+    float GlareEclipseVis = 1.0f;
+    const float SunR = std::max(0.0008f, Atmo.Solar.AngularDiameterDegrees * 0.5f * Constants::DegToRadFloat);
+    for (std::size_t MIdx = 0u; MIdx < std::min<std::size_t>(Atmo.Moons.size(), LunarStarfieldSequence::MaxMoonSlots); ++MIdx)
+    {
+        if (!Atmo.Moons[MIdx].Visible) continue;
+        const auto MDir = LunarStarfieldSequence::ResolveMoonWorldDirection(Atmo.Moons[MIdx], SolarSolved.WorldDirectionToSun);
+        const float AngR = std::max(0.001f, Atmo.Moons[MIdx].AngularDiameterDegrees * 0.5f * Constants::DegToRadFloat);
+        const float Sep  = std::acos(std::clamp(Mathematics::EvaluateDot(SolarSolved.WorldDirectionToSun, MDir), -1.0f, 1.0f));
+        if (Sep < AngR + SunR)
+        {
+            const float AreaR = std::min(1.0f, (AngR * AngR) / std::max(1.0e-8f, SunR * SunR));
+            const float T     = std::clamp((Sep - std::max(0.0f, AngR - SunR)) / std::max(1.0e-5f, 2.0f * std::min(AngR, SunR)), 0.0f, 1.0f);
+            const float Ovl   = 1.0f - T * T * (3.0f - 2.0f * T);
+            GlareEclipseVis  *= std::clamp(1.0f - Ovl * AreaR, 0.0f, 1.0f);
+        }
+    }
+    const auto SunRad = AtmosphericSkySequence::EvaluateSolarCoronaRadiance(
+        RayDir, SolarSolved.WorldDirectionToSun, Atmo.Solar, SolarTrans, SolarSolved.EffectiveSolarTint, false,
+        &Atmo.Medium, PixelAngularSizeRad, MoonOccT, GlareEclipseVis);
 
     float CloudTrans = 1.0f;
     Mathematics::LinearRGB CloudRad {};
@@ -300,55 +335,6 @@ struct CpuDownsampledCloudField
         Mat.Diffuse.BaseColor.G * (StudioL * DiffW + KeySpec * SpecGain * Metal) + KeySpec * SpecGain * (1.0f - Metal) + RimGlow * 0.28f + Emissive.G,
         Mat.Diffuse.BaseColor.B * (StudioL * DiffW + KeySpec * SpecGain * Metal) + KeySpec * SpecGain * (1.0f - Metal) + RimGlow * 0.32f + Emissive.B,
     };
-}
-
-[[nodiscard]] Mathematics::LinearRGB EvaluateFluidEmissiveOnSurface(
-    const WorldSceneSpecification&        Scene,
-    const Mathematics::Axis3D&            HitPos,
-    const Mathematics::Axis3D&            Normal,
-    const Mathematics::Axis3D&            ViewDir,
-    uint16_t                              MaterialSlot,
-    const MaterialSpace::SurfaceMaterial& Mat) noexcept
-{
-    Mathematics::LinearRGB Sum {};
-    if (Scene.OptionalFluid == nullptr) return Sum;
-    const auto& Lights = Scene.OptionalFluid->InspectEmissiveLights();
-    if (Lights.empty()) return Sum;
-
-    const uint32_t Lobes = Scene.MaterialRegister.InspectCompactEntry(MaterialSlot).ActiveLobeMask;
-    const auto WorldToLocal = [&](const Mathematics::Axis3D& W) noexcept -> Mathematics::Axis3D
-    {
-        Mathematics::Axis3D T {}, B {};
-        if (std::abs(Normal.Z) < 0.999f)
-        {
-            T = Mathematics::NormalizeAxis(Mathematics::EvaluateCross({ 0.0f, 0.0f, 1.0f }, Normal));
-        }
-        else
-        {
-            T = { 1.0f, 0.0f, 0.0f };
-        }
-        B = Mathematics::EvaluateCross(Normal, T);
-        return { Mathematics::EvaluateDot(W, T), Mathematics::EvaluateDot(W, B), Mathematics::EvaluateDot(W, Normal) };
-    };
-    const auto LocalWo = WorldToLocal(ViewDir);
-
-    for (const auto& L : Lights)
-    {
-        const Mathematics::Axis3D ToL = L.WorldPosition - HitPos;
-        const float Dist2 = std::max(0.08f, Mathematics::EvaluateDot(ToL, ToL) + L.RadiusMeters * L.RadiusMeters * 0.35f);
-        const float Dist  = std::sqrt(Dist2);
-        const Mathematics::Axis3D Wi = ToL * (1.0f / Dist);
-        const float NdotL = Mathematics::EvaluateDot(Normal, Wi);
-        if (NdotL <= 1.0e-4f) continue;
-
-        const auto LocalWi = WorldToLocal(Wi);
-        const auto Bsdf = MaterialSpace::Scattering::EvaluateOpenPbrLocalBsdf(Mat, Lobes, LocalWo, LocalWi);
-        const float Atten = NdotL / (4.0f * Constants::PiFloat * Dist2);
-        Sum.R += Bsdf.R * L.ColorIrradiance.R * Atten;
-        Sum.G += Bsdf.G * L.ColorIrradiance.G * Atten;
-        Sum.B += Bsdf.B * L.ColorIrradiance.B * Atten;
-    }
-    return Sum;
 }
 
 [[nodiscard]] Mathematics::LinearRGB EvaluateDebugChannelColor(
@@ -707,17 +693,6 @@ WorldRenderOutput TieredWorldRenderSequence::RenderWorldFrameWithEngine(
                     FinalHdr = FinalHdr * CloudShadowT;
                 }
                 const auto& Mat = PreparedScene.MaterialRegister.InspectAuthoredMaterial(Hit.MaterialSlot);
-                if (PreparedScene.OptionalFluid != nullptr && Config.DebugChannel == 0u)
-                {
-                    const float FluidShadowT = PreparedScene.OptionalFluid->EvaluateFluidShadowTransmittance(
-                        Hit.WorldPosition + Hit.TangentFrame.NormalZ * 0.015f,
-                        PreparedScene.Sun.DirectionToSun,
-                        32.0f);
-                    FinalHdr = FinalHdr * FluidShadowT;
-                    const auto ViewDir = Mathematics::NormalizeAxis(CurBasis.CameraOrigin - Hit.WorldPosition);
-                    FinalHdr = FinalHdr + EvaluateFluidEmissiveOnSurface(
-                        PreparedScene, Hit.WorldPosition, Hit.TangentFrame.NormalZ, ViewDir, Hit.MaterialSlot, Mat);
-                }
                 const float DiffAo = Result.DirectLighting.CombinedDiffuseAo[Off];
                 const float SpecAo = Result.DirectLighting.LagardeSpecularAo[Off];
                 const float DiffFactor = (1.0f - Mat.Specular.Metalness) *
@@ -789,18 +764,6 @@ WorldRenderOutput TieredWorldRenderSequence::RenderWorldFrameWithEngine(
                     };
                 }
 
-                if (PreparedScene.OptionalFluid != nullptr)
-                {
-                    const auto FluidRes = PreparedScene.OptionalFluid->EvaluateFluidSegment(
-                        CurBasis.CameraOrigin, RayDir, HitDist, PreparedScene.Sun.DirectionToSun,
-                        PreparedScene.Sun.SolarIrradiance, SkyForVol, Ign);
-                    FinalHdr = {
-                        FinalHdr.R * FluidRes.Transmittance + FluidRes.RadianceHdr.R,
-                        FinalHdr.G * FluidRes.Transmittance + FluidRes.RadianceHdr.G,
-                        FinalHdr.B * FluidRes.Transmittance + FluidRes.RadianceHdr.B,
-                    };
-                }
-
                 if (!Atmo.Medium.OrbitalViewEnabled &&
                     (Atmo.Fog.HeightFog.Enabled || Atmo.Fog.AerialFog.Enabled || !Atmo.Fog.LocalFogs.empty()))
                 {
@@ -808,7 +771,7 @@ WorldRenderOutput TieredWorldRenderSequence::RenderWorldFrameWithEngine(
                         CurBasis.CameraOrigin, RayDir, HitDist, PreparedScene.Sun.DirectionToSun,
                         PreparedScene.Sun.SolarIrradiance, SkyForVol, Atmo.Fog, Atmo.Wind,
                         Atmo.Clouds.WindSpeedMetersPerSecond, Atmo.Clouds.WindBearingDegrees,
-                        Atmo.SimulationSeconds, Atmo.ForceFieldSource, Atmo.WindLatticeCascade, Ign);
+                        Atmo.SimulationSeconds, Ign);
                     FinalHdr = {
                         FinalHdr.R * FogRes.Transmittance + FogRes.InScatterHdr.R,
                         FinalHdr.G * FogRes.Transmittance + FogRes.InScatterHdr.G,
@@ -825,10 +788,7 @@ WorldRenderOutput TieredWorldRenderSequence::RenderWorldFrameWithEngine(
                         Q.UnitDirection   = SDir;
                         Q.MinimumDistance = 0.02f;
                         Q.MaximumDistance = 140.0f;
-                        if (PreparedScene.SceneTree.QueryRayOccluded(Q)) return 0.0f;
-                        return (PreparedScene.OptionalFluid != nullptr)
-                            ? PreparedScene.OptionalFluid->EvaluateFluidShadowTransmittance(P, SDir, 32.0f)
-                            : 1.0f;
+                        return PreparedScene.SceneTree.QueryRayOccluded(Q) ? 0.0f : 1.0f;
                     };
                     const auto CloudVisFn = [&](const Mathematics::Axis3D& P, const Mathematics::Axis3D& SDir) noexcept -> float
                     {
@@ -838,7 +798,7 @@ WorldRenderOutput TieredWorldRenderSequence::RenderWorldFrameWithEngine(
                         CurBasis.CameraOrigin, RayDir, HitDist, PreparedScene.Sun.DirectionToSun,
                         PreparedScene.Sun.SolarIrradiance, Atmo.Fog, Atmo.Wind,
                         Atmo.Clouds.WindSpeedMetersPerSecond, Atmo.Clouds.WindBearingDegrees,
-                        Atmo.SimulationSeconds, Atmo.ForceFieldSource, Atmo.WindLatticeCascade,
+                        Atmo.SimulationSeconds,
                         SceneVisFn, CloudVisFn, Ign);
                 }
             }

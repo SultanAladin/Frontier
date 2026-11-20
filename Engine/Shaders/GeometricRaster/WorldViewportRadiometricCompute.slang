@@ -5,12 +5,13 @@
 // 0=MatCap, 1=OpenPbrDirect (Direct + 5 Shadow Lab algorithms + Analytical Sky Fill + BVH4 AO & Reflections + Glass Refraction)
 
 #define FRONTIER_ATMOSPHERE_EMBEDDED 1
+[[vk::binding(20, 0)]] StructuredBuffer<uint> PlanetaryCloudNoise;
 #include "../Atmosphere/SkyViewTransmittanceCompute.slang"
 #include "../Atmosphere/VolumetricCloudCompute.slang"
 #include "../Atmosphere/VolumetricFogCompute.slang"
 #include "../Atmosphere/CelestialDiscStarCompute.slang"
 #include "../Atmosphere/LensFlareCompute.slang"
-#include "../Fluid/FluidVolumetricRaymarch.slang"
+[[vk::binding(21, 0)]] StructuredBuffer<GpuRawCatalogStar> RawCatalogStars;
 
 struct GpuAreaQuadLight
 {
@@ -51,7 +52,6 @@ struct WorldViewportUniformBlock
     VolumetricFogUniformBlock   FogParams;
     CelestialFieldUniformBlock  CelestialParams;
     LensFlareUniformBlock       LensFlareParams;
-    FluidRenderUniformBlock     FluidParams;
 };
 
 struct GpuWideTreeEntry128
@@ -95,18 +95,16 @@ struct GpuWorldMaterial80
 [[vk::binding(7,  0)]] StructuredBuffer<float4>                  AtmosphericSkyViewLut;
 [[vk::binding(8,  0)]] StructuredBuffer<uint>                    LunarSurfaceAtlasTexels;
 [[vk::binding(9,  0)]] StructuredBuffer<uint>                    BakedLensFlareAtlasTexels;
-[[vk::binding(10, 0)]] StructuredBuffer<float4>                  FluidHeroThermoTexels;
-[[vk::binding(11, 0)]] StructuredBuffer<float4>                  FluidWorldThermoTexels;
-[[vk::binding(12, 0)]] RWStructuredBuffer<float4>                GBufPosMask;
-[[vk::binding(13, 0)]] RWStructuredBuffer<float4>                GBufNormAo;
-[[vk::binding(14, 0)]] RWStructuredBuffer<float4>                GBufDirectBase;
-[[vk::binding(15, 0)]] RWStructuredBuffer<float4>                GBufSunContrib;
-[[vk::binding(16, 0)]] RWStructuredBuffer<float4>                GBufAlbedo;
-[[vk::binding(17, 0)]] RWStructuredBuffer<float4>                PingShadowAo;
-[[vk::binding(18, 0)]] RWStructuredBuffer<float4>                PongShadowAo;
-[[vk::binding(19, 0)]] RWStructuredBuffer<float4>                CloudRadiometricBuffer;
-[[vk::binding(20, 0)]] StructuredBuffer<GpuProjectedStar>        ProjectedCatalogStars;
-[[vk::binding(21, 0)]] StructuredBuffer<uint>                    StellarTileBins;
+[[vk::binding(10, 0)]] RWStructuredBuffer<float4>                GBufPosMask;
+[[vk::binding(11, 0)]] RWStructuredBuffer<float4>                GBufNormAo;
+[[vk::binding(12, 0)]] RWStructuredBuffer<float4>                GBufDirectBase;
+[[vk::binding(13, 0)]] RWStructuredBuffer<float4>                GBufSunContrib;
+[[vk::binding(14, 0)]] RWStructuredBuffer<float4>                GBufAlbedo;
+[[vk::binding(15, 0)]] RWStructuredBuffer<float4>                PingShadowAo;
+[[vk::binding(16, 0)]] RWStructuredBuffer<float4>                PongShadowAo;
+[[vk::binding(17, 0)]] RWStructuredBuffer<float4>                CloudRadiometricBuffer;
+[[vk::binding(18, 0)]] StructuredBuffer<GpuProjectedStar>        ProjectedCatalogStars;
+[[vk::binding(19, 0)]] StructuredBuffer<uint>                    StellarTileBins;
 
 static const float PiConst    = 3.14159265359;
 static const float TauConst   = 6.28318530718;
@@ -174,36 +172,65 @@ float4 SampleCloudBufferBilinear(float2 PixelUv, out float OutCloudTrans)
     }
     float FX = clamp(PixelUv.x * float(CW) - 0.5, 0.0, max(0.0, float(CW) - 1.0));
     float FY = clamp(PixelUv.y * float(CH) - 0.5, 0.0, max(0.0, float(CH) - 1.0));
-    uint X0 = uint(floor(FX));
-    uint Y0 = uint(floor(FY));
-    uint X1 = min(CW - 1u, X0 + 1u);
-    uint Y1 = min(CH - 1u, Y0 + 1u);
-    float TX = FX - float(X0);
-    float TY = FY - float(Y0);
-
-    float4 C00 = CloudRadiometricBuffer[Y0 * CW + X0];
-    float4 C10 = CloudRadiometricBuffer[Y0 * CW + X1];
-    float4 C01 = CloudRadiometricBuffer[Y1 * CW + X0];
-    float4 C11 = CloudRadiometricBuffer[Y1 * CW + X1];
-    float4 Res = lerp(lerp(C00, C10, TX), lerp(C01, C11, TX), TY);
+    int   IX = int(floor(FX));
+    int   IY = int(floor(FY));
+    float TX = FX - float(IX);
+    float TY = FY - float(IY);
 
     uint FullW = uint(WorldUniforms.CameraUpWidth.w + 0.5);
-    if (CW < FullW && CW >= 4u && CH >= 4u)
+    if (CW >= FullW || CW < 4u || CH < 4u)
     {
-        uint XM = (X0 > 0u) ? (X0 - 1u) : X0;
-        uint XP = min(CW - 1u, X1 + 1u);
-        uint YM = (Y0 > 0u) ? (Y0 - 1u) : Y0;
-        uint YP = min(CH - 1u, Y1 + 1u);
-        float4 S0 = CloudRadiometricBuffer[Y0 * CW + XM];
-        float4 S1 = CloudRadiometricBuffer[Y0 * CW + XP];
-        float4 S2 = CloudRadiometricBuffer[YM * CW + X0];
-        float4 S3 = CloudRadiometricBuffer[YP * CW + X0];
-        float4 AvgNbr = (S0 + S1 + S2 + S3) * 0.25;
-        Res = lerp(Res, AvgNbr, 0.52);
+        uint X0 = uint(clamp(IX, 0, int(CW) - 1));
+        uint Y0 = uint(clamp(IY, 0, int(CH) - 1));
+        uint X1 = min(CW - 1u, X0 + 1u);
+        uint Y1 = min(CH - 1u, Y0 + 1u);
+        float4 C00 = CloudRadiometricBuffer[Y0 * CW + X0];
+        float4 C10 = CloudRadiometricBuffer[Y0 * CW + X1];
+        float4 C01 = CloudRadiometricBuffer[Y1 * CW + X0];
+        float4 C11 = CloudRadiometricBuffer[Y1 * CW + X1];
+        float4 Res = lerp(lerp(C00, C10, TX), lerp(C01, C11, TX), TY);
+        OutCloudTrans = clamp(Res.w, 0.0, 1.0);
+        return Res;
+    }
+
+    float OmX = 1.0 - TX;
+    float TX2 = TX * TX;
+    float TX3 = TX2 * TX;
+    float WX[4] = {
+        (OmX * OmX * OmX) * (1.0 / 6.0),
+        (3.0 * TX3 - 6.0 * TX2 + 4.0) * (1.0 / 6.0),
+        (-3.0 * TX3 + 3.0 * TX2 + 3.0 * TX + 1.0) * (1.0 / 6.0),
+        TX3 * (1.0 / 6.0)
+    };
+    float OmY = 1.0 - TY;
+    float TY2 = TY * TY;
+    float TY3 = TY2 * TY;
+    float WY[4] = {
+        (OmY * OmY * OmY) * (1.0 / 6.0),
+        (3.0 * TY3 - 6.0 * TY2 + 4.0) * (1.0 / 6.0),
+        (-3.0 * TY3 + 3.0 * TY2 + 3.0 * TY + 1.0) * (1.0 / 6.0),
+        TY3 * (1.0 / 6.0)
+    };
+
+    float4 Res = float4(0.0, 0.0, 0.0, 0.0);
+    int MaxX = int(CW) - 1;
+    int MaxY = int(CH) - 1;
+    [unroll]
+    for (int DY = 0; DY < 4; ++DY)
+    {
+        uint SY = uint(clamp(IY + DY - 1, 0, MaxY));
+        float4 Row = float4(0.0, 0.0, 0.0, 0.0);
+        [unroll]
+        for (int DX = 0; DX < 4; ++DX)
+        {
+            uint SX = uint(clamp(IX + DX - 1, 0, MaxX));
+            Row += CloudRadiometricBuffer[SY * CW + SX] * WX[DX];
+        }
+        Res += Row * WY[DY];
     }
 
     OutCloudTrans = clamp(Res.w, 0.0, 1.0);
-    return Res;
+    return max(float4(0.0, 0.0, 0.0, 0.0), Res);
 }
 
 float3 EvaluateCloudDeckReflectionGpu(float3 RayDir, out float OutCloudTrans)
@@ -214,167 +241,113 @@ float3 EvaluateCloudDeckReflectionGpu(float3 RayDir, out float OutCloudTrans)
     {
         return float3(0.0, 0.0, 0.0);
     }
-    float TimeSec   = (C.SkyColorWind.w > 0.5) ? C.OriginTimeVector.w : 0.0;
-    bool  UseProbes = (C.SkyColorWind.w > 0.5 && C.CloudPassControl.w > 0.5 && abs(TimeSec) > 1.0e-4);
-    float WindX     = UseProbes ? 0.0 : (C.WindVectorOcclude.x * TimeSec);
-    float WindY     = UseProbes ? 0.0 : (C.WindVectorOcclude.y * TimeSec);
-    float PlanetR   = max(500000.0, C.SolarIrradianceExt.w);
-    float FloorM    = max(100.0, C.DeckGeometry.x);
-    float ThickM    = max(100.0, C.DeckGeometry.y);
-    float MidAlt    = FloorM + ThickM * 0.45;
-    float DistM     = min(38000.0, MidAlt / max(0.03, RayDir.z));
-    float3 P        = float3(RayDir.x * DistM, RayDir.y * DistM, PlanetR + 100.0 + MidAlt);
-    float3 EvalP    = P;
-    if (UseProbes)
-    {
-        float3 Adv = AdvectCloudPointBackwardGpu(C, float3(P.x, P.y, MidAlt), TimeSec, true);
-        EvalP = float3(Adv.x, Adv.y, sqrt(max(1.0, (PlanetR + Adv.z) * (PlanetR + Adv.z) - Adv.x * Adv.x - Adv.y * Adv.y)));
-    }
-    float FScale  = 0.00065 / max(0.08, C.DeckOptics.x);
-    float D = SampleCloudDeckDensityGpu(
-        EvalP, PlanetR, FloorM, ThickM, clamp(C.DeckGeometry.z, 0.0, 1.0), clamp(C.DeckOptics.y, 0.0, 1.0),
-        max(0.0, C.DeckGeometry.w) * 0.0085, FScale, WindX, WindY, C.DeckOptics.w, uint(C.FormationOptics.x + 0.5), DistM,
-        C.FormationOptics.y, C.FormationOptics.z, TimeSec);
-    if (D <= 1.0e-5)
+    CloudSpecification Spec = BuildCloudSpecificationFromUniformGpu(C, false);
+    float3 Origin           = ResolvePlanetaryViewOriginGpu(C, C.OriginTimeVector.xyz);
+    CloudDeck Layer         = PlanetCloudLayer(Spec, 0u);
+    float MidAlt            = (Layer.BottomM + Layer.TopM) * 0.5;
+    float DistM             = min(38000.0, MidAlt / max(0.03, RayDir.z));
+    float3 SamplePos        = Origin + RayDir * DistM;
+    float3 Adv              = CloudWindCoordinates(Spec, SamplePos, Layer.Category);
+    CloudWeatherSample Wx   = CloudWeatherFromAdvectedNormal(Spec, Adv / length(Adv));
+    float Sigma             = SamplePlanetCloudShadowDensity(Spec, Layer, SamplePos, Adv, Wx, max(12.0, DistM * Spec.PixelAngle));
+    if (Sigma <= 1.0e-6)
     {
         return float3(0.0, 0.0, 0.0);
     }
-    float Tau      = D * ThickM * 0.35;
-    OutCloudTrans  = exp(-Tau);
-    float3 SunDir  = normalize(C.SunAxisToggle.xyz);
-    float  CosT    = dot(RayDir, SunDir);
-    float  Phase   = lerp(0.55, 1.55, clamp(CosT * 0.5 + 0.5, 0.0, 1.0));
-    float  Haze    = clamp(C.SolarIrradianceExt.w > 0.0 ? (1.0 - exp(-DistM * 0.000025)) : 0.0, 0.0, 0.65);
-    float3 LitCol  = C.SolarIrradianceExt.xyz * (0.28 * Phase) + C.SkyColorWind.xyz * 0.65;
-    return lerp(LitCol, C.SkyColorWind.xyz, Haze) * (1.0 - OutCloudTrans);
+    float Tau = Sigma * (Layer.TopM - Layer.BottomM) * 0.45 / max(0.15, RayDir.z);
+    OutCloudTrans = exp(-Tau);
+    float SunT = exp(-CloudSolarOpticalDepthWithWeather(Spec, SamplePos, Wx, 3u, max(16.0, DistM * Spec.PixelAngle)));
+    return (Spec.SolarIrradiance * (0.28 * SunT) + Spec.SkyAmbient * 0.55) * (1.0 - OutCloudTrans);
 }
 
-float3 EvaluateOrbitalSpaceGpu(float3 RayOrigin, float3 RayDir, float3 SunDir, out bool OutHitsPlanet)
+float OrbitalGlobeFbmGpu3(float3 P)
 {
-    OutHitsPlanet = false;
+    float  Sum = 0.0;
+    float  Amp = 0.52;
+    float3 Q   = P;
+    for (uint Oct = 0u; Oct < 5u; ++Oct)
+    {
+        Sum += Amp * CloudLatticeNoise(Q);
+        Q = float3(
+             0.80 * Q.x - 0.48 * Q.y + 0.36 * Q.z,
+             0.48 * Q.x + 0.86 * Q.y + 0.16 * Q.z,
+            -0.36 * Q.x + 0.04 * Q.y + 0.93 * Q.z) * 2.05 + float3(13.7, -7.3, 4.1);
+        Amp *= 0.48;
+    }
+    return Sum;
+}
+
+float3 EvaluateOrbitalSpaceGpu(
+    float3     RayOrigin,
+    float3     RayDir,
+    float3     SunDir,
+    float2     PixelCoord,
+    out bool   OutHitsPlanet,
+    out float3 OutSpaceTrans)
+{
     VolumetricCloudUniformBlock C = WorldUniforms.CloudParams;
     float PlanetR = max(500000.0, C.SolarIrradianceExt.w);
-    float AtmoThk = 100000.0;
+    float AtmoThk = max(20000.0, C.CloudAtmoStrengths.w > 100.0 ? C.CloudAtmoStrengths.w : 100000.0);
     float ObsAlt  = max(AtmoThk + 5000.0, C.WindForceMeta.w);
     float3 CamPos = float3(RayOrigin.x, RayOrigin.y, PlanetR + ObsAlt + RayOrigin.z);
 
-    float B = dot(CamPos, RayDir);
-    float K = dot(CamPos, CamPos) - PlanetR * PlanetR;
-    float Disc = B * B - K;
-    float TPlanet = -1.0;
-    if (Disc >= 0.0)
-    {
-        float Root = sqrt(Disc);
-        float T0 = -B - Root;
-        if (T0 > 0.0) TPlanet = T0;
-    }
-    OutHitsPlanet = (TPlanet > 0.0);
+    float GroundM = PlanetCloudGroundDistance(CamPos, RayDir, PlanetR);
+    OutHitsPlanet = (GroundM < 1.0e8);
 
-    float OutR = PlanetR + AtmoThk;
-    float KA = dot(CamPos, CamPos) - OutR * OutR;
-    float DiscA = B * B - KA;
-    float3 Rad = float3(0.0, 0.0, 0.0);
-    if (DiscA <= 0.0)
-    {
-        return Rad;
-    }
-    float RootA = sqrt(DiscA);
-    float TEnter = max(0.0, -B - RootA);
-    float TExit  = OutHitsPlanet ? min(TPlanet, -B + RootA) : (-B + RootA);
-    if (TExit <= TEnter)
-    {
-        return Rad;
-    }
+    uint BaseFmt = uint(C.FormationOptics.x + 0.5);
+    CloudSpecification OrbSpec = BuildCloudSpecificationFromUniformGpu(C, false, (BaseFmt == 2u) ? 12u : BaseFmt);
+    OrbSpec.Steps      = clamp(OrbSpec.Steps, 24u, 64u);
+    OrbSpec.LightSteps = clamp(OrbSpec.LightSteps, 3u, 6u);
 
-    float CosTheta = dot(RayDir, SunDir);
-    float RayPhase = 0.05968310366 * (1.0 + CosTheta * CosTheta);
-    float3 RayBeta = float3(5.8e-6, 13.5e-6, 33.1e-6) * max(0.0, WorldUniforms.CelestialParams.AtmoMediumPack.x);
-    float  Steps   = 12.0;
-    float  Dt      = (TExit - TEnter) / Steps;
-    float3 InScat  = float3(0.0, 0.0, 0.0);
-    float3 ViewTau = float3(0.0, 0.0, 0.0);
-    for (uint S = 0u; S < 12u; ++S)
-    {
-        float  T    = TEnter + (float(S) + 0.5) * Dt;
-        float3 P    = CamPos + RayDir * T;
-        float  Alt  = max(0.0, length(P) - PlanetR);
-        float  RhoR = exp(-Alt / 8000.0);
-        ViewTau    += RayBeta * (RhoR * Dt);
-        float3 Up   = normalize(P);
-        float  Mus  = dot(Up, SunDir);
-        if (Mus > -0.14)
-        {
-            float Ch   = 1.0 / max(0.08, max(0.0, Mus) + 0.14);
-            float3 ST  = exp(-(RayBeta * (8000.0 * RhoR * Ch)));
-            InScat    += exp(-ViewTau) * ST * RayBeta * (RhoR * RayPhase * Dt * 12.0);
-        }
-    }
+    CloudTransportIntegral Cloud = TracePlanetaryClouds(OrbSpec, CamPos, RayDir, PixelCoord, GroundM);
+    CloudAirSegment Air = IntegrateCloudAir(OrbSpec, CamPos, RayDir, GroundM, 24u, false);
 
+    float3 Behind = Air.Radiance;
     if (OutHitsPlanet)
     {
-        float3 HitP = CamPos + RayDir * TPlanet;
+        float3 HitP = CamPos + RayDir * GroundM;
         float3 N    = normalize(HitP);
         float  NdotLRaw = dot(N, SunDir);
-        float  SunM = max(0.0, NdotLRaw);
-        float  Cont = CloudFbmGpu3(N * 3.1 + float3(4.1, -1.8, 0.9), 1.0);
+        float  SunM     = max(0.0, NdotLRaw);
+        float  Cont     = OrbitalGlobeFbmGpu3(N * 3.1 + float3(4.1, -1.8, 0.9));
         float  PolarIce = smoothstep(0.83 + 0.06 * Cont, 0.92 + 0.06 * Cont, abs(N.z));
         float  LandMask = smoothstep(0.47, 0.515, Cont);
         float  Shelf    = smoothstep(0.415, 0.48, Cont) * (1.0 - LandMask);
-        float  Moist = CloudFbmGpu3(N * 7.5 + float3(-2.3, 5.1, 0.0), 1.0);
-        float  Elev  = saturate((Cont - 0.49) / 0.24);
-        float3 LandCol = lerp(float3(0.055, 0.145, 0.048), float3(0.350, 0.265, 0.165), saturate((Moist - 0.44) / 0.24)) * (0.85 + 0.35 * Elev);
+        float  Moist    = OrbitalGlobeFbmGpu3(N * 7.5 + float3(-2.3, 5.1, 0.0));
+        float  Elev     = saturate((Cont - 0.49) / 0.24);
+        float3 LandCol  = lerp(float3(0.055, 0.145, 0.048), float3(0.350, 0.265, 0.165), saturate((Moist - 0.44) / 0.24)) * (0.85 + 0.35 * Elev);
         float3 OceanCol = float3(0.012 + 0.018 * Shelf, 0.042 + 0.058 * Shelf, 0.135 + 0.055 * Shelf);
-        float3 Alb = lerp(OceanCol, LandCol, LandMask);
-        Alb = lerp(Alb, float3(0.72, 0.76, 0.82), PolarIce);
+        float3 Alb      = lerp(OceanCol, LandCol, LandMask);
+        Alb             = lerp(Alb, float3(0.72, 0.76, 0.82), PolarIce);
 
-        float3 HVec = normalize(SunDir - RayDir);
+        float3 HVec      = normalize(SunDir - RayDir);
         float  OceanSpec = (1.0 - LandMask) * (1.0 - PolarIce) * pow(max(0.0, dot(N, HVec)), 42.0) * 0.45 * (0.2 + 0.8 * SunM);
         float  TermWarm  = exp(-abs(NdotLRaw) * 14.0) * saturate((NdotLRaw + 0.08) / 0.16);
         float  SVBase    = 0.35 + 0.65 * saturate((NdotLRaw + 0.04) / 0.25);
         float3 SunVisC   = float3(SVBase * (1.0 + 0.65 * TermWarm), SVBase * (1.0 + 0.22 * TermWarm), SVBase * (1.0 - 0.10 * TermWarm));
 
-        float JetLon = C.OriginTimeVector.w * 0.0022;
-        float CosJ = cos(JetLon);
-        float SinJ = sin(JetLon);
-        float3 RotN = float3(N.x * CosJ + N.y * SinJ, -N.x * SinJ + N.y * CosJ, N.z);
-        if (C.SkyColorWind.w > 0.5)
-        {
-            float3 LocalP = float3(HitP.x * 0.0001, HitP.y * 0.0001, 1500.0);
-            float3 AdvL   = AdvectCloudPointBackwardGpu(C, LocalP, C.OriginTimeVector.w, true);
-            RotN = normalize(RotN + float3((AdvL.x - LocalP.x), (AdvL.y - LocalP.y), 0.0) * 0.00015);
-        }
-        float  Lon = atan2(RotN.y, RotN.x);
-        float  Lat = asin(clamp(RotN.z, -1.0, 1.0));
-        float  SpiralR = length(float2(Lon - 0.35, Lat - 0.38));
-        if (SpiralR < 0.45)
-        {
-            float SwirlA = (1.0 - SpiralR / 0.45) * 1.45;
-            float DLon = Lon - 0.35;
-            float DLat = Lat - 0.38;
-            float CS = cos(SwirlA);
-            float SS = sin(SwirlA);
-            RotN = normalize(RotN + float3((DLon * CS - DLat * SS - DLon) * 0.45, (DLon * SS + DLat * CS - DLat) * 0.45, 0.0));
-        }
-        float  Cld  = (C.SunAxisToggle.w > 0.5) ? smoothstep(0.46, 0.72, CloudFbmGpu3(RotN * 5.2, 1.0)) * clamp(C.DeckGeometry.z, 0.0, 1.0) : 0.0;
-        float  CldShad = 1.0 - 0.48 * Cld;
+        float FootprintM = max(1.0, GroundM * OrbSpec.PixelAngle);
+        float CldShad    = (C.SunAxisToggle.w > 0.5)
+            ? exp(-CloudSolarOpticalDepth(OrbSpec, HitP, 8u, FootprintM))
+            : 1.0;
         float3 Surf = (Alb * SunM * CldShad + float3(OceanSpec)) * SunVisC * 0.28;
 
-        float  NightMask = saturate((-NdotLRaw - 0.04) / 0.14) * LandMask * (1.0 - PolarIce);
+        float NightMask = saturate((-NdotLRaw - 0.04) / 0.14) * LandMask * (1.0 - PolarIce);
         if (NightMask > 0.01)
         {
-            float City = saturate((CloudFbmGpu3(N * 16.0, 1.0) - 0.60) / 0.12) * NightMask * (1.0 - 0.65 * Cld);
+            float City = saturate((OrbitalGlobeFbmGpu3(N * 16.0) - 0.60) / 0.12) * NightMask * (0.35 + 0.65 * CldShad);
             Surf += float3(City * 0.38, City * 0.22, City * 0.06);
         }
-        if (Cld > 0.001)
-        {
-            float CLit = max(0.015, SunM * 1.15 + 0.04) * 0.28 * 0.85;
-            Surf = lerp(Surf, SunVisC * CLit, Cld * 0.88);
-        }
-        float3 Tr = exp(-ViewTau);
-        return max(float3(0.0), InScat * 0.28 + Surf * Tr);
+        Behind        = Air.Radiance + Air.Transmittance * Surf;
+        OutSpaceTrans = float3(0.0, 0.0, 0.0);
+    }
+    else
+    {
+        OutSpaceTrans = Air.Transmittance * Cloud.Transmittance;
     }
 
-    return InScat * 0.28;
+    float3 Radiance = Behind * Cloud.Transmittance + CloudRadianceThroughAir(OrbSpec, CamPos, RayDir, Cloud, 16u);
+    return max(float3(0.0, 0.0, 0.0), Radiance);
 }
 
 float3 EvaluateBackgroundSkyCloudsGpu(float3 RayDir, float2 PixelCoord)
@@ -387,18 +360,20 @@ float3 EvaluateBackgroundSkyCloudsGpu(float3 RayDir, float2 PixelCoord)
                                + WorldUniforms.CameraUpWidth.xyz   * ((1.0 - PrimUv.y * 2.0) * WorldUniforms.CameraRightTanY.w));
     bool   UseTiled  = (dot(normalize(RayDir), PrimDir) > 0.999);
 
-    int AtmoFlags = int(WorldUniforms.CelestialParams.AtmoMediumPack.w + 0.5);
+    int AtmoFlags = int(round(max(0.0, WorldUniforms.CelestialParams.AtmoMediumPack.w)));
     bool IsOrbital = (AtmoFlags & 2) != 0;
     if (!IsOrbital && WorldUniforms.AtmosphereMaskPad.x == 0u)
     {
         return EvaluateSkyDome(RayDir);
     }
 
-    float3 BaseSky = float3(0.0);
+    float3 BaseSky    = float3(0.0, 0.0, 0.0);
+    float3 SpaceTrans = float3(1.0, 1.0, 1.0);
     if (IsOrbital)
     {
         bool HitsPlanet = false;
-        BaseSky = EvaluateOrbitalSpaceGpu(WorldUniforms.CameraOriginTanX.xyz, RayDir, normalize(WorldUniforms.SunDirConeTan.xyz), HitsPlanet);
+        BaseSky = EvaluateOrbitalSpaceGpu(
+            WorldUniforms.CameraOriginTanX.xyz, RayDir, normalize(WorldUniforms.SunDirConeTan.xyz), SubPix, HitsPlanet, SpaceTrans);
         if (HitsPlanet)
         {
             return BaseSky;
@@ -411,15 +386,18 @@ float3 EvaluateBackgroundSkyCloudsGpu(float3 RayDir, float2 PixelCoord)
 
     float3 CelestialRad = EvaluateCelestialBodiesUnifiedGpu(
         WorldUniforms.CelestialParams,
+        AtmosphericSkyViewLut,
+        WorldUniforms.CloudParams.CloudAtmoStrengths.w,
         LunarSurfaceAtlasTexels,
         ProjectedCatalogStars,
         StellarTileBins,
+        RawCatalogStars,
         SubPix,
         RayDir,
         UseTiled);
     if (IsOrbital)
     {
-        return BaseSky + CelestialRad;
+        return BaseSky + CelestialRad * SpaceTrans;
     }
 
     float3 SkyRad = BaseSky;
@@ -459,31 +437,11 @@ float EvaluateSolarCloudTransmittanceGpu(float3 WorldPos, float3 SunDir)
     float Trans = 1.0;
     if (C.SunAxisToggle.w >= 0.5 && C.WindVectorOcclude.z >= 0.5)
     {
-        float TimeSec   = (C.SkyColorWind.w > 0.5) ? C.OriginTimeVector.w : 0.0;
-        bool  UseProbes = (C.SkyColorWind.w > 0.5 && C.CloudPassControl.w > 0.5 && abs(TimeSec) > 1.0e-4);
-        float WindX     = UseProbes ? 0.0 : (C.WindVectorOcclude.x * TimeSec);
-        float WindY     = UseProbes ? 0.0 : (C.WindVectorOcclude.y * TimeSec);
-        float PlanetR   = max(500000.0, C.SolarIrradianceExt.w);
-        float FloorM    = max(100.0, C.DeckGeometry.x);
-        float ThickM    = max(100.0, C.DeckGeometry.y);
-        float MidAlt    = FloorM + ThickM * 0.45;
-        float DistM     = MidAlt / max(0.05, SunDir.z);
-        float3 P        = float3(WorldPos.x + SunDir.x * DistM, WorldPos.y + SunDir.y * DistM, PlanetR + 100.0 + MidAlt);
-        float3 EvalP    = P;
-        if (UseProbes)
-        {
-            float3 Adv = AdvectCloudPointBackwardGpu(C, float3(P.x, P.y, MidAlt), TimeSec, true);
-            EvalP = float3(Adv.x, Adv.y, sqrt(max(1.0, (PlanetR + Adv.z) * (PlanetR + Adv.z) - Adv.x * Adv.x - Adv.y * Adv.y)));
-        }
-        float FScale    = (0.00065 / max(0.08, C.DeckOptics.x)) * max(0.01, C.CloudShadowOptics.z);
-        float Cov       = clamp(C.DeckGeometry.z * C.CloudShadowOptics.x, 0.0, 1.0);
-        float DensMul   = max(0.0, C.DeckGeometry.w * C.CloudShadowOptics.y) * 0.0085;
-        float Anvil     = clamp(C.DeckOptics.y * C.CloudShadowOptics.w, 0.0, 1.0);
-        float D = SampleCloudDeckDensityGpu(
-            EvalP, PlanetR, FloorM, ThickM, Cov, Anvil,
-            DensMul, FScale, WindX, WindY, C.DeckOptics.w, uint(C.FormationOptics.x + 0.5), 8000.0,
-            C.FormationOptics.y, C.FormationOptics.z, TimeSec);
-        Trans *= (0.12 + 0.88 * exp(-D * ThickM * 0.36));
+        CloudSpecification Spec = BuildCloudSpecificationFromUniformGpu(C, true);
+        float3 PlanetP = ResolvePlanetaryViewOriginGpu(C, WorldPos);
+        uint   ShSteps = clamp(min(Spec.LightSteps, 4u), 2u, 4u);
+        float  Tau     = CloudSolarOpticalDepth(Spec, PlanetP, ShSteps, 24.0);
+        Trans *= (0.12 + 0.88 * exp(-Tau));
     }
     Trans *= EvaluateLocalCloudsShadowGpu(C, WorldPos, SunDir);
     return clamp(Trans, 0.08, 1.0);
@@ -1292,9 +1250,7 @@ void ShadePrimarySurfaceDemod(
     float  NdotL          = dot(N, SunDir);
     if (NdotL > 1.0e-5)
     {
-        float EnvSunTrans = EvaluateSolarCloudTransmittanceGpu(Hit.Position, SunDir)
-                          * EvaluateFluidShadowTransmittanceBufferGpu(
-                                WorldUniforms.FluidParams, FluidHeroThermoTexels, FluidWorldThermoTexels, SafePrimaryPos, SunDir, 32.0);
+        float EnvSunTrans = EvaluateSolarCloudTransmittanceGpu(Hit.Position, SunDir);
         OutUnoccludedSunHdr = EvaluateSurfaceBrdf(Mat, N, ViewDir, SunDir) * SunIrr * EnvSunTrans;
         OutSunVis           = EvaluateSolarShadow(Hit, SunDir, PixelXY, OutBlockerDist);
     }
@@ -1308,26 +1264,6 @@ void ShadePrimarySurfaceDemod(
     for (uint L = 0u; L < LightCnt; ++L)
     {
         OutDirectBaseHdr += EvaluateAreaQuadLight(WorldUniforms.AreaLights[L], SafePrimaryPos, N, ViewDir, Mat);
-    }
-
-    // 2b. Dynamic Fluid Blackbody Fire Proxy Lights
-    if (WorldUniforms.FluidParams.HeroBoxMinFade.w > 0.5)
-    {
-        for (uint FL = 0u; FL < 8u; ++FL)
-        {
-            FluidEmissiveLightGpu FLgt = WorldUniforms.FluidParams.EmissiveLights[FL];
-            if (FLgt.ColorIrradiance.w < 0.5) continue;
-            float3 ToL = FLgt.PositionRadius.xyz - SafePrimaryPos;
-            float Dist2 = max(0.08, dot(ToL, ToL) + FLgt.PositionRadius.w * FLgt.PositionRadius.w * 0.35);
-            float Dist = sqrt(Dist2);
-            float3 Wi = ToL / Dist;
-            float LCos = dot(N, Wi);
-            if (LCos > 1.0e-4)
-            {
-                float Atten = LCos / (4.0 * PiConst * Dist2);
-                OutDirectBaseHdr += EvaluateSurfaceBrdf(Mat, N, ViewDir, Wi) * FLgt.ColorIrradiance.rgb * Atten;
-            }
-        }
     }
 
     // 3. Fast BVH4 Ambient Occlusion (IGN-jittered 8-ray) + Lagarde Specular AO
@@ -1514,11 +1450,6 @@ float3 EvaluateVolumetricGodRaysGpu(
             continue;
         }
         float SceneVis = 1.0;
-        if (WorldUniforms.FluidParams.HeroBoxMinFade.w > 0.5)
-        {
-            SceneVis *= EvaluateFluidShadowTransmittanceBufferGpu(
-                WorldUniforms.FluidParams, FluidHeroThermoTexels, FluidWorldThermoTexels, P, SunDir, 32.0);
-        }
         float RawCloudVis = DoClouds ? EvaluateSolarCloudTransmittanceGpu(P, SunDir) : 1.0;
         float CloudVis    = DoClouds ? pow(saturate((RawCloudVis - 0.12) / 0.88), 2.35) : 1.0;
 
@@ -1570,8 +1501,8 @@ void CloudComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
         WorldUniforms.CameraUpWidth.xyz   * (NdcY * WorldUniforms.CameraRightTanY.w));
 
     float  CloudTrans = 1.0;
-    float3 CloudRad   = EvaluateVolumetricCloudsGpu(
-        WorldUniforms.CloudParams, RayDir, float2(DispatchThreadID.xy), CloudTrans, false);
+    float3 CloudRad   = EvaluatePlanetaryCloudsOnlyGpu(
+        WorldUniforms.CloudParams, RayDir, float2(DispatchThreadID.xy), CloudTrans);
     CloudRadiometricBuffer[PIdx] = float4(CloudRad, CloudTrans);
 }
 
@@ -1907,24 +1838,6 @@ void DenoiseCompositeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
         float3 LocalCloudRad   = EvaluateLocalCloudsSegmentGpu(
             WorldUniforms.CloudParams, CamOrigin, RayDir, HitDistForClouds, float2(DispatchThreadID.xy), LocalCloudTrans);
         FinalHdr = FinalHdr * LocalCloudTrans + LocalCloudRad;
-
-        if (WorldUniforms.FluidParams.HeroBoxMinFade.w > 0.5)
-        {
-            float3 FluidRad   = float3(0.0);
-            float  FluidTrans = 1.0;
-            float  IgnJit     = PixelR2(DispatchThreadID.xy).x;
-            EvaluateFluidSegmentBufferGpu(
-                WorldUniforms.FluidParams,
-                FluidHeroThermoTexels,
-                FluidWorldThermoTexels,
-                CamOrigin,
-                RayDir,
-                HitDistForFog,
-                IgnJit,
-                FluidRad,
-                FluidTrans);
-            FinalHdr = FinalHdr * FluidTrans + FluidRad;
-        }
 
         float  FogTrans = 1.0;
         float3 FogRad   = EvaluateVolumetricFogGpu(

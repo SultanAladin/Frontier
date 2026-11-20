@@ -23,11 +23,9 @@
 #include "Engine/Input/ImGuiInputAdapter.h"
 #include "Engine/Input/InputExtension.h"
 #include "Engine/Windowing/PlatformWindow.h"
-#include "Engine/Workspaces/Fluid/FluidWorkspaceHost.h"
 #include "Engine/Workspaces/Fracture/FractureWorkspaceHost.h"
 #include "Engine/Workspaces/Material/MaterialWorkspaceHost.h"
 #include "Engine/Workspaces/ParametricSketcher/Interface/SketcherWorkspaceHost.h"
-#include "Engine/Workspaces/Particle/ParticleWorkspaceHost.h"
 #include "Engine/Workspaces/Texturing/BakingWorkspaceHost.h"
 #include "Engine/Workspaces/Texturing/PatternStampWorkspaceHost.h"
 #include "Engine/Workspaces/UV/UVWorkspaceHost.h"
@@ -41,7 +39,6 @@
 #include "Engine/Components/Panes/ViewportPanel.h"
 #include "Engine/Editor/Explorer/ContentBrowser.h"
 #include "Engine/Editor/Explorer/ProjectBrowser.h"
-#include "Engine/Editor/Workspaces/Simulation/VectorFieldViewportSession.h"
 #include "Engine/Lifecycle/EditorLifecycle.h"
 #endif
 
@@ -392,29 +389,11 @@ int LaunchDesktopWorkspace(
             InitialOptions.OpenProjectBrowser = false;
             InitialOptions.WindowTitle        = "Frontier Material";
         }
-        else if (Arg == "--standalone-particle" || Arg == "--standalone=particle" || Arg == "--workspace=particle" || Arg == "--particle")
-        {
-            InitialOptions.OpenWorldEditor    = false;
-            InitialOptions.OpenProjectBrowser = false;
-            InitialOptions.WindowTitle        = "Frontier Particle";
-        }
-        else if (Arg == "--standalone-forcefield" || Arg == "--standalone=forcefield" || Arg == "--workspace=forcefield" || Arg == "--workspace=simulation" || Arg == "--forcefield")
-        {
-            InitialOptions.OpenWorldEditor    = false;
-            InitialOptions.OpenProjectBrowser = false;
-            InitialOptions.WindowTitle        = "Frontier ForceField";
-        }
         else if (Arg == "--standalone-fracture" || Arg == "--standalone=fracture" || Arg == "--workspace=fracture" || Arg == "--fracture")
         {
             InitialOptions.OpenWorldEditor    = false;
             InitialOptions.OpenProjectBrowser = false;
             InitialOptions.WindowTitle        = "Frontier Fracture";
-        }
-        else if (Arg == "--standalone-fluid" || Arg == "--standalone=fluid" || Arg == "--workspace=fluid" || Arg == "--fluid")
-        {
-            InitialOptions.OpenWorldEditor    = false;
-            InitialOptions.OpenProjectBrowser = false;
-            InitialOptions.WindowTitle        = "Frontier Fluid";
         }
         else if (Arg == "--standalone-sketcher" || Arg == "--standalone=sketcher" || Arg == "--workspace=sketcher" || Arg == "--sketcher" || Arg == "--cad" || Arg == "--solidarc")
         {
@@ -469,12 +448,9 @@ int LaunchDesktopWorkspace(
         StampWorkspaceSurface      = 4u,
         BakingWorkspaceSurface     = 5u,
         MaterialWorkspaceSurface   = 6u,
-        ParticleWorkspaceSurface   = 7u,
-        ForceFieldWorkspaceSurface = 8u,
-        FractureWorkspaceSurface   = 9u,
-        FluidWorkspaceSurface           = 10u,
-        SketcherWorkspaceSurface        = 11u,
-        ComponentEditorWorkspaceSurface = 12u,
+        FractureWorkspaceSurface   = 7u,
+        SketcherWorkspaceSurface        = 8u,
+        ComponentEditorWorkspaceSurface = 9u,
     };
 
     const bool StandaloneVectorLaunch =
@@ -489,20 +465,8 @@ int LaunchDesktopWorkspace(
         (EngineConfig.QueryWorkspaceCategory() == WorkspaceCategory::Material) &&
         !InitialOptions.OpenWorldEditor &&
         !InitialOptions.OpenProjectBrowser;
-    const bool StandaloneParticleLaunch =
-        (EngineConfig.QueryWorkspaceCategory() == WorkspaceCategory::Particle) &&
-        !InitialOptions.OpenWorldEditor &&
-        !InitialOptions.OpenProjectBrowser;
-    const bool StandaloneForceFieldLaunch =
-        (EngineConfig.QueryWorkspaceCategory() == WorkspaceCategory::Simulation) &&
-        !InitialOptions.OpenWorldEditor &&
-        !InitialOptions.OpenProjectBrowser;
     const bool StandaloneFractureLaunch =
         (EngineConfig.QueryWorkspaceCategory() == WorkspaceCategory::Fracture) &&
-        !InitialOptions.OpenWorldEditor &&
-        !InitialOptions.OpenProjectBrowser;
-    const bool StandaloneFluidLaunch =
-        (EngineConfig.QueryWorkspaceCategory() == WorkspaceCategory::Fluid) &&
         !InitialOptions.OpenWorldEditor &&
         !InitialOptions.OpenProjectBrowser;
     const bool StandaloneSketcherLaunch =
@@ -524,21 +488,9 @@ int LaunchDesktopWorkspace(
     {
         CurrentSurface = ActiveHostSurface::MaterialWorkspaceSurface;
     }
-    else if (StandaloneParticleLaunch)
-    {
-        CurrentSurface = ActiveHostSurface::ParticleWorkspaceSurface;
-    }
-    else if (StandaloneForceFieldLaunch)
-    {
-        CurrentSurface = ActiveHostSurface::ForceFieldWorkspaceSurface;
-    }
     else if (StandaloneFractureLaunch)
     {
         CurrentSurface = ActiveHostSurface::FractureWorkspaceSurface;
-    }
-    else if (StandaloneFluidLaunch)
-    {
-        CurrentSurface = ActiveHostSurface::FluidWorkspaceSurface;
     }
     else if (StandaloneSketcherLaunch)
     {
@@ -681,14 +633,10 @@ int LaunchDesktopWorkspace(
 
 #if FRONTIER_EDITOR_ENABLED
     std::unique_ptr<Workspaces::MaterialWorkspaceHost>           MaterialHostPtr;
-    std::unique_ptr<Workspaces::ParticleWorkspaceHost>           ParticleHostPtr;
     std::unique_ptr<Workspaces::Fracture::FractureWorkspaceHost>               FractureHostPtr;
     std::unique_ptr<Workspaces::ComponentEditor::ComponentWorkspaceHost>       ComponentEditorHostPtr;
-    std::unique_ptr<Workspaces::FluidWorkspaceHost>              FluidHostPtr;
     std::unique_ptr<Workspaces::SketcherWorkspaceHost>           SketcherHostPtr;
     std::unique_ptr<Components::HeadlessWorkspaceDockContainer>  MaterialDockPtr;
-    std::unique_ptr<Components::HeadlessWorkspaceDockContainer>  ForceFieldDockPtr;
-    std::unique_ptr<Components::HeadlessWorkspaceDockContainer>  FluidDockPtr;
     std::unique_ptr<Components::HeadlessWorkspaceDockContainer>  SketcherDockPtr;
     std::unique_ptr<Lifecycle::EditorLifecycle>                  EditorLoopPtr;
     std::unique_ptr<Editor::Explorer::ContentBrowser>            StandaloneBrowserPtr;
@@ -696,26 +644,15 @@ int LaunchDesktopWorkspace(
     std::unique_ptr<Editor::Explorer::ContentBrowser>            StampBrowserPtr;
     std::unique_ptr<Editor::Explorer::ContentBrowser>            BakingBrowserPtr;
     std::unique_ptr<Editor::Explorer::ContentBrowser>            MaterialBrowserPtr;
-    std::unique_ptr<Editor::Explorer::ContentBrowser>            ParticleBrowserPtr;
     std::unique_ptr<Editor::Explorer::ContentBrowser>            FractureBrowserPtr;
-    std::unique_ptr<Editor::Explorer::ContentBrowser>            FluidBrowserPtr;
     std::unique_ptr<Editor::Explorer::ContentBrowser>            SketcherBrowserPtr;
     std::unique_ptr<Editor::Explorer::ProjectBrowser>            HostProjectBrowserPtr;
-    std::unique_ptr<OutlinerPanel>                               ForceOutlinerPtr;
-    std::unique_ptr<ViewportPanel>                               ForceViewportPtr;
-    std::unique_ptr<InspectorPanel>                              ForceInspectorPtr;
-    std::unique_ptr<Editor::Simulation::VectorFieldViewportSession> ForceSessionPtr;
-    double                                             LastFrameDtSeconds        = 1.0 / 60.0;
-    float                                              LastHostUiScale           = 1.0f;
     bool                                               EditorStackReady          = false;
     bool                                               UvHostReady               = false;
     bool                                               PatternHostReady          = false;
     bool                                               StampHostReady            = false;
     bool                                               BakingHostReady           = false;
     bool                                               MaterialHostReady         = false;
-    bool                                               ParticleHostReady         = false;
-    bool                                               ForceFieldHostReady       = false;
-    bool                                               FluidHostReady            = false;
     bool                                               SketcherHostReady         = false;
     bool                                               FractureHostReady         = false;
     bool                                               ComponentEditorHostReady  = false;
@@ -1004,28 +941,6 @@ int LaunchDesktopWorkspace(
         return true;
     };
 
-    auto EnsureParticleHostReady = [&]() -> bool
-    {
-        EnsureSharedControlCentreReady();
-        if (!ParticleHostReady)
-        {
-            if (!ParticleHostPtr) ParticleHostPtr = std::make_unique<Workspaces::ParticleWorkspaceHost>();
-            if (!ParticleBrowserPtr) ParticleBrowserPtr = std::make_unique<Editor::Explorer::ContentBrowser>();
-            ControlAppearance::ConfigureTheme(StandaloneControlCentre.QueryThemeRepository());
-            ParticleBrowserPtr->AttachThemeRepository(&StandaloneControlCentre.QueryThemeRepository());
-            ParticleBrowserPtr->AccessPanel().ConfigureWorkspaceDomain(WorkspaceCategory::Particle);
-            ParticleBrowserPtr->AccessPanel().ConfigureShelfExtent(ContentShelfExtent::Closed, true);
-            (void)ParticleBrowserPtr->AccessPanel().ActivateCategory(ContentCategory::Colours);
-            ParticleBrowserPtr->AccessPanel().ConfigureColourCollectionScope(ColourCollectionScope::Ramps);
-            ParticleHostPtr->AttachContentBrowserPanel(&ParticleBrowserPtr->AccessPanel());
-
-            std::string ParticleVkDiag {};
-            (void)ParticleHostPtr->AccessSession().VulkanExecutor.Initialize(CompiledShaderDir, ParticleVkDiag);
-            ParticleHostReady = true;
-        }
-        return true;
-    };
-
     auto EnsureComponentEditorHostReady = [&]() -> bool
     {
         EnsureSharedControlCentreReady();
@@ -1056,33 +971,6 @@ int LaunchDesktopWorkspace(
             FractureHostPtr->AttachContentBrowserPanel(&FractureBrowserPtr->AccessPanel());
             FractureHostPtr->AttachVulkanDevice(DeviceInterchange, CompiledShaderDir);
             FractureHostReady = true;
-        }
-        return true;
-    };
-
-    auto EnsureFluidHostReady = [&]() -> bool
-    {
-        EnsureSharedControlCentreReady();
-        if (!FluidHostReady)
-        {
-            if (!FluidHostPtr) FluidHostPtr = std::make_unique<Workspaces::FluidWorkspaceHost>();
-            if (!FluidDockPtr) FluidDockPtr = std::make_unique<Components::HeadlessWorkspaceDockContainer>();
-            if (!FluidBrowserPtr) FluidBrowserPtr = std::make_unique<Editor::Explorer::ContentBrowser>();
-            ControlAppearance::ConfigureTheme(StandaloneControlCentre.QueryThemeRepository());
-            FluidBrowserPtr->AttachThemeRepository(&StandaloneControlCentre.QueryThemeRepository());
-            FluidBrowserPtr->AccessPanel().ConfigureWorkspaceDomain(WorkspaceCategory::Fluid);
-            FluidBrowserPtr->AccessPanel().ConfigureShelfExtent(ContentShelfExtent::Closed, true);
-            FluidHostPtr->AttachContentBrowserPanel(&FluidBrowserPtr->AccessPanel());
-
-            (void)FluidDockPtr->Initialize(
-                Windowing::WindowConfigurationDescriptor::ConstructApplicationWindow(
-                    "Frontier Fluid", InitialOptions.InitialWidthPx, InitialOptions.InitialHeightPx));
-            Components::ConfigureImGuiWorkspaceStyle(FluidDockPtr->ActiveTabMetrics());
-            Components::ConfigureImGuiWorkspaceTheme(
-                FluidDockPtr->ActiveTabMetrics(),
-                StandaloneControlCentre.QueryThemeRepository());
-            FluidHostPtr->RegisterDockPanes(*FluidDockPtr);
-            FluidHostReady = true;
         }
         return true;
     };
@@ -1123,130 +1011,6 @@ int LaunchDesktopWorkspace(
                 StandaloneControlCentre.QueryThemeRepository());
             SketcherHostPtr->RegisterDockPanes(*SketcherDockPtr);
             SketcherHostReady = true;
-        }
-        return true;
-    };
-
-    auto EnsureForceFieldHostReady = [&]() -> bool
-    {
-        EnsureSharedControlCentreReady();
-        if (!ForceFieldHostReady)
-        {
-            if (!ForceFieldDockPtr) ForceFieldDockPtr = std::make_unique<Components::HeadlessWorkspaceDockContainer>();
-            if (!ForceOutlinerPtr) ForceOutlinerPtr = std::make_unique<OutlinerPanel>();
-            if (!ForceViewportPtr) ForceViewportPtr = std::make_unique<ViewportPanel>();
-            if (!ForceInspectorPtr) ForceInspectorPtr = std::make_unique<InspectorPanel>();
-            if (!ForceSessionPtr) ForceSessionPtr = std::make_unique<Editor::Simulation::VectorFieldViewportSession>();
-
-            std::string ForceDiag {};
-            const std::filesystem::path SwiftShaderDir = RepositoryRootPath / "ExternalPackages/VulkanCompute/SwiftShader";
-            if (!ForceSessionPtr->AttachInitializedSession(
-                    *ForceOutlinerPtr,
-                    *ForceViewportPtr,
-                    *ForceInspectorPtr,
-                    CompiledShaderDir,
-                    SwiftShaderDir,
-                    ForceDiag))
-            {
-                std::fprintf(stderr, "[FrontierHost] VectorFieldViewportSession initialization failed: %s\n", ForceDiag.c_str());
-                return false;
-            }
-
-            // Populate canonical Wind Tunnel demo forces so standalone ForceField Studio opens with live 3D simulation
-            using namespace SimulationSpace::ForceFields;
-            const OutlinerSlotToken WindFolder = ForceOutlinerPtr->ConstructFolder("Wind Tunnel Forces");
-
-            ForceSourceRecordEntry VortexDesc {};
-            VortexDesc.Label                        = "Helical Vortex Path";
-            VortexDesc.Model                        = ForceModel::RotationalColumn;
-            VortexDesc.CentreMeters                 = { -6.0f, -2.0f, 5.0f };
-            VortexDesc.RadiusMeters                 = 20.0f;
-            VortexDesc.Strength                     = 22.0f;
-            VortexDesc.SwirlRatio                   = 1.15f;
-            VortexDesc.DynamicMotion                = true;
-            VortexDesc.Motion.Topology              = MotionPathGeometry::CatmullSpline;
-            VortexDesc.Motion.CycleBehavior         = MotionCycleBehavior::PingPong;
-            VortexDesc.Motion.SpeedMetresPerSecond  = 5.5f;
-            VortexDesc.Motion.WaypointCount         = 3u;
-            VortexDesc.Motion.Waypoints[0]          = { -14.0f, -6.0f, 4.5f };
-            VortexDesc.Motion.Waypoints[1]          = { -3.0f, 10.0f, 8.0f };
-            VortexDesc.Motion.Waypoints[2]          = { 12.0f, -4.0f, 6.0f };
-            const OutlinerSlotToken VortexToken = ForceSessionPtr->AddForceSourceEntry(VortexDesc, WindFolder);
-
-            ForceSourceRecordEntry JetDesc {};
-            JetDesc.Label         = "Cantilever Jet Plume";
-            JetDesc.Model         = ForceModel::FlowStream;
-            JetDesc.StreamProfile = StreamTransportProfile::SlipstreamJet;
-            JetDesc.CentreMeters  = { 14.0f, 8.0f, 7.0f };
-            JetDesc.EulerDegrees  = { 0.0f, -12.0f, -145.0f };
-            JetDesc.RadiusMeters  = 17.0f;
-            JetDesc.Strength      = 26.0f;
-            (void)ForceSessionPtr->AddForceSourceEntry(JetDesc, WindFolder);
-
-            ForceSourceRecordEntry BurstDesc {};
-            BurstDesc.Label                        = "Orbital Radial Burst";
-            BurstDesc.Model                        = ForceModel::RadialBurst;
-            BurstDesc.CentreMeters                 = { -12.0f, 15.0f, 6.0f };
-            BurstDesc.RadiusMeters                 = 14.0f;
-            BurstDesc.Strength                     = 20.0f;
-            BurstDesc.DurationMode                 = ForceDurationMode::Modulated;
-            BurstDesc.FrequencyHertz               = 0.4f;
-            BurstDesc.DynamicMotion                = true;
-            BurstDesc.Motion.Topology              = MotionPathGeometry::HelicalOrbit;
-            BurstDesc.Motion.SpeedMetresPerSecond  = 6.0f;
-            BurstDesc.Motion.OrbitRadiusMeters     = 8.0f;
-            BurstDesc.Motion.WaypointCount         = 2u;
-            BurstDesc.Motion.Waypoints[0]          = { -12.0f, 15.0f, 6.0f };
-            BurstDesc.Motion.Waypoints[1]          = { -4.0f, 15.0f, 6.0f };
-            (void)ForceSessionPtr->AddForceSourceEntry(BurstDesc, WindFolder);
-
-            ForceOutlinerPtr->SelectSingle(VortexToken);
-            ForceOutlinerPtr->ConfigureFilterStripOpen(true);
-            ForceSessionPtr->ConfigureSelectedWaypointIndex(1);
-
-            ForceViewportPtr->ConfigureExecutionMode(ViewportExecutionMode::Simulate, false);
-            auto& Ov = ForceViewportPtr->AccessForceOverlaySettings();
-            Ov.Enabled                      = true;
-            Ov.ShowHeatmap                  = true;
-            Ov.ShowVectors                  = true;
-            Ov.ShowStreamlines              = true;
-            Ov.ShowBounds                   = true;
-            Ov.ShowMotionCurves             = true;
-            Ov.CrossSectionAnemometerActive = true;
-            Ov.CrossSectionAxis             = CrossSectionPlaneAxis::XYHorizontal;
-            Ov.CrossSectionOffsetMeters     = 5.0f;
-            Ov.StreamColorMode              = StreamlineColorMode::SpeedRamp;
-            Ov.StreamRibbonThickness        = 0.72f;
-            Ov.StreamLineCount              = 128u;
-            Ov.AnemometerWorldMeters        = { 1.5f, 2.0f, 5.5f };
-
-            ThemeRepository ThemeRepo {};
-            (void)ForceFieldDockPtr->Initialize(
-                Windowing::WindowConfigurationDescriptor::ConstructApplicationWindow(
-                    "Frontier ForceField", InitialOptions.InitialWidthPx, InitialOptions.InitialHeightPx));
-            Components::ConfigureImGuiWorkspaceStyle(ForceFieldDockPtr->ActiveTabMetrics());
-            Components::ConfigureImGuiWorkspaceTheme(ForceFieldDockPtr->ActiveTabMetrics(), ThemeRepo);
-
-            (void)ForceFieldDockPtr->RegisterPane(Components::WorkspaceDockPaneDescriptor{
-                "Outliner",
-                Components::DockPlacementDirection::SplitLeft,
-                0.21f,
-                Components::PaneDirectiveMask::StandardPaneDirectives,
-                [&]() { ForceOutlinerPtr->PresentInImGuiPane(LastFrameDtSeconds, LastHostUiScale); } });
-            (void)ForceFieldDockPtr->RegisterPane(Components::WorkspaceDockPaneDescriptor{
-                "Viewport",
-                Components::DockPlacementDirection::CenterTabGroup,
-                0.53f,
-                Components::PaneDirectiveMask::CentralViewportDirectives,
-                [&]() { ForceViewportPtr->PresentInImGuiPane(LastFrameDtSeconds, LastHostUiScale); } });
-            (void)ForceFieldDockPtr->RegisterPane(Components::WorkspaceDockPaneDescriptor{
-                "Inspector",
-                Components::DockPlacementDirection::SplitRight,
-                0.26f,
-                Components::PaneDirectiveMask::StandardPaneDirectives,
-                [&]() { ForceInspectorPtr->PresentInImGuiPane(LastFrameDtSeconds, LastHostUiScale); } });
-
-            ForceFieldHostReady = true;
         }
         return true;
     };
@@ -1313,32 +1077,11 @@ int LaunchDesktopWorkspace(
                         CurrentSurface = ActiveHostSurface::SketcherWorkspaceSurface;
                     }
                 }
-                else if (Directive.TargetWorkspace == Workspaces::HostWorkspaceTarget::FluidWorkspace)
-                {
-                    if (EnsureFluidHostReady())
-                    {
-                        CurrentSurface = ActiveHostSurface::FluidWorkspaceSurface;
-                    }
-                }
                 else if (Directive.TargetWorkspace == Workspaces::HostWorkspaceTarget::MaterialWorkspace)
                 {
                     if (EnsureMaterialHostReady())
                     {
                         CurrentSurface = ActiveHostSurface::MaterialWorkspaceSurface;
-                    }
-                }
-                else if (Directive.TargetWorkspace == Workspaces::HostWorkspaceTarget::ParticleWorkspace)
-                {
-                    if (EnsureParticleHostReady())
-                    {
-                        CurrentSurface = ActiveHostSurface::ParticleWorkspaceSurface;
-                    }
-                }
-                else if (Directive.TargetWorkspace == Workspaces::HostWorkspaceTarget::ForceFieldWorkspace)
-                {
-                    if (EnsureForceFieldHostReady())
-                    {
-                        CurrentSurface = ActiveHostSurface::ForceFieldWorkspaceSurface;
                     }
                 }
                 else
@@ -1387,22 +1130,6 @@ int LaunchDesktopWorkspace(
             return 1;
         }
     }
-    else if (CurrentSurface == ActiveHostSurface::ParticleWorkspaceSurface)
-    {
-        if (!EnsureParticleHostReady())
-        {
-            ImGui::DestroyContext(GuiCtx);
-            return 1;
-        }
-    }
-    else if (CurrentSurface == ActiveHostSurface::ForceFieldWorkspaceSurface)
-    {
-        if (!EnsureForceFieldHostReady())
-        {
-            ImGui::DestroyContext(GuiCtx);
-            return 1;
-        }
-    }
     else if (CurrentSurface == ActiveHostSurface::FractureWorkspaceSurface)
     {
         if (!EnsureFractureHostReady())
@@ -1414,14 +1141,6 @@ int LaunchDesktopWorkspace(
     else if (CurrentSurface == ActiveHostSurface::ComponentEditorWorkspaceSurface)
     {
         if (!EnsureComponentEditorHostReady())
-        {
-            ImGui::DestroyContext(GuiCtx);
-            return 1;
-        }
-    }
-    else if (CurrentSurface == ActiveHostSurface::FluidWorkspaceSurface)
-    {
-        if (!EnsureFluidHostReady())
         {
             ImGui::DestroyContext(GuiCtx);
             return 1;
@@ -1634,20 +1353,6 @@ int LaunchDesktopWorkspace(
                 HostSurface->ResizeSurface(SurfaceW, SurfaceH, Extent.DpiScaleFactor);
             }
         }
-        if (ForceFieldHostReady && ForceFieldDockPtr)
-        {
-            if (auto* HostSurface = ForceFieldDockPtr->AccessOperatingSurface(Components::HostWindowToken{ 0u }))
-            {
-                HostSurface->ResizeSurface(SurfaceW, SurfaceH, Extent.DpiScaleFactor);
-            }
-        }
-        if (FluidHostReady && FluidDockPtr)
-        {
-            if (auto* HostSurface = FluidDockPtr->AccessOperatingSurface(Components::HostWindowToken{ 0u }))
-            {
-                HostSurface->ResizeSurface(SurfaceW, SurfaceH, Extent.DpiScaleFactor);
-            }
-        }
         if (SketcherHostReady && SketcherDockPtr)
         {
             if (auto* HostSurface = SketcherDockPtr->AccessOperatingSurface(Components::HostWindowToken{ 0u }))
@@ -1756,33 +1461,6 @@ int LaunchDesktopWorkspace(
             UiBuildMs = static_cast<float>(
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - UiStart).count());
         }
-        else if (CurrentSurface == ActiveHostSurface::ParticleWorkspaceSurface && ParticleHostPtr)
-        {
-            const float HostUiScale = std::clamp(StandaloneControlCentre.QueryInterfaceScaleFactor(), 0.75f, 2.0f);
-            ControlAppearance::ConfigureTheme(StandaloneControlCentre.QueryThemeRepository());
-            ParticleHostPtr->AccessSession().StepSimulationClock(Dt);
-            PixelSpace StudioSurface(ImGui::GetForegroundDrawList(), Point2D{ 0.0f, 0.0f }, HostUiScale);
-            const Point2D MouseLogical = StudioSurface.QueryMousePosition();
-            ContentBrowserPointerInput PtrInput {};
-            if (!StandaloneControlCentre.QueryOpen())
-            {
-                PtrInput.CursorX       = MouseLogical.X;
-                PtrInput.CursorY       = MouseLogical.Y;
-                PtrInput.Pressed       = StudioSurface.QueryMouseClicked(0);
-                PtrInput.HeldDown      = StudioSurface.QueryMouseDown(0);
-                PtrInput.Released      = StudioSurface.QueryMouseReleased(0);
-                PtrInput.DoubleClicked = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
-                PtrInput.WheelDeltaY   = Io.MouseWheel;
-            }
-            const Rectangle2D LogicalBounds {
-                0.0f,
-                0.0f,
-                FullBounds.Width / HostUiScale,
-                FullBounds.Height / HostUiScale,
-            };
-            ParticleHostPtr->RenderStudio(StudioSurface, LogicalBounds, PtrInput, Dt);
-            StandaloneControlCentre.Render(FullBounds, Dt, static_cast<float>(1.0 / Dt));
-        }
         else if (CurrentSurface == ActiveHostSurface::FractureWorkspaceSurface && FractureHostPtr)
         {
             const float HostUiScale = std::clamp(StandaloneControlCentre.QueryInterfaceScaleFactor(), 0.75f, 2.0f);
@@ -1846,36 +1524,6 @@ int LaunchDesktopWorkspace(
             ComponentEditorHostPtr->RenderWorkspace(StudioSurface, LogicalBounds, PtrInput, Dt);
             StandaloneControlCentre.Render(FullBounds, Dt, static_cast<float>(1.0 / Dt));
         }
-        else if (CurrentSurface == ActiveHostSurface::FluidWorkspaceSurface && FluidHostPtr && FluidDockPtr && FluidBrowserPtr)
-        {
-            const float HostUiScale = std::clamp(StandaloneControlCentre.QueryInterfaceScaleFactor(), 0.75f, 2.0f);
-            ControlAppearance::ConfigureTheme(StandaloneControlCentre.QueryThemeRepository());
-            FluidHostPtr->SynchronizeHostScale(HostUiScale);
-            FluidHostPtr->AccessSession().StepSimulation(Dt);
-
-            Components::ConfigureImGuiWorkspaceTheme(
-                FluidDockPtr->ActiveTabMetrics(),
-                StandaloneControlCentre.QueryThemeRepository());
-            auto& FluidBrowserPanel = FluidBrowserPtr->AccessPanel();
-            FluidBrowserPanel.SynchronizeHostBounds(FullBounds, HostUiScale);
-            StandaloneControlCentre.SynchronizeHostBounds(FullBounds, HostUiScale);
-            if (StandaloneControlCentre.QueryFullScreenBlocking() || FluidBrowserPanel.QueryShelfDragging())
-            {
-                WorkspaceAppearance::AssignOverlayPointerShield(FullBounds);
-            }
-            else
-            {
-                WorkspaceAppearance::AssignOverlayPointerShield(
-                    FluidBrowserPanel.QueryDrawerPhysicalBounds(),
-                    FluidBrowserPanel.QueryNotchPhysicalBounds());
-                WorkspaceAppearance::AppendOverlayPointerShield(StandaloneControlCentre.QueryShadePhysicalBounds());
-                WorkspaceAppearance::AppendOverlayPointerShield(StandaloneControlCentre.QueryTabPhysicalBounds());
-            }
-            FluidDockPtr->PresentWindowImGuiPanes(Components::HostWindowToken{ 0u });
-            WorkspaceAppearance::ClearOverlayPointerShield();
-            FluidBrowserPtr->Render(FullBounds, Dt, HostUiScale);
-            StandaloneControlCentre.Render(FullBounds, Dt, static_cast<float>(1.0 / Dt));
-        }
         else if (CurrentSurface == ActiveHostSurface::SketcherWorkspaceSurface && SketcherHostPtr && SketcherDockPtr && SketcherBrowserPtr)
         {
             const float HostUiScale = std::clamp(StandaloneControlCentre.QueryInterfaceScaleFactor(), 0.75f, 2.0f);
@@ -1905,31 +1553,6 @@ int LaunchDesktopWorkspace(
             SketcherHostPtr->EndFrame(Dt, true, true);
             WorkspaceAppearance::ClearOverlayPointerShield();
             SketcherBrowserPtr->Render(FullBounds, Dt, HostUiScale);
-            StandaloneControlCentre.Render(FullBounds, Dt, static_cast<float>(1.0 / Dt));
-        }
-        else if (CurrentSurface == ActiveHostSurface::ForceFieldWorkspaceSurface && ForceSessionPtr && ForceFieldDockPtr)
-        {
-            const float HostUiScale = std::clamp(StandaloneControlCentre.QueryInterfaceScaleFactor(), 0.75f, 2.0f);
-            LastFrameDtSeconds = Dt;
-            LastHostUiScale    = HostUiScale;
-            ForceSessionPtr->StepSimulation(Dt);
-            Components::ConfigureImGuiWorkspaceTheme(
-                ForceFieldDockPtr->ActiveTabMetrics(),
-                StandaloneControlCentre.QueryThemeRepository());
-            StandaloneControlCentre.SynchronizeHostBounds(FullBounds, HostUiScale);
-            if (StandaloneControlCentre.QueryFullScreenBlocking())
-            {
-                WorkspaceAppearance::AssignOverlayPointerShield(FullBounds);
-            }
-            else
-            {
-                WorkspaceAppearance::AssignOverlayPointerShield(
-                    StandaloneControlCentre.QueryShadePhysicalBounds(),
-                    StandaloneControlCentre.QueryTabPhysicalBounds());
-            }
-            ForceFieldDockPtr->PresentWindowImGuiPanes(Components::HostWindowToken{ 0u });
-            WorkspaceAppearance::ClearOverlayPointerShield();
-            ForceSessionPtr->AccessContentBrowser().PresentInImGuiHost(Dt, HostUiScale);
             StandaloneControlCentre.Render(FullBounds, Dt, static_cast<float>(1.0 / Dt));
         }
         else
@@ -2153,29 +1776,18 @@ int LaunchDesktopWorkspace(
         MaterialDockPtr->Finalize();
         MaterialHostPtr->AccessPreviewRenderer().TeardownVulkanPreview();
     }
-    if (ForceFieldHostReady && ForceFieldDockPtr)
-    {
-        ForceFieldDockPtr->Finalize();
-    }
-    if (FluidHostReady && FluidDockPtr)
-    {
-        FluidDockPtr->Finalize();
-    }
     if (SketcherHostReady && SketcherHostPtr && SketcherDockPtr)
     {
         SketcherHostPtr->Finalize();
         SketcherDockPtr->Finalize();
     }
     FractureHostPtr.reset();
-    ParticleHostPtr.reset();
-    FluidHostPtr.reset();
     SketcherHostPtr.reset();
     MaterialHostPtr.reset();
     BakingHostPtr.reset();
     StampHostPtr.reset();
     PatternHostPtr.reset();
     UVHostPtr.reset();
-    ForceSessionPtr.reset();
     EditorLoopPtr.reset();
     HostProjectBrowserPtr.reset();
 #else

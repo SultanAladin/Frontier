@@ -158,27 +158,6 @@ SpaceContainerPayload ComponentSpaceEncoder::ConstructPayload(
                     Entry.insert_or_assign("DisableSelfCollide", C->DisableSelfCollide);
                 }
                 break;
-            case ComponentClass::ComponentCategory::ParticleInstance:
-                if (const auto* P = Storage.InspectParticle(H.Token))
-                {
-                    Entry.insert_or_assign("PresetIdentifier", P->PresetIdentifier);
-                    Entry.insert_or_assign("EmissionRateScale", static_cast<double>(P->EmissionRateScale));
-                    Entry.insert_or_assign("VelocityScale", static_cast<double>(P->VelocityScale));
-                    Entry.insert_or_assign("AutoActivate", P->AutoActivate);
-                    Entry.insert_or_assign("LocalSpaceSimulate", P->LocalSpaceSimulate);
-                }
-                break;
-            case ComponentClass::ComponentCategory::FluidInstance:
-                if (const auto* F = Storage.InspectFluid(H.Token))
-                {
-                    Entry.insert_or_assign("VolumeIdentifier", F->VolumeIdentifier);
-                    Entry.insert_or_assign("EmissionMode", static_cast<int64_t>(F->EmissionMode));
-                    Entry.insert_or_assign("BoundsExtentMeters", EncodeScalar3(F->BoundsExtentMeters));
-                    Entry.insert_or_assign("BuoyancyScale", static_cast<double>(F->BuoyancyScale));
-                    Entry.insert_or_assign("FuelInjectionRate", static_cast<double>(F->FuelInjectionRate));
-                    Entry.insert_or_assign("AutoActivate", F->AutoActivate);
-                }
-                break;
             case ComponentClass::ComponentCategory::LightInstance:
                 if (const auto* L = Storage.InspectLight(H.Token))
                 {
@@ -444,27 +423,6 @@ bool ComponentSpaceDecoder::ExtractDefinition(
                     C->DockKey             = (*Entry)["DockKey"].value_or(std::string{});
                     C->DockConnected       = (*Entry)["DockConnected"].value_or(true);
                     C->DisableSelfCollide  = (*Entry)["DisableSelfCollide"].value_or(true);
-                }
-                break;
-            case ComponentClass::ComponentCategory::ParticleInstance:
-                if (auto* P = OutDefinition.Storage.ResolveParticle(Token))
-                {
-                    P->PresetIdentifier   = (*Entry)["PresetIdentifier"].value_or(std::string("ExhaustPlume"));
-                    P->EmissionRateScale  = static_cast<float>((*Entry)["EmissionRateScale"].value_or(1.0));
-                    P->VelocityScale      = static_cast<float>((*Entry)["VelocityScale"].value_or(1.0));
-                    P->AutoActivate       = (*Entry)["AutoActivate"].value_or(true);
-                    P->LocalSpaceSimulate = (*Entry)["LocalSpaceSimulate"].value_or(false);
-                }
-                break;
-            case ComponentClass::ComponentCategory::FluidInstance:
-                if (auto* F = OutDefinition.Storage.ResolveFluid(Token))
-                {
-                    F->VolumeIdentifier   = (*Entry)["VolumeIdentifier"].value_or(std::string("TyreSmokePlume"));
-                    F->EmissionMode       = static_cast<ComponentClass::FluidSourceCategory>((*Entry)["EmissionMode"].value_or<int64_t>(0));
-                    F->BoundsExtentMeters = DecodeScalar3((*Entry)["BoundsExtentMeters"].as_array(), { 0.8f, 0.8f, 1.2f });
-                    F->BuoyancyScale      = static_cast<float>((*Entry)["BuoyancyScale"].value_or(1.2));
-                    F->FuelInjectionRate  = static_cast<float>((*Entry)["FuelInjectionRate"].value_or(0.45));
-                    F->AutoActivate       = (*Entry)["AutoActivate"].value_or(true);
                 }
                 break;
             case ComponentClass::ComponentCategory::LightInstance:

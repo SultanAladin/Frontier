@@ -54,8 +54,6 @@ void ComponentInstanceStorage::ResetWithSpatialOrigin(std::string_view OriginTit
     FreeSlots.clear();
     Geometries.clear();
     Constraints.clear();
-    Particles.clear();
-    Fluids.clear();
     Lights.clear();
     Cameras.clear();
     Collisions.clear();
@@ -107,12 +105,6 @@ uint32_t ComponentInstanceStorage::AllocateTypedSlot(ComponentCategory Category)
         case ComponentCategory::ConstraintInstance:
             Constraints.emplace_back();
             return static_cast<uint32_t>(Constraints.size() - 1u);
-        case ComponentCategory::ParticleInstance:
-            Particles.emplace_back();
-            return static_cast<uint32_t>(Particles.size() - 1u);
-        case ComponentCategory::FluidInstance:
-            Fluids.emplace_back();
-            return static_cast<uint32_t>(Fluids.size() - 1u);
         case ComponentCategory::LightInstance:
             Lights.emplace_back();
             return static_cast<uint32_t>(Lights.size() - 1u);
@@ -438,12 +430,6 @@ ComponentInstanceToken ComponentInstanceStorage::DuplicateInstance(ComponentInst
         case ComponentCategory::ConstraintInstance:
             Constraints[CopyHeader->CategorySlotIndex] = Constraints[SourceHeader.CategorySlotIndex];
             break;
-        case ComponentCategory::ParticleInstance:
-            Particles[CopyHeader->CategorySlotIndex] = Particles[SourceHeader.CategorySlotIndex];
-            break;
-        case ComponentCategory::FluidInstance:
-            Fluids[CopyHeader->CategorySlotIndex] = Fluids[SourceHeader.CategorySlotIndex];
-            break;
         case ComponentCategory::LightInstance:
             Lights[CopyHeader->CategorySlotIndex] = Lights[SourceHeader.CategorySlotIndex];
             break;
@@ -546,8 +532,6 @@ ComponentInstanceToken ComponentInstanceStorage::FindTokenByTitle(std::string_vi
 
 FRONTIER_DEFINE_CATEGORY_ACCESSORS(Geometry, GeometryInstance, Geometries, GeometryComponentSettings)
 FRONTIER_DEFINE_CATEGORY_ACCESSORS(Constraint, ConstraintInstance, Constraints, ConstraintComponentSettings)
-FRONTIER_DEFINE_CATEGORY_ACCESSORS(Particle, ParticleInstance, Particles, ParticleComponentSettings)
-FRONTIER_DEFINE_CATEGORY_ACCESSORS(Fluid, FluidInstance, Fluids, FluidComponentSettings)
 FRONTIER_DEFINE_CATEGORY_ACCESSORS(Light, LightInstance, Lights, LightComponentSettings)
 FRONTIER_DEFINE_CATEGORY_ACCESSORS(Camera, CameraInstance, Cameras, CameraComponentSettings)
 FRONTIER_DEFINE_CATEGORY_ACCESSORS(Collision, CollisionVolume, Collisions, CollisionVolumeSettings)
@@ -628,8 +612,6 @@ ClassSummaryMetrics ComponentInstanceStorage::ComputeSummaryMetrics() const noex
             case ComponentCategory::ConstraintInstance: ++Metrics.ConstraintCount; break;
             case ComponentCategory::LightInstance:      ++Metrics.LightCount;      break;
             case ComponentCategory::CollisionVolume:    ++Metrics.CollisionCount;  break;
-            case ComponentCategory::ParticleInstance:   ++Metrics.ParticleCount;   break;
-            case ComponentCategory::FluidInstance:      ++Metrics.FluidCount;      break;
             case ComponentCategory::VehicleDynamics:
             case ComponentCategory::RotationalMotion:   ++Metrics.BehaviourCount;  break;
             default: break;

@@ -224,6 +224,42 @@ float3 EvaluateSkyViewLutSample(StructuredBuffer<float4> SkyLut, uint WidthPx, u
     return EvaluateSkyViewLutSample(SkyLut, WidthPx, HeightPx, Dir, 6360000.0, ViewerAltM);
 }
 
+float3 EvaluateTransmittanceLutSample(
+    StructuredBuffer<float4> SkyLut,
+    float                    RadiusKm,
+    float                    CosPolar,
+    float                    GroundKm,
+    float                    TopKm)
+{
+    if (AtmoQuerySphereBlockedKm(RadiusKm, CosPolar, GroundKm)) return float3(0.0, 0.0, 0.0);
+    float ClampedR  = clamp(RadiusKm, GroundKm, TopKm);
+    float HorizonKm = AtmoComputeHorizonKm(GroundKm, TopKm);
+    float RhoKm     = sqrt(max(0.0, (ClampedR - GroundKm) * (ClampedR + GroundKm)));
+    float DistTopKm = AtmoIntersectUpperKm(ClampedR, clamp(CosPolar, -1.0, 1.0), TopKm);
+    float DMinKm    = max(0.0, TopKm - ClampedR);
+    float DMaxKm    = RhoKm + HorizonKm;
+    float U         = clamp((DistTopKm - DMinKm) / max(1.0e-5, DMaxKm - DMinKm), 0.0, 1.0);
+    float V         = clamp(RhoKm / max(1.0e-5, HorizonKm), 0.0, 1.0);
+
+    float FX = clamp(U, 0.0, 1.0) * float(AtmoTransW - 1u);
+    float FY = clamp(V, 0.0, 1.0) * float(AtmoTransH - 1u);
+    uint  X0 = min(AtmoTransW - 2u, uint(floor(FX)));
+    uint  Y0 = min(AtmoTransH - 2u, uint(floor(FY)));
+    float TX = FX - float(X0);
+    float TY = FY - float(Y0);
+
+    uint I00 = AtmoTransOffset + Y0 * AtmoTransW + X0;
+    uint I10 = I00 + 1u;
+    uint I01 = I00 + AtmoTransW;
+    uint I11 = I01 + 1u;
+
+    float3 C00 = SkyLut[I00].xyz;
+    float3 C10 = SkyLut[I10].xyz;
+    float3 C01 = SkyLut[I01].xyz;
+    float3 C11 = SkyLut[I11].xyz;
+    return lerp(lerp(C00, C10, TX), lerp(C01, C11, TX), TY);
+}
+
 #ifndef FRONTIER_ATMOSPHERE_EMBEDDED
 [[vk::binding(0, 0)]] ConstantBuffer<AtmosphericSkyUniformBlock> SkyUniforms;
 [[vk::binding(1, 0)]] RWStructuredBuffer<float4>               OutSkyViewLut;
@@ -457,7 +493,7 @@ float3 IntegrateUpperSkyRadiance(
 
     float  LimbFactor = exp(-max(0.0, CosPolar) * 7.5);
     float  GlowScale  = 1.0 + (Uni.GroundAlbedoLimbGlow.w - 1.0) * LimbFactor * 0.55;
-    float3 NightAir   = float3(0.0007, 0.0010, 0.0022) + float3(0.0008, 0.0011, 0.0020) * LimbFactor;
+    float3 NightAir   = float3(0.00018, 0.00028, 0.00062) + float3(0.00022, 0.00032, 0.00058) * LimbFactor;
     return (RadAccum * SolarScale * GlowScale + NightAir * (1.0 - DayVis * 0.9)) *
            Uni.SkyTintBrightness.xyz * Uni.SkyTintBrightness.w;
 }
@@ -561,7 +597,7 @@ void ComputeEntry(uint3 DispatchThreadID : SV_DispatchThreadID)
 
     float LimbFactor = exp(-max(0.0, CosPolar) * 7.5);
     float GlowScale  = 1.0 + (SkyUniforms.GroundAlbedoLimbGlow.w - 1.0) * LimbFactor * 0.55;
-    float3 NightAir  = float3(0.0007, 0.0010, 0.0022) + float3(0.0008, 0.0011, 0.0020) * LimbFactor;
+    float3 NightAir  = float3(0.00018, 0.00028, 0.00062) + float3(0.00022, 0.00032, 0.00058) * LimbFactor;
     float3 OutRgb    = (RadAccum * SolarScale * GlowScale + NightAir * (1.0 - DayVis * 0.9)) *
                        SkyUniforms.SkyTintBrightness.xyz * SkyUniforms.SkyTintBrightness.w;
 

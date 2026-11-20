@@ -39,9 +39,8 @@ struct ViewportTimingBreakdown
     // End-to-end host frame stages [ms]
     float TotalFrameMs              = 0.0f;  // [ms] - Full frame wall-clock delta
     float DesktopPollAndUiMs        = 0.0f;  // [ms] - GLFW poll + ImGui frame build
-    float EditorTickMs              = 0.0f;  // [ms] - Scene/outliner/force tick before render
+    float EditorTickMs              = 0.0f;  // [ms] - Scene/outliner tick before render
     float SceneSyncGpuMs            = 0.0f;  // [ms] - GPU scene upload & shadow cascade sync
-    float ForceOverlayMs            = 0.0f;  // [ms] - ForceViz overlay render & composite
     float GizmoOverlayMs            = 0.0f;  // [ms] - 3D Transform gizmo raster & composite
     float SwapchainPresentMs        = 0.0f;  // [ms] - ImGui draw + texture upload + vkQueuePresentKHR
 
@@ -87,7 +86,7 @@ inline void InitializeTimingLogFile(const std::filesystem::path& LogPath, std::s
     }
     Out << "# Frontier Per-Stage Timing Log\n";
     Out << "# Adapter: " << AdapterName << " | HardwareGPU: " << (HwGpu ? "YES" : "NO") << "\n";
-    Out << "# Columns: Frame | FPS | TotalMs | Engine | Shadow | Res | WorldGpuTotalMs | SkyLutMs | CloudsMs | TraceMs | DenoiseMs | CopyMs | HostWaitMs | SceneSyncMs | TickMs | ForceMs | GizmoMs | UiBuildMs | PresentMs\n";
+    Out << "# Columns: Frame | FPS | TotalMs | Engine | Shadow | Res | WorldGpuTotalMs | SkyLutMs | CloudsMs | TraceMs | DenoiseMs | CopyMs | HostWaitMs | SceneSyncMs | TickMs | GizmoMs | UiBuildMs | PresentMs\n";
 }
 
 inline void AppendTimingLogLine(const std::filesystem::path& LogPath, const ViewportTimingBreakdown& T, const char* ReasonTag = "SAMPLE")
@@ -104,7 +103,7 @@ inline void AppendTimingLogLine(const std::filesystem::path& LogPath, const View
         sizeof(Line),
         "[%s] F=%llu | %5.1f fps | Total=%6.2f ms | %s/%s Q%u | %ux%u | "
         "GPU(Tot=%5.2f Sky=%4.2f Cld=%4.2f Trc=%5.2f Den=%4.2f Cpy=%4.2f HostWait=%5.2f) | "
-        "SceneSync=%5.2f Tick=%4.2f Force=%4.2f Gizmo=%4.2f UI=%4.2f Present=%5.2f\n",
+        "SceneSync=%5.2f Tick=%4.2f Gizmo=%4.2f UI=%4.2f Present=%5.2f\n",
         ReasonTag != nullptr ? ReasonTag : "SAMPLE",
         static_cast<unsigned long long>(T.FrameIndex),
         Fps,
@@ -123,7 +122,6 @@ inline void AppendTimingLogLine(const std::filesystem::path& LogPath, const View
         T.GpuHostSubmitWaitMs,
         T.SceneSyncGpuMs,
         T.EditorTickMs,
-        T.ForceOverlayMs,
         T.GizmoOverlayMs,
         T.DesktopPollAndUiMs,
         T.SwapchainPresentMs);

@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                       COMPONENTINSTANCECATEGORIES.H
 ============================================================================================================================================*/
-// 🧩 Lean POD component instance descriptors: SpatialOrigin, Geometry, Physics Constraints, Particle, Fluid, Light, Camera, Collision, Vehicle
+// 🧩 Lean POD component instance descriptors: SpatialOrigin, Geometry, Physics Constraints, Light, Camera, Collision, Vehicle
 
 #pragma once
 
@@ -30,14 +30,12 @@ enum class ComponentCategory : uint8_t
     TransformPivot     = 1u,  // [-] - Local transform pivot without visible geometry
     GeometryInstance   = 2u,  // [-] - Compiled .GeometrySpace / FCT1 surface with material slot overrides
     ConstraintInstance = 3u,  // [-] - Physics-backed Jolt two-body constraint replacing legacy sockets
-    ParticleInstance   = 4u,  // [-] - GPU compute .ParticleSpace source attached to component transform
-    FluidInstance      = 5u,  // [-] - Eulerian .VolumetricSpace / FluidSpace smoke/fire/liquid emitter
-    LightInstance      = 6u,  // [-] - PointEmission, SpotBeam, or AreaLightSource light source
-    CameraInstance     = 7u,  // [-] - Perspective lens & frustum preview with Look-Through pilot mode
-    CollisionVolume    = 8u,  // [-] - Box, Sphere, or Capsule Jolt collision / overlap proxy
-    DirectionArrow     = 9u,  // [-] - Shaded +X orientation arrow visual
-    VehicleDynamics    = 10u, // [-] - Non-transform powertrain, torque curve, aero & wheel constraint driver
-    RotationalMotion   = 11u, // [-] - Non-transform continuous angular velocity driver
+    LightInstance      = 4u,  // [-] - PointEmission, SpotBeam, or AreaLightSource light source
+    CameraInstance     = 5u,  // [-] - Perspective lens & frustum preview with Look-Through pilot mode
+    CollisionVolume    = 6u,  // [-] - Box, Sphere, or Capsule Jolt collision / overlap proxy
+    DirectionArrow     = 7u,  // [-] - Shaded +X orientation arrow visual
+    VehicleDynamics    = 8u,  // [-] - Non-transform powertrain, torque curve, aero & wheel constraint driver
+    RotationalMotion   = 9u,  // [-] - Non-transform continuous angular velocity driver
 };
 
 enum class PhysicsConstraintCategory : uint8_t
@@ -87,13 +85,6 @@ enum class GeometryCollisionProfile : uint8_t
     BlockAll    = 0u, // [-] - Solid rigid body collider
     OverlapAll  = 1u, // [-] - Trigger sensor only
     NoCollision = 2u, // [-] - Render-only geometry without physics proxy
-};
-
-enum class FluidSourceCategory : uint8_t
-{
-    Smoke = 0u, // [-] - Buoyant soot & vapour plume
-    Fire  = 1u, // [-] - Combustive thermal plume
-    Steam = 2u, // [-] - Pressurized condensation jet
 };
 
 enum class CurveInterpolationForm : uint8_t
@@ -154,25 +145,6 @@ struct ConstraintComponentSettings
     std::string           DockKey              {};                             // [-]    - Required nested Tag to allow Dock latch
     bool                  DockConnected        = true;                         // [-]    - Initial / current Dock latch engagement
     bool                  DisableSelfCollide   = true;                         // [-]    - Suppresses contact pairs between joined bodies
-};
-
-struct ParticleComponentSettings
-{
-    std::string PresetIdentifier    { "ExhaustPlume" }; // [-]   - ParticleSpace preset or asset identifier
-    float       EmissionRateScale   = 1.0f;             // [1]   - Multiplier on emitter spawn rate
-    float       VelocityScale       = 1.0f;             // [1]   - Initial velocity scale
-    bool        AutoActivate        = true;             // [-]   - Spawns automatically on Simulate / World start
-    bool        LocalSpaceSimulate  = false;            // [-]   - Advect particles in local component coordinates
-};
-
-struct FluidComponentSettings
-{
-    std::string           VolumeIdentifier   { "TyreSmokePlume" };          // [-]      - VolumetricSpace / Fluid preset identifier
-    FluidSourceCategory     EmissionMode       = FluidSourceCategory::Smoke;    // [-]      - Smoke, Fire, or Steam emission regime
-    Mathematics::Scalar3D BoundsExtentMeters { 0.80f, 0.80f, 1.20f };       // [m]      - Emitter volume half-extents
-    float                 BuoyancyScale      = 1.2f;                        // [1]      - Thermal lift multiplier
-    float                 FuelInjectionRate  = 0.45f;                       // [kg/s]   - Scalar fuel/smoke injection rate
-    bool                  AutoActivate       = true;                        // [-]      - Active during Simulate / World start
 };
 
 struct LightComponentSettings
@@ -267,8 +239,6 @@ struct ComponentInstanceHeader
         case ComponentCategory::TransformPivot:     return "Transform Pivot";
         case ComponentCategory::GeometryInstance:   return "Geometry";
         case ComponentCategory::ConstraintInstance: return "Constraint";
-        case ComponentCategory::ParticleInstance:   return "Particle";
-        case ComponentCategory::FluidInstance:      return "Fluid";
         case ComponentCategory::LightInstance:      return "Light";
         case ComponentCategory::CameraInstance:     return "Camera";
         case ComponentCategory::CollisionVolume:    return "Collision Volume";

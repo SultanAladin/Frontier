@@ -606,11 +606,11 @@ void ProjectBrowser::InitializeDefaultCollection(
         ".projectspace",
         BrowserEntryCategory::Project,
         "3 levels · 24 props · Tier 1 GTX & Tier 2 RTX",
-        "Calibrated Cornell-Studio OpenPBR showcase with dielectric glass, brushed copper, LTC quad lighting, and ForceField authoring.",
+        "Calibrated Cornell-Studio OpenPBR showcase with dielectric glass, brushed copper, LTC quad lighting, and volumetric clouds.",
         "Just now",
         DefaultProjectsDir / "CornellStudioGallery" / "CornellStudioGallery.projectspace",
         { "Studio", "Courtyard", "Workshop" },
-        { "Tier 1 GTX + Tier 2 RTX & ForceFields", "OpenPBR 3D specimens & ColourCodex", "Initial Cornell-Studio gallery" },
+        { "OpenPBR 3D specimens & ColourCodex", "Sky atmosphere & volumetric clouds", "Initial Cornell-Studio gallery" },
         { { "Sam", "S", "Studio cameras, LTC lights and OpenPBR specimens ready in Construct & ContentBrowser.", "Just now" } },
         true,
         0u);
@@ -1398,7 +1398,7 @@ void ProjectBrowser::RenderLibraryMode(
             Surface.FillRectangle(CapBox, P.Control, 7.0f);
             Surface.StrokeRectangle(CapBox, P.Line, 7.0f, 1.0f);
             Surface.Text({ CapBox.X + 12.0f, CapBox.Y + 9.0f }, 11.0f, P.Ink, Cap.ActionTitle.c_str());
-            Surface.Text({ CapBox.X + 12.0f, CapBox.Y + 27.0f }, 9.0f, P.Muted, Cap.Identifier == "Frontier" ? "World GI + Outliner + ForceFields" : "Dual 2D UDIM + 3D Surface");
+            Surface.Text({ CapBox.X + 12.0f, CapBox.Y + 27.0f }, 9.0f, P.Muted, Cap.Identifier == "Frontier" ? "World + Outliner + Clouds" : "Dual 2D UDIM + 3D Surface");
             CapY += 56.0f;
         }
     }

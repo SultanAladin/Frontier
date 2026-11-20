@@ -55,20 +55,15 @@ public:
 
     struct GpuViewportOverlayRequest
     {
-        VkImageView                   WorldSourceView      = VK_NULL_HANDLE;
-        uint32_t                      TargetWidthPx        = 0u;
-        uint32_t                      TargetHeightPx       = 0u;
-        PerspectiveCameraBasis        Camera               {};
-        const Editor::TransformGizmo* Gizmo3D              = nullptr;
-        bool                          DrawGizmo            = true;
-        const uint8_t*                ForceOverlayRgba     = nullptr;
-        uint32_t                      ForceOverlayWidthPx  = 0u;
-        uint32_t                      ForceOverlayHeightPx = 0u;
-        bool                          ForceOverlayEnabled  = false;
-        bool                          ForceOverlayUpdated  = false;
-        bool                          RequestPickPatch     = false;
-        uint32_t                      PickCursorX          = 0u;
-        uint32_t                      PickCursorY          = 0u;
+        VkImageView                   WorldSourceView = VK_NULL_HANDLE;
+        uint32_t                      TargetWidthPx   = 0u;
+        uint32_t                      TargetHeightPx  = 0u;
+        PerspectiveCameraBasis        Camera          {};
+        const Editor::TransformGizmo* Gizmo3D         = nullptr;
+        bool                          DrawGizmo       = true;
+        bool                          RequestPickPatch = false;
+        uint32_t                      PickCursorX     = 0u;
+        uint32_t                      PickCursorY     = 0u;
     };
 
     struct GpuViewportOverlayResult
@@ -121,10 +116,6 @@ private:
     DeviceBufferResource  UploadReadbackRgbaBuffer    {};
     DeviceBufferResource  ReadbackPickBuffer          {};
     DeviceBufferResource  ReadbackPickPatchBuffer     {};
-    DeviceBufferResource  ForceOverlayStagingBuffer   {};
-    DeviceImageResource   FallbackTransparentImage    {};
-    DeviceImageResource   ForceOverlayImage           {};
-    bool                  ForceOverlayImageValid      = false;
     DeviceImageResource   ColorAttachment             {};
     DeviceImageResource   PickAttachment              {};
     DeviceImageResource   DepthAttachment             {};

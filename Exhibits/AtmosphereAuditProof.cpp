@@ -1,7 +1,7 @@
 /*==========================================================================================================================================
                                                          ATMOSPHEREAUDITPROOF.CPP
 ==========================================================================================================================================*/
-// 🧩 Comprehensive Visual & Quantitative Audit Exhibit writing >=10 PNG proofs to "Audit Proof/" covering:
+// 🧩 Comprehensive Visual & Quantitative Audit Exhibit writing >=10 PNG proofs to "Exhibits/Images/Atmosphere/" covering:
 // 1. Dawn & Civil Twilight (no 360-deg white horizon ribbon, no brown fill)
 // 2. Sunrise & Smooth Eddington Solar Corona (no circular step ring)
 // 3. Sunset Golden Hour & Self-Shadowed Clouds
@@ -10,7 +10,7 @@
 // 6. All 6 Moons with Physical Volumetric Atmospheres (Luna, Ember, Glacier, Sulfur, Shroud, Shard)
 // 7. Nocturnal Pinpoint Optical Starfield (J2000 catalog, Planckian B-V colors, 4-blade spikes, Milky Way dust lanes)
 // 8. Six Key Cloud Formations (Lenticular, Mammatus, KelvinHelmholtz, Asperitas, Nacreous, Pyrocumulus - zero lattice/stipple)
-// 9. Clouds Advecting & Curling with Spatial ForceFields (T=0s, T=18s, Delta Heatmap)
+// 9. Clouds Advecting & Swirling with Ekman Wind (T=0s, T=28s, Delta Heatmap)
 // 10. Full 3D Terrestrial Outdoor World Integration (OpenPbrDirect + WideTreeRayQuery + Cloud Shadows + Sky)
 
 #include "Engine/GeometricRaster/Atmosphere/AtmosphericSkySequence.h"
@@ -21,7 +21,6 @@
 #include "Engine/GeometricRaster/GlobalIllumination/VulkanWorldRenderSequence.h"
 #include "Engine/GeometricRaster/VulkanInterchange.h"
 #include "Engine/GeometrySpace/Primitives/AnalyticPrimitives.h"
-#include "Engine/SimulationSpace/ForceFields/ForceFieldAccumulator.h"
 #include "Exhibits/SoftwareCanvasRasterizer.h"
 
 #include <algorithm>
@@ -36,7 +35,6 @@ namespace
 
 using namespace Frontier;
 using namespace Frontier::GeometricRaster;
-using namespace Frontier::SimulationSpace::ForceFields;
 
 struct ValidationScorecard
 {
@@ -210,7 +208,7 @@ int main()
     ValidationScorecard Score {};
     const std::filesystem::path RepoRoot { FRONTIER_REPO_ROOT_DIR };
     const std::filesystem::path ShaderDir { FRONTIER_COMPILED_SHADER_DIR };
-    const std::filesystem::path OutDir = RepoRoot / "Audit Proof";
+    const std::filesystem::path OutDir = RepoRoot / "Exhibits/Images/Atmosphere";
     std::filesystem::create_directories(OutDir);
 
     VulkanInterchange VkDevice {};
@@ -258,7 +256,7 @@ int main()
         BlitTile(Sheet, 720u, 0u,   0u, TowardDawn.data(), 360u, 240u);
         BlitTile(Sheet, 720u, 360u, 0u, AntiDawn.data(),   360u, 240u);
         Score.Verify(WritePngRgba8(OutDir / "01-DawnAndTwilightSky.png", 720u, 240u, Sheet.data()),
-                     "Wrote Audit Proof/01-DawnAndTwilightSky.png");
+                     "Wrote Exhibits/Images/Atmosphere/01-DawnAndTwilightSky.png");
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -277,7 +275,7 @@ int main()
         std::vector<uint8_t> Pixels {};
         Score.Verify(Gpu.RenderWorldViewportWithEngine(RenderCfg, 0u, Cam, S, Pixels), "Rendered Sunrise Corona");
         Score.Verify(WritePngRgba8(OutDir / "02-SunriseHorizonAndCorona.png", HeroW, HeroH, Pixels.data()),
-                     "Wrote Audit Proof/02-SunriseHorizonAndCorona.png");
+                     "Wrote Exhibits/Images/Atmosphere/02-SunriseHorizonAndCorona.png");
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -298,7 +296,7 @@ int main()
         std::vector<uint8_t> Pixels {};
         Score.Verify(Gpu.RenderWorldViewportWithEngine(RenderCfg, 0u, Cam, S, Pixels), "Rendered Sunset Golden Hour");
         Score.Verify(WritePngRgba8(OutDir / "03-SunsetGoldenHourAndClouds.png", HeroW, HeroH, Pixels.data()),
-                     "Wrote Audit Proof/03-SunsetGoldenHourAndClouds.png");
+                     "Wrote Exhibits/Images/Atmosphere/03-SunsetGoldenHourAndClouds.png");
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -319,7 +317,7 @@ int main()
         const double ZenithLum = ComputeMeanBrightness(Pixels, HeroW, HeroH, 0u, 80u);
         Score.Verify(ZenithLum > 0.12, "High noon sky zenith has rich bright blue daylight luminance");
         Score.Verify(WritePngRgba8(OutDir / "04-NoonZenithAndClearSky.png", HeroW, HeroH, Pixels.data()),
-                     "Wrote Audit Proof/04-NoonZenithAndClearSky.png");
+                     "Wrote Exhibits/Images/Atmosphere/04-NoonZenithAndClearSky.png");
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -360,7 +358,7 @@ int main()
         const double PlanetLimbLum = ComputeMeanBrightness(Pixels, HeroW, HeroH, 145u, 270u);
         Score.Verify(PlanetLimbLum > UpperSpaceLum + 0.015, "Orbital view shows illuminated planet + limb below dark starfield");
         Score.Verify(WritePngRgba8(OutDir / "05-OuterSpaceOrbitalEarthStarsSun.png", HeroW, HeroH, Pixels.data()),
-                     "Wrote Audit Proof/05-OuterSpaceOrbitalEarthStarsSun.png");
+                     "Wrote Exhibits/Images/Atmosphere/05-OuterSpaceOrbitalEarthStarsSun.png");
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -398,7 +396,7 @@ int main()
         const double NightHorizLum = ComputeMeanBrightness(Pixels, 560u, 315u, 250u, 310u);
         Score.Verify(NightHorizLum < 0.06, "Astronomical night horizon has zero orange/brown band");
         Score.Verify(WritePngRgba8(OutDir / "06-SixMoonsWithPhysicalAtmospheres.png", 560u, 315u, Pixels.data()),
-                     "Wrote Audit Proof/06-SixMoonsWithPhysicalAtmospheres.png");
+                     "Wrote Exhibits/Images/Atmosphere/06-SixMoonsWithPhysicalAtmospheres.png");
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -420,7 +418,7 @@ int main()
         std::vector<uint8_t> Pixels {};
         Score.Verify(Gpu.RenderWorldViewportWithEngine(RenderCfg, 0u, Cam, S, Pixels), "Rendered Pinpoint Starfield & Milky Way");
         Score.Verify(WritePngRgba8(OutDir / "07-NocturnalPinpointStarfieldAndMilkyWay.png", HeroW, HeroH, Pixels.data()),
-                     "Wrote Audit Proof/07-NocturnalPinpointStarfieldAndMilkyWay.png");
+                     "Wrote Exhibits/Images/Atmosphere/07-NocturnalPinpointStarfieldAndMilkyWay.png");
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -454,59 +452,26 @@ int main()
             BlitTile(Sheet, TileW * 3u, (I % 3u) * TileW, (I / 3u) * TileH, Tile.data(), TileW, TileH);
         }
         Score.Verify(WritePngRgba8(OutDir / "08-CloudFormationsNoArtifacts.png", TileW * 3u, TileH * 2u, Sheet.data()),
-                     "Wrote Audit Proof/08-CloudFormationsNoArtifacts.png");
+                     "Wrote Exhibits/Images/Atmosphere/08-CloudFormationsNoArtifacts.png");
     }
 
     // ------------------------------------------------------------------------------------------------
-    // Proof 09: Clouds Advecting & Curling with Spatial ForceFields (T=0s, T=28s, Delta Heatmap)
+    // Proof 09: Clouds Advecting & Swirling with Wind (T=0s, T=28s, Delta Heatmap)
     // ------------------------------------------------------------------------------------------------
     {
-        ForceFieldAccumulator ForceAcc {};
-        ForceSourceRecordEntry Vortex {};
-        Vortex.UniqueToken       = 101u;
-        Vortex.Enabled           = true;
-        Vortex.Model             = ForceModel::RotationalColumn;
-        Vortex.Envelope          = ReachEnvelopeCategory::Column;
-        Vortex.CentreMeters      = { -400.0f, 1800.0f, 1500.0f };
-        Vortex.RadiusMeters      = 2400.0f;
-        Vortex.HalfExtentsMeters = { 2400.0f, 2400.0f, 2400.0f };
-        Vortex.Strength          = 56.0f;
-        Vortex.SwirlRatio        = 0.92f;
-        Vortex.WindField.DrivesAtmosphereAndClouds = true;
-        Vortex.WindField.ProjectToCloudDeck        = true;
-        Vortex.WindField.CloudAdvectionGain        = 1.0f;
-        Vortex.WindField.TurbulenceSwirlGain       = 0.9f;
-
-        ForceSourceRecordEntry Jet {};
-        Jet.UniqueToken          = 102u;
-        Jet.Enabled              = true;
-        Jet.Model                = ForceModel::LinearWind;
-        Jet.Envelope             = ReachEnvelopeCategory::Sphere;
-        Jet.CentreMeters         = { 400.0f, 2200.0f, 1600.0f };
-        Jet.RadiusMeters         = 3000.0f;
-        Jet.Strength             = 42.0f;
-        Jet.EulerDegrees         = { 0.0f, 0.0f, 25.0f };
-        Jet.WindField.DrivesAtmosphereAndClouds = true;
-        Jet.WindField.ProjectToCloudDeck        = true;
-        Jet.WindField.CloudAdvectionGain        = 1.0f;
-        Jet.WindField.TurbulenceSwirlGain       = 0.5f;
-
-        std::array<ForceSourceRecordEntry, 2u> Sources { Vortex, Jet };
-        ForceAcc.AssignSources(Sources);
-
         auto S = SkyScene;
-        S.Atmosphere.ForceFieldSource             = &ForceAcc;
-        S.Atmosphere.Solar.ManualAzimuthDegrees   = 230.0f;
-        S.Atmosphere.Solar.ManualElevationDegrees = 30.0f;
-        S.Atmosphere.Clouds.CloudsEnabled         = true;
+        S.Atmosphere.Solar.ManualAzimuthDegrees      = 230.0f;
+        S.Atmosphere.Solar.ManualElevationDegrees    = 30.0f;
+        S.Atmosphere.Clouds.CloudsEnabled            = true;
         VolumetricCloudSequence::ApplyCloudCategoryPreset(S.Atmosphere.Clouds, CloudCategoryType::Cumulus);
-        S.Atmosphere.Clouds.CloudFraction         = 0.48f;
-        S.Atmosphere.Clouds.FollowWindEnabled     = true;
-        S.Atmosphere.Clouds.WindSpeedMetersPerSecond = 16.0f;
-        S.Atmosphere.Clouds.WindBearingDegrees    = 240.0f;
-        S.Atmosphere.Clouds.CloudMarchSteps       = 48u;
+        S.Atmosphere.Clouds.CloudFraction            = 0.48f;
+        S.Atmosphere.Clouds.FollowWindEnabled        = true;
+        S.Atmosphere.Clouds.WindSpeedMetersPerSecond = 26.0f;
+        S.Atmosphere.Clouds.WindBearingDegrees       = 240.0f;
+        S.Atmosphere.Clouds.WindTurbulence           = 0.72f;
+        S.Atmosphere.Clouds.CloudMarchSteps          = 48u;
 
-        // Also add a nearby bounded cloud volume right inside the ForceField so both deck + local cloud show advection
+        // Also add a nearby bounded cloud volume so both deck + local cloud show advection
         BoundedCloudVolume LocalC {};
         LocalC.LocalEnabled             = true;
         LocalC.FollowWindEnabled        = true;
@@ -524,14 +489,14 @@ int main()
 
         std::vector<uint8_t> FrameT0 {}, FrameT28 {};
         S.Atmosphere.SimulationSeconds = 0.0f;
-        Score.Verify(Gpu.RenderWorldViewportWithEngine(RenderCfg, 0u, Cam, S, FrameT0), "Rendered ForceField Clouds T=0s");
+        Score.Verify(Gpu.RenderWorldViewportWithEngine(RenderCfg, 0u, Cam, S, FrameT0), "Rendered Wind Clouds T=0s");
 
         S.Atmosphere.SimulationSeconds = 28.0f;
-        Score.Verify(Gpu.RenderWorldViewportWithEngine(RenderCfg, 0u, Cam, S, FrameT28), "Rendered ForceField Clouds T=28s");
+        Score.Verify(Gpu.RenderWorldViewportWithEngine(RenderCfg, 0u, Cam, S, FrameT28), "Rendered Wind Clouds T=28s");
 
         const double AdvectDiff = ComputeMeanAbsDiff(FrameT0, FrameT28);
-        std::printf("[AtmosphereAuditProof] ForceField Cloud Advection MAD (T=0 -> T=28s) = %.2f\n", AdvectDiff);
-        Score.Verify(AdvectDiff > 4.5, "Clouds visibly advect & curl under spatial ForceFields + Wind");
+        std::printf("[AtmosphereAuditProof] Wind Cloud Advection MAD (T=0 -> T=28s) = %.2f\n", AdvectDiff);
+        Score.Verify(AdvectDiff > 4.5, "Clouds visibly advect under Ekman wind");
 
         std::vector<uint8_t> DeltaMap(TileW * TileH * 4u, 255u);
         for (uint32_t I = 0u; I < TileW * TileH; ++I)
@@ -550,8 +515,8 @@ int main()
         BlitTile(Sheet, TileW * 3u, 0u,          0u, FrameT0.data(),  TileW, TileH);
         BlitTile(Sheet, TileW * 3u, TileW,       0u, FrameT28.data(), TileW, TileH);
         BlitTile(Sheet, TileW * 3u, TileW * 2u,  0u, DeltaMap.data(), TileW, TileH);
-        Score.Verify(WritePngRgba8(OutDir / "09-CloudsAdvectingWithForceFields.png", TileW * 3u, TileH, Sheet.data()),
-                     "Wrote Audit Proof/09-CloudsAdvectingWithForceFields.png");
+        Score.Verify(WritePngRgba8(OutDir / "09-CloudsAdvectingWithWind.png", TileW * 3u, TileH, Sheet.data()),
+                     "Wrote Exhibits/Images/Atmosphere/09-CloudsAdvectingWithWind.png");
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -618,7 +583,7 @@ int main()
         std::vector<uint8_t> Pixels {};
         Score.Verify(Gpu.RenderWorldViewportWithEngine(RenderCfg, 0u, Cam, World, Pixels), "Rendered 3D World Integration");
         Score.Verify(WritePngRgba8(OutDir / "10-TerrestrialAndOrbitalWorldShowcase.png", HeroW, HeroH, Pixels.data()),
-                     "Wrote Audit Proof/10-TerrestrialAndOrbitalWorldShowcase.png");
+                     "Wrote Exhibits/Images/Atmosphere/10-TerrestrialAndOrbitalWorldShowcase.png");
     }
 
     std::printf("[AtmosphereAuditProof] Passed: %u, Failed: %u\n", Score.Passed, Score.Failed);

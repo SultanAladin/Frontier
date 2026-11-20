@@ -32,10 +32,6 @@ struct InstanceOverrideDelta
     bool                             OverrideLight          = false; // [-] - Override Light intensity/colour
     Mathematics::Scalar3D            LightLinearColourRGB   { 1.0f, 1.0f, 1.0f }; // [0-1]
     float                            LightIntensityCandela  = 20.0f; // [cd]
-    bool                             OverrideParticleRate   = false; // [-] - Override Particle emission scale
-    float                            ParticleRateScale      = 1.0f;  // [1]
-    bool                             OverrideFluidRate      = false; // [-] - Override Fluid injection rate
-    float                            FluidFuelRate          = 0.45f; // [kg/s]
     std::vector<MaterialSlotOverride> SlotOverrides         {};    // [-]   - Overridden geometry material slots
 };
 

@@ -1329,7 +1329,6 @@ bool SynchronizeShowcaseGallerySceneLive(
     for (const OutlinerRecordEntry& Entry : InOutOutliner.QueryEntries())
     {
         if (Entry.Category == ConstructSlotCategory::Folder ||
-            Entry.Category == ConstructSlotCategory::ForceField ||
             Entry.Token == InOutBundle.EditorCameraToken ||
             Entry.Token == InOutBundle.SunEmitterToken ||
             Entry.Token == InOutBundle.MoonBodyToken ||

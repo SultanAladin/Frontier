@@ -251,21 +251,21 @@ bool ValidateDualPathStreamingIsolation()
 
         // Create external test files to drop
         const std::filesystem::path ExternalDir     = SandboxRoot / "ExternalDrops";
-        const std::filesystem::path DroppedSolid     = ExternalDir / "TrimPanel.gltf";
-        const std::filesystem::path DroppedParticle = ExternalDir / "SparkBurst.particlespace";
-        const std::filesystem::path DroppedForce    = ExternalDir / "TurbulentWind.simulationspace";
+        const std::filesystem::path DroppedSolid    = ExternalDir / "TrimPanel.gltf";
+        const std::filesystem::path DroppedAudio    = ExternalDir / "TurbineLoop.acoustic";
+        const std::filesystem::path DroppedSim      = ExternalDir / "VoronoiRig.simulationspace";
         std::filesystem::create_directories(ExternalDir, IoErr);
         {
             std::ofstream(DroppedSolid) << "{\"asset\":{\"version\":\"2.0\"}}\n";
-            std::ofstream(DroppedParticle) << "ParticleCount = 4096\n";
-            std::ofstream(DroppedForce) << "FieldStrength = 18.5\n";
+            std::ofstream(DroppedAudio) << "SampleRate = 48000\n";
+            std::ofstream(DroppedSim) << "FractureCount = 32\n";
         }
 
-        // Strict UV workspace gate: Particles and ForceFields/Simulations MUST be blocked!
-        const ImportIntakeResult BlockedParticles = IntakeRepo.IntakeExternalAssetDrop(DroppedParticle, WorkspaceCategory::UV);
-        const ImportIntakeResult BlockedForce     = IntakeRepo.IntakeExternalAssetDrop(DroppedForce, WorkspaceCategory::UV);
-        if (!VerifyAssertion(!BlockedParticles.Accepted, "UV workspace strictly blocks Particle assets on drop") ||
-            !VerifyAssertion(!BlockedForce.Accepted, "UV workspace strictly blocks ForceField/Simulation assets on drop"))
+        // Strict UV workspace gate: Audio and Simulations MUST be blocked!
+        const ImportIntakeResult BlockedAudio = IntakeRepo.IntakeExternalAssetDrop(DroppedAudio, WorkspaceCategory::UV);
+        const ImportIntakeResult BlockedSim   = IntakeRepo.IntakeExternalAssetDrop(DroppedSim, WorkspaceCategory::UV);
+        if (!VerifyAssertion(!BlockedAudio.Accepted, "UV workspace strictly blocks Audio assets on drop") ||
+            !VerifyAssertion(!BlockedSim.Accepted, "UV workspace strictly blocks Simulation assets on drop"))
         {
             return false;
         }
@@ -562,14 +562,14 @@ bool ValidateContentBrowserSnapshots()
     Browser.ConfigureOriginFilter(ContentOriginFilter::All);
     (void)Browser.ActivateCategory(ContentCategory::All);
     StepPresentation(IdleInput);
-    if (!VerifyAssertion(Browser.InspectReading().PermittedCategoryCount == 13u, "SceneWorld workspace permits 13 asset categories") ||
+    if (!VerifyAssertion(Browser.InspectReading().PermittedCategoryCount == 12u, "SceneWorld workspace permits 12 asset categories") ||
         !WriteCurrentSnapshot("07-SceneWorkspacePrebakedThumbnailSheet.png"))
     {
         ImGui::DestroyContext(GuiSession);
         return false;
     }
 
-    // Snapshot 08: Strict UV Workspace Mask (6 categories ONLY; Particles/Simulations/Audio blocked) + Imported Geometry Drop
+    // Snapshot 08: Strict UV Workspace Mask (6 categories ONLY; Audio/Simulations blocked) + Imported Geometry Drop
     const std::filesystem::path TempDropDir = std::filesystem::temp_directory_path() / "FrontierUvDropSnapshot";
     std::error_code             DropErr{};
     std::filesystem::remove_all(TempDropDir, DropErr);
@@ -582,7 +582,7 @@ bool ValidateContentBrowserSnapshots()
     Browser.ConfigureImportDestination(UvImportPolicy);
     Browser.ConfigureWorkspaceDomain(WorkspaceCategory::UV);
 
-    if (!VerifyAssertion(!Browser.ActivateCategory(ContentCategory::Particles), "UV workspace rejects ActivateCategory(Particles)") ||
+    if (!VerifyAssertion(!Browser.ActivateCategory(ContentCategory::Audio), "UV workspace rejects ActivateCategory(Audio)") ||
         !VerifyAssertion(!Browser.ActivateCategory(ContentCategory::Simulations), "UV workspace rejects ActivateCategory(Simulations)") ||
         !VerifyAssertion(Browser.InspectReading().PermittedCategoryCount == 6u, "UV workspace exposes strictly 6 permitted categories"))
     {
@@ -785,7 +785,6 @@ bool ValidateEditorDropPlacement()
 
     const std::size_t InitialObjCount   = Scene->Objects.size();
     const std::size_t InitialLightCount = Scene->Scene.AreaLights.size();
-    const std::size_t InitialForceCount = Editor.AccessForceAccumulator().QuerySources().size();
 
     // 1. Drop Traffic Cone onto 3D Viewport
     const std::size_t ConeIdx = FindRepoIndex("Traffic Cone");
@@ -842,13 +841,13 @@ bool ValidateEditorDropPlacement()
         return false;
     }
 
-    // 4. Drop Turbulent Wind Field (Simulations) onto world.viewport
-    const std::size_t WindIdx = FindRepoIndex("Turbulent Wind Field");
-    if (!VerifyAssertion(WindIdx < Browser.QueryThumbnailRepository().QueryAllEntries().size(), "Turbulent Wind Field entry located") ||
-        !VerifyAssertion(Browser.ApplyContentEntryToDropZone(WindIdx, "world.viewport", ViewportCenter),
-                         "Drop Turbulent Wind Field onto world.viewport zone") ||
-        !VerifyAssertion(Editor.AccessForceAccumulator().QuerySources().size() == InitialForceCount + 1u,
-                         "Turbulent Wind Field spawned ForceField source in world"))
+    // 4. Drop Shader Sphere (Geometry) onto world.viewport
+    const std::size_t SphereIdx = FindRepoIndex("Shader Sphere");
+    if (!VerifyAssertion(SphereIdx < Browser.QueryThumbnailRepository().QueryAllEntries().size(), "Shader Sphere entry located") ||
+        !VerifyAssertion(Browser.ApplyContentEntryToDropZone(SphereIdx, "world.viewport", ViewportCenter),
+                         "Drop Shader Sphere onto world.viewport zone") ||
+        !VerifyAssertion(Scene->Objects.size() == InitialObjCount + 2u && Scene->Objects.back().Title == "Shader Sphere",
+                         "Shader Sphere spawned second geometry object in ShowcaseWorldSceneBundle"))
     {
         Editor.Finalize();
         ImGui::DestroyContext(GuiSession);

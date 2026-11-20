@@ -25,8 +25,6 @@ enum class InfographicArchetype : uint8_t
 {
     BokehApertureSelector = 0u, // [-] - 4-card interactive Optical Bokeh Aperture chooser (Mixed, Sharp, Creamy, Rim Ring)
     WindRoseCompass       = 1u, // [-] - 360-degree directional wind bearing & velocity compass
-    ForceFieldReach       = 2u, // [-] - Concentric attenuation envelope & directional vector streamlines
-    ReleaseConeEnvelope   = 3u, // [-] - Particle launch spread envelope & ballistic arcs
 };
 
 //------------------------------------------------------------------------------------------------------------------------

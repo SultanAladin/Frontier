@@ -168,7 +168,6 @@ OutlinerSlotToken OutlinerPanel::ConstructFromTemplate(uint32_t TemplateIndex, O
     Created.Subtitle          = Preset.DefaultDetail;
     Created.VisibilityEnabled = true;
     Created.Expanded          = true;
-    Created.ForceModelOrdinal   = Preset.ForceModelOrdinal;
 
     if (OutlinerRecordEntry* EnclosureEntry = AccessEntry(Created.EnclosingToken))
     {
@@ -726,7 +725,6 @@ bool OutlinerPanel::MatchesActiveFilters(const OutlinerRecordEntry& Entry) const
         case OutlinerCategoryFilter::PointLuminaire:      if (Entry.Category != ConstructSlotCategory::PointLuminaire) return false; break;
         case OutlinerCategoryFilter::OpticsCamera:     if (Entry.Category != ConstructSlotCategory::OpticsCamera) return false; break;
         case OutlinerCategoryFilter::AnnotatedOnly:      if (Entry.AuthorNotes.empty()) return false; break;
-        case OutlinerCategoryFilter::ForceFieldOnly: if (Entry.Category != ConstructSlotCategory::ForceField) return false; break;
     }
 
     const std::string_view Query(SearchEditor.Text, SearchEditor.Length);
@@ -1168,48 +1166,15 @@ void OutlinerPanel::Render(
             const char*            Label;
             OutlinerCategoryFilter Filter;
         };
-        constexpr std::array<FilterChipEntry, 8> AllChips = {{
+        constexpr std::array<FilterChipEntry, 7> Chips = {{
             { "All",     OutlinerCategoryFilter::All            },
             { "Folders", OutlinerCategoryFilter::FoldersOnly    },
-            { "Forces",  OutlinerCategoryFilter::ForceFieldOnly },
-            { "Type 1",  OutlinerCategoryFilter::GeometryVolume      },
+            { "Type 1",  OutlinerCategoryFilter::GeometryVolume },
             { "Type 2",  OutlinerCategoryFilter::LayerGroup     },
-            { "Type 3",  OutlinerCategoryFilter::PointLuminaire      },
-            { "Type 4",  OutlinerCategoryFilter::OpticsCamera     },
-            { "Notes",   OutlinerCategoryFilter::AnnotatedOnly      },
+            { "Type 3",  OutlinerCategoryFilter::PointLuminaire },
+            { "Type 4",  OutlinerCategoryFilter::OpticsCamera   },
+            { "Notes",   OutlinerCategoryFilter::AnnotatedOnly  },
         }};
-
-        bool ForceSlotsPresent = false;
-        for (const auto& Existing : Entries)
-        {
-            if (Existing.Category == ConstructSlotCategory::ForceField)
-            {
-                ForceSlotsPresent = true;
-                break;
-            }
-        }
-        if (!ForceSlotsPresent)
-        {
-            for (const auto& Preset : ConstructTemplates)
-            {
-                if (Preset.Category == ConstructSlotCategory::ForceField)
-                {
-                    ForceSlotsPresent = true;
-                    break;
-                }
-            }
-        }
-
-        std::vector<FilterChipEntry> Chips;
-        Chips.reserve(AllChips.size());
-        for (const auto& Candidate : AllChips)
-        {
-            if (Candidate.Filter == OutlinerCategoryFilter::ForceFieldOnly && !ForceSlotsPresent)
-            {
-                continue;
-            }
-            Chips.push_back(Candidate);
-        }
 
         float ChipX = Bounds.X + 14.0f;
         float ChipY = ContentTopY + 2.0f;
@@ -1390,31 +1355,15 @@ void OutlinerPanel::Render(
                 }
             }
 
-            // 24px Showcase folder or category icon (exact 19 bespoke ForceModel icons when ForceModelOrdinal < 19)
+            // 24px Showcase folder or category icon
             const Point2D IconOrigin{ DisclosureRect.Right() + 4.0f, RowRect.Y + 7.5f };
-            if (Entry->Category == ConstructSlotCategory::ForceField && Entry->ForceModelOrdinal < 19u)
-            {
-                const ColorRgba LawInk = Entry->ForceFormulaOverride
-                    ? WorkspaceSurfaceColors::SelectionAmber
-                    : WorkspaceAppearance::QueryForceModelTint(Entry->ForceModelOrdinal);
-                WorkspaceAppearance::ConstructForceModelIcon(
-                    Surface,
-                    Entry->ForceModelOrdinal,
-                    { IconOrigin.X + 2.0f, IconOrigin.Y + 2.0f },
-                    20.0f,
-                    LawInk,
-                    RowAlpha);
-            }
-            else
-            {
-                WorkspaceAppearance::ConstructSlotCategoryIcon(
-                    Surface,
-                    Entry->Category,
-                    IconOrigin,
-                    24.0f,
-                    Entry->FolderTint,
-                    RowAlpha);
-            }
+            WorkspaceAppearance::ConstructSlotCategoryIcon(
+                Surface,
+                Entry->Category,
+                IconOrigin,
+                24.0f,
+                Entry->FolderTint,
+                RowAlpha);
 
             // Right-side visibility status indicator & eye toggle
             const Rectangle2D EyeHit{ RowRect.Right() - 24.0f, RowRect.Y + 9.5f, 18.0f, 20.0f };

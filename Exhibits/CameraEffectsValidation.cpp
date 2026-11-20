@@ -1,7 +1,7 @@
 /*==========================================================================================================================================
                                                      CAMERAEFFECTSVALIDATION.CPP
 ==========================================================================================================================================*/
-// 🧩 Validation & Visual Proofs for World/Particle-Linked Heat Shimmer, Black Hole Lensing, Glitch, and 3-Mode Camera Motion Blur
+// 🧩 Validation & Visual Proofs for World-Linked Heat Shimmer, Black Hole Lensing, Glitch, and 3-Mode Camera Motion Blur
 
 #include "Engine/Components/Camera/CameraComponent.h"
 #include "Engine/Components/Camera/CameraConfiguration.h"
@@ -13,7 +13,6 @@
 #include "Engine/GeometricRaster/GlobalIllumination/VulkanWorldRenderSequence.h"
 #include "Engine/GeometricRaster/VulkanInterchange.h"
 #include "Engine/GeometrySpace/Primitives/AnalyticPrimitives.h"
-#include "Engine/ParticleSpace/Presets/ParticlePresetRepository.h"
 #include "Exhibits/SoftwareCanvasRasterizer.h"
 
 #include <algorithm>
@@ -268,38 +267,18 @@ int main()
     const std::filesystem::path OutDir = RepoRoot / "Exhibits" / "Images" / "CameraEffects";
     std::filesystem::create_directories(OutDir);
 
-    // 1. Verify Particle -> Camera Distortion Anchor Linking for HeatShimmer, BlackHole, and Glitch
+    // 1. Verify World Camera Distortion Anchors for HeatShimmer, BlackHole, and Glitch
     {
-        ParticleSpace::ParticleDocument Doc {};
-        {
-            auto Rig = ParticleSpace::ConstructDefaultStudioRig();
-            Rig.Origin  = ParticleSpace::AnalyticSphereOrigin{ { 0.4f, 3.8f, 1.1f }, 0.65f, false };
-            Rig.Carrier = ParticleSpace::RefractionLensCarrier{ false, 1.35f }; // Heat shimmer
-            Doc.Rigs.push_back(Rig);
-        }
-        {
-            auto Rig = ParticleSpace::ConstructDefaultStudioRig();
-            Rig.Origin  = ParticleSpace::AnalyticSphereOrigin{ { 0.15f, 4.2f, 1.35f }, 0.72f, false };
-            Rig.Carrier = ParticleSpace::RefractionLensCarrier{ true, 1.50f }; // Black hole
-            Doc.Rigs.push_back(Rig);
-        }
-        {
-            auto Rig = ParticleSpace::ConstructDefaultStudioRig();
-            Rig.Origin = ParticleSpace::AnalyticBoxOrigin{ { -0.2f, 3.6f, 1.2f }, { 0.9f, 0.4f, 0.9f } };
-            ParticleSpace::SpriteBillboardCarrier Spr {};
-            Spr.Cutout = ParticleSpace::SpriteCutoutCategory::HologramGlitch;
-            Rig.Carrier = Spr;
-            Doc.Rigs.push_back(Rig);
-        }
-
         std::vector<CameraWorldDistortionAnchor> Anchors {};
-        LinkParticleDocumentDistortionAnchors(Doc, Anchors);
-        Score.Verify(Anchors.size() == 3u, "Linked 3 world distortion anchors directly from ParticleDocument rigs");
-        Score.Verify(Anchors.size() >= 3u &&
-                     Anchors[0].Kind == WorldDistortionCategory::HeatShimmer &&
+        Anchors.push_back({ WorldDistortionCategory::HeatShimmer, {  0.40f, 3.8f, 1.10f }, 0.65f, 1.35f, 0.0f, true });
+        Anchors.push_back({ WorldDistortionCategory::BlackHole,   {  0.15f, 4.2f, 1.35f }, 0.72f, 1.50f, 0.0f, true });
+        Anchors.push_back({ WorldDistortionCategory::Glitch,      { -0.20f, 3.6f, 1.20f }, 0.90f, 1.00f, 0.0f, true });
+
+        Score.Verify(Anchors.size() == 3u, "Configured 3 world distortion anchors directly for camera optics");
+        Score.Verify(Anchors[0].Kind == WorldDistortionCategory::HeatShimmer &&
                      Anchors[1].Kind == WorldDistortionCategory::BlackHole &&
                      Anchors[2].Kind == WorldDistortionCategory::Glitch,
-                     "Particle carriers mapped accurately to HeatShimmer, BlackHole, and Glitch camera anchors");
+                     "World distortion anchors mapped accurately to HeatShimmer, BlackHole, and Glitch");
     }
 
     // 2. Initialize Vulkan & Render Base 3D Showcase Frame + Linear Depth
@@ -362,21 +341,17 @@ int main()
     // 3. World-Linked Heat Shimmer & Black Hole Gravitational Lensing (Exhibit 01)
     std::vector<uint8_t> HeatPixels = BasePixels;
     {
-        ParticleSpace::ParticleDocument HeatDoc {};
-        auto HeatRig = ParticleSpace::ConstructDefaultStudioRig();
-        HeatRig.Origin  = ParticleSpace::AnalyticSphereOrigin{ { -1.35f, 6.0f, 0.95f }, 0.92f, false };
-        HeatRig.Carrier = ParticleSpace::RefractionLensCarrier{ false, 1.45f };
-        HeatDoc.Rigs.push_back(HeatRig);
-
         CameraConfiguration Cfg = BaseCamCfg;
-        Cfg.EffectClockSeconds            = 1.75f;
-        Cfg.HeatShimmer.Enabled           = true;
-        Cfg.HeatShimmer.Intensity         = 1.55f;
-        Cfg.HeatShimmer.Frequency         = 16.0f;
-        Cfg.HeatShimmer.RiseSpeed         = 2.6f;
+        Cfg.EffectClockSeconds              = 1.75f;
+        Cfg.HeatShimmer.Enabled             = true;
+        Cfg.HeatShimmer.Intensity           = 1.55f;
+        Cfg.HeatShimmer.Frequency           = 16.0f;
+        Cfg.HeatShimmer.RiseSpeed           = 2.6f;
         Cfg.HeatShimmer.ChromaticDispersion = 0.45f;
-        Cfg.HeatShimmer.UseWorldAnchors   = true;
-        LinkParticleDocumentDistortionAnchors(HeatDoc, Cfg.WorldDistortionAnchors);
+        Cfg.HeatShimmer.UseWorldAnchors     = true;
+        Cfg.WorldDistortionAnchors.push_back({
+            WorldDistortionCategory::HeatShimmer, { -1.35f, 6.0f, 0.95f }, 0.92f * 1.8f * 1.25f, 1.45f, 0.0f, true
+        });
 
         Score.Verify(
             OpticsEncoder.ExecuteGPUOpticsWithPosture(FrameW, FrameH, Cfg, &Posture, DepthMeters, HeatPixels),
@@ -387,21 +362,17 @@ int main()
 
     std::vector<uint8_t> BlackHolePixels = BasePixels;
     {
-        ParticleSpace::ParticleDocument BhDoc {};
-        auto BhRig = ParticleSpace::ConstructDefaultStudioRig();
-        BhRig.Origin  = ParticleSpace::AnalyticSphereOrigin{ { -1.35f, 6.2f, 1.40f }, 0.76f, false };
-        BhRig.Carrier = ParticleSpace::RefractionLensCarrier{ true, 1.25f };
-        BhDoc.Rigs.push_back(BhRig);
-
         CameraConfiguration Cfg = BaseCamCfg;
-        Cfg.EffectClockSeconds                  = 2.10f;
-        Cfg.BlackHoleLens.Enabled               = true;
-        Cfg.BlackHoleLens.LensingStrength       = 1.15f;
-        Cfg.BlackHoleLens.EventHorizonScale     = 0.36f;
+        Cfg.EffectClockSeconds                   = 2.10f;
+        Cfg.BlackHoleLens.Enabled                = true;
+        Cfg.BlackHoleLens.LensingStrength        = 1.15f;
+        Cfg.BlackHoleLens.EventHorizonScale      = 0.36f;
         Cfg.BlackHoleLens.AccretionGlowIntensity = 1.25f;
-        Cfg.BlackHoleLens.ChromaticSplit        = 0.42f;
-        Cfg.BlackHoleLens.SwirlTwist            = 0.55f;
-        LinkParticleDocumentDistortionAnchors(BhDoc, Cfg.WorldDistortionAnchors);
+        Cfg.BlackHoleLens.ChromaticSplit         = 0.42f;
+        Cfg.BlackHoleLens.SwirlTwist             = 0.55f;
+        Cfg.WorldDistortionAnchors.push_back({
+            WorldDistortionCategory::BlackHole, { -1.35f, 6.2f, 1.40f }, 0.76f * 1.8f * 1.25f, 1.25f, 0.0f, true
+        });
 
         Score.Verify(
             OpticsEncoder.ExecuteGPUOpticsWithPosture(FrameW, FrameH, Cfg, &Posture, DepthMeters, BlackHolePixels),
@@ -463,24 +434,18 @@ int main()
     std::vector<uint8_t> GlitchWorldPixels = BasePixels;
     std::vector<uint8_t> GlitchFullPixels  = BasePixels;
     {
-        ParticleSpace::ParticleDocument GlitchDoc {};
-        auto GRig = ParticleSpace::ConstructDefaultStudioRig();
-        GRig.Origin = ParticleSpace::AnalyticBoxOrigin{ { -1.35f, 6.1f, 1.25f }, { 1.05f, 0.5f, 1.15f } };
-        ParticleSpace::SpriteBillboardCarrier Spr {};
-        Spr.Cutout = ParticleSpace::SpriteCutoutCategory::HologramGlitch;
-        GRig.Carrier = Spr;
-        GlitchDoc.Rigs.push_back(GRig);
-
         CameraConfiguration CfgWorld = BaseCamCfg;
-        CfgWorld.EffectClockSeconds            = 0.85f;
-        CfgWorld.Glitch.Enabled                = true;
-        CfgWorld.Glitch.Intensity              = 1.20f;
-        CfgWorld.Glitch.BlockJitter            = 0.85f;
-        CfgWorld.Glitch.ScanlineTear           = 0.90f;
-        CfgWorld.Glitch.RgbSplit               = 1.00f;
-        CfgWorld.Glitch.RateHz                 = 16.0f;
-        CfgWorld.Glitch.LocalizeToWorldAnchors = true;
-        LinkParticleDocumentDistortionAnchors(GlitchDoc, CfgWorld.WorldDistortionAnchors);
+        CfgWorld.EffectClockSeconds             = 0.85f;
+        CfgWorld.Glitch.Enabled                 = true;
+        CfgWorld.Glitch.Intensity               = 1.20f;
+        CfgWorld.Glitch.BlockJitter             = 0.85f;
+        CfgWorld.Glitch.ScanlineTear            = 0.90f;
+        CfgWorld.Glitch.RgbSplit                = 1.00f;
+        CfgWorld.Glitch.RateHz                  = 16.0f;
+        CfgWorld.Glitch.LocalizeToWorldAnchors  = true;
+        CfgWorld.WorldDistortionAnchors.push_back({
+            WorldDistortionCategory::Glitch, { -1.35f, 6.1f, 1.25f }, 1.15f * 1.25f, 1.00f, 0.0f, true
+        });
 
         Score.Verify(
             OpticsEncoder.ExecuteGPUOpticsWithPosture(FrameW, FrameH, CfgWorld, &Posture, DepthMeters, GlitchWorldPixels),

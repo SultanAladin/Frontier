@@ -14,25 +14,17 @@ struct GpuLocalFogVolume
     float4 TintAniso;            // xyz = FogTintLinear, w = AnisotropyG
 };
 
-struct GpuFogForceSensor
-{
-    float4 PosRadius;       // xyz = EvaluatedCentreMeters, w = RadiusMeters
-    float4 ForwardStrength; // xyz = UnitForwardAxis, w = Strength
-    float4 Params;          // x = ModelId, y = SwirlRatio, z = CoreRadiusM, w = TurbulenceScaleM
-};
-
 struct VolumetricFogUniformBlock
 {
     float4            HeightParams0; // x = Enabled, y = Density, z = FalloffHeightM, w = BaseAltM
     float4            HeightParams1; // xyz = HeightColour, w = SunScatterIntensity
     float4            AerialParams;  // x = Enabled, y = DensityMul, z = StartDistM, w = MieBlend
     float4            FogWindClock;  // x = HeightFollowWind, y = HeightWindVX, z = HeightWindVY, w = SimulationSeconds
-    float4            FogMeta;       // x = LocalFogCount (0..8), y = AerialScaleHeightM, z = Softness, w = ForceProbeCount (0..8)
+    float4            FogMeta;       // x = LocalFogCount (0..8), y = AerialScaleHeightM, z = Softness, w = Reserved
     float4            GodRayParams0; // x = Enabled, y = Intensity, z = AnisotropyG, w = Density
     float4            GodRayParams1; // x = MaxDistanceM, y = SampleSteps, z = InteractWithClouds, w = InteractWithFog
     float4            GodRayTint;    // xyz = ShaftTint, w = Decay
     GpuLocalFogVolume LocalFogs[8];
-    GpuFogForceSensor  ForceProbes[8];
 };
 
 float HashFogInt3Gpu(int IX, int IY, int IZ)
@@ -155,87 +147,6 @@ float EvaluateVolumeShapeMaskGpu(
     return Mask;
 }
 
-void EvaluateFogForceProbesGpu(
-    VolumetricFogUniformBlock Fog,
-    float3                    WorldPos,
-    float                     TimeSec,
-    float4                    BaseWindVelCurl,
-    out float3                OutVel,
-    out float                 OutCurl)
-{
-    OutVel  = BaseWindVelCurl.xyz;
-    OutCurl = BaseWindVelCurl.w;
-    uint ProbeCount = min(8u, uint(Fog.FogMeta.w + 0.5));
-    if (ProbeCount == 0u) return;
-
-    // Recompute spatial ForceField velocity & curl directly at WorldPos
-    float3 SumVel = float3(Fog.FogWindClock.y, Fog.FogWindClock.z, 0.0);
-    float  SumCurl = 0.0;
-    for (uint I = 0u; I < ProbeCount; ++I)
-    {
-        GpuFogForceSensor Pr = Fog.ForceProbes[I];
-        float  Radius   = max(0.25, Pr.PosRadius.w);
-        float3 D        = WorldPos - Pr.PosRadius.xyz;
-        float  Dist     = length(D);
-        float  T        = saturate(Dist / Radius);
-        float  Atten    = 1.0 - smoothstep(0.0, 1.0, T);
-        if (Atten <= 1.0e-4) continue;
-
-        uint   ModelId  = uint(Pr.Params.x + 0.5);
-        float  Strength = Pr.ForwardStrength.w * Atten;
-        float  CoreR    = max(0.25, Pr.Params.z);
-        float  Swirl    = Pr.Params.y;
-        float3 Fwd      = normalize(select(dot(Pr.ForwardStrength.xyz, Pr.ForwardStrength.xyz) > 1.0e-5, Pr.ForwardStrength.xyz, float3(1.0, 0.0, 0.0)));
-
-        if (ModelId == 0u || ModelId == 11u || ModelId == 16u) // LinearWind, AtmosphericGust, FlowStream
-        {
-            float Gust = (ModelId == 11u) ? (0.75 + 0.5 * sin(TimeSec * 2.2 + dot(WorldPos.xy, float2(0.18, -0.14)))) : 1.0;
-            SumVel  += Fwd * (Strength * Gust);
-            SumCurl += abs(Strength) * 0.04;
-        }
-        else if (ModelId == 2u || ModelId == 4u) // RadialBurst, Repulsor
-        {
-            float3 Dir = (Dist > 1.0e-3) ? (D / Dist) : float3(0.0, 0.0, 1.0);
-            SumVel  += Dir * Strength;
-            SumCurl += abs(Strength) * 0.08 * (1.0 - T);
-        }
-        else if (ModelId == 3u || ModelId == 5u || ModelId == 6u) // Attractor, AxisAttractor, Containment
-        {
-            float3 Dir = (Dist > 1.0e-3) ? (-D / Dist) : float3(0.0, 0.0, 0.0);
-            SumVel  += Dir * Strength * (Dist / (Dist + CoreR));
-            SumCurl += abs(Strength) * 0.06;
-        }
-        else if (ModelId == 7u || ModelId == 8u || ModelId == 12u) // RotationalColumn, Torque, VorticityConfinement
-        {
-            float2 Dxy   = D.xy;
-            float  Rxy   = max(0.08, length(Dxy));
-            float2 TanXY = float2(-Dxy.y / Rxy, Dxy.x / Rxy);
-            float  Prof  = (Rxy * CoreR) / (Rxy * Rxy + CoreR * CoreR) * 2.0;
-            float3 VortexV = float3(TanXY.x * Strength * Prof, TanXY.y * Strength * Prof, Strength * Swirl * 0.28 * Prof);
-            SumVel  += VortexV;
-            SumCurl += abs(Strength) * (0.18 + 0.25 * Prof);
-        }
-        else if (ModelId == 10u || ModelId == 13u) // CurlNoise, BrownianNoise
-        {
-            float TurbS = 1.0 / max(1.0, Pr.Params.w);
-            float3 NP = WorldPos * TurbS + float3(TimeSec * 0.25, -TimeSec * 0.18, TimeSec * 0.12);
-            float3 CDir = float3(
-                LatticeNoiseFog3Gpu(NP + float3(0.0, 3.1, 1.7)) - 0.5,
-                LatticeNoiseFog3Gpu(NP + float3(5.3, 0.0, 2.9)) - 0.5,
-                LatticeNoiseFog3Gpu(NP + float3(1.9, 4.7, 0.0)) - 0.5) * 2.0;
-            SumVel  += CDir * Strength;
-            SumCurl += abs(Strength) * 0.22;
-        }
-        else
-        {
-            SumVel  += Fwd * Strength;
-            SumCurl += abs(Strength) * 0.08;
-        }
-    }
-    OutVel  = SumVel;
-    OutCurl = max(BaseWindVelCurl.w, SumCurl);
-}
-
 float3 AdvectFogPointBackwardGpu(
     VolumetricFogUniformBlock Fog,
     float3                    P,
@@ -244,22 +155,11 @@ float3 AdvectFogPointBackwardGpu(
     out float3                OutVel,
     out float                 OutCurl)
 {
-    EvaluateFogForceProbesGpu(Fog, P, TimeSec, BaseWindVelCurl, OutVel, OutCurl);
+    OutVel  = BaseWindVelCurl.xyz;
+    OutCurl = BaseWindVelCurl.w;
     if (abs(TimeSec) <= 1.0e-4) return P;
     float AdvSec = TimeSec * 0.72;
-    float Dt     = AdvSec * 0.25;
-    float3 Pos   = P;
-    for (uint S = 0u; S < 4u; ++S)
-    {
-        float3 K1, K2;
-        float  C1, C2;
-        EvaluateFogForceProbesGpu(Fog, Pos, TimeSec, BaseWindVelCurl, K1, C1);
-        float3 Mid = Pos - K1 * (0.5 * Dt);
-        EvaluateFogForceProbesGpu(Fog, Mid, TimeSec, BaseWindVelCurl, K2, C2);
-        Pos -= K2 * Dt;
-        OutCurl = max(OutCurl, C2);
-    }
-    return Pos;
+    return P - OutVel * AdvSec;
 }
 
 float EvaluateSingleLocalFogDensityGpu(
@@ -289,7 +189,7 @@ float EvaluateSingleLocalFogDensityGpu(
     float N       = FogFbmGpu3(AdvP * LScale);
     float BaseDen = max(0.0, (N - Thresh) / max(0.15, Cov));
 
-    if (uint(Fog.FogMeta.w + 0.5) > 0u || Speed > 0.25)
+    if (Speed > 0.25)
     {
         float FilamentNoise = LatticeNoiseFog3Gpu(float3(AdvP.x * LScale * 1.85, AdvP.y * LScale * 1.85, AdvP.z * LScale * 1.45));
         float CurlBoost     = 1.0 + clamp(Curl * 0.26, 0.0, 1.15) * (0.55 + 0.90 * FilamentNoise);
@@ -410,7 +310,7 @@ float3 EvaluateVolumetricFogGpu(
         }
     }
 
-    // 3. Wind-Driven Multi-Shape LocalFogVolumes (up to 8, 32 steps with spatial ForceField probes)
+    // 3. Wind-Driven Multi-Shape LocalFogVolumes (up to 8, 32 steps)
     uint LocalCount = min(8u, uint(Fog.FogMeta.x + 0.5));
     float Softness  = clamp(Fog.FogMeta.z, 0.04, 0.92);
     float3 InvD     = 1.0 / select(abs(RayDir) > float3(1.0e-6), RayDir, float3(1.0e-6));

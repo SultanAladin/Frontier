@@ -27,18 +27,16 @@ namespace Frontier
 enum class WorkspaceCategory : uint8_t
 {
     SceneWorld   = 0u, // [-] - Full 3D world & multi-workspace authoring suite
-    UV           = 1u, // [-] - UV unwrap & UDIM packing workspace (blocks Particles, Simulations, Audio, etc.)
+    UV           = 1u, // [-] - UV unwrap & UDIM packing workspace (blocks Simulations, Audio, etc.)
     GeometryCad  = 2u, // [-] - Parametric solid, sketch & PolygonNetwork modeling workspace
     Material     = 3u, // [-] - BSDF closure & shading studio workspace
     TexturePaint = 4u, // [-] - UDIM channel painting & procedural texture workspace
     Image        = 5u, // [-] - Radiometric image & HDRI grading workspace
     Vector       = 6u, // [-] - 2D Bezier vector & icon workspace
-    Simulation   = 7u, // [-] - Physics, fluid, fracture & force-field workspace
-    Particle     = 8u, // [-] - Particulate & fibre studio workspace
-    Audio        = 9u,  // [-] - Spatial acoustic studio workspace
-    Baking       = 10u, // [-] - High-to-low surface & 3D volume SDF GPU baking studio
-    Fracture     = 11u, // [-] - Brittle/ductile/fibrous fracture & rigid-body simulation studio
-    Fluid        = 12u, // [-] - Eulerian pyro/fire/smoke simulation & volumetric studio
+    Simulation   = 7u, // [-] - Rigid-body dynamics & fracture physics workspace
+    Audio        = 8u, // [-] - Spatial acoustic studio workspace
+    Baking       = 9u, // [-] - High-to-low surface & 3D volume SDF GPU baking studio
+    Fracture     = 10u,// [-] - Brittle/ductile/fibrous fracture & rigid-body simulation studio
 };
 
 } // namespace Frontier

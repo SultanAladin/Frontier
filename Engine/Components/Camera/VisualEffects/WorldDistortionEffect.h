@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                            WORLDDISTORTIONEFFECT.H
 ============================================================================================================================================*/
-// 🧩 World-placed & particle-linked camera distortion anchors (Heat Shimmer, Black Hole Lensing, Glitch) + 3D->Screen projection
+// 🧩 World-placed camera distortion anchors (Heat Shimmer, Black Hole Lensing, Glitch) + 3D->Screen projection
 
 #pragma once
 
@@ -12,13 +12,10 @@
 #include "Engine/Components/Camera/CameraConfiguration.h"
 #include "Engine/Components/Camera/CameraPosture.h"
 #include "Engine/Constants/MathConstants.h"
-#include "Engine/ParticleSpace/ParticleDocument.h"
-#include "Engine/ParticleSpace/ParticleSimulationSession.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <variant>
 #include <vector>
 
 namespace Frontier::Components::VisualEffects
@@ -114,167 +111,6 @@ struct ProjectedScreenDistortionAnchor
                             (Out.ScreenV + Out.ScreenRadiusUv * 1.5f >= -0.25f) &&
                             (Out.ScreenV - Out.ScreenRadiusUv * 1.5f <=  1.25f);
     return Out;
-}
-
-inline void ResolveReleaseOriginCenterAndRadius(
-    const ParticleSpace::ReleaseOriginSpec& Origin,
-    Mathematics::Axis3D&                    OutCenter,
-    float&                                  OutRadiusMeters) noexcept
-{
-    std::visit([&](const auto& O)
-    {
-        using T = std::decay_t<decltype(O)>;
-        if constexpr (std::is_same_v<T, ParticleSpace::AnalyticPointOrigin>)
-        {
-            OutCenter       = { O.CenterMeters[0], O.CenterMeters[1], O.CenterMeters[2] };
-            OutRadiusMeters = 0.85f;
-        }
-        else if constexpr (std::is_same_v<T, ParticleSpace::AnalyticSphereOrigin>)
-        {
-            OutCenter       = { O.CenterMeters[0], O.CenterMeters[1], O.CenterMeters[2] };
-            OutRadiusMeters = std::max(0.35f, O.RadiusMeters * 1.8f);
-        }
-        else if constexpr (std::is_same_v<T, ParticleSpace::AnalyticDiscOrigin>)
-        {
-            OutCenter       = { O.CenterMeters[0], O.CenterMeters[1], O.CenterMeters[2] };
-            OutRadiusMeters = std::max(0.35f, O.RadiusMeters * 1.35f);
-        }
-        else if constexpr (std::is_same_v<T, ParticleSpace::AnalyticBoxOrigin>)
-        {
-            OutCenter       = { O.CenterMeters[0], O.CenterMeters[1], O.CenterMeters[2] };
-            OutRadiusMeters = std::max({ 0.45f, O.HalfExtentsMeters[0], O.HalfExtentsMeters[1], O.HalfExtentsMeters[2] });
-        }
-        else if constexpr (std::is_same_v<T, ParticleSpace::DualElectrodeOrigin>)
-        {
-            OutCenter = {
-                0.5f * (O.CathodeMeters[0] + O.AnodeMeters[0]),
-                0.5f * (O.CathodeMeters[1] + O.AnodeMeters[1]),
-                0.5f * (O.CathodeMeters[2] + O.AnodeMeters[2])
-            };
-            const float Dx = O.AnodeMeters[0] - O.CathodeMeters[0];
-            const float Dy = O.AnodeMeters[1] - O.CathodeMeters[1];
-            const float Dz = O.AnodeMeters[2] - O.CathodeMeters[2];
-            OutRadiusMeters = std::max(0.5f, 0.55f * std::sqrt(Dx * Dx + Dy * Dy + Dz * Dz));
-        }
-        else if constexpr (std::is_same_v<T, ParticleSpace::SurfaceLatticeOrigin>)
-        {
-            OutCenter       = { O.CenterMeters[0], O.CenterMeters[1], O.CenterMeters[2] };
-            OutRadiusMeters = std::max({ 0.5f, O.HalfExtentsMeters[0], O.HalfExtentsMeters[1], O.HalfExtentsMeters[2] });
-        }
-        else if constexpr (std::is_same_v<T, ParticleSpace::SpiderwebOrigin>)
-        {
-            OutCenter       = { O.CenterMeters[0], O.CenterMeters[1], O.CenterMeters[2] };
-            OutRadiusMeters = std::max(0.5f, O.RadiusMeters);
-        }
-        else if constexpr (std::is_same_v<T, ParticleSpace::ClothGridOrigin>)
-        {
-            OutCenter       = { O.OriginMeters[0], O.OriginMeters[1], O.OriginMeters[2] };
-            OutRadiusMeters = std::max(0.5f, 0.6f * std::max(O.SpanMeters, O.DropMeters));
-        }
-        else if constexpr (std::is_same_v<T, ParticleSpace::BotanicalRootOrigin>)
-        {
-            OutCenter       = { O.CenterMeters[0], O.CenterMeters[1], O.CenterMeters[2] };
-            OutRadiusMeters = std::max(0.5f, std::max(O.PatchRadius, O.CanopyHeight));
-        }
-        else if constexpr (std::is_same_v<T, ParticleSpace::SurfaceAnchorOrigin>)
-        {
-            OutCenter       = { O.CenterMeters[0], O.CenterMeters[1], O.CenterMeters[2] };
-            OutRadiusMeters = std::max({ 0.45f, O.ScaleMeters[0], O.ScaleMeters[1], O.ScaleMeters[2] });
-        }
-        else if constexpr (std::is_same_v<T, ParticleSpace::FireworkOrigin>)
-        {
-            OutCenter       = { O.ShellOrigin[0], O.ShellOrigin[1], O.ShellOrigin[2] };
-            OutRadiusMeters = std::max(0.5f, O.PatternRadius);
-        }
-    }, Origin);
-}
-
-inline void LinkParticleRigDistortionAnchor(
-    const ParticleSpace::ParticleRig&          Rig,
-    std::vector<CameraWorldDistortionAnchor>&  InOutAnchors)
-{
-    if (!Rig.Visible)
-    {
-        return;
-    }
-
-    Mathematics::Axis3D Center { 0.0f, 0.0f, 0.0f };
-    float               Radius = 1.0f;
-    ResolveReleaseOriginCenterAndRadius(Rig.Origin, Center, Radius);
-
-    if (const auto* Lens = std::get_if<ParticleSpace::RefractionLensCarrier>(&Rig.Carrier))
-    {
-        CameraWorldDistortionAnchor Anchor {};
-        Anchor.Kind           = Lens->GravitationalBlackHole
-            ? WorldDistortionCategory::BlackHole
-            : WorldDistortionCategory::HeatShimmer;
-        Anchor.WorldPosition  = Center;
-        Anchor.RadiusMeters   = std::max(0.45f, Radius * 1.25f);
-        Anchor.Strength       = std::max(0.1f, Lens->DistortionStrength);
-        Anchor.SecondaryParam = static_cast<float>(Rig.LocalSeed % 100u) * 0.0628f;
-        Anchor.Active         = true;
-        InOutAnchors.push_back(Anchor);
-        return;
-    }
-
-    if (const auto* Sprite = std::get_if<ParticleSpace::SpriteBillboardCarrier>(&Rig.Carrier))
-    {
-        if (Sprite->Cutout == ParticleSpace::SpriteCutoutCategory::HologramGlitch)
-        {
-            CameraWorldDistortionAnchor Anchor {};
-            Anchor.Kind           = WorldDistortionCategory::Glitch;
-            Anchor.WorldPosition  = Center;
-            Anchor.RadiusMeters   = std::max(0.5f, Radius * 1.25f);
-            Anchor.Strength       = 1.0f;
-            Anchor.SecondaryParam = static_cast<float>(Rig.LocalSeed % 100u) * 0.0628f;
-            Anchor.Active         = true;
-            InOutAnchors.push_back(Anchor);
-            return;
-        }
-    }
-
-    if (Rig.Dynamics.Transition.has_value() && Rig.Dynamics.Transition->TransitionVariant == 7u)
-    {
-        CameraWorldDistortionAnchor Anchor {};
-        Anchor.Kind           = WorldDistortionCategory::Glitch;
-        Anchor.WorldPosition  = Center;
-        Anchor.RadiusMeters   = std::max(0.5f, Radius * 1.3f);
-        Anchor.Strength       = 1.0f;
-        Anchor.SecondaryParam = Rig.Dynamics.Transition->GlitchRateHz;
-        Anchor.Active         = true;
-        InOutAnchors.push_back(Anchor);
-        return;
-    }
-
-    // Thermal buoyancy combustion rigs naturally emit convective heat shimmer above the flame plume
-    if (Rig.Dynamics.Ballistic.BuoyancyMps2 > 2.2f || Rig.Dynamics.Thermal.has_value())
-    {
-        CameraWorldDistortionAnchor Anchor {};
-        Anchor.Kind           = WorldDistortionCategory::HeatShimmer;
-        Anchor.WorldPosition  = { Center.X, Center.Y, Center.Z + Radius * 0.55f };
-        Anchor.RadiusMeters   = std::max(0.55f, Radius * 1.25f);
-        Anchor.Strength       = std::clamp(std::max(0.55f, Rig.Dynamics.Ballistic.BuoyancyMps2 * 0.22f), 0.35f, 1.5f);
-        Anchor.SecondaryParam = static_cast<float>(Rig.LocalSeed % 100u) * 0.0628f;
-        Anchor.Active         = true;
-        InOutAnchors.push_back(Anchor);
-    }
-}
-
-inline void LinkParticleDocumentDistortionAnchors(
-    const ParticleSpace::ParticleDocument&     Doc,
-    std::vector<CameraWorldDistortionAnchor>&  InOutAnchors)
-{
-    for (const auto& Rig : Doc.Rigs)
-    {
-        LinkParticleRigDistortionAnchor(Rig, InOutAnchors);
-    }
-}
-
-inline void LinkParticleSessionDistortionAnchors(
-    const ParticleSpace::ParticleSimulationSession& Session,
-    std::vector<CameraWorldDistortionAnchor>&       InOutAnchors)
-{
-    LinkParticleDocumentDistortionAnchors(Session.InspectDocument(), InOutAnchors);
 }
 
 } // namespace Frontier::Components::VisualEffects

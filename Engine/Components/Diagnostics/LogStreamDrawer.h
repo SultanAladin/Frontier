@@ -26,11 +26,11 @@ namespace Frontier
 
 enum class LogChannelCategory : uint8_t
 {
-    All       = 0u, // [-] - Show every diagnostic channel
-    Particles = 1u, // [-] - Particle solver & preset telemetry
-    Forces    = 2u, // [-] - Vector Field Forces solver events
-    Wind      = 3u, // [-] - Ambient wind & anemometer probes
-    Viewport  = 4u, // [-] - Camera, gizmo & overlay viewport events
+    All      = 0u, // [-] - Show every diagnostic channel
+    Physics  = 1u, // [-] - Physics & fracture solver telemetry
+    Render   = 2u, // [-] - GPU compute & raytracing telemetry
+    Wind     = 3u, // [-] - Ambient wind & anemometer probes
+    Viewport = 4u, // [-] - Camera, gizmo & overlay viewport events
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -39,8 +39,8 @@ enum class LogChannelCategory : uint8_t
 
 struct LogStreamEntry
 {
-    std::string        TimestampText { "00:00:00" };               // [-] - HH:MM:SS timestamp
-    LogChannelCategory Channel       = LogChannelCategory::Particles;
+    std::string        TimestampText { "00:00:00" }; // [-] - HH:MM:SS timestamp
+    LogChannelCategory Channel       = LogChannelCategory::Physics;
     std::string        Message       {};                           // [-] - Diagnostic summary text
 };
 

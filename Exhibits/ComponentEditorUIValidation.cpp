@@ -213,10 +213,8 @@ int main()
         const bool PlacementOk =
             PlacedRoot.Valid() &&
             ActivePanes != nullptr &&
-            WorldEditor.QueryWorldPlacements().QueryLivePlacementCount() == 1u &&
-            !WorldEditor.QueryActiveParticlePlacements().empty() &&
-            !WorldEditor.QueryActiveFluidPlacements().empty();
-        if (!Require(PlacementOk, "SpawnComponentClassPlacement creates WorldPlacement + Particle + Fluid + nested Outliner rows"))
+            WorldEditor.QueryWorldPlacements().QueryLivePlacementCount() == 1u;
+        if (!Require(PlacementOk, "SpawnComponentClassPlacement creates WorldPlacement + nested Outliner rows"))
         {
             WorldEditor.Finalize();
             Vulkan.TeardownInterchange();

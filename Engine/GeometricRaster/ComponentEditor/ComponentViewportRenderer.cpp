@@ -1219,7 +1219,7 @@ ComponentViewportOutput ComponentViewportRenderer::RenderClassViewport(
         }
     }
 
-    // 3. Field shells (Collision channel SDF/Box shells + CollisionVolumes + FluidInstances)
+    // 3. Field shells (Collision channel SDF/Box shells + CollisionVolumes)
     if (Options.ShowDebugHelpers)
     {
         BindRasterProgram(Impl->FieldHullRaster);
@@ -1293,25 +1293,6 @@ ComponentViewportOutput ComponentViewportRenderer::RenderClassViewport(
                 Push.PickPacked[1]        = H.Token.SlotIndex;
                 Push.PickPacked[2]        = H.Token.Generation;
                 RecordSpan(ShellVb, ShellVc, Push);
-            }
-            else if (H.Category == ComponentClass::ComponentCategory::FluidInstance && Selected)
-            {
-                const auto* Fl = ClassDef.Storage.InspectFluid(H.Token);
-                if (Fl == nullptr) continue;
-                const Mat4 M = Mat4Multiply(WorldMats[H.Token.SlotIndex], Mat4Scale(Fl->BoundsExtentMeters));
-                ComponentSurfacePushConstantsGpu Push {};
-                std::memcpy(Push.WorldTransform, M.M, sizeof(Push.WorldTransform));
-                Push.AlbedoRoughness[0]   = 0.416f;
-                Push.AlbedoRoughness[1]   = 0.655f;
-                Push.AlbedoRoughness[2]   = 0.780f;
-                Push.ChannelModifiers[1]  = 0.04f;
-                Push.ChannelModifiers[2]  = 0.45f;
-                Push.ChannelModifiers[3]  = 0.20f;
-                Push.EmissiveMetalness[0] = 0.30f;
-                Push.PickPacked[0]        = static_cast<uint32_t>(H.Category);
-                Push.PickPacked[1]        = H.Token.SlotIndex;
-                Push.PickPacked[2]        = H.Token.Generation;
-                RecordSpan(Impl->UnitBoxBuf.Buffer.BufferHandle, Impl->UnitBoxBuf.VertexCount, Push);
             }
         }
 

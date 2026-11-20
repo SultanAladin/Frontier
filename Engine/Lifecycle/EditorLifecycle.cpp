@@ -5,8 +5,6 @@
 
 #include "Engine/Lifecycle/EditorLifecycle.h"
 #include "Engine/GeometricRaster/Rasterization/ImGuiOverlayRasterization.h"
-#include "Engine/SimulationSpace/ForceFields/FieldFormulaCompiler.h"
-#include "Engine/SimulationSpace/ForceFields/ForceMotionPath.h"
 
 #if FRONTIER_EDITOR_ENABLED
 
@@ -20,90 +18,6 @@
 
 namespace Frontier::Lifecycle
 {
-
-namespace
-{
-
-[[nodiscard]] const char* QueryForceDomainLabel(SimulationSpace::ForceFields::ForceDomainCategory Domain) noexcept
-{
-    using namespace SimulationSpace::ForceFields;
-    switch (Domain)
-    {
-    case ForceDomainCategory::VectorField:     return "VectorField";
-    case ForceDomainCategory::StreamTransport:       return "StreamTransport";
-    case ForceDomainCategory::TurbulenceField: return "Turbulence";
-    default:                                   return "ForceField";
-    }
-}
-
-[[nodiscard]] SimulationSpace::ForceFields::ForceSourceRecordEntry BuildEditorForcePreset(
-    uint32_t         ForceModelOrdinal,
-    std::string_view Title)
-{
-    using namespace SimulationSpace::ForceFields;
-    ForceSourceRecordEntry Desc{};
-    Desc.RadiusMeters          = 18.0f;
-    Desc.Strength              = 16.0f;
-    Desc.FalloffExponent       = 1.35f;
-    Desc.CentreMeters          = { 0.0f, 0.0f, 2.4f };
-    Desc.EvaluatedCentreMeters = Desc.CentreMeters;
-    Desc.Label                 = std::string(Title);
-
-    if (ForceModelOrdinal < static_cast<uint32_t>(ForceModel::Count))
-    {
-        Desc.Model = static_cast<ForceModel>(ForceModelOrdinal);
-    }
-    else if (Title.find("Thermal") != std::string_view::npos || Title.find("Updraft") != std::string_view::npos)
-    {
-        Desc.Model = ForceModel::Buoyancy;
-    }
-    else if (Title.find("Cyclone") != std::string_view::npos || Title.find("Vortex") != std::string_view::npos)
-    {
-        Desc.Model      = ForceModel::RotationalColumn;
-        Desc.SwirlRatio = 1.25f;
-    }
-    else if (Title.find("Containment") != std::string_view::npos)
-    {
-        Desc.Model            = ForceModel::Containment;
-        Desc.CoreRadiusMeters = 6.0f;
-    }
-    else if (Title.find("Curl") != std::string_view::npos || Title.find("Turbulent") != std::string_view::npos)
-    {
-        Desc.Model                 = ForceModel::CurlNoise;
-        Desc.TurbulenceScaleMeters = 10.0f;
-        Desc.OctaveCount           = 3u;
-    }
-    else if (Title.find("Attractor") != std::string_view::npos)
-    {
-        Desc.Model            = ForceModel::Attractor;
-        Desc.CoreRadiusMeters = 2.8f;
-    }
-    else if (Title.find("Spline") != std::string_view::npos || Title.find("Jetstream") != std::string_view::npos)
-    {
-        Desc.Model = ForceModel::SplineForce;
-    }
-    else if (Title.find("Lorentz") != std::string_view::npos || Title.find("Plasma") != std::string_view::npos)
-    {
-        Desc.Model      = ForceModel::LorentzField;
-        Desc.SwirlRatio = 1.1f;
-    }
-    else if (Title.find("Formula") != std::string_view::npos)
-    {
-        Desc.Model             = ForceModel::FlowStream;
-        Desc.FormulaEnabled    = true;
-        Desc.FormulaSourceText = QueryBuiltInFormulaPresets()[0].FormulaSource;
-    }
-    else
-    {
-        Desc.Model          = ForceModel::LinearWind;
-        Desc.EulerDegrees.Z = 228.0f;
-    }
-
-    Desc.Domain = QueryDomainForModel(Desc.Model);
-    return Desc;
-}
-
-} // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                LIFECYCLE IMPLEMENTATION
@@ -247,7 +161,72 @@ bool EditorLifecycle::Initialize(const EditorStartupConfiguration& Configuration
     }
 
     Initialized = true;
-    AttachForceFieldAuthoringToActivePanes();
+    if (WorkspaceSessionPanes* Panes = Workspaces.AccessActivePanes())
+    {
+        std::vector<OutlinerConstructTemplate> Templates;
+        Templates.reserve(8u);
+        Templates.push_back({ "Add Box Geometry",      "Box Specimen",      "Geometry", "Box · OpenPBR Surface",      ConstructSlotCategory::GeometryVolume   });
+        Templates.push_back({ "Add Sphere Geometry",   "Sphere Specimen",   "Geometry", "Sphere · OpenPBR Surface",   ConstructSlotCategory::GeometryVolume   });
+        Templates.push_back({ "Add Cylinder Geometry", "Cylinder Specimen", "Geometry", "Cylinder · OpenPBR Surface", ConstructSlotCategory::GeometryVolume   });
+        Templates.push_back({ "Add Cone Geometry",     "Cone Specimen",     "Geometry", "Cone · OpenPBR Surface",     ConstructSlotCategory::GeometryVolume   });
+        Templates.push_back({ "Add Torus Geometry",    "Torus Specimen",    "Geometry", "Torus · OpenPBR Surface",    ConstructSlotCategory::GeometryVolume   });
+        Templates.push_back({ "Add Area Light",        "Area Quad Light",   "Lighting", "LTC Polygonal Quad Light",   ConstructSlotCategory::PointLuminaire   });
+        Templates.push_back({ "Add Scene Camera",      "Scene Camera",      "Camera",   "Perspective Optical Camera", ConstructSlotCategory::OpticsCamera     });
+        Panes->Outliner.ConfigureConstructTemplates(std::move(Templates));
+
+        Panes->Viewport.ConfigureOpenContentBrowserCallback(
+            [this]()
+            {
+                ContentBrowserDrawer.AccessPanel().ConfigureOriginFilter(ContentOriginFilter::All);
+                (void)ContentBrowserDrawer.AccessPanel().ActivateCategory(ContentCategory::Geometry);
+                ContentBrowserDrawer.AccessPanel().ConfigureShelfExtent(ContentShelfExtent::SplitHalf, false);
+            });
+
+        ContentBrowserDrawer.AccessPanel().AssignContentActivationCallback(
+            [this](const ContentRepositoryEntry& Entry)
+            {
+                const auto Category = static_cast<ContentCategory>(Entry.IndexHeader.CategoryCode);
+                if (Category == ContentCategory::Geometry && ShowcaseBundle != nullptr)
+                {
+                    if (WorkspaceSessionPanes* ActivePanes = Workspaces.AccessActivePanes())
+                    {
+                        GeometricRaster::ShowcasePrimitiveShape Shape = GeometricRaster::ShowcasePrimitiveShape::Box;
+                        if (Entry.DisplayTitle.find("Sphere") != std::string::npos || Entry.DisplayTitle.find("Orb") != std::string::npos)
+                        {
+                            Shape = GeometricRaster::ShowcasePrimitiveShape::Sphere;
+                        }
+                        else if (Entry.DisplayTitle.find("Cylinder") != std::string::npos)
+                        {
+                            Shape = GeometricRaster::ShowcasePrimitiveShape::Cylinder;
+                        }
+                        else if (Entry.DisplayTitle.find("Cone") != std::string::npos)
+                        {
+                            Shape = GeometricRaster::ShowcasePrimitiveShape::Cone;
+                        }
+                        else if (Entry.DisplayTitle.find("Torus") != std::string::npos)
+                        {
+                            Shape = GeometricRaster::ShowcasePrimitiveShape::Torus;
+                        }
+                        const auto Pos = GeometricRaster::RaycastShowcasePlacementAtUv(*ShowcaseBundle, 0.50f, 0.72f, 0.36f);
+                        const bool GpuActive = (GpuWorldRenderer != nullptr && GpuWorldRenderer->QueryReady());
+                        (void)GeometricRaster::ConstructShowcasePrimitiveInOutliner(
+                            ActivePanes->Outliner,
+                            *ShowcaseBundle,
+                            Shape,
+                            Pos);
+                        if (GpuActive)
+                        {
+                            GpuWorldRenderer->SynchronizeSceneResources(ShowcaseBundle->Scene, true);
+                        }
+                        else if (ShowcaseRenderer != nullptr)
+                        {
+                            ShowcaseRenderer->PrepareWorldScene(ShowcaseBundle->Scene);
+                        }
+                        RefreshShowcaseViewportRaster();
+                    }
+                }
+            });
+    }
     if (StartupConfig.VulkanDevice != nullptr && !StartupConfig.CompiledShaderDirectory.empty())
     {
         (void)AttachVulkanGizmoOverlay(StartupConfig.VulkanDevice, StartupConfig.CompiledShaderDirectory);
@@ -257,355 +236,6 @@ bool EditorLifecycle::Initialize(const EditorStartupConfiguration& Configuration
         PopulateShowcaseGallerySession();
     }
     return true;
-}
-
-void EditorLifecycle::AttachForceFieldAuthoringToActivePanes()
-{
-    WorkspaceSessionPanes* Panes = Workspaces.AccessActivePanes();
-    if (Panes == nullptr)
-    {
-        return;
-    }
-
-    ForcePresetCatalog.PopulateDefaultForcePresets();
-    AuthoredForces.clear();
-    AnemometerHistory.fill(0.0f);
-    ForceClockSeconds = 0.0;
-    NextForceToken    = 1u;
-
-    std::vector<OutlinerConstructTemplate> Templates;
-    Templates.reserve(28u);
-    Templates.push_back({ "Add Box Geometry",      "Box Specimen",      "Geometry", "Box · OpenPBR Surface",      ConstructSlotCategory::GeometryVolume,   0xFFFFFFFFu });
-    Templates.push_back({ "Add Sphere Geometry",   "Sphere Specimen",   "Geometry", "Sphere · OpenPBR Surface",   ConstructSlotCategory::GeometryVolume,   0xFFFFFFFFu });
-    Templates.push_back({ "Add Cylinder Geometry", "Cylinder Specimen", "Geometry", "Cylinder · OpenPBR Surface", ConstructSlotCategory::GeometryVolume,   0xFFFFFFFFu });
-    Templates.push_back({ "Add Cone Geometry",     "Cone Specimen",     "Geometry", "Cone · OpenPBR Surface",     ConstructSlotCategory::GeometryVolume,   0xFFFFFFFFu });
-    Templates.push_back({ "Add Torus Geometry",    "Torus Specimen",    "Geometry", "Torus · OpenPBR Surface",    ConstructSlotCategory::GeometryVolume,   0xFFFFFFFFu });
-    Templates.push_back({ "Add Area Light",        "Area Quad Light",   "Lighting", "LTC Polygonal Quad Light",   ConstructSlotCategory::PointLuminaire, 0xFFFFFFFFu });
-    Templates.push_back({ "Add Scene Camera",      "Scene Camera",      "Camera",   "Perspective Optical Camera", ConstructSlotCategory::OpticsCamera,  0xFFFFFFFFu });
-    for (uint32_t Ord = 0u; Ord < static_cast<uint32_t>(SimulationSpace::ForceFields::ForceModel::Count); ++Ord)
-    {
-        const auto  Model   = static_cast<SimulationSpace::ForceFields::ForceModel>(Ord);
-        const auto  Domain  = SimulationSpace::ForceFields::QueryDomainForModel(Model);
-        const char* Name    = SimulationSpace::ForceFields::QueryForceModelDisplayName(Model);
-        const char* DomName = QueryForceDomainLabel(Domain);
-        Templates.push_back({
-            std::string("Add ") + Name,
-            Name,
-            DomName,
-            "Analytical ForceModel",
-            ConstructSlotCategory::ForceField,
-            Ord,
-        });
-    }
-    Templates.push_back({
-        "Add Custom Formula",
-        "Custom Formula",
-        "VectorFieldLang",
-        "Symbolic GPU formula",
-        ConstructSlotCategory::ForceField,
-        static_cast<uint32_t>(SimulationSpace::ForceFields::ForceModel::FlowStream),
-    });
-    Panes->Outliner.ConfigureConstructTemplates(std::move(Templates));
-
-    std::vector<ViewportConstructPresetEntry>     ViewportPresets;
-    std::vector<Codecs::ForceModelPresetDocument> CapturedPresetDocs;
-    for (const auto& Asset : ForcePresetCatalog.QueryAllAssets())
-    {
-        if (Asset.Category == ContentAssetCategory::ForcePresets || Asset.Category == ContentAssetCategory::FormulaPresets)
-        {
-            ViewportPresets.push_back({
-                Asset.Title,
-                Asset.CategoryCaption,
-                static_cast<uint32_t>(Asset.PresetDocument.ForceSource.Model),
-                Asset.FormulaOverride,
-                static_cast<uint32_t>(Asset.PresetDocument.ForceSource.Domain),
-            });
-            CapturedPresetDocs.push_back(Asset.PresetDocument);
-        }
-    }
-    Panes->Viewport.ConfigureForceOverlayToolsVisible(true);
-    Panes->Viewport.ConfigureConstructPresets(std::move(ViewportPresets));
-    Panes->Viewport.ConfigureConstructPresetCallback(
-        [this, CapturedPresetDocs = std::move(CapturedPresetDocs)](uint32_t PresetIdx)
-        {
-            if (PresetIdx < CapturedPresetDocs.size())
-            {
-                (void)SpawnForceFieldEntry(CapturedPresetDocs[PresetIdx].ForceSource);
-            }
-        });
-    Panes->Viewport.ConfigureOpenContentBrowserCallback(
-        [this]()
-        {
-            ContentBrowserDrawer.AccessPanel().ConfigureOriginFilter(ContentOriginFilter::All);
-            (void)ContentBrowserDrawer.AccessPanel().ActivateCategory(ContentCategory::Simulations);
-            ContentBrowserDrawer.AccessPanel().ConfigureShelfExtent(ContentShelfExtent::SplitHalf, false);
-        });
-
-    Panes->Inspector.ConfigureFullOverrideCallback(
-        [this](PixelSpace& Surface, Rectangle2D Bounds, OutlinerPanel* OutlinerPtr, OutlinerRecordEntry* PrimaryEntry, const PaneInputReading& Input, double Δt) -> bool
-        {
-            if (PrimaryEntry == nullptr)
-            {
-                return false;
-            }
-            WorkspaceSessionPanes* ActivePanes = Workspaces.AccessActivePanes();
-            if (ActivePanes == nullptr)
-            {
-                return false;
-            }
-            if (PrimaryEntry->Category != ConstructSlotCategory::ForceField)
-            {
-                return false;
-            }
-            SimulationSpace::ForceFields::ForceSourceRecordEntry* ActiveForce = nullptr;
-            for (auto& Item : AuthoredForces)
-            {
-                if (Item.OutlinerSlot == PrimaryEntry->Token)
-                {
-                    ActiveForce = &Item.Source;
-                    break;
-                }
-            }
-            if (ActiveForce == nullptr)
-            {
-                MappedEditorForceSource Synthesized{};
-                Synthesized.OutlinerSlot       = PrimaryEntry->Token;
-                Synthesized.Source             = BuildEditorForcePreset(PrimaryEntry->ForceModelOrdinal, PrimaryEntry->Title);
-                Synthesized.Source.UniqueToken = NextForceToken++;
-                AuthoredForces.push_back(std::move(Synthesized));
-                ActiveForce = &AuthoredForces.back().Source;
-            }
-
-            Editor::Simulation::ForceInspectorViewTargets Targets{};
-            Targets.Outliner          = OutlinerPtr != nullptr ? OutlinerPtr : &ActivePanes->Outliner;
-            Targets.OutlinerEntry     = PrimaryEntry;
-            Targets.Accumulator       = &ForceAccumulator;
-            Targets.LatticeCascade    = &ForceLatticeCascade;
-            Targets.ActiveForce       = ActiveForce;
-            Targets.OverlaySettings   = &ActivePanes->Viewport.AccessForceOverlaySettings();
-            Targets.AnemometerSamples = AnemometerHistory;
-            Targets.SimulationTimeSec = ForceClockSeconds;
-            Targets.SelectedWaypoint  = &SelectedWaypointIdx;
-
-            const bool Changed = ForceInspector.Render(Surface, Bounds, Targets, Input, Δt);
-            if (Changed)
-            {
-                PrimaryEntry->ForceModelOrdinal      = static_cast<uint32_t>(ActiveForce->Model);
-                PrimaryEntry->ForceFormulaOverride = ActiveForce->FormulaEnabled;
-                PrimaryEntry->CategoryLabel        = SimulationSpace::ForceFields::QueryForceModelDisplayName(ActiveForce->Model);
-                char SubBuf[96]{};
-                std::snprintf(SubBuf, sizeof(SubBuf), "r %.0f m  |  %.1f m/s", ActiveForce->RadiusMeters, ActiveForce->Strength);
-                PrimaryEntry->Subtitle  = SubBuf;
-                PrimaryEntry->PositionX = ActiveForce->CentreMeters.X;
-                PrimaryEntry->PositionY = ActiveForce->CentreMeters.Y;
-                PrimaryEntry->PositionZ = ActiveForce->CentreMeters.Z;
-                PrimaryEntry->RotationX = ActiveForce->EulerDegrees.X;
-                PrimaryEntry->RotationY = ActiveForce->EulerDegrees.Y;
-                PrimaryEntry->RotationZ = ActiveForce->EulerDegrees.Z;
-                SynchronizeForceFieldsWithOutliner(0.0);
-            }
-            return true;
-        });
-
-    ContentBrowserDrawer.AccessPanel().AssignContentActivationCallback(
-        [this](const ContentRepositoryEntry& Entry)
-        {
-            const auto Category = static_cast<ContentCategory>(Entry.IndexHeader.CategoryCode);
-            if (Category == ContentCategory::Simulations)
-            {
-                for (const auto& PresetAsset : ForcePresetCatalog.QueryAllAssets())
-                {
-                    if (PresetAsset.Title == Entry.DisplayTitle)
-                    {
-                        (void)SpawnForceFieldEntry(PresetAsset.PresetDocument.ForceSource);
-                        return;
-                    }
-                }
-                const auto Built = BuildEditorForcePreset(0xFFFFFFFFu, Entry.DisplayTitle);
-                (void)SpawnForceFieldEntry(Built);
-            }
-            else if (Category == ContentCategory::Geometry && ShowcaseBundle != nullptr)
-            {
-                if (WorkspaceSessionPanes* ActivePanes = Workspaces.AccessActivePanes())
-                {
-                    GeometricRaster::ShowcasePrimitiveShape Shape = GeometricRaster::ShowcasePrimitiveShape::Box;
-                    if (Entry.DisplayTitle.find("Sphere") != std::string::npos || Entry.DisplayTitle.find("Orb") != std::string::npos)
-                    {
-                        Shape = GeometricRaster::ShowcasePrimitiveShape::Sphere;
-                    }
-                    else if (Entry.DisplayTitle.find("Cylinder") != std::string::npos)
-                    {
-                        Shape = GeometricRaster::ShowcasePrimitiveShape::Cylinder;
-                    }
-                    else if (Entry.DisplayTitle.find("Cone") != std::string::npos)
-                    {
-                        Shape = GeometricRaster::ShowcasePrimitiveShape::Cone;
-                    }
-                    else if (Entry.DisplayTitle.find("Torus") != std::string::npos)
-                    {
-                        Shape = GeometricRaster::ShowcasePrimitiveShape::Torus;
-                    }
-                    const auto Pos = GeometricRaster::RaycastShowcasePlacementAtUv(*ShowcaseBundle, 0.50f, 0.72f, 0.36f);
-                    const bool GpuActive = (GpuWorldRenderer != nullptr && GpuWorldRenderer->QueryReady());
-                    (void)GeometricRaster::ConstructShowcasePrimitiveInOutliner(
-                        ActivePanes->Outliner,
-                        *ShowcaseBundle,
-                        Shape,
-                        Pos);
-                    if (GpuActive)
-                    {
-                        GpuWorldRenderer->SynchronizeSceneResources(ShowcaseBundle->Scene, true);
-                    }
-                    else if (ShowcaseRenderer != nullptr)
-                    {
-                        ShowcaseRenderer->PrepareWorldScene(ShowcaseBundle->Scene);
-                    }
-                    RefreshShowcaseViewportRaster();
-                }
-            }
-        });
-}
-
-OutlinerSlotToken EditorLifecycle::SpawnForceFieldEntry(
-    const SimulationSpace::ForceFields::ForceSourceRecordEntry& SourcePreset)
-{
-    WorkspaceSessionPanes* Panes = Workspaces.AccessActivePanes();
-    if (Panes == nullptr)
-    {
-        return {};
-    }
-
-    if (!DefaultForcesFolder.Valid() || Panes->Outliner.FindEntry(DefaultForcesFolder) == nullptr)
-    {
-        DefaultForcesFolder = Panes->Outliner.ConstructFolder("Forces & VectorFields");
-    }
-
-    SimulationSpace::ForceFields::ForceSourceRecordEntry Instance = SourcePreset;
-    Instance.UniqueToken = NextForceToken++;
-    Instance.Domain      = SimulationSpace::ForceFields::QueryDomainForModel(Instance.Model);
-    if (Instance.Label.empty())
-    {
-        Instance.Label = SimulationSpace::ForceFields::QueryForceModelDisplayName(Instance.Model);
-    }
-
-    const OutlinerSlotToken Slot = Panes->Outliner.ConstructFromTemplate(
-        static_cast<uint32_t>(Instance.Model),
-        DefaultForcesFolder);
-    if (OutlinerRecordEntry* Record = Panes->Outliner.AccessEntry(Slot))
-    {
-        Record->Category             = ConstructSlotCategory::ForceField;
-        Record->Title                = Instance.Label;
-        Record->CategoryLabel        = SimulationSpace::ForceFields::QueryForceModelDisplayName(Instance.Model);
-        Record->ForceModelOrdinal      = static_cast<uint32_t>(Instance.Model);
-        Record->ForceFormulaOverride = Instance.FormulaEnabled;
-        char SubBuf[96]{};
-        std::snprintf(SubBuf, sizeof(SubBuf), "r %.0f m  |  %.1f m/s", Instance.RadiusMeters, Instance.Strength);
-        Record->Subtitle  = SubBuf;
-        Record->PositionX = Instance.CentreMeters.X;
-        Record->PositionY = Instance.CentreMeters.Y;
-        Record->PositionZ = Instance.CentreMeters.Z;
-        Record->RotationX = Instance.EulerDegrees.X;
-        Record->RotationY = Instance.EulerDegrees.Y;
-        Record->RotationZ = Instance.EulerDegrees.Z;
-    }
-
-    Instance.OutlinerTokenId = Slot.Identifier;
-    AuthoredForces.push_back(MappedEditorForceSource{ Slot, std::move(Instance) });
-    Panes->Outliner.SelectSingle(Slot);
-    Panes->Viewport.AccessForceOverlaySettings().Enabled = true;
-    SynchronizeForceFieldsWithOutliner(0.0);
-    return Slot;
-}
-
-void EditorLifecycle::SynchronizeForceFieldsWithOutliner(double Δt)
-{
-    WorkspaceSessionPanes* Panes = Workspaces.AccessActivePanes();
-    if (Panes == nullptr)
-    {
-        return;
-    }
-
-    const bool Advance =
-        (Panes->Viewport.QueryExecutionMode() == ViewportExecutionMode::Simulate) ||
-        (Panes->Viewport.QueryExecutionMode() == ViewportExecutionMode::Play && !Panes->Viewport.QueryPlayPaused());
-    const bool OverlayActive = Panes->Viewport.QueryForceOverlaySettings().Enabled;
-    if ((Advance || OverlayActive) && Δt > 0.0)
-    {
-        ForceClockSeconds += Δt;
-    }
-    Panes->Viewport.ConfigureSimulationTimeSeconds(ForceClockSeconds);
-
-    // Adopt newly constructed ForceField rows created via Outliner '+' or Viewport Construct ('Ctrl+A')
-    for (const OutlinerRecordEntry& Entry : Panes->Outliner.QueryEntries())
-    {
-        if (Entry.Category != ConstructSlotCategory::ForceField)
-        {
-            continue;
-        }
-        const bool AlreadyMapped = std::any_of(
-            AuthoredForces.begin(),
-            AuthoredForces.end(),
-            [&](const MappedEditorForceSource& Item) { return Item.OutlinerSlot == Entry.Token; });
-        if (!AlreadyMapped)
-        {
-            MappedEditorForceSource NewItem{};
-            NewItem.OutlinerSlot           = Entry.Token;
-            NewItem.Source                 = BuildEditorForcePreset(Entry.ForceModelOrdinal, Entry.Title);
-            NewItem.Source.UniqueToken     = NextForceToken++;
-            NewItem.Source.OutlinerTokenId = Entry.Token.Identifier;
-            AuthoredForces.push_back(std::move(NewItem));
-        }
-    }
-
-    // Prune deleted Outliner ForceField rows & sync transforms
-    std::vector<SimulationSpace::ForceFields::ForceSourceRecordEntry> ActiveList;
-    ActiveList.reserve(AuthoredForces.size());
-    for (auto It = AuthoredForces.begin(); It != AuthoredForces.end();)
-    {
-        OutlinerRecordEntry* Record = Panes->Outliner.AccessEntry(It->OutlinerSlot);
-        if (Record == nullptr)
-        {
-            It = AuthoredForces.erase(It);
-            continue;
-        }
-        It->Source.Label          = Record->Title;
-        It->Source.Enabled        = Panes->Outliner.QueryEffectiveVisibility(It->OutlinerSlot);
-        It->Source.CentreMeters.X = Record->PositionX;
-        It->Source.CentreMeters.Y = Record->PositionY;
-        It->Source.CentreMeters.Z = Record->PositionZ;
-        It->Source.EulerDegrees.X = Record->RotationX;
-        It->Source.EulerDegrees.Y = Record->RotationY;
-        It->Source.EulerDegrees.Z = Record->RotationZ;
-        ActiveList.push_back(It->Source);
-        ++It;
-    }
-
-    ForceAccumulator.AssignSources(ActiveList);
-    ForceAccumulator.StepAnimation(ForceClockSeconds, Advance || OverlayActive);
-    if (ShowcaseBundle != nullptr)
-    {
-        ShowcaseBundle->Scene.Atmosphere.ForceFieldSource   = &ForceAccumulator;
-        ShowcaseBundle->Scene.Atmosphere.WindLatticeCascade = &ForceLatticeCascade;
-    }
-
-    const auto ProbePos = Panes->Viewport.QueryForceOverlaySettings().AnemometerWorldMeters;
-    const auto Diag     = ForceAccumulator.QueryAnemometerDiagnostics(ProbePos, ForceClockSeconds);
-    const float WindSpd = SimulationSpace::ForceFields::VectorLength(Diag.TotalForce.AdvectionVelocity);
-    const float AccSpd  = SimulationSpace::ForceFields::VectorLength(Diag.TotalForce.LinearAcceleration);
-    const float Speed   = (WindSpd > 0.01f) ? WindSpd : AccSpd;
-    std::rotate(AnemometerHistory.begin(), AnemometerHistory.begin() + 1, AnemometerHistory.end());
-    AnemometerHistory.back() = Speed;
-    if (OverlayActive)
-    {
-        char ProbeBuf[128]{};
-        std::snprintf(
-            ProbeBuf,
-            sizeof(ProbeBuf),
-            "Wind %.1f m/s | %u sources",
-            Speed,
-            static_cast<unsigned>(ForceAccumulator.QueryActiveSourceCount()));
-        Panes->Viewport.ConfigureProbeReadoutText(ProbeBuf);
-    }
 }
 
 bool EditorLifecycle::AttachVulkanGizmoOverlay(
@@ -637,23 +267,6 @@ bool EditorLifecycle::AttachVulkanGizmoOverlay(
         {
             WorldGizmoRasterizer.reset();
             return false;
-        }
-    }
-
-    if (ForceOverlayRasterizer == nullptr || !ForceOverlayRasterizer->QueryReady())
-    {
-        auto CandidateOverlay = std::make_unique<Editor::Simulation::VectorFieldOverlaySequence>();
-        std::string OverlayDiag {};
-        if (CandidateOverlay->Initialize(*BoundDevice, CompiledShaderDirectory, OverlayDiag))
-        {
-            ForceOverlayRasterizer = std::move(CandidateOverlay);
-        }
-        else
-        {
-            std::fprintf(
-                stderr,
-                "[FrontierEditor] WARNING: VectorFieldOverlaySequence unavailable: %s\n",
-                OverlayDiag.c_str());
         }
     }
 
@@ -710,13 +323,6 @@ void EditorLifecycle::PopulateShowcaseGallerySession(uint32_t RenderWidthPx, uin
         Atmo.Clouds.CloudShadow.ShadowEnabled      = DisplayCfg.CloudShadowsEnabled;
         Atmo.Clouds.WindSpeedMetersPerSecond       = DisplayCfg.CloudWindSpeedMps;
         Atmo.Wind.SpeedMetersPerSecond             = std::max(Atmo.Wind.SpeedMetersPerSecond, DisplayCfg.CloudWindSpeedMps);
-        Atmo.ForceFieldSource                      = &ForceAccumulator;
-        Atmo.WindLatticeCascade                    = &ForceLatticeCascade;
-        auto& OverlayInit                          = Panes->Viewport.AccessForceOverlaySettings();
-        OverlayInit.Enabled                        = false;
-        OverlayInit.CrossSectionOffsetMeters       = 0.25f;
-        OverlayInit.AnemometerWorldMeters          = { 0.0f, 0.55f, 0.25f };
-        LastForceOverlaySettings                   = OverlayInit;
         Atmo.Stars.StarfieldEnabled    = DisplayCfg.CelestialStarsEnabled;
         Atmo.Solar.SolarEnabled        = DisplayCfg.CelestialStarsEnabled;
         Atmo.Moons[0].Visible          = DisplayCfg.CelestialStarsEnabled;
@@ -750,7 +356,7 @@ void EditorLifecycle::PopulateShowcaseGallerySession(uint32_t RenderWidthPx, uin
             ProcessShowcaseNavigationDirective(Directive);
         });
     Panes->Viewport.ConfigureConstructCanvasDropCallback(
-        [this](int32_t TemplateIndex, int32_t PresetIndex, Point2D CanvasLogicalPos)
+        [this](int32_t TemplateIndex, int32_t /*PresetIndex*/, Point2D CanvasLogicalPos)
         {
             WorkspaceSessionPanes* ActivePanes = Workspaces.AccessActivePanes();
             if (ActivePanes == nullptr || ShowcaseBundle == nullptr)
@@ -762,41 +368,12 @@ void EditorLifecycle::PopulateShowcaseGallerySession(uint32_t RenderWidthPx, uin
             const float V = std::clamp((CanvasLogicalPos.Y - CanvasBounds.Y) / std::max(1.0f, CanvasBounds.Height), 0.0f, 1.0f);
             const Mathematics::Axis3D DropPos = GeometricRaster::RaycastShowcasePlacementAtUv(*ShowcaseBundle, U, V, 0.36f);
 
-            if (PresetIndex >= 0)
-            {
-                const auto& AllAssets = ForcePresetCatalog.QueryAllAssets();
-                uint32_t MatchIdx = 0u;
-                for (const auto& Asset : AllAssets)
-                {
-                    if (Asset.Category == ContentAssetCategory::ForcePresets || Asset.Category == ContentAssetCategory::FormulaPresets)
-                    {
-                        if (MatchIdx == static_cast<uint32_t>(PresetIndex))
-                        {
-                            SimulationSpace::ForceFields::ForceSourceRecordEntry Preset = Asset.PresetDocument.ForceSource;
-                            Preset.CentreMeters = { DropPos.X, DropPos.Y, DropPos.Z + 0.65f };
-                            (void)SpawnForceFieldEntry(Preset);
-                            RefreshShowcaseViewportRaster();
-                            return;
-                        }
-                        ++MatchIdx;
-                    }
-                }
-            }
-
             if (TemplateIndex >= 0)
             {
                 const auto Templates = ActivePanes->Outliner.QueryConstructTemplates();
                 if (static_cast<std::size_t>(TemplateIndex) < Templates.size())
                 {
                     const auto& Tpl = Templates[static_cast<std::size_t>(TemplateIndex)];
-                    if (Tpl.Category == ConstructSlotCategory::ForceField)
-                    {
-                        auto ForceDesc = BuildEditorForcePreset(Tpl.ForceModelOrdinal, Tpl.DefaultTitle);
-                        ForceDesc.CentreMeters = { DropPos.X, DropPos.Y, DropPos.Z + 0.65f };
-                        (void)SpawnForceFieldEntry(ForceDesc);
-                        RefreshShowcaseViewportRaster();
-                        return;
-                    }
                     const std::string_view Title = Tpl.DefaultTitle.empty() ? std::string_view(Tpl.DropdownLabel) : std::string_view(Tpl.DefaultTitle);
                     (void)GeometricRaster::ConstructShowcaseModelInOutliner(
                         ActivePanes->Outliner,
@@ -1434,66 +1011,6 @@ OutlinerSlotToken EditorLifecycle::SpawnComponentClassPlacement(
                     }
                 }
             }
-            else if (Hdr.Category == ComponentClass::ComponentCategory::ParticleInstance)
-            {
-                SpawnedSlot = Panes->Outliner.ConstructFromTemplate(
-                    FindTemplateIndex(ConstructSlotCategory::LayerGroup),
-                    EncOutliner);
-                if (OutlinerRecordEntry* Row = Panes->Outliner.AccessEntry(SpawnedSlot))
-                {
-                    Row->Category          = ConstructSlotCategory::LayerGroup;
-                    Row->Title             = Hdr.Title;
-                    Row->CategoryLabel     = "Component · ParticleInstance";
-                    Row->MotionTagText     = "EMIT";
-                    Row->PositionX         = LocalXform.LocationMeters.X;
-                    Row->PositionY         = LocalXform.LocationMeters.Y;
-                    Row->PositionZ         = LocalXform.LocationMeters.Z;
-                    Row->VisibilityEnabled = Hdr.VisibilityEnabled;
-                    if (const auto* Part = ClassDef.Storage.InspectParticle(Hdr.Token))
-                    {
-                        Row->Subtitle = Part->PresetIdentifier;
-                        ActiveParticlePlacements.push_back({
-                            PlacementTok,
-                            Hdr.Token,
-                            SpawnedSlot,
-                            Part->PresetIdentifier,
-                            WorldPos,
-                            Part->EmissionRateScale,
-                            Part->AutoActivate,
-                        });
-                    }
-                }
-            }
-            else if (Hdr.Category == ComponentClass::ComponentCategory::FluidInstance)
-            {
-                SpawnedSlot = Panes->Outliner.ConstructFromTemplate(
-                    FindTemplateIndex(ConstructSlotCategory::LayerGroup),
-                    EncOutliner);
-                if (OutlinerRecordEntry* Row = Panes->Outliner.AccessEntry(SpawnedSlot))
-                {
-                    Row->Category          = ConstructSlotCategory::LayerGroup;
-                    Row->Title             = Hdr.Title;
-                    Row->CategoryLabel     = "Component · FluidInstance";
-                    Row->MotionTagText     = "FLUID";
-                    Row->PositionX         = LocalXform.LocationMeters.X;
-                    Row->PositionY         = LocalXform.LocationMeters.Y;
-                    Row->PositionZ         = LocalXform.LocationMeters.Z;
-                    Row->VisibilityEnabled = Hdr.VisibilityEnabled;
-                    if (const auto* Fl = ClassDef.Storage.InspectFluid(Hdr.Token))
-                    {
-                        Row->Subtitle = Fl->VolumeIdentifier;
-                        ActiveFluidPlacements.push_back({
-                            PlacementTok,
-                            Hdr.Token,
-                            SpawnedSlot,
-                            WorldPos,
-                            Fl->BoundsExtentMeters,
-                            Fl->FuelInjectionRate,
-                            Fl->AutoActivate,
-                        });
-                    }
-                }
-            }
             else
             {
                 const ConstructSlotCategory RowCat =
@@ -1689,15 +1206,6 @@ void EditorLifecycle::HandleContentDropOnViewport(
         }
         return;
     }
-
-    if (Category == ContentCategory::Simulations)
-    {
-        const Mathematics::Axis3D DropPos = GeometricRaster::RaycastShowcasePlacementAtUv(*ShowcaseBundle, U, V, 0.65f);
-        auto ForceDesc = BuildEditorForcePreset(0xFFFFFFFFu, Entry.DisplayTitle);
-        ForceDesc.CentreMeters = { DropPos.X, DropPos.Y, DropPos.Z + 0.65f };
-        (void)SpawnForceFieldEntry(ForceDesc);
-        RefreshShowcaseViewportRaster();
-    }
 }
 
 void EditorLifecycle::HandleContentDropOnOutliner(
@@ -1760,28 +1268,6 @@ void EditorLifecycle::HandleContentDropOnOutliner(
             SynchronizeShowcaseRendererAfterEdit(false);
         }
         return;
-    }
-
-    if (Category == ContentCategory::Simulations)
-    {
-        const Mathematics::Axis3D DropPos = GeometricRaster::RaycastShowcasePlacementAtUv(*ShowcaseBundle, 0.50f, 0.58f, 0.65f);
-        auto ForceDesc = BuildEditorForcePreset(0xFFFFFFFFu, Entry.DisplayTitle);
-        ForceDesc.CentreMeters = { DropPos.X, DropPos.Y, DropPos.Z + 0.65f };
-        const OutlinerSlotToken ForceSlot = SpawnForceFieldEntry(ForceDesc);
-        if (HitSlot.Valid())
-        {
-            if (const OutlinerRecordEntry* TargetEntry = Panes->Outliner.FindEntry(HitSlot))
-            {
-                const OutlinerSlotToken FolderToken = (TargetEntry->Category == ConstructSlotCategory::Folder)
-                                                          ? TargetEntry->Token
-                                                          : TargetEntry->EnclosingToken;
-                if (FolderToken.Valid())
-                {
-                    (void)Panes->Outliner.AttachToEnclosure(ForceSlot, FolderToken);
-                }
-            }
-        }
-        RefreshShowcaseViewportRaster();
     }
 }
 
@@ -1939,200 +1425,6 @@ void EditorLifecycle::SynchronizeContentBrowserColourTargets()
     });
 }
 
-bool EditorLifecycle::UpdateForceFieldOverlayCache(
-    uint32_t WidthPx,
-    uint32_t HeightPx,
-    bool&    OutUpdated)
-{
-    OutUpdated = false;
-    WorkspaceSessionPanes* Panes = Workspaces.AccessActivePanes();
-    if (Panes == nullptr || ShowcaseBundle == nullptr || WidthPx == 0u || HeightPx == 0u)
-    {
-        return false;
-    }
-
-    const auto& OverlayCfg = Panes->Viewport.QueryForceOverlaySettings();
-    if (!OverlayCfg.Enabled || ForceOverlayRasterizer == nullptr || !ForceOverlayRasterizer->QueryReady())
-    {
-        return false;
-    }
-
-    const OutlinerSlotToken PrimarySel = Panes->Outliner.QueryPrimarySelection();
-    const auto& Cam = ShowcaseBundle->EditorCamera;
-
-    const auto NowClock = std::chrono::steady_clock::now();
-    const double ElapsedOverlayMs = std::chrono::duration<double, std::milli>(NowClock - LastForceOverlayRenderAt).count();
-    const float CamMove =
-        Mathematics::EvaluateLength(Cam.CameraOrigin - LastForceOverlayCamOrigin) +
-        Mathematics::EvaluateLength(Cam.TargetPoint  - LastForceOverlayCamTarget);
-    const bool NeedsForceRender =
-        ForceOverlayCacheDirty ||
-        CachedForceOverlayW != WidthPx ||
-        CachedForceOverlayH != HeightPx ||
-        CachedForceOverlayRgba.size() < static_cast<std::size_t>(WidthPx) * HeightPx * 4u ||
-        CamMove > 1.0e-4f ||
-        PrimarySel.Identifier != LastForceOverlaySelection ||
-        ElapsedOverlayMs >= 33.0;
-
-    if (!NeedsForceRender)
-    {
-        return true;
-    }
-
-    std::vector<SimulationSpace::ForceFields::ForceSourceShaderEntry> PackedSources;
-    std::vector<SimulationSpace::ForceFields::SpatialVector3>         PackedWaypoints;
-    ForceLatticeCascade.PackGpuSourceBuffers(ForceAccumulator, ForceClockSeconds, PackedSources, PackedWaypoints);
-
-    const auto LiveSources = ForceAccumulator.QuerySources();
-    std::vector<uint32_t> SourceTokens;
-    std::vector<uint32_t> WaypointOffsets;
-    std::vector<uint32_t> WaypointCounts;
-    std::vector<uint8_t>  PathIsOrbit;
-
-    if (PackedSources.empty())
-    {
-        // Transient wind-preview source derived from scene wind when no ForceField item has been authored yet
-        const auto& WindCfg = ShowcaseBundle->Scene.Atmosphere.Wind;
-        const float BearingRad = WindCfg.BearingDegrees * 0.0174532925f;
-        const float WX         = std::cos(BearingRad);
-        const float WY         = std::sin(BearingRad);
-        const float WZ         = 0.0f;
-
-        SimulationSpace::ForceFields::ForceSourceShaderEntry TransientWind{};
-        TransientWind.CentreX          = 0.0f;
-        TransientWind.CentreY          = 0.55f;
-        TransientWind.CentreZ          = 0.45f;
-        TransientWind.RadiusMeters     = 14.0f;
-        TransientWind.DirectionX       = WX;
-        TransientWind.DirectionY       = WY;
-        TransientWind.DirectionZ       = WZ;
-        TransientWind.Strength         = std::max(4.0f, WindCfg.SpeedMetersPerSecond);
-        TransientWind.TangentLeftX     = -WY;
-        TransientWind.TangentLeftY     = WX;
-        TransientWind.TangentLeftZ     = 0.0f;
-        TransientWind.FalloffExponent  = 0.25f;
-        TransientWind.UpX              = 0.0f;
-        TransientWind.UpY              = 0.0f;
-        TransientWind.UpZ              = 1.0f;
-        TransientWind.CoreRadiusMeters = 1.0f;
-        TransientWind.HalfExtentX      = 12.0f;
-        TransientWind.HalfExtentY      = 12.0f;
-        TransientWind.HalfExtentZ      = 4.0f;
-        TransientWind.TurbulenceScaleM = 4.0f;
-        TransientWind.FrequencyHertz   = std::max(0.2f, WindCfg.GustFrequencyHz);
-        TransientWind.ModelId          = static_cast<uint32_t>(SimulationSpace::ForceFields::ForceModel::LinearWind);
-        TransientWind.AttenuationId    = static_cast<uint32_t>(SimulationSpace::ForceFields::ForceAttenuationMode::SmoothStep);
-        TransientWind.EnvelopeId       = static_cast<uint32_t>(SimulationSpace::ForceFields::ReachEnvelopeCategory::Sphere);
-        TransientWind.OctaveCount      = 3u;
-        TransientWind.Seed             = 1337u;
-        TransientWind.FlagMask         = 1u;
-        TransientWind.TimeSeconds      = static_cast<float>(ForceClockSeconds);
-        PackedSources.push_back(TransientWind);
-        SourceTokens.push_back(0u);
-        WaypointOffsets.push_back(0u);
-        WaypointCounts.push_back(0u);
-        PathIsOrbit.push_back(0u);
-    }
-    else
-    {
-        SourceTokens.reserve(PackedSources.size());
-        WaypointOffsets.reserve(PackedSources.size());
-        WaypointCounts.reserve(PackedSources.size());
-        PathIsOrbit.reserve(PackedSources.size());
-        for (std::size_t I = 0u; I < PackedSources.size(); ++I)
-        {
-            const uint32_t OutlinerId = (I < LiveSources.size()) ? LiveSources[I].OutlinerTokenId : static_cast<uint32_t>(I + 1u);
-            const bool     IsOrbit    = (I < LiveSources.size()) &&
-                                        (LiveSources[I].Motion.Topology == SimulationSpace::ForceFields::MotionPathGeometry::HelicalOrbit);
-            SourceTokens.push_back(OutlinerId);
-            WaypointOffsets.push_back(PackedSources[I].WaypointStartIdx);
-            WaypointCounts.push_back(PackedSources[I].WaypointCount);
-            PathIsOrbit.push_back(IsOrbit ? 1u : 0u);
-        }
-    }
-
-    Editor::Simulation::OverlayRenderRequest Req{};
-    Req.PaneIndex              = 0u;
-    Req.WidthPx                = WidthPx;
-    Req.HeightPx               = HeightPx;
-    Req.OverlaySettings        = OverlayCfg;
-    Req.TimeSeconds            = ForceClockSeconds;
-    Req.SelectedForceToken     = PrimarySel.Identifier;
-    Req.SelectedWaypointIndex  = SelectedWaypointIdx;
-    Req.LitShadingEnabled      = false;
-    Req.TransparentBackdrop    = true;
-    Req.UseExplicitCamera      = true;
-    Req.ExplicitCameraOrigin   = { Cam.CameraOrigin.X, Cam.CameraOrigin.Y, Cam.CameraOrigin.Z };
-    Req.ExplicitTargetPoint    = { Cam.TargetPoint.X,  Cam.TargetPoint.Y,  Cam.TargetPoint.Z };
-    Req.ExplicitWorldUp        = { Cam.WorldUpAxis.X,  Cam.WorldUpAxis.Y,  Cam.WorldUpAxis.Z };
-    Req.ExplicitVerticalFovDeg = Cam.VerticalFovRadians * 57.2957795f;
-    Req.SliceHalfSpanMeters    = 10.0f;
-    Req.PackedSources          = PackedSources;
-    Req.SourceTokens           = SourceTokens;
-    Req.PackedWaypoints        = PackedWaypoints;
-    Req.SourceWaypointOffsets  = WaypointOffsets;
-    Req.SourceWaypointCounts   = WaypointCounts;
-    Req.SourcePathIsOrbit      = PathIsOrbit;
-
-    std::string OverlayDiag {};
-    const auto Out = ForceOverlayRasterizer->RenderPane(Req, OverlayDiag);
-    const auto SrcRgba = ForceOverlayRasterizer->QueryColorReadbackRgba(0u);
-    if (!Out.RenderedOnVulkan || Out.WidthPx != WidthPx || Out.HeightPx != HeightPx ||
-        SrcRgba.size() < static_cast<std::size_t>(WidthPx) * HeightPx * 4u)
-    {
-        return false;
-    }
-    CachedForceOverlayRgba.assign(SrcRgba.begin(), SrcRgba.end());
-    CachedForceOverlayW       = WidthPx;
-    CachedForceOverlayH       = HeightPx;
-    LastForceOverlayCamOrigin = Cam.CameraOrigin;
-    LastForceOverlayCamTarget = Cam.TargetPoint;
-    LastForceOverlaySelection = PrimarySel.Identifier;
-    LastForceOverlayRenderAt  = NowClock;
-    ForceOverlayCacheDirty    = false;
-    OutUpdated                = true;
-    return true;
-}
-
-void EditorLifecycle::CompositeForceFieldOverlayOntoBuffer(
-    std::vector<uint8_t>& InOutRgba,
-    uint32_t              WidthPx,
-    uint32_t              HeightPx)
-{
-    if (WidthPx == 0u || HeightPx == 0u ||
-        InOutRgba.size() < static_cast<std::size_t>(WidthPx) * HeightPx * 4u)
-    {
-        return;
-    }
-
-    bool ForceUpdated = false;
-    if (!UpdateForceFieldOverlayCache(WidthPx, HeightPx, ForceUpdated))
-    {
-        return;
-    }
-
-    const auto& SrcRgba = CachedForceOverlayRgba;
-    const std::size_t PixelCount = static_cast<std::size_t>(WidthPx) * HeightPx;
-    for (std::size_t I = 0u; I < PixelCount; ++I)
-    {
-        const std::size_t Off = I * 4u;
-        const uint32_t SA = SrcRgba[Off + 3u];
-        if (SA == 0u)
-        {
-            continue;
-        }
-        const uint32_t InvA = 255u - SA;
-        // Premultiplied alpha compositing over opaque world framebuffer
-        for (std::size_t C = 0u; C < 3u; ++C)
-        {
-            const uint32_t Blended = static_cast<uint32_t>(SrcRgba[Off + C]) +
-                                     ((static_cast<uint32_t>(InOutRgba[Off + C]) * InvA + 127u) / 255u);
-            InOutRgba[Off + C] = static_cast<uint8_t>(std::min(255u, Blended));
-        }
-        InOutRgba[Off + 3u] = 255u;
-    }
-}
-
 void EditorLifecycle::RefreshGizmoOverlayFromCachedWorld()
 {
     WorkspaceSessionPanes* Panes = Workspaces.AccessActivePanes();
@@ -2158,12 +1450,6 @@ void EditorLifecycle::RefreshGizmoOverlayFromCachedWorld()
         }
 
         SynchronizeShowcaseGizmoAnchor();
-        const auto ForceStart = std::chrono::steady_clock::now();
-        bool ForceUpdated = false;
-        const bool ForceActive = UpdateForceFieldOverlayCache(LastTargetWidthPx, LastTargetHeightPx, ForceUpdated);
-        const auto ForceEnd = std::chrono::steady_clock::now();
-        LatestViewportTiming.ForceOverlayMs = static_cast<float>(
-            std::chrono::duration<double, std::milli>(ForceEnd - ForceStart).count());
 
         const Rectangle2D CanvasBounds = Panes->Viewport.QueryLastCanvasPaneBounds();
         const bool CursorInCanvas = PointerTrackingValid && CanvasBounds.Width >= 16.0f &&
@@ -2185,11 +1471,6 @@ void EditorLifecycle::RefreshGizmoOverlayFromCachedWorld()
         CompReq.Camera               = ShowcaseBundle->EditorCamera;
         CompReq.Gizmo3D              = &WorldTransformGizmo;
         CompReq.DrawGizmo            = LastGizmoSlot.Valid();
-        CompReq.ForceOverlayRgba     = ForceActive ? CachedForceOverlayRgba.data() : nullptr;
-        CompReq.ForceOverlayWidthPx  = CachedForceOverlayW;
-        CompReq.ForceOverlayHeightPx = CachedForceOverlayH;
-        CompReq.ForceOverlayEnabled  = ForceActive;
-        CompReq.ForceOverlayUpdated  = ForceUpdated;
         CompReq.RequestPickPatch     = !CameraInteractiveDrag && CursorInCanvas && LastGizmoSlot.Valid();
         CompReq.PickCursorX          = PickX;
         CompReq.PickCursorY          = PickY;
@@ -2223,11 +1504,6 @@ void EditorLifecycle::RefreshGizmoOverlayFromCachedWorld()
 
     SynchronizeShowcaseGizmoAnchor();
     std::vector<uint8_t> ViewportRgba = CachedWorldRgba8;
-    const auto ForceStart = std::chrono::steady_clock::now();
-    CompositeForceFieldOverlayOntoBuffer(ViewportRgba, CachedWorldWidthPx, CachedWorldHeightPx);
-    const auto ForceEnd = std::chrono::steady_clock::now();
-    LatestViewportTiming.ForceOverlayMs = static_cast<float>(
-        std::chrono::duration<double, std::milli>(ForceEnd - ForceStart).count());
 
     const auto GizmoStart = std::chrono::steady_clock::now();
     if (WorldGizmoRasterizer != nullptr && WorldGizmoRasterizer->QueryReady() && LastGizmoSlot.Valid())
@@ -2343,13 +1619,6 @@ void EditorLifecycle::RefreshShowcaseViewportRaster()
             LatestViewportTiming = GpuWorldRenderer->QueryLastTimingBreakdown();
             LatestViewportTiming.EditorTickMs = SavedTickMs;
 
-            const auto ForceStart = std::chrono::steady_clock::now();
-            bool ForceUpdated = false;
-            const bool ForceActive = UpdateForceFieldOverlayCache(TargetW, TargetH, ForceUpdated);
-            const auto ForceEnd = std::chrono::steady_clock::now();
-            LatestViewportTiming.ForceOverlayMs = static_cast<float>(
-                std::chrono::duration<double, std::milli>(ForceEnd - ForceStart).count());
-
             SynchronizeShowcaseGizmoAnchor();
             const bool CursorInCanvas = PointerTrackingValid && CanvasBounds.Width >= 16.0f &&
                                         CanvasBounds.Height >= 16.0f && CanvasBounds.Contains(LastPointerPosition);
@@ -2370,11 +1639,6 @@ void EditorLifecycle::RefreshShowcaseViewportRaster()
             CompReq.Camera               = ShowcaseBundle->EditorCamera;
             CompReq.Gizmo3D              = &WorldTransformGizmo;
             CompReq.DrawGizmo            = LastGizmoSlot.Valid();
-            CompReq.ForceOverlayRgba     = ForceActive ? CachedForceOverlayRgba.data() : nullptr;
-            CompReq.ForceOverlayWidthPx  = CachedForceOverlayW;
-            CompReq.ForceOverlayHeightPx = CachedForceOverlayH;
-            CompReq.ForceOverlayEnabled  = ForceActive;
-            CompReq.ForceOverlayUpdated  = ForceUpdated;
             CompReq.RequestPickPatch     = !CameraInteractiveDrag && CursorInCanvas && LastGizmoSlot.Valid();
             CompReq.PickCursorX          = PickX;
             CompReq.PickCursorY          = PickY;
@@ -2438,12 +1702,6 @@ void EditorLifecycle::RefreshShowcaseViewportRaster()
         CachedWorldRgba8    = CleanWorldRgba;
         CachedWorldWidthPx  = OutWidthPx;
         CachedWorldHeightPx = OutHeightPx;
-
-        const auto ForceStart = std::chrono::steady_clock::now();
-        CompositeForceFieldOverlayOntoBuffer(CleanWorldRgba, OutWidthPx, OutHeightPx);
-        const auto ForceEnd = std::chrono::steady_clock::now();
-        LatestViewportTiming.ForceOverlayMs = static_cast<float>(
-            std::chrono::duration<double, std::milli>(ForceEnd - ForceStart).count());
 
         SynchronizeShowcaseGizmoAnchor();
         const auto GizmoStart = std::chrono::steady_clock::now();
@@ -2521,7 +1779,6 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
 
     const auto TickStart = std::chrono::steady_clock::now();
     LatestViewportTiming.WorldDispatched = false;
-    LatestViewportTiming.ForceOverlayMs  = 0.0f;
     LatestViewportTiming.GizmoOverlayMs  = 0.0f;
     LatestViewportTiming.SceneSyncGpuMs  = 0.0f;
 
@@ -2530,7 +1787,6 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
     CurrentStepSeconds    = SafeStep;
 
     Workspaces.Tick(SafeStep);
-    SynchronizeForceFieldsWithOutliner(SafeStep);
     if (ShowcaseBundle != nullptr)
     {
         if (WorkspaceSessionPanes* Panes = Workspaces.AccessActivePanes())
@@ -2569,8 +1825,7 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
                 DisplayCfg.CelestialStarsEnabled != LastCelestialsEnabled ||
                 std::fabs(DisplayCfg.SolarTimeOfDayHours - LastSolarTimeHours) > 1.0e-3f ||
                 std::fabs(DisplayCfg.CloudFraction - LastCloudFraction) > 1.0e-3f ||
-                std::fabs(DisplayCfg.CloudWindSpeedMps - LastCloudWindSpeedMps) > 1.0e-2f ||
-                ForceAccumulator.QueryActiveSourceCount() != LastForceSourceCount;
+                std::fabs(DisplayCfg.CloudWindSpeedMps - LastCloudWindSpeedMps) > 1.0e-2f;
 
             if (DisplayCfg.AtmosphereSkyEnabled != LastAtmosphereSky)
             {
@@ -2666,24 +1921,6 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
                 ProjectionChanged ||
                 CurScale != LastRenderScalePct;
 
-            const auto& CurOverlayCfg = Panes->Viewport.QueryForceOverlaySettings();
-            const bool  ForceSettingsChanged =
-                CurOverlayCfg.Enabled != LastForceOverlaySettings.Enabled ||
-                CurOverlayCfg.ShowStreamlines != LastForceOverlaySettings.ShowStreamlines ||
-                CurOverlayCfg.ShowVectors != LastForceOverlaySettings.ShowVectors ||
-                CurOverlayCfg.ShowHeatmap != LastForceOverlaySettings.ShowHeatmap ||
-                CurOverlayCfg.ShowBounds != LastForceOverlaySettings.ShowBounds ||
-                CurOverlayCfg.CrossSectionAxis != LastForceOverlaySettings.CrossSectionAxis ||
-                std::fabs(CurOverlayCfg.CrossSectionOffsetMeters - LastForceOverlaySettings.CrossSectionOffsetMeters) > 1.0e-3f ||
-                CurOverlayCfg.StreamColorMode != LastForceOverlaySettings.StreamColorMode ||
-                std::fabs(CurOverlayCfg.StreamOpacity - LastForceOverlaySettings.StreamOpacity) > 1.0e-3f ||
-                CurOverlayCfg.StreamLineCount != LastForceOverlaySettings.StreamLineCount;
-            if (ForceSettingsChanged)
-            {
-                ForceOverlayCacheDirty = true;
-            }
-            const bool ForceOverlayDirty = ForceSettingsChanged || (CurOverlayCfg.Enabled && SafeStep > 0.0);
-
             if (CurCanvasW >= 120u && CurCanvasH >= 90u)
             {
                 LastCanvasPaneWidth  = CurCanvasW;
@@ -2705,8 +1942,6 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
             LastSolarTimeHours     = DisplayCfg.SolarTimeOfDayHours;
             LastCloudFraction      = DisplayCfg.CloudFraction;
             LastCloudWindSpeedMps  = DisplayCfg.CloudWindSpeedMps;
-            LastForceOverlaySettings = CurOverlayCfg;
-            LastForceSourceCount   = ForceAccumulator.QueryActiveSourceCount();
             LastRenderScalePct     = CurScale;
 
             const bool InteractionWorldRefresh = PendingInteractionWorldRefresh;
@@ -2753,7 +1988,7 @@ bool EditorLifecycle::ExecuteExternalDesktopTick(double Δt)
             {
                 RefreshShowcaseViewportRaster();
             }
-            else if (InteractionGizmoRefresh || CurrentSel != LastGizmoSlot || ForceOverlayDirty)
+            else if (InteractionGizmoRefresh || CurrentSel != LastGizmoSlot)
             {
                 RefreshGizmoOverlayFromCachedWorld();
             }
@@ -2972,11 +2207,8 @@ void EditorLifecycle::Finalize() noexcept
     {
         StartupConfig.ImGuiPresenter->ReleaseExternalImages();
     }
-    AuthoredForces.clear();
-    DefaultForcesFolder = {};
     CachedWorldRgba8.clear();
     LastWorldImageView = VK_NULL_HANDLE;
-    ForceOverlayRasterizer.reset();
     WorldGizmoRasterizer.reset();
     GpuWorldRenderer.reset();
     ShowcaseRenderer.reset();

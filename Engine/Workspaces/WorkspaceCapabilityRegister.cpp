@@ -40,7 +40,7 @@ WorkspaceCapabilityRegister::WorkspaceCapabilityRegister()
         HostWorkspaceTarget::FrontierWorld,
         "Frontier",
         "Open with Frontier",
-        "World Editor · Cornell-Studio Gallery, Tier 1 GTX / Tier 2 RTX GI, ForceFields & ContentBrowser",
+        "World Editor · Cornell-Studio Gallery, Atmosphere, Clouds & ContentBrowser",
         true,
     });
     RegisteredEntries.push_back({
@@ -86,31 +86,10 @@ WorkspaceCapabilityRegister::WorkspaceCapabilityRegister()
         true,
     });
     RegisteredEntries.push_back({
-        HostWorkspaceTarget::FluidWorkspace,
-        "FluidWorkspace",
-        "Open with Fluid Studio",
-        "Fluid Studio · Eulerian pyro, smoke & fire volumetric simulation with ForceFields coupling",
-        true,
-    });
-    RegisteredEntries.push_back({
         HostWorkspaceTarget::MaterialWorkspace,
         "MaterialWorkspace",
         "Open with Material Studio",
         "Material Studio · Dynamic OpenPBR material graph, coat/anisotropy & real-time Vulkan preview",
-        true,
-    });
-    RegisteredEntries.push_back({
-        HostWorkspaceTarget::ParticleWorkspace,
-        "ParticleWorkspace",
-        "Open with Particle Studio",
-        "Particle Studio · 93-preset GPU particle advection, ribbons, collisions & ForceFields coupling",
-        true,
-    });
-    RegisteredEntries.push_back({
-        HostWorkspaceTarget::ForceFieldWorkspace,
-        "ForceFieldWorkspace",
-        "Open with ForceField Studio",
-        "ForceField Studio · 3D vector field splats, streamlines, cross-section anemometer & motion splines",
         true,
     });
     RegisteredEntries.push_back({

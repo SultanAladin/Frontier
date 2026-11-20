@@ -7,8 +7,8 @@
 
 #include "Engine/Components/Controls/ExclusiveSelector.h"
 #include "Engine/Components/Controls/ScalarSlider.h"
+#include "Engine/Components/Panes/StudioPaneAppearance.h"
 #include "Engine/Workspaces/Fracture/FractureIcons.h"
-#include "Engine/Workspaces/Particle/ParticlePaneAppearance.h"
 
 #include <algorithm>
 #include <array>
@@ -23,7 +23,7 @@ namespace Frontier::Workspaces::Fracture
 namespace
 {
 
-using namespace ParticleAppearance;
+using namespace StudioAppearance;
 using GeometrySpace::Fracture::FractureExecutionMode;
 using GeometrySpace::Fracture::FractureMaterialRepository;
 using GeometrySpace::Fracture::FractureSolverMethod;

@@ -16,7 +16,7 @@ For identifier, file, folder, and comment naming rules enforced across the repos
 | `EngineDocs/` | Authoritative architectural guides and deep domain references. |
 | `Documentation/` | Repository governance, `AgenticInstructions/`, `Plans/`, `FolderStructure.md`, `BannedWordsVocabulary.md`, `CodingStandards.md`, `ImportantNotes.md`, `Backlog.md`, and `Tracker.md`. |
 | `Exhibits/` | Validation executables (`*Validation`), `Images/` CPU-rendered `.png` visual snapshots, and `EditorMirror` verification targets. |
-| `Experimental/` | HTML/JS-only reference editor UIs (`ProjectZeroEditor`, `FrontierEditor`) and domain studios (`FluidEditor`, `FractureEditor`, `ParticleEditor`, `PhotometricEditor`, `ForceFieldEditor`, `VehicleLab`, `UVEditor`, `TextureStudio`) staged for native C++20 + `.slang` conversion. |
+| `Experimental/` | HTML/JS-only reference editor UIs (`ProjectZeroEditor`, `FrontierEditor`) and domain studios (`FractureEditor`, `PhotometricEditor`, `VehicleLab`, `UVEditor`, `TextureStudio`) staged for native C++20 + `.slang` conversion. |
 | `Automation/` | Dependency pinning (`Dependencies.json`), ImGui 8-patch stack (`Patches/`), `.slang` toolchain setup, Markdown Studio tooling, CMake modules, and binary packaging. |
 | `ExternalPackages/` | Checksum-verified third-party packages (`imgui`, `thorvg`, `tomlpp`, `glfw`, `vulkan-headers`, `volk`, `stb`, `JoltPhysics`, `VulkanCompute/`). Git-ignored; populated by `Automation/`. |
 | `_ClaudeScratch/` | Ignored local scratchpad and transient planning notes (excluded from version control). |
@@ -88,16 +88,13 @@ Frontier/
 │   ├── UVParameterizationValidation.cpp           // SeamCut, LSCM, GPU StretchRelax, ConcaveSkyline, .UVSpace & Revision
 │   ├── UVInteractiveAuthoringValidation.cpp       // Interactive 2D/3D authoring, ABF++/Projections, OBJ/glTF & Vulkan swapchain
 │   ├── AudioSpaceValidation.cpp                   // AudioThread, Doppler pitch, Surround 5.1/7.1 VBAP, Binaural ITD/ILD, Tunnel DSP & .Acoustic
-│   └── PhysicsSpaceValidation.cpp                 // JoltPhysics v5.6.0 rigid dynamics, constraints, ForceFields & CPU/GPU particle collisions
+│   └── PhysicsSpaceValidation.cpp                 // JoltPhysics v5.6.0 rigid dynamics, constraints, vehicle powertrain & RigidColliderProxy collisions
 │
 ├── Experimental/                                  // HTML/JS reference UIs & studios for C++20 conversion
 │   ├── FrontierEditor/                            // Initial HTML/Vite scene inspector, CAD & icon lab UI
 │   ├── ProjectZeroEditor/                         // Canonical Project-Zero UI reference + README render
-│   ├── FluidEditor/                               // Gas, plume, combustion, and liquid solver prototype
 │   ├── FractureEditor/                            // Voronoi, convex partition, SDF, and debris prototype
-│   ├── ParticleEditor/                            // GPU compute particle, fibre, and lightning studio
 │   ├── PhotometricEditor/                         // LM-63 .ies luminaire, sky, and isolux metering studio
-│   ├── ForceFieldEditor/                          // Wind generator and 16 spatial force-field studio
 │   ├── VehicleLab/                                // ControlVehicle FCT1, powertrain, and MF6.1 tyre lab
 │   ├── UVEditor/                                  // LSCM unwrap, UDIM layout, and importance packer studio
 │   └── TextureStudio/                             // 5-workspace material, pattern, stamp, paint & SDF baker
@@ -291,7 +288,6 @@ Frontier/
     │   ├── VectorCodec.{h,cpp}                    // VectorEncoder / VectorDecoder (.VectorSpace)
     │   ├── SimulationCodec.{h,cpp}                // SimulationEncoder / SimulationDecoder (.SimulationSpace)
     │   ├── VolumetricCodec.{h,cpp}                // VolumetricEncoder / VolumetricDecoder (.VolumetricSpace)
-    │   ├── ParticleCodec.{h,cpp}                  // ParticleEncoder / ParticleDecoder (.ParticleSpace)
     │   ├── AcousticCodec.{h,cpp}                  // AcousticEncoder / AcousticDecoder (.Acoustic)
     │   └── NetworkCodec.{h,cpp}                   // NetworkEncoder / NetworkDecoder (.NetworkSpace)
     │
@@ -306,7 +302,7 @@ Frontier/
     ├── Interchange/                               // External industry format import/export (strictly non-runtime file/API boundaries)
     │   ├── ColourInterchange.{h,cpp}              // CSS/Hex/Photoshop/HTML colour palette & ramp external interchange
     │   ├── GeometryInterchange.{h,cpp}            // OBJ, glTF 2.0, FBX & STEP external geometry import/export
-    │   ├── ParticleInterchange.{h,cpp}            // HTML Particle Studio JSON & OBJ/glTF surface anchor intake
+    │   ├── IndexedTriangleStreamInterchange.{h,cpp} // Binary FCT1 Z-up vehicle triangle stream importer
     │   ├── UVInterchange.{h,cpp}                  // External UDIM layout & UVTile sheet import/export
     │   ├── ImageInterchange.{h,cpp}               // OpenEXR, PNG, Radiance HDR, WebP & KTX2 import/export
     │   ├── TextureInterchange.{h,cpp}             // BCn / ASTC compressed mipchain external interchange
@@ -323,16 +319,12 @@ Frontier/
     │   │   └── TextureBakerRasterizer.{h,cpp}     // Interactive 3D studio PBR + baked target + cage viewport preview
     │   ├── Compute/
     │   │   ├── ComputeDispatchEncoder.{h,cpp}     // Generic .slang compute dispatch & storage-buffer encoder
-    │   │   ├── TimelineTransferRegister.{h,cpp}   // Triple-buffered Vulkan timeline semaphore readback ring
-    │   │   ├── FieldLatticeVulkanExecutor.{h,cpp} // Vulkan 1.3 ForceField lattice compute executor
-    │   │   └── ParticleVulkanExecutor.{h,cpp}     // Vulkan 1.3 21-shader particle compute/raster executor
+    │   │   └── TimelineTransferRegister.{h,cpp}   // Triple-buffered Vulkan timeline semaphore readback ring
     │   ├── Gizmo/
     │   │   ├── TransformGizmo.{h,cpp}             // 3D/2D translation, rotation & scale manipulator geometry/state
     │   │   └── WorldGizmoOverlayRasterization.{h,cpp}// GPU .slang world gizmo overlay rasterizer
     │   ├── Picking/
     │   │   └── ViewportPickQuery.{h,cpp}          // R32G32B32A32_UINT 1x1 hover/click & GPU marquee/brush reduction
-    │   ├── Simulation/
-    │   │   └── VectorFieldOverlaySequence.{h,cpp} // Editor-only Vulkan 1.3 6-pipeline ForceField overlay rasterizer
     │   ├── UV/
     │   │   └── UVWorkspaceRasterizer.{h,cpp}      // 3D PBR/MatCap + 2D UDIM grid, backdrops, seams, pins & heatmaps
     │   ├── RenderExtension.{h,cpp}                // Render lifecycle participant and device attachment
@@ -343,17 +335,14 @@ Frontier/
     │   ├── DescriptorSlotRegister.{h,cpp}         // Descriptor layout and push-constant slot register
     │
     ├── Shaders/                                   // Single unified root for ALL Frontier .slang GPU shaders
-    │   ├── Atmosphere/                            // SkyViewTransmittanceCompute, StellarTileCullCompute, CelestialDiscStarCompute, VolumetricCloudCompute & VolumetricFogCompute .slang
+    │   ├── Atmosphere/                            // SkyView, Solar/Moon/Stars, LensFlare, VolumetricFog & single-source PlanetaryClouds (CloudNoise/Density/Transport/AerialPerspective/Compute)
     │   ├── Baking/                                // Surface transfer, channel resolve, dilation, Volume SDF & slice .slang
     │   ├── Colour/                                // GPU colour ramp LUT sampling .slang
-    │   ├── Compute/                               // FieldLatticeCompute & shared ForceField .slang
     │   ├── DirectLighting/                        // Solar shadow, plane filter & WideTreeRayQuery .slang
-    │   ├── GeometricRaster/                       // SurfaceShading, MatCap, UVTile, Gizmo, ImGuiOverlay, Picking & Radiometric .slang
+    │   ├── GeometricRaster/                       // SurfaceShading, MatCap, UVTile, Gizmo, ImGuiOverlay, Picking & Radiometric (4x4 Cubic B-Spline cloud upsample) .slang
     │   ├── GlobalIllumination/                    // SpecularGlassRaytrace .slang (direct specular/glass bounce compute)
     │   ├── MaterialSpace/                         // 10-lobe OpenPBR, DynamicMaterialResolve, ProceduralFields & SubsurfaceTransmission .slang
-    │   ├── Particles/                             // 21 Vulkan 1.3 particle compute & raster .slang shaders
     │   ├── Vector/                                // Vector modifier expand, stencil fill, cover, layer stack & PBR .slang
-    │   ├── VectorField/                           // 6 ForceField overlay .slang shaders (Editor profile)
     │   └── Visibility/                            // Hi-Z depth pyramid, cluster cull, HW/SW visibility & analytic resolve .slang
     │   │
     │   ├── Rasterization/                         // Dedicated GPU rasterization & projection units
@@ -383,11 +372,16 @@ Frontier/
     │   │   ├── SpecularReflectionSequence.{h,cpp} // Coherent WideBoundingTree multi-bounce specular & glass refraction
     │   │   └── TieredWorldRenderSequence.{h,cpp}  // Complete ordered MatCap & OpenPbrDirect GTX/RTX world sequence bound to viewports
     │   │
-    │   ├── Atmosphere/                            // 3-LUT physical sky, Neckel & Labs solar optics, 6 exosphere moons & BSC5 starfield
+    │   ├── Atmosphere/                            // 3-LUT sky, Neckel & Labs solar optics, unified PlanetaryClouds, 6 exosphere moons & BSC5 starfield
     │   │   ├── CelestialEphemerisSolver.{h,cpp}   // Solar/orbital ephemeris, Kelvin blackbody & azimuth/elevation basis
     │   │   ├── AtmosphericSkySequence.{h,cpp}     // 256x64 Transmittance + 32x32 Multi-Scatter + 192x108 SkyView LUTs & solar optics
+    │   │   ├── AtmosphericWindSolver.{h,cpp}      // Wind coupling across PlanetaryClouds & VolumetricFog
+    │   │   ├── CloudNoiseVolume.h                 // Seamless 3D Worley/Perlin/blue-noise LUT shared between CPU & GPU PlanetaryClouds
+    │   │   ├── VolumetricCloudSequence.{h,cpp}    // Single-source Slang PlanetaryClouds CPU/shadow evaluator (PlanetaryCloudGenerated.hpp)
+    │   │   ├── VolumetricFogSequence.{h,cpp}      // Height fog, aerial perspective & wind-advected LocalFogVolume raymarcher
+    │   │   ├── LensFlareSequence.{h,cpp}          // Baked multi-archetype Lens Flare optical atlas & evaluation
     │   │   ├── LunarStarfieldSequence.{h,cpp}     // 6-moon 3D exosphere/umbra + 1640 BSC5 catalog, nebulae & Leinert zodiacal light
-    │   │   └── J2000BrightStarRepository.h           // Compiled Yale BSC5 1640 bright star equatorial catalog (Vmag <= 5.05)
+    │   │   └── J2000BrightStarRepository.h        // Compiled Yale BSC5 1640 bright star equatorial catalog (Vmag <= 5.05)
     │   │
     │   └── PostProcess/                           // Ordered image operations
     │       ├── PostProcessSequence.{h,cpp}        // Ordered image operation execution sequence
@@ -430,32 +424,20 @@ Frontier/
     │   │   ├── MicrofacetShading.slang            // Physical microfacet PBR shader
     │   │   └── DepthPreRaster.slang               // Early-Z depth pre-rasterization shader
     │   ├── Compute/                               // General GPU compute shaders
-    │   │   ├── ParticleIntegration.slang
-    │   │   ├── FluidAdvection.slang
     │   │   └── VoxelDistanceSweep.slang
     │   └── ImageOperations/                       // Post-process image filter shaders
     │       ├── DisplayToneTransfer.slang
     │       └── LuminanceGlareDownsample.slang
     │
-    ├── SimulationSpace/                           // Physics, dynamics, particles, fluids & motion
-    │   ├── PhysicsSpace/                          // JoltPhysics v5.6.0 rigid mechanics, constraints & ForceFields/Particle coupling
-    │   │   ├── PhysicsExtension.{h,cpp}           // JoltPhysics v5.6.0 lifecycle participant, ForceFields & particle coupling
+    ├── SimulationSpace/                           // Physics & motion dynamics
+    │   ├── PhysicsSpace/                          // JoltPhysics v5.6.0 rigid mechanics, constraints, vehicle dynamics & collider proxies
+    │   │   ├── PhysicsExtension.{h,cpp}           // JoltPhysics v5.6.0 lifecycle participant, constraints & collider proxies
     │   │   ├── RigidBodyDynamics.{h,cpp}          // Body descriptors, inertia/damping & linear/angular velocity reading
     │   │   ├── ConstraintSolver.{h,cpp}           // 6 joint categories (Fixed, Hinge, Slider, Distance, Point, Cone) & BreakableBond
-    │   │   ├── BroadphaseSolver.{h,cpp}           // 80B RigidColliderProxy export & Sphere/OBB/Capsule particle collision solver
+    │   │   ├── BroadphaseSolver.{h,cpp}           // 80B RigidColliderProxy export & Sphere/OBB/Capsule analytical collision solver
     │   │   ├── CollisionDetection.{h,cpp}         // Raycast, sweep & overlap spatial queries and contact impulse snapshots
+    │   │   ├── VehicleDynamicsSolver.{h,cpp}      // Jolt wheeled vehicle powertrain & suspension dynamics
     │   │   └── FractureSimulationRunner.{h,cpp}   // ConvexHull shards, BreakableBond strain rupture & RHR +Z Up ground contacts
-    │   ├── ParticleSimulation/                    // High-density particulate dynamics
-    │   │   ├── ParticleSpawner.{h,cpp}            // Point, volume, and boundary particle spawning
-    │   │   ├── ParticleField.{h,cpp}              // Curl noise, rotational, and gravitational vector fields
-    │   │   ├── ParticleIntegrator.{h,cpp}         // High-performance Euler and Verlet particle solvers
-    │   │   └── ComputeParticleBuffer.{h,cpp}      // GPU-side direct compute buffer synchronization
-    │   ├── FluidSimulation/                       // Multiphase liquids and gases
-    │   │   ├── LiquidSolver.{h,cpp}               // Incompressible SPH liquid solver
-    │   │   ├── GasDynamics.{h,cpp}                // Eulerian grid smoke, fire, and atmosphere solver
-    │   │   ├── VorticityConfinement.{h,cpp}       // Turbulent detail and rotational energy preservation
-    │   │   ├── AdvectionSolver.{h,cpp}            // Semi-Lagrangian and MacCormack advection schemes
-    │   │   └── FluidBoundarySolver.{h,cpp}        // Dynamic collision interaction with solid geometry
     │   └── Motion/                                // Procedural interpolation, dynamics, and timelines
     │       ├── MotionSolver.{h,cpp}               // Kinetic trajectory & motion resolver
     │       ├── Interpolation/
@@ -496,8 +478,8 @@ Frontier/
     │   └── DiagnosticPrimitives.{h,cpp}           // GPU wireframe boxes, spheres, rays, and cages (never CPU/ImGui)
     │
     ├── Workspaces/                                // Multi-document session, revision & domain studio runtimes
-    │   ├── README.md                              // Master index of 12 registered host workspaces, controls, hotkeys & naming audit
-    │   ├── WorkspaceCapabilityRegister.{h,cpp}    // Registry of all 12 active Frontier & domain workspace targets
+    │   ├── README.md                              // Master index of 9 registered host workspaces, controls, hotkeys & naming audit
+    │   ├── WorkspaceCapabilityRegister.{h,cpp}    // Registry of all 9 active Frontier & domain workspace targets
     │   ├── WorkspaceExtension.{h,cpp}             // Workspace lifecycle participant & open tab control
     │   ├── WorkspaceDocument.{h,cpp}              // Live editable document identity & codec dispatch
     │   ├── WorkspaceRegistry.{h,cpp}              // Active workspace tracker & extension router
@@ -558,34 +540,21 @@ Frontier/
     │   │   ├── Interface/                         // SketcherWorkspaceHost, SketcherInterface, Outliner, Navigation, Script
     │   │   └── Viewport/                          // SketcherRasterization, Camera, OrbitCamera, GizmoSpace, Snapping
     │   │
-    │   ├── Fluid/                                 // Fluid & Pyro Simulation Studio (README.md)
-    │   │   ├── README.md                          // FluidWorkspace UI controls, hotkeys & C++ naming audit
-    │   │   └── Fluid{AtlasMinimap,FlipbookExporter,InspectorPanel,OutlinerPanel,PresetBrowser,ViewportHost,WorkspaceHost,WorkspaceSession}.*
-    │   │
     │   ├── Material/                              // Dynamic OpenPBR Material Studio (README.md)
     │   │   ├── README.md                          // MaterialWorkspace UI controls, hotkeys & C++ naming audit
     │   │   └── Material{PreviewRenderer,ViewportHost,WorkspaceHost,WorkspaceSession}.*
-    │   │
-    │   ├── Particle/                              // Particle & VFX Studio (README.md)
-    │   │   ├── README.md                          // ParticleWorkspace UI controls, hotkeys & C++ naming audit
-    │   │   └── Particle{Exchange,InspectorPanel,OutlinerPanel,PaneAppearance,ViewportHost,WorkspaceHost,WorkspaceSession}.*
     │   │
     │   └── ComponentEditor/                       // Modular Component Class & Assembly Workspace (README.md)
     │       ├── README.md                          // ComponentEditor UI controls, hotkeys & C++ naming audit
     │       └── Component{ContentTray,DetailsPanel,DrawerPanel,TreePanel,ViewportHost,WorkspaceHost,WorkspaceSession}.*
     │
-    ├── Editor/                                    // Editor Explorer & ForceField Workspace ONLY (Excluded from Dev/Shipping)
-    │   ├── README.md                              // Explorer & ForceFieldWorkspace UI controls, hotkeys & naming audit
-    │   ├── Explorer/                              // ProjectBrowser & ContentBrowser
-    │   │   ├── ProjectBrowser.{h,cpp}             // Multi-workspace & .ProjectSpace launcher hub
-    │   │   └── ContentBrowser.{h,cpp}             // Editor ContentBrowser wrapper
-    │   └── Workspaces/
-    │       └── Simulation/                        // ForceFieldWorkspace (FrontierForceField)
-    │           ├── VectorFieldViewportSession.{h,cpp} // Dual/Single vector field viewports, GPU overlays & probe telemetry
-    │           ├── ForceInspectorView.{h,cpp}     // 4-tab Force Inspector (Field, Formula, Layers, Cache)
-    │           └── ForcePresetBrowserPanel.{h,cpp}// Pull-up Force Presets (.ForceModel) & VectorFieldLang browser
+    ├── Editor/                                    // Editor Explorer ONLY (Excluded from Dev/Shipping)
+    │   ├── README.md                              // Explorer UI controls, hotkeys & naming audit
+    │   └── Explorer/                              // ProjectBrowser & ContentBrowser
+    │       ├── ProjectBrowser.{h,cpp}             // Multi-workspace & .ProjectSpace launcher hub
+    │       └── ContentBrowser.{h,cpp}             // Editor ContentBrowser wrapper
     │
-    ├── Lifecycle/                                 // Deterministic sequence, game runtime, workspace & 12 desktop launchers
+    ├── Lifecycle/                                 // Deterministic sequence, game runtime, workspace & 9 desktop launchers
     │   ├── README.md                              // World Editor UI controls, hotkeys, launchers & C++ naming audit
     │   ├── LifecycleSequence.h                    // C++20 concept & reverse-order teardown sequence (Editor/Dev/Shipping)
     │   ├── RuntimeLifecycle.{h,cpp}               // Standalone game/runtime loop (Development/Shipping Game)
@@ -593,7 +562,7 @@ Frontier/
     │   ├── EditorLifecycle.{h,cpp}                // Frontier World Editor loop & GPU gizmo/render entry (FRONTIER_PROFILE_EDITOR)
     │   ├── DesktopWorkspaceLaunch.{h,cpp}         // GLFW + Vulkan swapchain/offscreen launch, top pills & CLI smoke capture
     │   ├── ProjectExecutionRunner.{h,cpp}         // Project launch & execution loop
-    │   └── Frontier{Host,Editor,UV,Baking,Pattern,Stamp,Material,Particle,Fracture,ForceField,Fluid,Sketcher}Launch.cpp
+    │   └── Frontier{Host,Editor,UV,Baking,Pattern,Stamp,Material,Fracture,Sketcher}Launch.cpp
     │
     ├── Components/                                // Reusable UI controls, themes, typography, motion & panels
     │   ├── PixelSpace.{h,cpp}                     // Logical-to-physical 2D drawing canvas & group transforms
@@ -678,7 +647,7 @@ Frontier/
 2. **Codecs vs. Interchange vs. Exchange**:
    - `Engine/Codecs/` (`*Codec` = `*Encoder` + `*Decoder`) reads and writes native Frontier `.Space` hybrid containers (Option 2A case-insensitive extension load, canonical PascalCase write).
    - `Engine/Interchange/` (`*Interchange`) and `VulkanInterchange` translate external file formats and GPU API boundaries.
-   - `*Exchange` (`InputExchange`, `WorkspaceExchange`, `ParticleExchange`) performs live bi-directional runtime transfer across OS or open workspaces (never placed inside `Engine/Interchange/`).
+   - `*Exchange` (`InputExchange`, `WorkspaceExchange`) performs live bi-directional runtime transfer across OS or open workspaces (never placed inside `Engine/Interchange/`).
 3. **100% GPU `.slang` Viewport Overlays**: Grids (`NavigationOverlay`), gizmos (`TransformGizmo`, `UVTransformGizmo`), UVTile overlays (`UVTileRasterization`), and debug shapes/lines (`Engine/Annotation/*`) render exclusively on the GPU via `.slang` shaders — never on CPU and never via ImGui lists.
 4. **Cross-Platform Portability**: All `Engine/` modules target **Windows**, **Linux (X11/Wayland)**, **Android (NDK)**, and **Headless (`PlatformWindowStub`)**.
 5. **Mandatory `Exhibits/Images/` Visual Snapshots**: Every `Exhibits/*Validation` target renders deterministic CPU `.png` visual snapshots into `Exhibits/Images/<Domain>/`.

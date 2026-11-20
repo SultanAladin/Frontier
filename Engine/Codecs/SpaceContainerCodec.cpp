@@ -31,7 +31,7 @@ struct SpaceSuffixMappingEntry
     std::string_view       LowercaseExtension;
 };
 
-constexpr std::array<SpaceSuffixMappingEntry, 25u> SpaceSuffixRegistry = {{
+constexpr std::array<SpaceSuffixMappingEntry, 22u> SpaceSuffixRegistry = {{
     { SpaceSuffixCategory::ProjectSpace,     ".ProjectSpace",     ".projectspace"     },
     { SpaceSuffixCategory::ColourSpace,      ".ColourSpace",      ".colourspace"      },
     { SpaceSuffixCategory::GeometrySpace,    ".GeometrySpace",    ".geometryspace"    },
@@ -42,7 +42,6 @@ constexpr std::array<SpaceSuffixMappingEntry, 25u> SpaceSuffixRegistry = {{
     { SpaceSuffixCategory::VectorSpace,      ".VectorSpace",      ".vectorspace"      },
     { SpaceSuffixCategory::SimulationSpace,  ".SimulationSpace",  ".simulationspace"  },
     { SpaceSuffixCategory::VolumetricSpace,  ".VolumetricSpace",  ".volumetricspace"  },
-    { SpaceSuffixCategory::ParticleSpace,    ".ParticleSpace",    ".particlespace"    },
     { SpaceSuffixCategory::UVSpace,          ".UVSpace",          ".uvspace"          },
     { SpaceSuffixCategory::Pigment,          ".Pigment",          ".pigment"          },
     { SpaceSuffixCategory::Sketch,           ".Sketch",           ".sketch"           },
@@ -53,8 +52,6 @@ constexpr std::array<SpaceSuffixMappingEntry, 25u> SpaceSuffixRegistry = {{
     { SpaceSuffixCategory::Terrain,          ".Terrain",          ".terrain"          },
     { SpaceSuffixCategory::Acoustic,         ".Acoustic",         ".acoustic"         },
     { SpaceSuffixCategory::NetworkSpace,     ".NetworkSpace",     ".networkspace"     },
-    { SpaceSuffixCategory::VectorFieldSpace, ".VectorFieldSpace", ".vectorfieldspace" },
-    { SpaceSuffixCategory::ForceModel,       ".ForceModel",       ".forcemodel"       },
     { SpaceSuffixCategory::InputSpace,       ".InputSpace",       ".inputspace"       },
     { SpaceSuffixCategory::ComponentSpace,   ".ComponentSpace",   ".componentspace"   },
 }};
@@ -65,7 +62,7 @@ struct SubFormatMappingEntry
     std::string_view LowercaseTag;
 };
 
-constexpr std::array<SubFormatMappingEntry, 42u> SubFormatRegistry = {{
+constexpr std::array<SubFormatMappingEntry, 36u> SubFormatRegistry = {{
     { ".DocumentHeader",        ".documentheader"        },
     { ".SectionDirectory",      ".sectiondirectory"      },
     { ".Revision",              ".revision"              },
@@ -96,12 +93,6 @@ constexpr std::array<SubFormatMappingEntry, 42u> SubFormatRegistry = {{
     { ".WideBoundingTree",      ".wideboundingtree"      },
     { ".MaterialRegister",      ".materialregister"      },
     { ".BounceSummary",         ".bouncesummary"         },
-    { ".VectorFieldHeader",     ".vectorfieldheader"     },
-    { ".ForceSource",           ".forcesource"           },
-    { ".MotionPath",            ".motionpath"            },
-    { ".FormulaKernel",         ".formulakernel"         },
-    { ".LatticeSnapshot",       ".latticesnapshot"       },
-    { ".EditorOverlaySettings", ".editoroverlaysettings" },
     { ".ChordRegister",         ".chordregister"         },
     { ".AxisCalibration",       ".axiscalibration"       },
     { ".DeviceProfile",         ".deviceprofile"         },

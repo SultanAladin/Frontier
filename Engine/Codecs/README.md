@@ -1,6 +1,6 @@
 # 🧩 `Engine/Codecs/`
 
-> **TL;DR**: .ColourSpace, .ColourRamp & .ColourSwatch encoder/decoder persisting radiometric swatches, modular ramps, spectra & 64B-aligned LUTs (34 source/header/shader files under `Engine/Codecs/`).
+> **TL;DR**: Two-Tier Hybrid domain codecs persisting TOML manifests & 64B-aligned binary assets (30 source/header files under `Engine/Codecs/`).
 
 ---
 
@@ -8,14 +8,14 @@
 
 | File | Purpose |
 | :--- | :--- |
+| `AcousticCodec.cpp` | .AcousticSpace waveform/acoustics codec implementation |
+| `AcousticCodec.h` | .AcousticSpace audio & spatial acoustics encoder & decoder |
 | `ColourCodec.cpp` | .ColourSpace, .ColourRamp & .ColourSwatch encoder/decoder implementation with inline manifest helpers for sibling codecs |
 | `ColourCodec.h` | .ColourSpace, .ColourRamp & .ColourSwatch encoder/decoder persisting radiometric swatches, modular ramps, spectra & 64B-aligned LUTs |
 | `ComponentSpaceCodec.cpp` | Implementation of .ComponentSpace Two-Tier Hybrid TOML manifest + 64B-aligned binary thumbnail & Revision serialization |
 | `ComponentSpaceCodec.h` | .ComponentSpace Two-Tier Hybrid encoder & decoder for ComponentClassDefinition hierarchies, physics constraints & behaviours |
 | `FontCodec.cpp` | .FontSpace encoder & decoder implementation |
 | `FontCodec.h` | .FontSpace encoder & decoder persisting vector typography metrics, kerning pairs, and 64B-aligned contour streams |
-| `ForceModelPresetCodec.cpp` | Option A .ForceModel single-force preset encoder & decoder for reusable ContentBrowser presets |
-| `ForceModelPresetCodec.h` | Option A .ForceModel single-force preset encoder & decoder for reusable ContentBrowser presets |
 | `GeometryCodec.cpp` | Implementation of .GeometrySpace Two-Tier Hybrid encoder & decoder (full n-gon PolygonNetwork + legacy VehiclePolygon support) |
 | `GeometryCodec.h` | .GeometrySpace Two-Tier Hybrid encoder & decoder for PolygonNetwork, FacePartitionRegister, ClusterPyramid & WideBoundingTree |
 | `ImageCodec.cpp` | .ImageSpace encoder & decoder implementation |
@@ -26,8 +26,6 @@
 | `MaterialCodec.h` | .MaterialSpace encoder & decoder persisting .ShadingModel, .ParameterSlot, 10-lobe SurfaceMaterial, 128 B registers, & 32 B summaries |
 | `NetworkCodec.cpp` | .NetworkSpace Two-Tier Hybrid container encoder/decoder (TOML .SessionRouting tier + 64B-aligned .ReplicationPolicy binary tier) |
 | `NetworkCodec.h` | .NetworkSpace Two-Tier Hybrid container encoder/decoder (TOML .SessionRouting tier + 64B-aligned .ReplicationPolicy binary tier) |
-| `ParticleCodec.cpp` | Implementation of Two-Tier Hybrid .ParticleSpace persistence (PascalCase TOML + 64B-aligned .ColourLut & .SurfaceAnchor sections) |
-| `ParticleCodec.h` | Two-Tier Hybrid .ParticleSpace encoder & decoder delegating colours to ColourCodec and forces to VectorFieldCodec |
 | `ProjectCodec.cpp` | .ProjectSpace encoder & decoder implementation |
 | `ProjectCodec.h` | .ProjectSpace encoder & decoder persisting project configuration, startup workspace, and dependency locks |
 | `RevisionCodec.cpp` | Binary .Baseline and .Revision section serialization implementation |
@@ -40,13 +38,11 @@
 | `UVCodec.h` | .UVSpace encoder & decoder persisting .UDIM layout specifications and 64B-aligned .UVTile parameterization streams |
 | `VectorCodec.cpp` | .VectorSpace encoder & decoder implementation |
 | `VectorCodec.h` | .VectorSpace encoder & decoder persisting .StrokeAppearance, .PathCurve, [VectorWorkspace], [[VectorLayers]], and .SvgXml sections |
-| `VectorFieldCodec.cpp` | Option A Two-Tier Hybrid .VectorFieldSpace encoder & decoder + inline .SimulationSpace ForceSources serialization |
-| `VectorFieldCodec.h` | Option A Two-Tier Hybrid .VectorFieldSpace encoder & decoder + inline .SimulationSpace ForceSources serialization |
 
 ## Namespaces & Primary Types
 
 - **Namespaces**: `Frontier::Codecs`, `Frontier::Workspaces`
-- **Primary Types**: `RadiometricSwatchEntry`, `ColourSpaceDocumentModel`, `ColourEncoder`, `ColourDecoder`, `ColourCodec`, `ComponentSpaceEncoder`, `ComponentSpaceDecoder`, `KerningAdjustmentPair`, `FontSpaceDocumentModel`, `FontEncoder`, `FontDecoder`, `FontCodec`, `ForceModelPresetDocument`, `ForceModelPresetEncoder`, `ForceModelPresetDecoder`, `ForceModelPresetCodec`, `GeometrySpaceDocument`, `GeometryEncoder` (+63 more)
+- **Primary Types**: `RadiometricSwatchEntry`, `ColourSpaceDocumentModel`, `ColourEncoder`, `ColourDecoder`, `ColourCodec`, `ComponentSpaceEncoder`, `ComponentSpaceDecoder`, `KerningAdjustmentPair`, `FontSpaceDocumentModel`, `FontEncoder`, `FontDecoder`, `FontCodec`, `GeometrySpaceDocument`, `GeometryEncoder`, `AcousticCodec`, `ImageCodec`, `MaterialCodec`, `UVCodec` (+45 more)
 
 ## Usage
 

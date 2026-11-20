@@ -100,24 +100,6 @@ void EngineConfiguration::ConfigureFromCommandLine(std::span<const std::string_v
             Modified.ActiveWorkspace  = WorkspaceCategory::Material;
             Modified.ApplicationTitle = "Frontier Material";
         }
-        else if (Argument == "--standalone-particle" || Argument == "--standalone=particle" || Argument == "--workspace=particle" || Argument == "--particle")
-        {
-            Modified.LaunchMode       = HostLaunchMode::StandaloneWorkspace;
-            Modified.ActiveWorkspace  = WorkspaceCategory::Particle;
-            Modified.ApplicationTitle = "Frontier Particle";
-        }
-        else if (Argument == "--standalone-forcefield" || Argument == "--standalone=forcefield" || Argument == "--workspace=forcefield" || Argument == "--workspace=simulation" || Argument == "--forcefield")
-        {
-            Modified.LaunchMode       = HostLaunchMode::StandaloneWorkspace;
-            Modified.ActiveWorkspace  = WorkspaceCategory::Simulation;
-            Modified.ApplicationTitle = "Frontier ForceField";
-        }
-        else if (Argument == "--standalone-fluid" || Argument == "--standalone=fluid" || Argument == "--workspace=fluid" || Argument == "--fluid")
-        {
-            Modified.LaunchMode       = HostLaunchMode::StandaloneWorkspace;
-            Modified.ActiveWorkspace  = WorkspaceCategory::Fluid;
-            Modified.ApplicationTitle = "Frontier Fluid";
-        }
         else if (Argument == "--standalone-fracture" || Argument == "--standalone=fracture" || Argument == "--workspace=fracture" || Argument == "--fracture")
         {
             Modified.LaunchMode       = HostLaunchMode::StandaloneWorkspace;

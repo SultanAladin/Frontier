@@ -1,6 +1,6 @@
 # 🧩 `Engine/Interchange/`
 
-> **TL;DR**: External colour & gradient interchange: HTML Studio JSON/TOML colour blocks, CSS linear-gradient, SVG <linearGradient>, GIMP .gpl/.ggr, Adobe .ase/.aco & .cube 1D LUT (8 source/header/shader files under `Engine/Interchange/`).
+> **TL;DR**: External colour & geometry interchange: HTML Studio JSON/TOML colour blocks, CSS linear-gradient, SVG <linearGradient>, GIMP .gpl/.ggr, Adobe .ase/.aco, .cube 1D LUT, Wavefront .obj, glTF 2.0, and binary FCT1 streams (6 source/header files under `Engine/Interchange/`).
 
 ---
 
@@ -14,13 +14,11 @@
 | `GeometryInterchange.h` | External Wavefront .obj and glTF 2.0 .gltf geometry interchange importing/exporting multi-UDIM PolygonNetworks & FacePartitionRegisters |
 | `IndexedTriangleStreamInterchange.cpp` | Implementation of FCT1 binary stream decoding, Z-up -> Y-up axis conversion, and CourseMaterial slot mapping |
 | `IndexedTriangleStreamInterchange.h` | Binary FCT1 stream importer converting Z-up vehicle triangle streams & CourseMaterial slots into Y-up PolygonNetworks |
-| `ParticleInterchange.cpp` | Implementation of ParticleInterchange delegating colour to ColourInterchange and 3D surfaces to GeometryInterchange |
-| `ParticleInterchange.h` | External particle interchange: HTML Particle Studio JSON snapshots, Workspace Handoff packets, & 3D .obj/.gltf surface anchor intake |
 
 ## Namespaces & Primary Types
 
 - **Namespaces**: `Frontier::Interchange`
-- **Primary Types**: `ExternalColourFormat`, `ColourInterchange`, `ExternalGeometryFormat`, `GeometryInterchange`, `CourseMaterialDescriptor`, `IndexedTriangleStreamInterchange`, `ExternalParticleFormat`, `ParticleInterchange`
+- **Primary Types**: `ExternalColourFormat`, `ColourInterchange`, `ExternalGeometryFormat`, `GeometryInterchange`, `CourseMaterialDescriptor`, `IndexedTriangleStreamInterchange`
 
 ## Usage
 

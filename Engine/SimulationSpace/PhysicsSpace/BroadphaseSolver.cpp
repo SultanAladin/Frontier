@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                            BROADPHASESOLVER.CPP
 ============================================================================================================================================*/
-// 🧩 Analytical Sphere, Oriented Box (OBB), and Oriented +Z Capsule collision resolution for RigidColliderProxy & ParticleSpace
+// 🧩 Analytical Sphere, Oriented Box (OBB), and Oriented +Z Capsule collision resolution for RigidColliderProxy queries
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INCLUDES
@@ -19,15 +19,15 @@ namespace Frontier::SimulationSpace::PhysicsSpace
 //                                                   IMPLEMENTATION
 //------------------------------------------------------------------------------------------------------------------------
 
-ParticleCollisionFeedback BroadphaseSolver::ResolveParticleAgainstProxy(
+ColliderContactFeedback BroadphaseSolver::ResolveSphereAgainstProxy(
     const RigidColliderProxy& Proxy,
-    float                     ParticleRadiusMeters,
-    float                     ParticleMassKg,
-    float                     ParticlePositionMeters[3],
-    float                     ParticleVelocityMps[3]) noexcept
+    float                     SphereRadiusMeters,
+    float                     SphereMassKg,
+    float                     SpherePositionMeters[3],
+    float                     SphereVelocityMps[3]) noexcept
 {
-    ParticleCollisionFeedback Feedback {};
-    const float SafeParticleR = std::max(ParticleRadiusMeters, 1.0e-4f);
+    ColliderContactFeedback Feedback {};
+    const float SafeSphereR = std::max(SphereRadiusMeters, 1.0e-4f);
     const RigidOrientationQuaternion Quat {
         Proxy.OrientationQuat[0],
         Proxy.OrientationQuat[1],
@@ -36,9 +36,9 @@ ParticleCollisionFeedback BroadphaseSolver::ResolveParticleAgainstProxy(
     };
 
     const Mathematics::Axis3D RelWorld {
-        ParticlePositionMeters[0] - Proxy.CenterMeters[0],
-        ParticlePositionMeters[1] - Proxy.CenterMeters[1],
-        ParticlePositionMeters[2] - Proxy.CenterMeters[2]
+        SpherePositionMeters[0] - Proxy.CenterMeters[0],
+        SpherePositionMeters[1] - Proxy.CenterMeters[1],
+        SpherePositionMeters[2] - Proxy.CenterMeters[2]
     };
     const Mathematics::Axis3D RelLocal = RigidBodyDynamics::RotateByConjugateQuaternion(Quat, RelWorld);
 
@@ -50,7 +50,7 @@ ParticleCollisionFeedback BroadphaseSolver::ResolveParticleAgainstProxy(
     if (Proxy.ShapeCode == 0u)
     {
         // Sphere
-        const float MinDist = std::max(Proxy.RadiusMeters, 1.0e-4f) + SafeParticleR;
+        const float MinDist = std::max(Proxy.RadiusMeters, 1.0e-4f) + SafeSphereR;
         const float DistSq  = RelLocal.X * RelLocal.X + RelLocal.Y * RelLocal.Y + RelLocal.Z * RelLocal.Z;
         if (DistSq < MinDist * MinDist)
         {
@@ -87,17 +87,17 @@ ParticleCollisionFeedback BroadphaseSolver::ResolveParticleAgainstProxy(
         const float DistSq = Diff.X * Diff.X + Diff.Y * Diff.Y + Diff.Z * Diff.Z;
         if (DistSq > 1.0e-10f)
         {
-            if (DistSq < SafeParticleR * SafeParticleR)
+            if (DistSq < SafeSphereR * SafeSphereR)
             {
                 const float Dist = std::sqrt(DistSq);
                 LocalNormal = { Diff.X / Dist, Diff.Y / Dist, Diff.Z / Dist };
-                PenetrationMeters = SafeParticleR - Dist;
+                PenetrationMeters = SafeSphereR - Dist;
                 Hit = true;
             }
         }
         else
         {
-            // Center of particle penetrated inside the box — push out nearest face
+            // Center of sphere penetrated inside the box — push out nearest face
             const float Dx = Hx - std::abs(RelLocal.X);
             const float Dy = Hy - std::abs(RelLocal.Y);
             const float Dz = Hz - std::abs(RelLocal.Z);
@@ -105,19 +105,19 @@ ParticleCollisionFeedback BroadphaseSolver::ResolveParticleAgainstProxy(
             {
                 LocalNormal = { RelLocal.X >= 0.0f ? 1.0f : -1.0f, 0.0f, 0.0f };
                 LocalClosest.X = LocalNormal.X * Hx;
-                PenetrationMeters = Dx + SafeParticleR;
+                PenetrationMeters = Dx + SafeSphereR;
             }
             else if (Dy <= Dz)
             {
                 LocalNormal = { 0.0f, RelLocal.Y >= 0.0f ? 1.0f : -1.0f, 0.0f };
                 LocalClosest.Y = LocalNormal.Y * Hy;
-                PenetrationMeters = Dy + SafeParticleR;
+                PenetrationMeters = Dy + SafeSphereR;
             }
             else
             {
                 LocalNormal = { 0.0f, 0.0f, RelLocal.Z >= 0.0f ? 1.0f : -1.0f };
                 LocalClosest.Z = LocalNormal.Z * Hz;
-                PenetrationMeters = Dz + SafeParticleR;
+                PenetrationMeters = Dz + SafeSphereR;
             }
             Hit = true;
         }
@@ -126,7 +126,7 @@ ParticleCollisionFeedback BroadphaseSolver::ResolveParticleAgainstProxy(
     {
         // Capsule aligned along local +Z axis (HalfHeight in HalfExtentsMeters[2])
         const float HalfH   = std::max(Proxy.HalfExtentsMeters[2], 0.0f);
-        const float MinDist = std::max(Proxy.RadiusMeters, 1.0e-4f) + SafeParticleR;
+        const float MinDist = std::max(Proxy.RadiusMeters, 1.0e-4f) + SafeSphereR;
         const float ClampedZ = std::clamp(RelLocal.Z, -HalfH, HalfH);
         const Mathematics::Axis3D SegPoint { 0.0f, 0.0f, ClampedZ };
         const Mathematics::Axis3D Diff {
@@ -159,14 +159,14 @@ ParticleCollisionFeedback BroadphaseSolver::ResolveParticleAgainstProxy(
     const Mathematics::Axis3D WorldNormal = RigidBodyDynamics::RotateByQuaternion(Quat, LocalNormal);
     const Mathematics::Axis3D WorldClosest = RigidBodyDynamics::RotateByQuaternion(Quat, LocalClosest);
 
-    // Depenetrate particle along outward surface normal
-    ParticlePositionMeters[0] += WorldNormal.X * PenetrationMeters;
-    ParticlePositionMeters[1] += WorldNormal.Y * PenetrationMeters;
-    ParticlePositionMeters[2] += WorldNormal.Z * PenetrationMeters;
+    // Depenetrate sphere along outward surface normal
+    SpherePositionMeters[0] += WorldNormal.X * PenetrationMeters;
+    SpherePositionMeters[1] += WorldNormal.Y * PenetrationMeters;
+    SpherePositionMeters[2] += WorldNormal.Z * PenetrationMeters;
 
-    const float RelVx = ParticleVelocityMps[0] - Proxy.VelocityMps[0];
-    const float RelVy = ParticleVelocityMps[1] - Proxy.VelocityMps[1];
-    const float RelVz = ParticleVelocityMps[2] - Proxy.VelocityMps[2];
+    const float RelVx = SphereVelocityMps[0] - Proxy.VelocityMps[0];
+    const float RelVy = SphereVelocityMps[1] - Proxy.VelocityMps[1];
+    const float RelVz = SphereVelocityMps[2] - Proxy.VelocityMps[2];
     const float RelVn = RelVx * WorldNormal.X + RelVy * WorldNormal.Y + RelVz * WorldNormal.Z;
 
     Mathematics::Axis3D DeltaV { 0.0f, 0.0f, 0.0f };
@@ -195,9 +195,9 @@ ParticleCollisionFeedback BroadphaseSolver::ResolveParticleAgainstProxy(
             DeltaV.Z -= TanVz * Scale;
         }
 
-        ParticleVelocityMps[0] += DeltaV.X;
-        ParticleVelocityMps[1] += DeltaV.Y;
-        ParticleVelocityMps[2] += DeltaV.Z;
+        SphereVelocityMps[0] += DeltaV.X;
+        SphereVelocityMps[1] += DeltaV.Y;
+        SphereVelocityMps[2] += DeltaV.Z;
     }
 
     Feedback.Collided        = true;
@@ -208,31 +208,31 @@ ParticleCollisionFeedback BroadphaseSolver::ResolveParticleAgainstProxy(
         Proxy.CenterMeters[1] + WorldClosest.Y,
         Proxy.CenterMeters[2] + WorldClosest.Z
     };
-    Feedback.ContactNormal     = WorldNormal;
-    Feedback.ParticleImpulseNs = {
-        DeltaV.X * std::max(ParticleMassKg, 0.0f),
-        DeltaV.Y * std::max(ParticleMassKg, 0.0f),
-        DeltaV.Z * std::max(ParticleMassKg, 0.0f)
+    Feedback.ContactNormal   = WorldNormal;
+    Feedback.SphereImpulseNs = {
+        DeltaV.X * std::max(SphereMassKg, 0.0f),
+        DeltaV.Y * std::max(SphereMassKg, 0.0f),
+        DeltaV.Z * std::max(SphereMassKg, 0.0f)
     };
     return Feedback;
 }
 
-ParticleCollisionFeedback BroadphaseSolver::ResolveParticleAgainstProxies(
+ColliderContactFeedback BroadphaseSolver::ResolveSphereAgainstProxies(
     std::span<const RigidColliderProxy> Proxies,
-    float                               ParticleRadiusMeters,
-    float                               ParticleMassKg,
-    float                               ParticlePositionMeters[3],
-    float                               ParticleVelocityMps[3]) noexcept
+    float                               SphereRadiusMeters,
+    float                               SphereMassKg,
+    float                               SpherePositionMeters[3],
+    float                               SphereVelocityMps[3]) noexcept
 {
-    ParticleCollisionFeedback FirstFeedback {};
+    ColliderContactFeedback FirstFeedback {};
     for (const RigidColliderProxy& Proxy : Proxies)
     {
-        const ParticleCollisionFeedback Hit = ResolveParticleAgainstProxy(
+        const ColliderContactFeedback Hit = ResolveSphereAgainstProxy(
             Proxy,
-            ParticleRadiusMeters,
-            ParticleMassKg,
-            ParticlePositionMeters,
-            ParticleVelocityMps);
+            SphereRadiusMeters,
+            SphereMassKg,
+            SpherePositionMeters,
+            SphereVelocityMps);
         if (Hit.Collided && !FirstFeedback.Collided)
         {
             FirstFeedback = Hit;

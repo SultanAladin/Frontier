@@ -90,15 +90,14 @@ struct RigidBodyDescriptor
     Mathematics::Axis3D        LinearVelocity    { 0.0f, 0.0f, 0.0f };           // [m/s]   - Initial linear velocity
     Mathematics::Axis3D        AngularVelocity   { 0.0f, 0.0f, 0.0f };           // [rad/s] - Initial angular velocity
     float                      ExplicitMassKg    = 0.0f;                         // [kg]    - Explicit mass override (>0 overrides Density * Volume)
-    float                      LinearDamping     = 0.02f;                        // [1/s]   - Translational velocity damping
-    float                      AngularDamping    = 0.05f;                        // [1/s]   - Rotational velocity damping
-    float                      GravityFactor     = 1.0f;                         // [-]     - Gravity multiplier
-    float                      ForceSensitivity  = 1.0f;                         // [-]     - Multiplier on ForceFields aerodynamic acceleration
-    bool                       AllowSleep        = true;                         // [-]     - Permits solver island deactivation when resting
-    bool                       ContinuousMotion  = false;                        // [-]     - Linear cast CCD for fast shards or projectiles
-    bool                       ParticleCollision = true;                         // [-]     - Exposes proxy for ParticleSpace collisions
-    uint32_t                   InstanceTag       = 0u;                           // [id]    - Caller-owned instance or fragment index
-    RigidShapeDescriptor       Shape             {};                             // [-]     - Collider shape & surface parameters
+    float                      LinearDamping        = 0.02f; // [1/s]   - Translational velocity damping
+    float                      AngularDamping       = 0.05f; // [1/s]   - Rotational velocity damping
+    float                      GravityFactor        = 1.0f;  // [-]     - Gravity multiplier
+    bool                       AllowSleep           = true;  // [-]     - Permits solver island deactivation when resting
+    bool                       ContinuousMotion     = false; // [-]     - Linear cast CCD for fast shards or projectiles
+    bool                       ColliderProxyEnabled = true;  // [-]     - Exposes proxy for BroadphaseSolver queries
+    uint32_t                   InstanceTag          = 0u;    // [id]    - Caller-owned instance or fragment index
+    RigidShapeDescriptor       Shape                {};    // [-]     - Collider shape & surface parameters
 };
 
 struct RigidBodySnapshot

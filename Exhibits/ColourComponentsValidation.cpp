@@ -80,12 +80,12 @@ int main()
 
     ContentBrowserPanel Browser {};
     Browser.AttachThemeRepository(&Theme);
-    Browser.ConfigureWorkspaceDomain(WorkspaceCategory::Particle);
+    Browser.ConfigureWorkspaceDomain(WorkspaceCategory::Material);
     Browser.ConfigureShelfExtent(ContentShelfExtent::SplitHalf, true);
     (void)Browser.ActivateCategory(ContentCategory::Colours);
     Browser.ConfigureColourCollectionScope(ColourCollectionScope::Ramps);
 
-    // Live workspace target: Particle Colour Ramp + Swatch Picker above the SplitHalf ContentBrowser drawer
+    // Live workspace target: Material Colour Ramp + Swatch Picker above the SplitHalf ContentBrowser drawer
     ColourSourceProfile ActiveRampProfile = ConstructProfileFromRampPreset(*FindBuiltInColourRampPreset("thermal"));
     ColourRampEditorSession RampSession {};
 
@@ -122,7 +122,7 @@ int main()
         (void)ColourRampEditor::Construct(
             Canvas,
             RampEditorBounds,
-            "Particle Colour Ramp Slot (Drop From ContentBrowser)",
+            "Colour Ramp Slot (Drop From ContentBrowser)",
             ActiveRampProfile,
             RampSession,
             Ptr,
@@ -139,8 +139,8 @@ int main()
 
         ColourRampEditor::RegisterDropSlot(
             Browser,
-            "Particle.ColourRamp",
-            "Particle Colour Ramp",
+            "Material.ColourRamp",
+            "Material Colour Ramp",
             RampSession,
             &ActiveRampProfile,
             [&](const ColourSourceProfile&, std::string_view AssignedId) {
@@ -149,7 +149,7 @@ int main()
 
         ColourSwatchPicker::RegisterDropSlot(
             Browser,
-            "Particle.StopSwatch",
+            "Material.StopSwatch",
             "Stop Colour Swatch",
             SwatchSession,
             &ActiveSwatchTint,
@@ -226,7 +226,7 @@ int main()
     Browser.ConfigureColourCollectionScope(ColourCollectionScope::Swatches);
     RenderStep(Idle);
     const std::size_t FigIdx = Browser.QueryColourSwatchBrowser().FindEntryByName("Fig Purple");
-    if (!VerifyCheck(Browser.ApplyColourIndexToSlot(FigIdx, "Particle.StopSwatch") && SwatchCallbackFired,
+    if (!VerifyCheck(Browser.ApplyColourIndexToSlot(FigIdx, "Material.StopSwatch") && SwatchCallbackFired,
                      "Assigning Fig Purple swatch updates ColourSwatchPicker target"))
     {
         ImGui::DestroyContext(Gui);

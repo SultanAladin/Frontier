@@ -305,7 +305,7 @@ bool ConstructSegmentedOption(
     return Hovered && Input.Pressed;
 }
 
-constexpr std::array<ContentCategory, 15> OrderedRailCategories = {{
+constexpr std::array<ContentCategory, 14> OrderedRailCategories = {{
     ContentCategory::All,
     ContentCategory::Materials,
     ContentCategory::Colours,
@@ -317,7 +317,6 @@ constexpr std::array<ContentCategory, 15> OrderedRailCategories = {{
     ContentCategory::Fonts,
     ContentCategory::Simulations,
     ContentCategory::Volumetrics,
-    ContentCategory::Particles,
     ContentCategory::Photometry,
     ContentCategory::Audio,
     ContentCategory::Shaders,

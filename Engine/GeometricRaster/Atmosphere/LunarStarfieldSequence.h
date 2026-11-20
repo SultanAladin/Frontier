@@ -160,7 +160,8 @@ public:
         float                                 SimulationSeconds,
         const AtmosphericMediumConfiguration* AtmosphereMedium    = nullptr,
         std::span<const StarfieldRepositoryEntry> ExtraRepositoryStars  = {},
-        float                                 PixelAngularRad     = (0.85f / 720.0f)) noexcept;
+        float                                 PixelAngularRad     = (0.85f / 720.0f),
+        Mathematics::LinearRGB*               OutForegroundTransmittance = nullptr) noexcept;
 };
 
 } // namespace Frontier::GeometricRaster

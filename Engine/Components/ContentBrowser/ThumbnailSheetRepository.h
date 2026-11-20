@@ -44,12 +44,11 @@ enum class ContentCategory : uint8_t
     Images      = 6,  // [-] - SDR/HDR reference and backdrop images (.ImageSpace)
     Vectors     = 7,  // [-] - Exact 2D curves and vector icons (.VectorSpace)
     Fonts       = 8,  // [-] - Optical typeface packages (.FontSpace)
-    Simulations = 9,  // [-] - Rigid, fluid, fracture, and force-field setups (.SimulationSpace)
+    Simulations = 9,  // [-] - Rigid & fracture physics setups (.SimulationSpace)
     Volumetrics = 10, // [-] - Sparse signed-distance and density volumes (.VolumetricSpace)
-    Particles   = 11, // [-] - GPU particulate trajectory setups (.ParticleSpace)
-    Photometry  = 12, // [-] - LM-63 .IES luminaires and sky distributions (.Photometry)
-    Audio       = 13, // [-] - Spatial acoustic waveforms and buses (.Acoustic)
-    Shaders     = 14, // [-] - Slang (.slang) compute and raster units (.Render)
+    Photometry  = 11, // [-] - LM-63 .IES luminaires and sky distributions (.Photometry)
+    Audio       = 12, // [-] - Spatial acoustic waveforms and buses (.Acoustic)
+    Shaders     = 13, // [-] - Slang (.slang) compute and raster units (.Render)
 };
 
 enum class ContentOriginFilter : uint8_t

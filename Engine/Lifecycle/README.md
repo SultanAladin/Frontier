@@ -1,6 +1,6 @@
 # 🧩 `Engine/Lifecycle/` — Application Lifecycles, Launchers & World Editor
 
-> **TL;DR**: `Engine/Lifecycle/` implements the profile-gated lifecycle hierarchy (`RuntimeLifecycle` → `WorkspaceLifecycle` → `EditorLifecycle`), the 12 desktop executables (`Frontier*Launch.cpp`), `DesktopWorkspaceLaunch` (shared workspace switcher bar & drag-drop routing), and the **Frontier World Editor** (`EditorLifecycle`: Cornell-Studio Gallery, Tier 1 GTX / Tier 2 RTX GI, GPU `TransformGizmo`, `OutlinerPanel`, `ViewportPanel`, `InspectorPanel`, `ControlCentrePanel`, and `ContentBrowser`).
+> **TL;DR**: `Engine/Lifecycle/` implements the profile-gated lifecycle hierarchy (`RuntimeLifecycle` → `WorkspaceLifecycle` → `EditorLifecycle`), the 9 desktop executables (`Frontier*Launch.cpp`), `DesktopWorkspaceLaunch` (shared workspace switcher bar & drag-drop routing), and the **Frontier World Editor** (`EditorLifecycle`: Cornell-Studio Gallery, Direct MatCap & OpenPBR World Rendering, GPU `TransformGizmo`, `OutlinerPanel`, `ViewportPanel`, `InspectorPanel`, `ControlCentrePanel`, and `ContentBrowser`).
 
 ---
 
@@ -14,7 +14,7 @@
 | `EditorLifecycle.{h,cpp}` | `Editor` only | **Frontier World Editor**: `TieredWorldRenderSequence` + `ShowcaseGalleryScene`, GPU `TransformGizmo`, `Outliner`/`Viewport`/`Inspector`/`ControlCentre`/`ContentBrowser` + workspace hosting |
 | `DesktopWorkspaceLaunch.{h,cpp}` | `Editor` / Standalone | Shared GLFW/Vulkan/ImGui desktop window host, top workspace switcher pills (`Bake`, `Pattern`, `Stamp`, `UV`, `Fracture`, `Components`, `Projects`), `Shift` drop target |
 | `ProjectExecutionRunner.{h,cpp}` | All profiles | Project launch & execution loop |
-| `Frontier{Host,Editor,UV,Baking,Pattern,Stamp,Material,Particle,Fracture,ForceField,Fluid,Sketcher}Launch.cpp` | Desktop apps | 12 standalone/host CMake executable entry points |
+| `Frontier{Host,Editor,UV,Baking,Pattern,Stamp,Material,Fracture,Sketcher}Launch.cpp` | Desktop apps | 9 standalone/host CMake executable entry points |
 
 ---
 

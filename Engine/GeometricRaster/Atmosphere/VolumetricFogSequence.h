@@ -115,71 +115,63 @@ public:
         float                         AltitudeMeters,
         const HeightFogConfiguration& HeightFog) noexcept;
 
-    // Evaluates local ForceField-advected fog extinction density at a 3D world point (HeightFog + LocalFogs)
+    // Evaluates local wind-advected fog extinction density at a 3D world point (HeightFog + LocalFogs)
     [[nodiscard]] static float EvaluateFogMediumDensityAtPoint(
-        const Mathematics::Axis3D&                               WorldPoint,
-        const AtmosphericFogConfiguration&                       FogConfig,
-        const AtmosphericWindParameters&                         GlobalWind,
-        float                                                    DeckWindSpeedMps,
-        float                                                    DeckWindBearingDeg,
-        float                                                    SimulationSeconds,
-        const SimulationSpace::ForceFields::ForceFieldAccumulator* OptionalForceFields = nullptr,
-        const SimulationSpace::ForceFields::FieldLatticeCascade*   OptionalLattice     = nullptr) noexcept;
+        const Mathematics::Axis3D&         WorldPoint,
+        const AtmosphericFogConfiguration& FogConfig,
+        const AtmosphericWindParameters&   GlobalWind,
+        float                              DeckWindSpeedMps,
+        float                              DeckWindBearingDeg,
+        float                              SimulationSeconds) noexcept;
 
-    // Evaluates combined Height Fog + Aerial Perspective + Wind/ForceField-driven LocalFogVolumes over [0, MaxDistanceMeters]
+    // Evaluates combined Height Fog + Aerial Perspective + Wind-driven LocalFogVolumes over [0, MaxDistanceMeters]
     [[nodiscard]] static FogEvaluationResult EvaluateVolumetricFog(
-        const Mathematics::Axis3D&                               RayOriginWorld,
-        const Mathematics::Axis3D&                               RayDirection,
-        float                                                    MaxDistanceMeters,
-        const Mathematics::Axis3D&                               SunDirection,
-        const Mathematics::LinearRGB&                            SolarIrradiance,
-        const Mathematics::LinearRGB&                            SkyRadiance,
-        const AtmosphericFogConfiguration&                       FogConfig,
-        const AtmosphericWindParameters&                         GlobalWind,
-        float                                                    DeckWindSpeedMps,
-        float                                                    DeckWindBearingDeg,
-        float                                                    SimulationSeconds,
-        const SimulationSpace::ForceFields::ForceFieldAccumulator* OptionalForceFields = nullptr,
-        const SimulationSpace::ForceFields::FieldLatticeCascade*   OptionalLattice     = nullptr,
-        float                                                    PixelJitter01       = -1.0f) noexcept;
+        const Mathematics::Axis3D&         RayOriginWorld,
+        const Mathematics::Axis3D&         RayDirection,
+        float                              MaxDistanceMeters,
+        const Mathematics::Axis3D&         SunDirection,
+        const Mathematics::LinearRGB&      SolarIrradiance,
+        const Mathematics::LinearRGB&      SkyRadiance,
+        const AtmosphericFogConfiguration& FogConfig,
+        const AtmosphericWindParameters&   GlobalWind,
+        float                              DeckWindSpeedMps,
+        float                              DeckWindBearingDeg,
+        float                              SimulationSeconds,
+        float                              PixelJitter01 = -1.0f) noexcept;
 
     // Evaluates volumetric crepuscular God Rays interacting with Scene Occlusion, Clouds, and Fog
     template <typename SceneVisFn, typename CloudVisFn>
     [[nodiscard]] static Mathematics::LinearRGB EvaluateVolumetricGodRays(
-        const Mathematics::Axis3D&                               RayOriginWorld,
-        const Mathematics::Axis3D&                               RayDirection,
-        float                                                    MaxDistanceMeters,
-        const Mathematics::Axis3D&                               SunDirection,
-        const Mathematics::LinearRGB&                            SolarIrradiance,
-        const AtmosphericFogConfiguration&                       FogConfig,
-        const AtmosphericWindParameters&                         GlobalWind,
-        float                                                    DeckWindSpeedMps,
-        float                                                    DeckWindBearingDeg,
-        float                                                    SimulationSeconds,
-        const SimulationSpace::ForceFields::ForceFieldAccumulator* OptionalForceFields,
-        const SimulationSpace::ForceFields::FieldLatticeCascade*   OptionalLattice,
-        SceneVisFn&&                                             EvaluateSceneSolarVisibility,
-        CloudVisFn&&                                             EvaluateCloudSolarVisibility,
-        float                                                    PixelJitter01 = -1.0f) noexcept;
+        const Mathematics::Axis3D&         RayOriginWorld,
+        const Mathematics::Axis3D&         RayDirection,
+        float                              MaxDistanceMeters,
+        const Mathematics::Axis3D&         SunDirection,
+        const Mathematics::LinearRGB&      SolarIrradiance,
+        const AtmosphericFogConfiguration& FogConfig,
+        const AtmosphericWindParameters&   GlobalWind,
+        float                              DeckWindSpeedMps,
+        float                              DeckWindBearingDeg,
+        float                              SimulationSeconds,
+        SceneVisFn&&                       EvaluateSceneSolarVisibility,
+        CloudVisFn&&                       EvaluateCloudSolarVisibility,
+        float                              PixelJitter01 = -1.0f) noexcept;
 };
 
 template <typename SceneVisFn, typename CloudVisFn>
 Mathematics::LinearRGB VolumetricFogSequence::EvaluateVolumetricGodRays(
-    const Mathematics::Axis3D&                               RayOriginWorld,
-    const Mathematics::Axis3D&                               RayDirection,
-    float                                                    MaxDistanceMeters,
-    const Mathematics::Axis3D&                               SunDirection,
-    const Mathematics::LinearRGB&                            SolarIrradiance,
-    const AtmosphericFogConfiguration&                       FogConfig,
-    const AtmosphericWindParameters&                         GlobalWind,
-    float                                                    DeckWindSpeedMps,
-    float                                                    DeckWindBearingDeg,
-    float                                                    SimulationSeconds,
-    const SimulationSpace::ForceFields::ForceFieldAccumulator* OptionalForceFields,
-    const SimulationSpace::ForceFields::FieldLatticeCascade*   OptionalLattice,
-    SceneVisFn&&                                             EvaluateSceneSolarVisibility,
-    CloudVisFn&&                                             EvaluateCloudSolarVisibility,
-    float                                                    PixelJitter01) noexcept
+    const Mathematics::Axis3D&         RayOriginWorld,
+    const Mathematics::Axis3D&         RayDirection,
+    float                              MaxDistanceMeters,
+    const Mathematics::Axis3D&         SunDirection,
+    const Mathematics::LinearRGB&      SolarIrradiance,
+    const AtmosphericFogConfiguration& FogConfig,
+    const AtmosphericWindParameters&   GlobalWind,
+    float                              DeckWindSpeedMps,
+    float                              DeckWindBearingDeg,
+    float                              SimulationSeconds,
+    SceneVisFn&&                       EvaluateSceneSolarVisibility,
+    CloudVisFn&&                       EvaluateCloudSolarVisibility,
+    float                              PixelJitter01) noexcept
 {
     const auto& GR = FogConfig.GodRays;
     if (!GR.Enabled || GR.Intensity <= 1.0e-4f || SunDirection.Z <= 0.005f || MaxDistanceMeters <= 0.25f)
@@ -229,7 +221,7 @@ Mathematics::LinearRGB VolumetricFogSequence::EvaluateVolumetricGodRays(
         {
             const float FogRho = EvaluateFogMediumDensityAtPoint(
                 P, FogConfig, GlobalWind, DeckWindSpeedMps, DeckWindBearingDeg,
-                SimulationSeconds, OptionalForceFields, OptionalLattice);
+                SimulationSeconds);
             MediumSigma += FogRho * 0.68f * std::max(0.1f, GR.Density);
         }
 

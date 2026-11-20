@@ -609,8 +609,6 @@ ColorRgba QueryCategoryAccent(ConstructSlotCategory Category, ColorRgba FolderTi
             return { 255, 205, 56, 255 };  // #FFCD38 (editor-point-light)
         case ConstructSlotCategory::OpticsCamera:
             return { 160, 164, 182, 255 }; // #A0A4B6 (camera)
-        case ConstructSlotCategory::ForceField:
-            return { 104, 220, 255, 255 }; // #68DCFF (aerodynamic cyan streamline)
     }
     return WorkspaceSurfaceColors::PrimaryInk;
 }
@@ -638,8 +636,6 @@ const char* QueryCategoryDefaultLabel(ConstructSlotCategory Category) noexcept
             return "Type 3";
         case ConstructSlotCategory::OpticsCamera:
             return "Type 4";
-        case ConstructSlotCategory::ForceField:
-            return "Force Field";
     }
     return "Entry";
 }
@@ -1017,43 +1013,6 @@ void ConstructSlotCategoryIcon(
         case ConstructSlotCategory::OpticsCamera:
             ConstructCameraIcon(Surface, TopLeft, Extent, Opacity);
             break;
-
-        case ConstructSlotCategory::ForceField:
-        {
-            const ColorRgba StreamInk = ScaleAlpha({ 104, 220, 255, 255 }, Opacity);
-            const ColorRgba CrestInk  = ScaleAlpha({ 255, 180, 84, 255 }, Opacity);
-            const float     StrokeW   = std::max(1.4f, (13.0f / 256.0f) * Extent);
-
-            const std::array<Point2D, 4> TopArc = {{
-                { ProjectX(34.0f),  ProjectY(82.0f)  },
-                { ProjectX(96.0f),  ProjectY(54.0f)  },
-                { ProjectX(162.0f), ProjectY(92.0f)  },
-                { ProjectX(218.0f), ProjectY(68.0f)  },
-            }};
-            const std::array<Point2D, 4> MidStream = {{
-                { ProjectX(24.0f),  ProjectY(128.0f) },
-                { ProjectX(104.0f), ProjectY(128.0f) },
-                { ProjectX(158.0f), ProjectY(128.0f) },
-                { ProjectX(226.0f), ProjectY(128.0f) },
-            }};
-            const std::array<Point2D, 4> BottomArc = {{
-                { ProjectX(34.0f),  ProjectY(176.0f) },
-                { ProjectX(96.0f),  ProjectY(202.0f) },
-                { ProjectX(162.0f), ProjectY(164.0f) },
-                { ProjectX(210.0f), ProjectY(186.0f) },
-            }};
-            Surface.StrokePolyline(TopArc, StreamInk, StrokeW, false);
-            Surface.StrokePolyline(MidStream, CrestInk, StrokeW, false);
-            Surface.StrokePolyline(BottomArc, StreamInk, StrokeW, false);
-
-            const std::array<Point2D, 3> ArrowTip = {{
-                { ProjectX(198.0f), ProjectY(104.0f) },
-                { ProjectX(234.0f), ProjectY(128.0f) },
-                { ProjectX(198.0f), ProjectY(152.0f) },
-            }};
-            Surface.FillPolygon(ArrowTip, CrestInk);
-            break;
-        }
     }
 }
 
@@ -1564,150 +1523,6 @@ void ConstructResetSymbol(
         { Tip.X + R * 0.68f, Tip.Y + R * 0.08f },
     }};
     Surface.StrokePolyline(Head, Ink, Thickness, false);
-}
-
-ColorRgba QueryForceModelTint(uint32_t LawOrdinal) noexcept
-{
-    static constexpr std::array<ColorRgba, 19> LawTints = {{
-        { 137, 224, 196, 255 }, // 0 LinearWind
-        { 112, 207, 151, 255 }, // 1 Buoyancy
-        { 224, 131, 104, 255 }, // 2 RadialBurst
-        { 142, 182, 224, 255 }, // 3 Attractor
-        { 217, 158, 108, 255 }, // 4 Repulsor
-        { 123, 198, 219, 255 }, // 5 AxisAttractor
-        { 129, 199, 132, 255 }, // 6 Containment
-        { 185, 169, 105, 255 }, // 7 RotationalColumn
-        { 200, 176, 116, 255 }, // 8 Torque
-        { 161, 152, 204, 255 }, // 9 Drag
-        { 217, 181, 108, 255 }, // 10 CurlNoise
-        { 116, 198, 184, 255 }, // 11 AtmosphericGust
-        { 112, 207, 190, 255 }, // 12 VorticityConfinement
-        { 209, 194, 122, 255 }, // 13 BrownianNoise
-        { 116, 200, 224, 255 }, // 14 LorentzField
-        { 198, 139, 217, 255 }, // 15 MagneticDipole
-        { 100, 181, 246, 255 }, // 16 Stream
-        { 157, 180, 226, 255 }, // 17 SplineForce
-        { 142, 199, 158, 255 }, // 18 BoundaryAdhesion
-    }};
-    return (LawOrdinal < LawTints.size()) ? LawTints[LawOrdinal] : LawTints[0];
-}
-
-void ConstructForceModelIcon(
-    PixelSpace& Surface,
-    uint32_t    LawOrdinal,
-    Point2D     TopLeft,
-    float       Extent,
-    ColorRgba   AccentInk,
-    float       Opacity) noexcept
-{
-    const ColorRgba Ink    = ScaleAlpha(AccentInk, Opacity);
-    const float     Scale  = Extent / 16.0f;
-    const float     Stroke = std::max(1.0f, 1.4f * Scale);
-
-    auto P = [&](float X, float Y) noexcept -> Point2D
-    {
-        return { TopLeft.X + X * Scale, TopLeft.Y + Y * Scale };
-    };
-    auto StrokeSvg16 = [&](std::string_view Svg) noexcept
-    {
-        VectorIconRepository::StrokeSvgPath(
-            Surface,
-            Svg,
-            VectorIconPlacement{ TopLeft.X, TopLeft.Y, Extent, Ink, 1.4f },
-            16.0f);
-    };
-    auto StrokeDashedRing = [&](float Cx, float Cy, float Radius, int DashCount) noexcept
-    {
-        constexpr float TwoPi = 6.2831853f;
-        const float     Step  = TwoPi / static_cast<float>(DashCount);
-        for (int Seg = 0; Seg < DashCount; ++Seg)
-        {
-            const float A0 = static_cast<float>(Seg) * Step;
-            const float A1 = A0 + Step * 0.54f;
-            const std::array<Point2D, 3> Arc = {{
-                P(Cx + Radius * std::cos(A0), Cy + Radius * std::sin(A0)),
-                P(Cx + Radius * std::cos(0.5f * (A0 + A1)), Cy + Radius * std::sin(0.5f * (A0 + A1))),
-                P(Cx + Radius * std::cos(A1), Cy + Radius * std::sin(A1)),
-            }};
-            Surface.StrokePolyline(Arc, Ink, Stroke, false);
-        }
-    };
-
-    switch (LawOrdinal)
-    {
-        case 0u:
-            StrokeSvg16("M2 6h8.5a2 2 0 1 0-1.9-2.6M2 10h11a1.8 1.8 0 1 1-1.6 2.5M2 13h6.5a1.5 1.5 0 1 1-1.3 2.2");
-            break;
-        case 1u:
-            StrokeSvg16("M8 14V3M4.8 6.2L8 3l3.2 3.2");
-            Surface.StrokeCircle(P(8.0f, 11.5f), 1.7f * Scale, Ink, Stroke);
-            break;
-        case 2u:
-            Surface.StrokeCircle(P(8.0f, 8.0f), 2.2f * Scale, Ink, Stroke);
-            StrokeDashedRing(8.0f, 8.0f, 5.5f, 8);
-            StrokeSvg16("M8 1v2M8 13v2M1 8h2M13 8h2");
-            break;
-        case 3u:
-            Surface.FillCircle(P(8.0f, 8.0f), 1.8f * Scale, Ink);
-            StrokeSvg16("M2.5 2.5L5.8 5.8M13.5 2.5l-3.3 3.3M2.5 13.5l3.3-3.3M13.5 13.5l-3.3-3.3");
-            break;
-        case 4u:
-            Surface.StrokeCircle(P(8.0f, 8.0f), 1.8f * Scale, Ink, Stroke);
-            StrokeSvg16("M5.5 5.5L2.2 2.2M10.5 5.5l3.3-3.3M5.5 10.5l-3.3 3.3M10.5 10.5l3.3 3.3M2.2 4.5V2.2h2.3M13.8 4.5V2.2h-2.3");
-            break;
-        case 5u:
-            StrokeSvg16("M3 13L13 3M4.5 5.5l2.5 2.5M11.5 10.5L9 8");
-            break;
-        case 6u:
-            Surface.StrokeCircle(P(8.0f, 8.0f), 6.0f * Scale, Ink, Stroke);
-            StrokeDashedRing(8.0f, 8.0f, 3.0f, 6);
-            StrokeSvg16("M8 2v2M8 12v2M2 8h2M12 8h2");
-            break;
-        case 7u:
-            StrokeSvg16("M8 8a1.2 1.2 0 1 1-1.2-1.2a2.4 2.4 0 0 1 2.4 2.4A3.8 3.8 0 0 1 4 8a5.2 5.2 0 0 1 10.2-1");
-            break;
-        case 8u:
-            StrokeSvg16("M12.8 6.2A5.2 5.2 0 1 0 11.5 12M10.2 6.5h3.2V3.3");
-            Surface.StrokeCircle(P(8.0f, 8.0f), 1.4f * Scale, Ink, Stroke);
-            break;
-        case 9u:
-            StrokeSvg16("M5.5 3v10M10.5 3v10M2 8h3.5M14 8h-3.5");
-            break;
-        case 10u:
-            StrokeSvg16("M2.5 7.5a2.8 2.8 0 1 1 5.2 1.4a2.8 2.8 0 1 0 5.6 1M11.8 5.2a2 2 0 0 0-3-.2");
-            break;
-        case 11u:
-            StrokeSvg16("M2 5.5h8a1.9 1.9 0 1 0-1.7-2.6M2 10h9.5a2.3 2.3 0 1 1-1.9 3.2M10.5 3.5a2 2 0 0 1 3 1.5");
-            break;
-        case 12u:
-            Surface.StrokeCircle(P(6.5f, 9.5f), 3.0f * Scale, Ink, Stroke);
-            StrokeSvg16("M11 4.5l2.5-2M11 2.5h2.5V5M3 5c1.8-1.6 4.5-1.6 6.2 0");
-            break;
-        case 13u:
-            StrokeSvg16("M2.5 11.5L5 7l2.2 3.2L10 4.5l2 4l2-2.5");
-            Surface.FillCircle(P(2.5f, 11.5f), 1.0f * Scale, Ink);
-            Surface.FillCircle(P(14.0f, 6.0f), 1.0f * Scale, Ink);
-            break;
-        case 14u:
-            StrokeSvg16("M2.5 9.5c1.5-4.5 3.5-4.5 4.5 0s3 4.5 4.5 0s1.8-4.5 2.5 0M2 4h12M11.8 2.2L14 4l-2.2 1.8");
-            break;
-        case 15u:
-            StrokeSvg16("M6.5 4.5C3 4.5 2 8 2 8s1 3.5 4.5 3.5M9.5 4.5C13 4.5 14 8 14 8s-1 3.5-4.5 3.5");
-            Surface.StrokeRectangle({ TopLeft.X + 6.6f * Scale, TopLeft.Y + 4.5f * Scale, 2.8f * Scale, 7.0f * Scale }, Ink, 1.0f * Scale, Stroke);
-            break;
-        case 16u:
-            StrokeSvg16("M2 5c3-2 6 2 9 0l2-1M2 9c3-2 6 2 9 0l2-1M2 13c3-2 6 2 9 0l2-1M11.5 3.2L14 4l-.8 2.4");
-            break;
-        case 17u:
-            StrokeSvg16("M2 12.5C5 12.5 5 3.5 8 3.5s3 9 6 9M12.2 10.5L14 12.5l-2 1.8");
-            break;
-        case 18u:
-            StrokeSvg16("M2 12.5h12M4 5c2.5 4.5 5.5 4.5 8 0M8 3.5v6.5M6 8l2 2l2-2");
-            break;
-        default:
-            Surface.StrokeCircle(P(8.0f, 8.0f), 4.0f * Scale, Ink, Stroke);
-            break;
-    }
 }
 
 void ConstructSectionHeading(

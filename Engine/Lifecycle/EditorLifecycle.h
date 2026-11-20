@@ -24,17 +24,12 @@
 #include "Engine/Components/Docking/WorkspaceDockContainer.h"
 #include "Engine/Editor/Explorer/ContentBrowser.h"
 #include "Engine/GeometricRaster/Gizmo/TransformGizmo.h"
-#include "Engine/Editor/Workspaces/Simulation/ForceInspectorView.h"
-#include "Engine/Editor/Workspaces/Simulation/ForcePresetBrowserPanel.h"
 #include "Engine/GeometricRaster/Gizmo/WorldGizmoOverlayRasterization.h"
 #include "Engine/GeometricRaster/GlobalIllumination/ShowcaseGalleryScene.h"
 #include "Engine/GeometricRaster/GlobalIllumination/VulkanWorldRenderSequence.h"
-#include "Engine/GeometricRaster/Simulation/VectorFieldOverlaySequence.h"
 #include "Engine/Input/InputExtension.h"
 #include "Engine/Lifecycle/LifecycleSequence.h"
 #include "Engine/Lifecycle/WorkspaceLifecycle.h"
-#include "Engine/SimulationSpace/ForceFields/FieldLatticeCascade.h"
-#include "Engine/SimulationSpace/ForceFields/ForceFieldAccumulator.h"
 #include "Engine/Windowing/PlatformWindow.h"
 
 #include <array>
@@ -117,29 +112,6 @@ public:
     void               PopulateShowcaseGallerySession(uint32_t RenderWidthPx = 640u, uint32_t RenderHeightPx = 384u);
     void               RefreshShowcaseViewportRaster();
     void               FrameShowcaseCameraSelection() noexcept;
-    [[nodiscard]] OutlinerSlotToken SpawnForceFieldEntry(const SimulationSpace::ForceFields::ForceSourceRecordEntry& SourcePreset);
-
-    struct WorldParticlePlacement
-    {
-        ComponentClass::WorldPlacementToken    PlacementToken    {};
-        ComponentClass::ComponentInstanceToken ComponentToken    {};
-        OutlinerSlotToken                      OutlinerSlot      {};
-        std::string                            PresetTitle       {};
-        Mathematics::Axis3D                    WorldOrigin       {};
-        float                                  EmissionRateScale = 1.0f;
-        bool                                   AutoActivate      = true;
-    };
-
-    struct WorldFluidPlacement
-    {
-        ComponentClass::WorldPlacementToken    PlacementToken     {};
-        ComponentClass::ComponentInstanceToken ComponentToken     {};
-        OutlinerSlotToken                      OutlinerSlot       {};
-        Mathematics::Axis3D                    WorldOrigin        {};
-        Mathematics::Scalar3D                  BoundsExtentMeters { 1.0f, 1.0f, 1.0f };
-        float                                  FuelInjectionRate  = 0.45f;
-        bool                                   AutoActivate       = true;
-    };
 
     [[nodiscard]] OutlinerSlotToken SpawnComponentClassPlacement(
         std::string_view             ClassTitle,
@@ -148,13 +120,10 @@ public:
         const std::filesystem::path& OptionalAssetPath = {});
     void SynchronizeComponentPlacementOverrides();
     [[nodiscard]] const ComponentClass::ComponentWorldPlacementRegister& QueryWorldPlacements() const noexcept { return WorldPlacements; }
-    [[nodiscard]] const std::vector<WorldParticlePlacement>&           QueryActiveParticlePlacements() const noexcept { return ActiveParticlePlacements; }
-    [[nodiscard]] const std::vector<WorldFluidPlacement>&              QueryActiveFluidPlacements() const noexcept { return ActiveFluidPlacements; }
     [[nodiscard]] const std::vector<ComponentClass::ComponentClassDefinition>& QueryComponentDefinitions() const noexcept { return ComponentDefinitions; }
 
     [[nodiscard]] GeometricRaster::ShowcaseWorldSceneBundle* AccessShowcaseScene() noexcept { return ShowcaseBundle.get(); }
     [[nodiscard]] Editor::TransformGizmo&                    AccessTransformGizmo() noexcept { return WorldTransformGizmo; }
-    [[nodiscard]] SimulationSpace::ForceFields::ForceFieldAccumulator& AccessForceAccumulator() noexcept { return ForceAccumulator; }
     [[nodiscard]] bool ExecuteAuthoringTick(double Δt);
     [[nodiscard]] bool ExecuteExternalDesktopTick(double Δt);
     [[nodiscard]] bool Suspend() noexcept;
@@ -179,12 +148,6 @@ public:
     [[nodiscard]] Components::WorkspaceDockPaneToken         QueryInspectorPaneToken() const noexcept;
 
 private:
-    struct MappedEditorForceSource
-    {
-        OutlinerSlotToken                                  OutlinerSlot {};
-        SimulationSpace::ForceFields::ForceSourceRecordEntry Source       {};
-    };
-
     struct OutlinerPlacementLink
     {
         OutlinerSlotToken                      OutlinerSlot   {};
@@ -193,11 +156,7 @@ private:
         uint32_t                               ClassIndex     = 0u;
     };
 
-    void AttachForceFieldAuthoringToActivePanes();
-    void SynchronizeForceFieldsWithOutliner(double Δt);
     void SynchronizeShowcaseGizmoAnchor() noexcept;
-    [[nodiscard]] bool UpdateForceFieldOverlayCache(uint32_t WidthPx, uint32_t HeightPx, bool& OutUpdated);
-    void CompositeForceFieldOverlayOntoBuffer(std::vector<uint8_t>& InOutRgba, uint32_t WidthPx, uint32_t HeightPx);
     void RefreshGizmoOverlayFromCachedWorld();
     void ProcessShowcaseViewportInteraction(uint32_t PaneIndex, Rectangle2D PaneBounds, const PaneInputReading& Input);
     void ProcessShowcaseNavigationDirective(ViewportNavigationDirective Directive);
@@ -218,7 +177,6 @@ private:
     std::unique_ptr<GeometricRaster::TieredWorldRenderSequence>      ShowcaseRenderer     {}; // [-] - Calibrated MatCap / OpenPBR Direct world renderer
     std::unique_ptr<GeometricRaster::VulkanWorldRenderSequence>      GpuWorldRenderer     {}; // [-] - Hardware Vulkan .slang compute world render sequence
     std::unique_ptr<GeometricRaster::WorldGizmoOverlayRasterization> WorldGizmoRasterizer {}; // [-] - Vulkan .slang 3D Gizmo overlay rasterizer
-    std::unique_ptr<Editor::Simulation::VectorFieldOverlaySequence>  ForceOverlayRasterizer{}; // [-] - Vulkan 1.3 dynamic-rendering ForceField debug overlay
     std::vector<uint8_t>                                             CachedWorldRgba8     {}; // [-] - Clean world RGBA8 buffer before gizmo overlay rasterization
     uint32_t                                                         CachedWorldWidthPx   = 0u;
     uint32_t                                                         CachedWorldHeightPx  = 0u;
@@ -243,8 +201,6 @@ private:
     float                                                            LastSolarTimeHours     = 10.5f;
     float                                                            LastCloudFraction      = 0.34f;
     float                                                            LastCloudWindSpeedMps  = 7.0f;
-    SimulationSpace::ForceFields::ForceOverlaySettings               LastForceOverlaySettings {};
-    uint32_t                                                         LastForceSourceCount   = 0u;
     ViewportProjectionPreset                                         LastPrimaryProjection = ViewportProjectionPreset::Perspective;
     int32_t                                                          LastRenderScalePct   = 100;
     Editor::TransformGizmo                                           WorldTransformGizmo  {}; // [-] - 13-handle 3D Slate GizmoPRO manipulator
@@ -259,21 +215,9 @@ private:
     bool                                                             PendingInteractionFastDrag     = false;
     std::function<void()>                                            ReturnToBrowserCallback {};
     std::string                                                      ActiveProjectTitle   {};
-    SimulationSpace::ForceFields::ForceFieldAccumulator ForceAccumulator    {};   // [-]  - Analytical ForceModel / VectorField evaluator (no physics)
-    SimulationSpace::ForceFields::FieldLatticeCascade   ForceLatticeCascade {};   // [-]  - 4-tier ForceField clipmap metrics
-    Editor::Simulation::ForceInspectorView              ForceInspector      {};   // [-]  - 4-tab ForceField Inspector (Field/Formula/Layers/Cache)
-    ForcePresetBrowserPanel                             ForcePresetCatalog  {};   // [-]  - Curated .ForceModel & Formula preset library
-    std::vector<MappedEditorForceSource>                AuthoredForces      {};   // [-]  - Scene-bound ForceField sources
     std::vector<ComponentClass::ComponentClassDefinition> ComponentDefinitions {}; // [-] - Loaded .ComponentSpace definitions
     ComponentClass::ComponentWorldPlacementRegister     WorldPlacements     {};   // [-]  - Placed ComponentClass instances
     std::vector<OutlinerPlacementLink>                  PlacementLinks      {};   // [-]  - Outliner slot <-> ComponentWorldPlacement map
-    std::vector<WorldParticlePlacement>                 ActiveParticlePlacements {}; // [-] - Spawned ParticleInstance world emitters
-    std::vector<WorldFluidPlacement>                    ActiveFluidPlacements    {}; // [-] - Spawned FluidInstance world emitters
-    std::array<float, 96>                               AnemometerHistory   {};   // [m/s]- Rolling Beaufort probe samples
-    OutlinerSlotToken                                   DefaultForcesFolder {};   // [idx]- Optional Forces folder in Outliner
-    int32_t                                             SelectedWaypointIdx = -1; // [idx]- Active ForceField motion waypoint
-    double                                              ForceClockSeconds   = 0.0;// [s]  - ForceField evaluation clock
-    uint32_t                                            NextForceToken      = 1u; // [id] - Monotonic ForceSourceRecordEntry token
     Components::WorkspaceDockPaneToken         OutlinerPaneToken      {};     // [idx]   - Registered left Outliner/LayerStack pane
     Components::WorkspaceDockPaneToken         ViewportPaneToken      {};     // [idx]   - Registered central Viewport pane
     Components::WorkspaceDockPaneToken         InspectorPaneToken     {};     // [idx]   - Registered right Inspector pane
@@ -282,14 +226,6 @@ private:
     ViewportTimingBreakdown                       LatestViewportTiming      {};     // [ms]    - Latest per-stage GPU/CPU telemetry
     bool                                       TimingLogInitialized   = false;
     uint64_t                                   TimingFrameCounter     = 0ull;
-    std::chrono::steady_clock::time_point      LastForceOverlayRenderAt {};
-    std::vector<uint8_t>                       CachedForceOverlayRgba {};
-    uint32_t                                   CachedForceOverlayW    = 0u;
-    uint32_t                                   CachedForceOverlayH    = 0u;
-    Mathematics::Axis3D                        LastForceOverlayCamOrigin {};
-    Mathematics::Axis3D                        LastForceOverlayCamTarget {};
-    uint32_t                                   LastForceOverlaySelection = 0u;
-    bool                                       ForceOverlayCacheDirty = true;
     bool                                       Initialized            = false;// [-]     - True between Initialize and Finalize
     bool                                       TerminationRequested   = false;// [-]     - Latch stopping authoring loop
 };

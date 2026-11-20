@@ -304,7 +304,7 @@ struct LunarExosphereParams
                 0.50f, 0.40f, 0.15f, 0.200f, 0.75f, 0.00f,
                 0.14f, 0.15f, 0.64f,
                 { 0.20f, 0.44f, 1.05f }, { 2.45f, 1.55f, 0.58f }, { 3.15f, 2.30f, 1.42f },
-                0.72f, 0.07f, { 0.42f, 0.82f, 1.95f }
+                0.56f, 0.14f, { 0.42f, 0.82f, 1.95f }
             };
         case LunarSurfacePreset::Shard:
             return {
@@ -312,7 +312,7 @@ struct LunarExosphereParams
                 0.58f, 0.65f, 0.50f, 0.070f, 1.45f, 0.00f,
                 0.20f, 0.10f, 0.70f,
                 { 0.48f, 0.78f, 1.85f }, { 0.26f, 0.28f, 0.32f }, { 0.34f, 0.36f, 0.42f },
-                0.48f, 0.08f, { 0.48f, 0.74f, 1.48f }
+                0.44f, 0.13f, { 0.48f, 0.74f, 1.48f }
             };
     }
     return {
@@ -405,7 +405,8 @@ struct LunarMediumEval
         return Med;
     }
     const float Alt      = std::max(0.0f, AltitudeNorm);
-    const float Taper    = 1.0f - MoonSmoothStep(ExoThick * 0.72f, ExoThick, Alt);
+    const float TBase    = 1.0f - MoonSmoothStep(ExoThick * 0.45f, ExoThick, Alt);
+    const float Taper    = TBase * TBase;
     const float HR       = std::max(0.005f, Exo.RayScaleFrac * ExoThick);
     const float HM       = std::max(0.004f, Exo.MieScaleFrac * ExoThick);
     const float DenR     = std::exp(-Alt / HR) * Taper;
@@ -1257,7 +1258,7 @@ Mathematics::LinearRGB LunarStarfieldSequence::EvaluateZodiacalLight(
         9000.0f, 5000.0f, 3500.0f, 2690.0f, 2000.0f, 1440.0f, 1080.0f, 588.0f,
         371.0f, 261.0f, 210.0f, 185.0f, 165.0f, 170.0f, 185.0f, 200.0f
     };
-    constexpr float PoleS10 = 60.0f;
+    constexpr float PoleS10 = 12.0f;
 
     const float LatitudeSin = std::clamp(Mathematics::EvaluateDot(EquatorialDirection, EclipticPole), -1.0f, 1.0f);
     const float LatitudeDeg = std::abs(std::asin(LatitudeSin)) * Constants::RadToDegFloat;
@@ -1386,9 +1387,14 @@ Mathematics::LinearRGB LunarStarfieldSequence::EvaluateCelestialField(
     float                                 SimulationSeconds,
     const AtmosphericMediumConfiguration* AtmosphereMedium,
     std::span<const StarfieldRepositoryEntry> ExtraRepositoryStars,
-    float                                 PixelAngularRad) noexcept
+    float                                 PixelAngularRad,
+    Mathematics::LinearRGB*               OutForegroundTransmittance) noexcept
 {
     Mathematics::LinearRGB Out { 0.0f, 0.0f, 0.0f };
+    if (OutForegroundTransmittance != nullptr)
+    {
+        *OutForegroundTransmittance = { 1.0f, 1.0f, 1.0f };
+    }
     const auto& Atlas = QueryLunarSurfaceAtlasRgba8();
 
     const AtmosphericMediumConfiguration DefaultMedium {};
@@ -1423,12 +1429,9 @@ Mathematics::LinearRGB LunarStarfieldSequence::EvaluateCelestialField(
         const auto  Tint    = QueryPresetTint(Moon.SurfacePreset);
         const auto  ExoDef  = QueryLunarExosphereParams(Moon.SurfacePreset);
 
-        const float ExoStr  = Moon.HasAtmosphere
-            ? std::max(ExoDef.LimbStrength, 0.65f * std::max(0.0f, Moon.AtmosphereIntensity))
-            : (ExoDef.LimbStrength * std::max(0.0f, Moon.AtmosphereIntensity));
-        const float ExoThick = Moon.HasAtmosphere
-            ? std::clamp(Moon.AtmosphereThicknessScale, 0.06f, 0.45f)
-            : std::clamp(0.18f * ExoDef.LimbStrength, 0.04f, 0.30f);
+        const bool  HasExo   = Moon.HasAtmosphere && (Moon.AtmosphereIntensity > 0.0f);
+        const float ExoStr   = HasExo ? std::max(ExoDef.LimbStrength, 0.65f * Moon.AtmosphereIntensity) : 0.0f;
+        const float ExoThick = HasExo ? std::clamp(Moon.AtmosphereThicknessScale, 0.06f, 0.45f) : 0.0f;
         const Mathematics::LinearRGB ExoTint {
             Moon.HasAtmosphere ? (0.55f * ExoDef.LimbTint.R + 0.45f * Moon.AtmosphereTint.R) : ExoDef.LimbTint.R,
             Moon.HasAtmosphere ? (0.55f * ExoDef.LimbTint.G + 0.45f * Moon.AtmosphereTint.G) : ExoDef.LimbTint.G,
@@ -1804,6 +1807,10 @@ Mathematics::LinearRGB LunarStarfieldSequence::EvaluateCelestialField(
         }
     }
 
+    if (OutForegroundTransmittance != nullptr)
+    {
+        *OutForegroundTransmittance = StarTransmittance;
+    }
     return Out;
 }
 

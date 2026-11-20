@@ -140,6 +140,12 @@ float EvaluateSolarGlareSpreadGpu(float SeparationRadians, float DiscRadiusRadia
     return (Bloom + Aureole) * Window * Window;
 }
 
+struct GpuRawCatalogStar
+{
+    float4 EqDirMag;  // xyz = UnitJ2000Equatorial, w = MagnitudeV
+    float4 ColorSeed; // rgb = PlanckianRec709,   w = Seed01
+};
+
 bool QueryGroundHorizonBlockedGpu(CelestialFieldUniformBlock Cfg, float DirZ)
 {
     if (DirZ >= 0.0)
@@ -153,29 +159,96 @@ bool QueryGroundHorizonBlockedGpu(CelestialFieldUniformBlock Cfg, float DirZ)
     return Disc >= 0.0;
 }
 
-float3 EvaluateCelestialAtmoTransmittance(CelestialFieldUniformBlock Cfg, float3 RayDir)
+float EvaluateHorizonUpperLimbMaskGpu(CelestialFieldUniformBlock Cfg, float DirZ, float HalfBandRad)
 {
-    uint Flags        = uint(Cfg.AtmoMediumPack.w + 0.5);
+    float PlanetR = (Cfg.SolarOpticsParams.w > 1000.0) ? Cfg.SolarOpticsParams.w : 6360000.0;
+    float ObsAlt  = max(5.0, Cfg.SolarOpticsParams.z);
+    float ViewerR = PlanetR + ObsAlt;
+    float Ratio   = clamp(PlanetR / ViewerR, 0.0, 1.0);
+    float LimbZ   = -sqrt(max(0.0, 1.0 - Ratio * Ratio));
+    float Band    = max(0.00025, HalfBandRad);
+    return smoothstep(LimbZ - Band, LimbZ + Band, DirZ);
+}
+
+float3 EvaluateCelestialAtmoTransmittanceSphereGpu(CelestialFieldUniformBlock Cfg, float3 RayDir)
+{
+    uint Flags        = uint(round(max(0.0, Cfg.AtmoMediumPack.w)));
     bool AtmoEnabled  = (Flags & 1u) != 0u;
     bool OrbitalView  = (Flags & 2u) != 0u;
-    if (!AtmoEnabled || OrbitalView || RayDir.z < -0.05)
+    if (!AtmoEnabled || OrbitalView)
     {
         return float3(1.0, 1.0, 1.0);
     }
-    float RayScale = max(0.0, Cfg.AtmoMediumPack.x);
-    float MieScale = max(0.0, Cfg.AtmoMediumPack.y);
-    float OzScale  = max(0.0, Cfg.AtmoMediumPack.z);
+    float PlanetR = (Cfg.SolarOpticsParams.w > 1000.0) ? Cfg.SolarOpticsParams.w : 6360000.0;
+    float ObsAlt  = max(5.0, Cfg.SolarOpticsParams.z);
+    float ViewerR = PlanetR + ObsAlt;
+    float Ratio   = clamp(PlanetR / ViewerR, 0.0, 1.0);
+    float LimbZ   = -sqrt(max(0.0, 1.0 - Ratio * Ratio));
+    if (RayDir.z < LimbZ - 0.02)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
 
-    float CosZ    = clamp(RayDir.z, 0.012, 1.0);
-    float ElevDeg = asin(CosZ) * (180.0 / CelestialPiConst);
-    float AirMass = 1.0 / (CosZ + 0.50572 * pow(max(0.5, ElevDeg + 6.07995), -1.6364));
-    AirMass       = min(AirMass, 38.0);
+    float GroundKm  = PlanetR * 0.001;
+    float TopKm     = GroundKm + 60.0;
+    float RadiusKm  = clamp(GroundKm + ObsAlt * 0.001, GroundKm, TopKm);
+    float CosPolar  = clamp(RayDir.z, LimbZ + 1.0e-4, 1.0);
+    float DiscTop   = max(0.0, RadiusKm * RadiusKm * CosPolar * CosPolar + (TopKm - RadiusKm) * (TopKm + RadiusKm));
+    float DistTopKm = max(0.0, -RadiusKm * CosPolar + sqrt(DiscTop));
 
-    float3 RayTau = float3(0.005802, 0.013558, 0.033100) * (RayScale * 7.8 * AirMass);
-    float3 MieTau = float3(0.004440, 0.004440, 0.004440) * (MieScale * 1.45 * AirMass);
-    float3 OzTau  = float3(0.000650, 0.001881, 0.000085) * (OzScale  * 12.0 * AirMass);
-    return exp(-(RayTau + MieTau + OzTau));
+    float  RayMul    = max(0.0, Cfg.AtmoMediumPack.x);
+    float  MieMul    = max(0.0, Cfg.AtmoMediumPack.y);
+    float  OzMul     = max(0.0, Cfg.AtmoMediumPack.z);
+    float3 RayBeta   = float3(5.802e-3, 13.558e-3, 33.1e-3);
+    float3 OzBeta    = float3(0.650e-3, 1.881e-3, 0.085e-3);
+    float3 OptDepth  = float3(0.0, 0.0, 0.0);
+    for (uint S = 0u; S < 16u; ++S)
+    {
+        float F0   = float(S) / 16.0;
+        float F1   = float(S + 1u) / 16.0;
+        float T0   = DistTopKm * F0 * F0;
+        float T1   = DistTopKm * F1 * F1;
+        float T    = 0.5 * (T0 + T1);
+        float Step = max(1.0e-5, T1 - T0);
+        float RK   = sqrt(max(GroundKm * GroundKm, RadiusKm * RadiusKm + 2.0 * RadiusKm * CosPolar * T + T * T));
+        float AltM = max(0.0, (RK - GroundKm) * 1000.0);
+        float DenR = exp(-AltM / 8000.0) * RayMul;
+        float DenM = exp(-AltM / 1200.0) * MieMul;
+        float DenO = max(0.0, 1.0 - abs(AltM - 25000.0) / 15000.0) * OzMul;
+        OptDepth  += (RayBeta * DenR + float3(4.40e-3 * DenM) + OzBeta * DenO) * Step;
+    }
+    return exp(-OptDepth);
 }
+
+#ifdef FRONTIER_ATMOSPHERE_EMBEDDED
+float3 EvaluateCelestialAtmoTransmittanceWithLutGpu(
+    CelestialFieldUniformBlock Cfg,
+    StructuredBuffer<float4>   SkyLut,
+    float                      AtmoThicknessM,
+    float3                     RayDir)
+{
+    uint Flags        = uint(round(max(0.0, Cfg.AtmoMediumPack.w)));
+    bool AtmoEnabled  = (Flags & 1u) != 0u;
+    bool OrbitalView  = (Flags & 2u) != 0u;
+    if (!AtmoEnabled || OrbitalView)
+    {
+        return float3(1.0, 1.0, 1.0);
+    }
+    float PlanetR   = (Cfg.SolarOpticsParams.w > 1000.0) ? Cfg.SolarOpticsParams.w : 6360000.0;
+    float ObsAlt    = max(5.0, Cfg.SolarOpticsParams.z);
+    float GroundKm  = PlanetR * 0.001;
+    float ThickKm   = max(10.0, (AtmoThicknessM > 100.0 ? AtmoThicknessM : 60000.0) * 0.001);
+    float TopKm     = GroundKm + ThickKm;
+    float RadiusKm  = clamp(GroundKm + ObsAlt * 0.001, GroundKm, TopKm);
+    float Ratio     = clamp(GroundKm / RadiusKm, 0.0, 1.0);
+    float LimbZ     = -sqrt(max(0.0, 1.0 - Ratio * Ratio));
+    if (RayDir.z < LimbZ - 0.02)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    return EvaluateTransmittanceLutSample(SkyLut, RadiusKm, max(RayDir.z, LimbZ + 1.0e-4), GroundKm, TopKm);
+}
+#endif
 
 struct LunarExosphereGpuProfile
 {
@@ -234,7 +307,7 @@ LunarExosphereGpuProfile QueryLunarExosphereGpuProfile(uint PresetIdx)
         P.Roughness = 0.50; P.LommelSeeligerW = 0.40; P.OppositionAmp = 0.15; P.OppositionWidth = 0.200; P.ReliefStrength = 0.75; P.IceSpecular = 0.00;
         P.RayScaleFrac = 0.14; P.MieScaleFrac = 0.15; P.MieAsymmetry = 0.64;
         P.RayScatter = float3(0.20, 0.44, 1.05); P.MieScatter = float3(2.45, 1.55, 0.58); P.MieExtinction = float3(3.15, 2.30, 1.42);
-        P.DetachedHazeFrac = 0.72; P.DetachedWidthFrac = 0.07; P.DetachedScatter = float3(0.42, 0.82, 1.95);
+        P.DetachedHazeFrac = 0.56; P.DetachedWidthFrac = 0.14; P.DetachedScatter = float3(0.42, 0.82, 1.95);
         return P;
     }
     if (PresetIdx == 5u)
@@ -243,7 +316,7 @@ LunarExosphereGpuProfile QueryLunarExosphereGpuProfile(uint PresetIdx)
         P.Roughness = 0.58; P.LommelSeeligerW = 0.65; P.OppositionAmp = 0.50; P.OppositionWidth = 0.070; P.ReliefStrength = 1.45; P.IceSpecular = 0.00;
         P.RayScaleFrac = 0.20; P.MieScaleFrac = 0.10; P.MieAsymmetry = 0.70;
         P.RayScatter = float3(0.48, 0.78, 1.85); P.MieScatter = float3(0.26, 0.28, 0.32); P.MieExtinction = float3(0.34, 0.36, 0.42);
-        P.DetachedHazeFrac = 0.48; P.DetachedWidthFrac = 0.08; P.DetachedScatter = float3(0.48, 0.74, 1.48);
+        P.DetachedHazeFrac = 0.44; P.DetachedWidthFrac = 0.13; P.DetachedScatter = float3(0.48, 0.74, 1.48);
         return P;
     }
     P.LimbTint = float3(0.78, 0.86, 0.98); P.LimbStrength = 0.06;
@@ -319,7 +392,8 @@ void EvaluateLunarExosphereMediumGpu(
         return;
     }
     float Alt   = max(0.0, AltNorm);
-    float Taper = 1.0 - smoothstep(ExoThick * 0.72, ExoThick, Alt);
+    float TBase = 1.0 - smoothstep(ExoThick * 0.45, ExoThick, Alt);
+    float Taper = TBase * TBase;
     float HR    = max(0.005, Exo.RayScaleFrac * ExoThick);
     float HM    = max(0.004, Exo.MieScaleFrac * ExoThick);
     float DenR  = exp(-Alt / HR) * Taper;
@@ -517,13 +591,24 @@ float EvaluateKastenYoungAirmassGpu(float SinElevation)
 
 float3 TransformEquatorialToGalacticGpu(float3 Eq)
 {
-    float GX = -0.0548755604 * Eq.x - 0.8734370902 * Eq.y - 0.4838350155 * Eq.z;
-    float GY =  0.4941094279 * Eq.x - 0.4448296300 * Eq.y + 0.7469822445 * Eq.z;
-    float GZ = -0.8676661490 * Eq.x - 0.1980763734 * Eq.y + 0.4559837762 * Eq.z;
+    float GX = -0.05487557873 * Eq.x - 0.87343710661 * Eq.y - 0.48383495212 * Eq.z;
+    float GY =  0.49410939217 * Eq.x - 0.44482958317 * Eq.y + 0.74698221684 * Eq.z;
+    float GZ = -0.86766612530 * Eq.x - 0.19807630777 * Eq.y + 0.45598375797 * Eq.z;
     return float3(GX, GY, GZ);
 }
 
-float EvaluateGalacticQuintic3Gpu(float3 P)
+uint HashGalacticCellGpu(int IX, int IY, int IZ, uint Salt)
+{
+    uint H = uint(IX) * 0x9E3779B1u ^ uint(IY) * 0x85EBCA77u ^ uint(IZ) * 0xC2B2AE3Du ^ Salt * 0x27D4EB2Fu;
+    H ^= H >> 16u;
+    H *= 0x7FEB352Du;
+    H ^= H >> 15u;
+    H *= 0x846CA68Bu;
+    H ^= H >> 16u;
+    return H;
+}
+
+float EvaluateGalacticQuintic3Gpu(float3 P, uint Salt)
 {
     float3 I = floor(P);
     float3 F = P - I;
@@ -531,14 +616,14 @@ float EvaluateGalacticQuintic3Gpu(float3 P)
     int IX = int(I.x);
     int IY = int(I.y);
     int IZ = int(I.z);
-    float N000 = HashCelestial3(IX,      IY,      IZ);
-    float N100 = HashCelestial3(IX + 1,  IY,      IZ);
-    float N010 = HashCelestial3(IX,      IY + 1,  IZ);
-    float N110 = HashCelestial3(IX + 1,  IY + 1,  IZ);
-    float N001 = HashCelestial3(IX,      IY,      IZ + 1);
-    float N101 = HashCelestial3(IX + 1,  IY,      IZ + 1);
-    float N011 = HashCelestial3(IX,      IY + 1,  IZ + 1);
-    float N111 = HashCelestial3(IX + 1,  IY + 1,  IZ + 1);
+    float N000 = float(HashGalacticCellGpu(IX,     IY,     IZ,     Salt) >> 8u) * (1.0 / 16777216.0);
+    float N100 = float(HashGalacticCellGpu(IX + 1, IY,     IZ,     Salt) >> 8u) * (1.0 / 16777216.0);
+    float N010 = float(HashGalacticCellGpu(IX,     IY + 1, IZ,     Salt) >> 8u) * (1.0 / 16777216.0);
+    float N110 = float(HashGalacticCellGpu(IX + 1, IY + 1, IZ,     Salt) >> 8u) * (1.0 / 16777216.0);
+    float N001 = float(HashGalacticCellGpu(IX,     IY,     IZ + 1, Salt) >> 8u) * (1.0 / 16777216.0);
+    float N101 = float(HashGalacticCellGpu(IX + 1, IY,     IZ + 1, Salt) >> 8u) * (1.0 / 16777216.0);
+    float N011 = float(HashGalacticCellGpu(IX,     IY + 1, IZ + 1, Salt) >> 8u) * (1.0 / 16777216.0);
+    float N111 = float(HashGalacticCellGpu(IX + 1, IY + 1, IZ + 1, Salt) >> 8u) * (1.0 / 16777216.0);
     float X00  = lerp(N000, N100, U.x);
     float X10  = lerp(N010, N110, U.x);
     float X01  = lerp(N001, N101, U.x);
@@ -546,57 +631,76 @@ float EvaluateGalacticQuintic3Gpu(float3 P)
     return lerp(lerp(X00, X10, U.y), lerp(X01, X11, U.y), U.z);
 }
 
-float EvaluateGalacticFbm3Gpu(float3 P)
+float EvaluateGalacticFbm3Gpu(float3 P, uint Octaves, uint Salt)
 {
     float Value = 0.0;
     float Amp   = 0.50;
+    float WSum  = 0.0;
     float3 Pos  = P;
-    for (int Oct = 0; Oct < 5; ++Oct)
+    for (uint Oct = 0u; Oct < Octaves; ++Oct)
     {
-        Value += Amp * EvaluateGalacticQuintic3Gpu(Pos);
-        Pos = float3(
+        Value += Amp * EvaluateGalacticQuintic3Gpu(Pos, Salt + Oct * 37u);
+        WSum  += Amp;
+        float3 Rotated = float3(
              0.80 * Pos.x - 0.48 * Pos.y + 0.36 * Pos.z,
-             0.48 * Pos.x + 0.80 * Pos.y - 0.36 * Pos.z,
-            -0.36 * Pos.x + 0.48 * Pos.y + 0.80 * Pos.z) * 2.02 + float3(13.1, 7.7, 5.3);
+             0.48 * Pos.x + 0.86 * Pos.y + 0.16 * Pos.z,
+            -0.36 * Pos.x + 0.04 * Pos.y + 0.93 * Pos.z);
+        Pos = Rotated * 2.03 + float3(13.7, -7.1, 5.3);
         Amp *= 0.50;
     }
-    return Value;
+    return Value / max(1.0e-6, WSum);
+}
+
+float GalacticLobeGpu(float Off, float Wid)
+{
+    return exp(-(Off * Off) / (Wid * Wid));
 }
 
 float3 EvaluateGalacticBulgeRadianceGpu(float3 EqDir)
 {
-    float3 Gal    = TransformEquatorialToGalacticGpu(normalize(EqDir));
-    float  LatSin = Gal.z;
-    float  Lon    = atan2(Gal.y, Gal.x);
+    float3 Axis = TransformEquatorialToGalacticGpu(normalize(EqDir));
+    float  Lon  = atan2(Axis.y, Axis.x);
+    float  Lat  = asin(clamp(Axis.z, -1.0, 1.0));
 
-    float DiskProfile  = exp(-abs(LatSin) / 0.140) * exp(-(LatSin * LatSin) / 0.055);
-    float BulgeR2      = (Lon * Lon) / 0.22 + (LatSin * LatSin) / 0.040;
-    float BulgeProfile = exp(-BulgeR2);
+    float LonProfile = 0.20
+                     + 0.80 * GalacticLobeGpu(Lon, 0.95)
+                     + 0.32 * GalacticLobeGpu(Lon - 0.47, 0.22)
+                     + 0.36 * GalacticLobeGpu(Lon - 1.38, 0.38)
+                     + 0.34 * GalacticLobeGpu(Lon + 1.30, 0.34)
+                     + 0.12 * GalacticLobeGpu(abs(Lon) - 2.6, 0.6);
+    float ScaleH    = 0.052 + 0.040 * GalacticLobeGpu(Lon, 0.6);
+    float CoshVal   = cosh(clamp(Lat / ScaleH, -20.0, 20.0));
+    float DiscProf  = 1.0 / (CoshVal * CoshVal);
+    float ThickDisc = 0.35 * exp(-abs(Lat) / 0.22);
+    float Bulge     = 1.45 * exp(-(Lon * Lon) / (2.0 * 0.19 * 0.19) - (Lat * Lat) / (2.0 * 0.13 * 0.13));
 
-    float Warp1 = EvaluateGalacticFbm3Gpu(Gal * 4.5 + float3(1.2, 3.4, 5.6));
-    float Warp2 = EvaluateGalacticFbm3Gpu(Gal * 9.0 + float3(Warp1 * 0.65, 2.1, 8.3));
-    float Cloud = EvaluateGalacticFbm3Gpu(Gal * 15.0 + float3(Warp1, Warp2, 0.0));
+    float Clouds   = EvaluateGalacticFbm3Gpu(Axis * 9.0, 5u, 1201u);
+    float Fine     = EvaluateGalacticFbm3Gpu(Axis * 29.0, 4u, 1307u);
+    float Clumping = 0.30 + 1.35 * pow(Clouds, 1.35) + 0.45 * max(0.0, Fine - 0.35);
+    float DiscLum  = LonProfile * (DiscProf + ThickDisc) * Clumping;
+    float BulgeLum = Bulge * (0.45 + 1.05 * Clouds);
 
-    float RiftLat = LatSin - 0.024 * sin(Lon * 2.2 + 0.5) - 0.042 * (Warp1 - 0.5);
-    float Rift1   = exp(-(RiftLat * RiftLat) / (0.0011 + 0.0008 * Cloud));
-    float Rift2   = exp(-((LatSin + 0.032 * cos(Lon * 3.1 - 0.8) + 0.02 * (Warp2 - 0.5)) * (LatSin + 0.032 * cos(Lon * 3.1 - 0.8) + 0.02 * (Warp2 - 0.5))) / 0.0008);
-    float DustNoise = smoothstep(0.28, 0.78, Warp2 * 0.55 + Cloud * 0.45);
-    float DarkRift  = (Rift1 * 0.82 + Rift2 * 0.46) * pow(DustNoise, 1.3);
+    float RiftCenter = 0.012 + 0.022 * sin(2.4 * Lon + 0.6) + 0.042 * (Clouds - 0.5);
+    float RiftMask   = smoothstep(-0.75, -0.35, Lon) * (1.0 - smoothstep(1.35, 1.65, Lon));
+    float RiftNoise  = EvaluateGalacticFbm3Gpu(Axis * 14.0, 5u, 1409u);
+    float RiftWidth  = 0.026 + 0.028 * RiftNoise;
+    float RiftDepth  = 2.6 * RiftMask * GalacticLobeGpu(Lat - RiftCenter, RiftWidth) * (0.20 + 1.25 * pow(RiftNoise, 1.35));
+    float Coalsack   = 2.35 * GalacticLobeGpu(Lon + 1.00, 0.052) * GalacticLobeGpu(Lat - 0.006, 0.048);
 
-    float CosCoal    = dot(Gal, normalize(float3(0.5403, -0.8415, 0.0065)));
-    float CoalsackD  = exp(-(max(0.0, 1.0 - CosCoal)) * 260.0);
-    float DustAtten  = clamp(1.0 - (DarkRift + CoalsackD * 0.78) * 0.88, 0.08, 1.0);
+    float3 Stretched = Axis * float3(7.0, 7.0, 26.0);
+    float3 Warp = float3(
+        EvaluateGalacticFbm3Gpu(Stretched * 0.8, 3u, 1601u) - 0.5,
+        EvaluateGalacticFbm3Gpu(Stretched * 0.8, 3u, 1607u) - 0.5,
+        EvaluateGalacticFbm3Gpu(Stretched * 0.8, 3u, 1613u) - 0.5);
+    float3 Warped     = Stretched + Warp * 1.9;
+    float RidgeCoarse = 1.0 - abs(2.0 * EvaluateGalacticFbm3Gpu(Warped, 4u, 1511u) - 1.0);
+    float RidgeFine   = 1.0 - abs(2.0 * EvaluateGalacticFbm3Gpu(Warped * 2.7, 3u, 1523u) - 1.0);
+    float Filaments   = smoothstep(0.56, 0.94, 0.68 * RidgeCoarse + 0.32 * RidgeFine);
+    float ComplexMask = smoothstep(0.36, 0.66, EvaluateGalacticFbm3Gpu(Axis * 4.5, 3u, 1531u));
+    float Dust        = RiftDepth + Coalsack + 1.45 * Filaments * ComplexMask * GalacticLobeGpu(Lat, 0.13);
 
-    float3 DiskCol   = float3(0.56, 0.72, 1.05);
-    float3 BulgeCol  = float3(1.18, 0.88, 0.54);
-    float  LonMod    = 0.50 + 0.50 * cos(Lon * 0.85);
-    float  FineStar  = 0.28 + 0.72 * pow(clamp(Cloud * 1.20, 0.0, 1.0), 1.4);
-
-    float3 Light = DiskCol * (DiskProfile * LonMod * (0.38 + 0.62 * Warp1) * 0.55)
-                 + BulgeCol * (BulgeProfile * (0.45 + 0.55 * Warp2) * 1.18);
-    Light *= FineStar * DustAtten;
-    Light += float3(0.45, 0.58, 0.82) * (0.045 * exp(-abs(LatSin) / 0.28));
-    return Light;
+    float3 Light = float3(0.66, 0.82, 1.12) * DiscLum + float3(1.18, 0.88, 0.54) * BulgeLum;
+    return Light * exp(-Dust * float3(0.75, 1.00, 1.32));
 }
 
 void ResolveNebulaTangentGpu(float3 EqDir, float3 TargetAxis, out float OutEast, out float OutNorth)
@@ -623,7 +727,7 @@ float3 EvaluateDeepSkyNebulaeGpu(float3 EqDir)
         {
             ResolveNebulaTangentGpu(Dir, Center, East, North);
             float D2  = (East * East + North * North) / (Deg * Deg);
-            float Fil = EvaluateGalacticFbm3Gpu(Dir * 120.0 + float3(2.1, 4.3, 6.5));
+            float Fil = EvaluateGalacticFbm3Gpu(Dir * 900.0, 4u, 1601u);
             float Glw = 0.030 * exp(-D2 / 0.10) + 0.010 * exp(-D2 / 0.55) * (0.4 + 1.2 * Fil);
             float Cav = 0.016 * exp(-D2 / 0.012);
             Out += float3(1.00, 0.30, 0.46) * Glw + float3(0.42, 0.92, 0.86) * Cav;
@@ -636,7 +740,7 @@ float3 EvaluateDeepSkyNebulaeGpu(float3 EqDir)
         {
             ResolveNebulaTangentGpu(Dir, Center, East, North);
             float D2   = (East * East + North * North) / (Deg * Deg);
-            float Wisp = EvaluateGalacticFbm3Gpu(float3(Dir.x * 140.0, Dir.y * 45.0, Dir.z * 95.0));
+            float Wisp = EvaluateGalacticFbm3Gpu(float3(Dir.x * 1400.0, Dir.y * 380.0, Dir.z * 900.0), 4u, 1703u);
             float Glo  = 0.0045 * exp(-D2 / 0.30) * (0.3 + 1.4 * Wisp);
             Out += float3(0.42, 0.62, 1.00) * Glo;
         }
@@ -663,7 +767,7 @@ float3 EvaluateDeepSkyNebulaeGpu(float3 EqDir)
         {
             ResolveNebulaTangentGpu(Dir, Center, East, North);
             float D2    = (East * East + North * North) / (Deg * Deg * 3.4 * 3.4);
-            float Clump = EvaluateGalacticFbm3Gpu(Dir * 160.0 + float3(3.7, 8.1, 1.9));
+            float Clump = EvaluateGalacticFbm3Gpu(Dir * 160.0, 5u, 1801u);
             Out += float3(0.86, 0.90, 1.00) * (0.0060 * exp(-D2) * (0.35 + 1.3 * Clump));
         }
     }
@@ -674,7 +778,7 @@ float3 EvaluateDeepSkyNebulaeGpu(float3 EqDir)
         {
             ResolveNebulaTangentGpu(Dir, Center, East, North);
             float D2    = (East * East + North * North) / (Deg * Deg * 1.8 * 1.8);
-            float Clump = EvaluateGalacticFbm3Gpu(Dir * 160.0 + float3(6.2, 2.4, 9.5));
+            float Clump = EvaluateGalacticFbm3Gpu(Dir * 160.0, 5u, 1907u);
             Out += float3(0.86, 0.90, 1.00) * (0.0035 * exp(-D2) * (0.35 + 1.3 * Clump));
         }
     }
@@ -685,7 +789,7 @@ float3 EvaluateDeepSkyNebulaeGpu(float3 EqDir)
         {
             ResolveNebulaTangentGpu(Dir, Center, East, North);
             float D2   = (East * East + North * North) / (Deg * Deg * 0.45 * 0.45);
-            float Knot = EvaluateGalacticFbm3Gpu(Dir * 110.0 + float3(5.3, 1.4, 7.8));
+            float Knot = EvaluateGalacticFbm3Gpu(Dir * 700.0, 4u, 2003u);
             Out += float3(1.00, 0.36, 0.50) * (0.010 * exp(-D2) * (0.3 + 1.4 * Knot));
         }
     }
@@ -696,7 +800,7 @@ float3 EvaluateDeepSkyNebulaeGpu(float3 EqDir)
         {
             ResolveNebulaTangentGpu(Dir, Center, East, North);
             float D2   = (East * East + North * North) / (Deg * Deg * 0.80 * 0.80);
-            float Knot = EvaluateGalacticFbm3Gpu(Dir * 110.0 + float3(9.4, 2.7, 5.1));
+            float Knot = EvaluateGalacticFbm3Gpu(Dir * 700.0, 4u, 2111u);
             Out += float3(1.00, 0.36, 0.50) * (0.012 * exp(-D2) * (0.3 + 1.4 * Knot));
         }
     }
@@ -714,7 +818,7 @@ float3 EvaluateZodiacalLightGpu(float3 EqDir, float3 SolarEqDir)
         9000.0, 5000.0, 3500.0, 2690.0, 2000.0, 1440.0, 1080.0, 588.0,
         371.0, 261.0, 210.0, 185.0, 165.0, 170.0, 185.0, 200.0
     };
-    float PoleS10     = 60.0;
+    float PoleS10     = 12.0;
     float RadToDeg    = 180.0 / CelestialPiConst;
     float LatSin      = clamp(dot(EqDir, EclipticPole), -1.0, 1.0);
     float LatDeg      = abs(asin(LatSin)) * RadToDeg;
@@ -784,6 +888,7 @@ float3 EvaluateSolarMoonBodiesGpu(
     float3                     SunDir,
     bool                       Orbital,
     float3                     AtmoTrans,
+    float3                     SunAxisTrans,
     out float3                 OutStarTrans)
 {
     float3 OutRgb   = float3(0.0, 0.0, 0.0);
@@ -792,112 +897,16 @@ float3 EvaluateSolarMoonBodiesGpu(
     float  MieScale = max(0.0, Cfg.AtmoMediumPack.y);
     float  DayVis   = Orbital ? 0.0 : clamp((SunDir.z + 0.06) * 6.5, 0.0, 1.0);
 
-    // 1. Neckel & Labs (1994) Limb-Darkened Photosphere + erfc PSF + < 3 px Sub-Pixel SolarErf + 3-Term Monotonic K/F Corona + Radiant/Muted Glare
-    float DiscIntensity = Cfg.SunTintIntensity.w;
-    if (DiscIntensity > 0.0)
-    {
-        float HalfR      = max(0.0008, Cfg.SunAxisRadius.w);
-        float HalfChord  = 0.5 * length(UnitRay - SunDir);
-        float Separation = 2.0 * asin(clamp(HalfChord, 0.0, 1.0));
-        float PixelSizeR = max(0.0, Cfg.SolarOpticsParams.y);
-        float MaxConeR   = max(HalfR * 48.0, PixelSizeR * 8.0);
-
-        if (Separation <= MaxConeR)
-        {
-            bool RayBlocked = (!Orbital) && QueryGroundHorizonBlockedGpu(Cfg, UnitRay.z);
-            float3 LineTransmittance = Orbital ? float3(1.0, 1.0, 1.0) : AtmoTrans;
-            if (!RayBlocked && (LineTransmittance.x + LineTransmittance.y + LineTransmittance.z > 1.0e-6))
-            {
-                float NormalizedRadius = Separation / HalfR;
-
-                float SmallWeight = 0.0;
-                if (PixelSizeR > 1.0e-6)
-                {
-                    float RadiusPixels = HalfR / PixelSizeR;
-                    float Blend        = clamp((6.0 - RadiusPixels) / 3.0, 0.0, 1.0);
-                    SmallWeight        = Blend * Blend * (3.0 - 2.0 * Blend);
-                }
-
-                float3 ResolvedPhotosphere = float3(0.0, 0.0, 0.0);
-                if (SmallWeight < 1.0 && NormalizedRadius < 1.32)
-                {
-                    float ClampedR  = min(1.0, NormalizedRadius);
-                    float MuSun     = sqrt(max(0.0, 1.0 - ClampedR * ClampedR));
-                    float3 LimbDark = EvaluateNeckelLabsLimbDarkeningGpu(MuSun);
-                    float EdgeErfc  = 0.5 * (1.0 - EvaluateSolarErfGpu((NormalizedRadius - 0.997) / 0.012));
-                    ResolvedPhotosphere = LimbDark * (EdgeErfc * DiscIntensity);
-                }
-
-                float3 SubPixelPhotosphere = float3(0.0, 0.0, 0.0);
-                if (SmallWeight > 0.0 && dot(UnitRay, SunDir) > 0.0)
-                {
-                    float3 RefAxis       = (abs(SunDir.z) < 0.98) ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
-                    float3 TangentT      = normalize(cross(RefAxis, SunDir));
-                    float3 TangentB      = normalize(cross(SunDir, TangentT));
-                    float  DeltaX        = dot(UnitRay, TangentT);
-                    float  DeltaY        = dot(UnitRay, TangentB);
-                    float  SmallSigma    = sqrt(0.25 * HalfR * HalfR + 0.20 * PixelSizeR * PixelSizeR);
-                    float  InvSqrt2Sigma = 1.0 / (1.4142135623730951 * max(1.0e-6, SmallSigma));
-                    float  LowX          = (DeltaX - 0.5 * PixelSizeR) * InvSqrt2Sigma;
-                    float  HighX         = (DeltaX + 0.5 * PixelSizeR) * InvSqrt2Sigma;
-                    float  LowY          = (DeltaY - 0.5 * PixelSizeR) * InvSqrt2Sigma;
-                    float  HighY         = (DeltaY + 0.5 * PixelSizeR) * InvSqrt2Sigma;
-                    float  XMass         = max(0.0, 0.5 * (EvaluateSolarErfGpu(HighX) - EvaluateSolarErfGpu(LowX)));
-                    float  YMass         = max(0.0, 0.5 * (EvaluateSolarErfGpu(HighY) - EvaluateSolarErfGpu(LowY)));
-                    float  SinHalf       = sin(0.5 * HalfR);
-                    float  SolidAngle    = 4.0 * CelestialPiConst * SinHalf * SinHalf;
-                    float  PixelArea     = max(1.0e-12, PixelSizeR * PixelSizeR);
-                    float  SubGain       = (SolidAngle / PixelArea) * XMass * YMass * DiscIntensity;
-                    SubPixelPhotosphere  = float3(0.83276, 0.77447, 0.69061) * SubGain;
-                }
-
-                float3 Photosphere = lerp(ResolvedPhotosphere, SubPixelPhotosphere, SmallWeight);
-
-                float3 CoronaColour    = float3(0.0, 0.0, 0.0);
-                float  CoronaBlurAngle = 0.30 * PixelSizeR * SmallWeight;
-                float  CoronaNormR     = sqrt(Separation * Separation + CoronaBlurAngle * CoronaBlurAngle) / HalfR;
-                if (CoronaNormR < 48.0)
-                {
-                    float R1            = CoronaNormR / 1.18;
-                    float R2            = CoronaNormR / 3.40;
-                    float R3            = CoronaNormR / 11.5;
-                    float InnerTerm     = 1.0 / pow(1.0 + R1 * R1, 1.85);
-                    float MiddleTerm    = 1.0 / pow(1.0 + R2 * R2, 1.38);
-                    float OuterTerm     = 1.0 / pow(1.0 + R3 * R3, 1.22);
-                    float ScatterFactor = Orbital ? 0.38 : clamp(0.55 + 0.85 * (1.0 - LineTransmittance.z), 0.55, 1.35);
-                    float CoronaProfile = DiscIntensity * (0.042 * InnerTerm + 0.0085 * ScatterFactor * MiddleTerm + 0.0014 * ScatterFactor * OuterTerm);
-                    float WindowFade    = clamp(1.0 - CoronaNormR / 48.0, 0.0, 1.0);
-                    float SmoothWindow  = WindowFade * WindowFade;
-                    CoronaColour        = CoronaProfile * SmoothWindow * float3(1.04, 0.99, 0.91);
-                }
-
-                OutRgb += (Photosphere + CoronaColour) * LineTransmittance * Cfg.SunTintIntensity.xyz;
-            }
-        }
-
-        float GlareStrength = max(0.0, Cfg.SolarOpticsParams.x);
-        if (GlareStrength > 0.0)
-        {
-            float Spread = EvaluateSolarGlareSpreadGpu(Separation, HalfR);
-            if (Spread > 0.0)
-            {
-                bool SunAxisBlocked = (!Orbital) && QueryGroundHorizonBlockedGpu(Cfg, SunDir.z);
-                if (!SunAxisBlocked)
-                {
-                    float3 AxisTrans   = Orbital ? float3(1.0, 1.0, 1.0) : EvaluateCelestialAtmoTransmittance(Cfg, SunDir);
-                    float  GlareFactor = GlareStrength * Spread * (0.045 * DiscIntensity);
-                    OutRgb += float3(1.02, 1.00, 0.96) * GlareFactor * AxisTrans * Cfg.SunTintIntensity.xyz;
-                }
-            }
-        }
-    }
-
-    // 2. Multi-Instance Moons (up to 6 simultaneously):
-    //    eos 3D self-shadowed exosphere + a1dad11b 20-step radial quadrature + Beer-Lambert ViewTransmittance
-    //    + Rayleigh / Cornette-Shanks Mie + 4x4 stratified edge Lommel-Seeliger/Oren-Nayar/Hapke regolith AA
+    // 1. Multi-Instance Moons FIRST (up to 6 simultaneously):
+    //    Occupy foreground optical plane BEFORE Sun & Stars so Moons properly eclipse the Sun & Stars behind them.
     float3 StarTransmittance = float3(1.0, 1.0, 1.0);
-    float  PixelAngSize = max(1.0e-4, max(Cfg.SolarOpticsParams.y, 0.85 / max(720.0, Cfg.ClockViewportDims.z)));
-    uint   MoonCount    = min(6u, uint(Cfg.ClockViewportDims.w + 0.5));
+    float  SunEclipseVis     = 1.0;
+    float  SunHalfR          = max(0.0008, Cfg.SunAxisRadius.w);
+    float  PixelSizeR        = max(0.0, Cfg.SolarOpticsParams.y);
+    float  PixelAngSize      = max(1.0e-4, max(PixelSizeR, 0.85 / max(720.0, Cfg.ClockViewportDims.z)));
+    uint   MoonCount         = min(6u, uint(Cfg.ClockViewportDims.w + 0.5));
+    float  HorizonLimbMask   = Orbital ? 1.0 : EvaluateHorizonUpperLimbMaskGpu(Cfg, UnitRay.z, max(0.00035, 0.60 * PixelAngSize));
+
     for (uint MIdx = 0u; MIdx < MoonCount; ++MIdx)
     {
         GpuMoonDescriptor M = Cfg.Moons[MIdx];
@@ -908,17 +917,26 @@ float3 EvaluateSolarMoonBodiesGpu(
         float  SinAng  = max(1.0e-4, sin(AngR));
         float  CosM    = clamp(dot(UnitRay, MoonDir), -1.0, 1.0);
 
+        float SunMoonSep = acos(clamp(dot(SunDir, MoonDir), -1.0, 1.0));
+        if (SunMoonSep < AngR + SunHalfR)
+        {
+            float AreaRatio = min(1.0, (AngR * AngR) / max(1.0e-8, SunHalfR * SunHalfR));
+            float Overlap   = 1.0 - smoothstep(max(0.0, AngR - SunHalfR), AngR + SunHalfR, SunMoonSep);
+            SunEclipseVis  *= clamp(1.0 - Overlap * AreaRatio, 0.0, 1.0);
+        }
+
         uint PresetIdx = uint(M.MetaMask.z + 0.5);
         LunarExosphereGpuProfile Exo = QueryLunarExosphereGpuProfile(PresetIdx);
-        float  ExoStr   = (M.MetaMask.y > 0.0) ? max(Exo.LimbStrength, 0.65 * M.MetaMask.y) : (Exo.LimbStrength * 0.85);
-        float  ExoThick = clamp((M.MetaMask.w > 0.01) ? M.MetaMask.w : (0.18 * Exo.LimbStrength), 0.04, 0.45);
+        bool   HasExo   = (M.MetaMask.y > 0.0);
+        float  ExoStr   = HasExo ? max(Exo.LimbStrength, 0.65 * M.MetaMask.y) : 0.0;
+        float  ExoThick = HasExo ? clamp((M.MetaMask.w > 0.01) ? M.MetaMask.w : (0.18 * Exo.LimbStrength), 0.04, 0.45) : 0.0;
         float3 ExoTint  = Exo.LimbTint;
 
-        if (!Orbital)
+        if (!Orbital && M.OpticsOrientation.y > 0.0)
         {
             float GlowBoost = 0.45 + 0.55 * min(1.8, MieScale * (0.4 + 0.6 * HorizonF));
             float Glow      = pow(max(0.0, CosM), 640.0) * M.OpticsOrientation.y * 0.065 * M.OpticsOrientation.x * GlowBoost;
-            OutRgb += StarTransmittance * lerp(M.TintSynodicPhase.xyz, ExoTint, 0.35) * Glow * AtmoTrans;
+            OutRgb += StarTransmittance * lerp(M.TintSynodicPhase.xyz, ExoTint, 0.35) * Glow * AtmoTrans * HorizonLimbMask;
         }
 
         float PixelNorm   = PixelAngSize / SinAng;
@@ -1025,8 +1043,105 @@ float3 EvaluateSolarMoonBodiesGpu(
 
             float  OffLimbFrac = 1.0 - DiscCoverage;
             float3 SlotCol     = ExoScattered + ViewTransmittance * SurfaceAvg;
-            OutRgb            += StarTransmittance * SlotCol * AtmoTrans;
+            OutRgb            += StarTransmittance * SlotCol * AtmoTrans * HorizonLimbMask;
             StarTransmittance *= OffLimbFrac * ViewTransmittance;
+        }
+    }
+
+    // 2. Neckel & Labs (1994) Limb-Darkened Photosphere + erfc PSF + K/F Corona + Solar Glare AFTER Moons (occluded by StarTransmittance)
+    float DiscIntensity = Cfg.SunTintIntensity.w;
+    if (DiscIntensity > 0.0)
+    {
+        float HalfChord  = 0.5 * length(UnitRay - SunDir);
+        float Separation = 2.0 * asin(clamp(HalfChord, 0.0, 1.0));
+        float MaxConeR   = max(SunHalfR * 48.0, PixelSizeR * 8.0);
+
+        if (Separation <= MaxConeR && (StarTransmittance.x + StarTransmittance.y + StarTransmittance.z) > 1.0e-5)
+        {
+            float  SolarHorizonVis  = Orbital ? 1.0 : EvaluateHorizonUpperLimbMaskGpu(Cfg, UnitRay.z, max(0.00035, 0.65 * PixelAngSize));
+            float3 LineTransmittance = (Orbital ? float3(1.0, 1.0, 1.0) : AtmoTrans) * SolarHorizonVis;
+            if ((LineTransmittance.x + LineTransmittance.y + LineTransmittance.z) > 1.0e-6)
+            {
+                float NormalizedRadius = Separation / SunHalfR;
+
+                float SmallWeight = 0.0;
+                if (PixelSizeR > 1.0e-6)
+                {
+                    float RadiusPixels = SunHalfR / PixelSizeR;
+                    float Blend        = clamp((6.0 - RadiusPixels) / 3.0, 0.0, 1.0);
+                    SmallWeight        = Blend * Blend * (3.0 - 2.0 * Blend);
+                }
+
+                float3 ResolvedPhotosphere = float3(0.0, 0.0, 0.0);
+                if (SmallWeight < 1.0 && NormalizedRadius < 1.32)
+                {
+                    float ClampedR  = min(1.0, NormalizedRadius);
+                    float MuSun     = sqrt(max(0.0, 1.0 - ClampedR * ClampedR));
+                    float3 LimbDark = EvaluateNeckelLabsLimbDarkeningGpu(MuSun);
+                    float EdgeErfc  = 0.5 * (1.0 - EvaluateSolarErfGpu((NormalizedRadius - 0.997) / 0.012));
+                    ResolvedPhotosphere = LimbDark * (EdgeErfc * DiscIntensity);
+                }
+
+                float3 SubPixelPhotosphere = float3(0.0, 0.0, 0.0);
+                if (SmallWeight > 0.0 && dot(UnitRay, SunDir) > 0.0)
+                {
+                    float3 RefAxis       = (abs(SunDir.z) < 0.98) ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
+                    float3 TangentT      = normalize(cross(RefAxis, SunDir));
+                    float3 TangentB      = normalize(cross(SunDir, TangentT));
+                    float  DeltaX        = dot(UnitRay, TangentT);
+                    float  DeltaY        = dot(UnitRay, TangentB);
+                    float  SmallSigma    = sqrt(0.25 * SunHalfR * SunHalfR + 0.20 * PixelSizeR * PixelSizeR);
+                    float  InvSqrt2Sigma = 1.0 / (1.4142135623730951 * max(1.0e-6, SmallSigma));
+                    float  LowX          = (DeltaX - 0.5 * PixelSizeR) * InvSqrt2Sigma;
+                    float  HighX         = (DeltaX + 0.5 * PixelSizeR) * InvSqrt2Sigma;
+                    float  LowY          = (DeltaY - 0.5 * PixelSizeR) * InvSqrt2Sigma;
+                    float  HighY         = (DeltaY + 0.5 * PixelSizeR) * InvSqrt2Sigma;
+                    float  XMass         = max(0.0, 0.5 * (EvaluateSolarErfGpu(HighX) - EvaluateSolarErfGpu(LowX)));
+                    float  YMass         = max(0.0, 0.5 * (EvaluateSolarErfGpu(HighY) - EvaluateSolarErfGpu(LowY)));
+                    float  SinHalf       = sin(0.5 * SunHalfR);
+                    float  SolidAngle    = 4.0 * CelestialPiConst * SinHalf * SinHalf;
+                    float  PixelArea     = max(1.0e-12, PixelSizeR * PixelSizeR);
+                    float  SubGain       = (SolidAngle / PixelArea) * XMass * YMass * DiscIntensity;
+                    SubPixelPhotosphere  = float3(0.83276, 0.77447, 0.69061) * SubGain;
+                }
+
+                float3 Photosphere = lerp(ResolvedPhotosphere, SubPixelPhotosphere, SmallWeight);
+
+                float3 CoronaColour    = float3(0.0, 0.0, 0.0);
+                float  CoronaBlurAngle = 0.30 * PixelSizeR * SmallWeight;
+                float  CoronaNormR     = sqrt(Separation * Separation + CoronaBlurAngle * CoronaBlurAngle) / SunHalfR;
+                if (CoronaNormR < 48.0)
+                {
+                    float R1            = CoronaNormR / 1.18;
+                    float R2            = CoronaNormR / 3.40;
+                    float R3            = CoronaNormR / 11.5;
+                    float InnerTerm     = 1.0 / pow(1.0 + R1 * R1, 1.85);
+                    float MiddleTerm    = 1.0 / pow(1.0 + R2 * R2, 1.38);
+                    float OuterTerm     = 1.0 / pow(1.0 + R3 * R3, 1.22);
+                    float ScatterFactor = Orbital ? 0.38 : clamp(0.55 + 0.85 * (1.0 - LineTransmittance.z), 0.55, 1.35);
+                    float CoronaProfile = DiscIntensity * (0.042 * InnerTerm + 0.0085 * ScatterFactor * MiddleTerm + 0.0014 * ScatterFactor * OuterTerm);
+                    float WindowFade    = clamp(1.0 - CoronaNormR / 48.0, 0.0, 1.0);
+                    float SmoothWindow  = WindowFade * WindowFade;
+                    CoronaColour        = CoronaProfile * SmoothWindow * float3(1.04, 0.99, 0.91);
+                }
+
+                OutRgb += StarTransmittance * (Photosphere + CoronaColour) * LineTransmittance * Cfg.SunTintIntensity.xyz;
+            }
+        }
+
+        float GlareStrength = max(0.0, Cfg.SolarOpticsParams.x);
+        if (GlareStrength > 0.0 && SunEclipseVis > 1.0e-4)
+        {
+            float Spread = EvaluateSolarGlareSpreadGpu(Separation, SunHalfR);
+            if (Spread > 0.0)
+            {
+                float SunAxisHorizonVis = Orbital ? 1.0 : EvaluateHorizonUpperLimbMaskGpu(Cfg, SunDir.z, max(0.001, SunHalfR));
+                if (SunAxisHorizonVis > 1.0e-4)
+                {
+                    float GlareFactor = GlareStrength * Spread * (0.045 * DiscIntensity) * SunAxisHorizonVis * SunEclipseVis;
+                    OutRgb += float3(1.02, 1.00, 0.96) * GlareFactor * SunAxisTrans * Cfg.SunTintIntensity.xyz;
+                }
+            }
         }
     }
 
@@ -1042,7 +1157,7 @@ float3 EvaluateGalacticNebulaBackdropGpu(
     float3                     AtmoTrans,
     float3                     StarTransmittance)
 {
-    uint Flags = uint(Cfg.AtmoMediumPack.w + 0.5);
+    uint Flags = uint(round(max(0.0, Cfg.AtmoMediumPack.w)));
     if ((Flags & 4u) == 0u)
     {
         return float3(0.0, 0.0, 0.0);
@@ -1063,7 +1178,7 @@ float3 EvaluateZodiacalBackdropGpu(
     float3                     AtmoTrans,
     float3                     StarTransmittance)
 {
-    uint Flags = uint(Cfg.AtmoMediumPack.w + 0.5);
+    uint Flags = uint(round(max(0.0, Cfg.AtmoMediumPack.w)));
     if ((Flags & 8u) == 0u)
     {
         return float3(0.0, 0.0, 0.0);
@@ -1074,7 +1189,7 @@ float3 EvaluateZodiacalBackdropGpu(
     {
         return float3(0.0, 0.0, 0.0);
     }
-    float  Scale    = float(Flags >> 4u) * (1.0 / 255.0);
+    float  Scale    = float((Flags >> 4u) & 0xFFFu) * (1.0 / 255.0);
     if (Scale <= 0.0)
     {
         return float3(0.0, 0.0, 0.0);
@@ -1129,7 +1244,7 @@ float3 EvaluateDeepCubemapStarsGpu(
     int    CY     = clamp(int(floor(GridUv.y)), 0, 95);
 
     float MagLim = Cfg.StarParams.y + 0.5;
-    uint  Flags  = uint(Cfg.AtmoMediumPack.w + 0.5);
+    uint  Flags  = uint(round(max(0.0, Cfg.AtmoMediumPack.w)));
     bool  Gal    = (Flags & 4u) != 0u;
     float GalSin = TransformEquatorialToGalacticGpu(EqDir).z;
     float GalW   = Gal ? (0.40 + 1.40 * exp(-(GalSin * GalSin) / 0.065)) : 0.70;
@@ -1250,23 +1365,89 @@ float3 EvaluateTiledCatalogStarsGpu(
     return OutRgb;
 }
 
-float3 EvaluateCelestialBodiesUnifiedGpu(
-    CelestialFieldUniformBlock         Cfg,
-    StructuredBuffer<uint>             LunarAtlas,
-    StructuredBuffer<GpuProjectedStar> ProjectedStars,
-    StructuredBuffer<uint>             TileBins,
-    float2                             PixelCoord,
-    float3                             RayDir,
-    bool                               UseTiled)
+float3 EvaluateBrightCatalogStarsFallbackGpu(
+    CelestialFieldUniformBlock      Cfg,
+    StructuredBuffer<GpuRawCatalogStar> RawStars,
+    uint                            FallbackCount,
+    float3                          EqDir,
+    float                           DayFade,
+    float                           AltFade,
+    float                           ScintAmp,
+    float                           ScintFreq,
+    float                           PixelAng,
+    float3                          AtmoTrans,
+    float3                          StarTransmittance)
 {
-    float3 UnitRay   = normalize(RayDir);
-    float3 SunDir    = normalize(Cfg.SunAxisRadius.xyz);
-    uint   Flags     = uint(Cfg.AtmoMediumPack.w + 0.5);
-    bool   Orbital   = (Flags & 2u) != 0u;
-    float3 AtmoTrans = EvaluateCelestialAtmoTransmittance(Cfg, UnitRay);
+    uint   SafeCnt = min(240u, FallbackCount);
+    if (SafeCnt == 0u)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    float3 RefEq  = (abs(EqDir.z) < 0.90) ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
+    float3 TangU  = normalize(cross(RefEq, EqDir));
+    float3 TangV  = cross(EqDir, TangU);
+    float  MagLim = Cfg.StarParams.y + 0.5;
+    float  CosLim = cos(max(0.002, 10.0 * PixelAng));
+    float3 OutRgb = float3(0.0, 0.0, 0.0);
+
+    for (uint I = 0u; I < SafeCnt; ++I)
+    {
+        GpuRawCatalogStar Raw = RawStars[I];
+        if (Raw.EqDirMag.w > MagLim) break;
+
+        float3 StarDir = Raw.EqDirMag.xyz;
+        if (dot(EqDir, StarDir) < CosLim) continue;
+
+        float DXPx = dot(StarDir, TangU) / PixelAng;
+        float DYPx = dot(StarDir, TangV) / PixelAng;
+        if (DXPx * DXPx + DYPx * DYPx > 100.0) continue;
+
+        float Mass = EvaluateStellarErfMoffatMassGpu(DXPx, DYPx, Cfg.StarParams.w);
+        if (Mass < 1.0e-6) continue;
+
+        float Twinkle = 1.0;
+        float Chroma  = 0.0;
+        if (ScintAmp > 0.0)
+        {
+            float Phase   = Raw.ColorSeed.w * CelestialTauConst;
+            float Flicker = 0.62 * sin(Cfg.ClockViewportDims.x * ScintFreq * 11.4 + Phase * 3.0)
+                          + 0.38 * sin(Cfg.ClockViewportDims.x * ScintFreq * 24.4 + Phase * 7.0);
+            Twinkle = max(0.0, 1.0 + ScintAmp * Flicker);
+            Chroma  = 0.35 * ScintAmp * sin(Cfg.ClockViewportDims.x * ScintFreq * 17.6 + Phase * 5.0);
+        }
+
+        float  Flux = 14.0 * pow(10.0, -0.4 * Raw.EqDirMag.w);
+        float  Lum  = Flux * Cfg.StarParams.z * DayFade * Twinkle * AltFade * Mass;
+        float3 Tint = Raw.ColorSeed.xyz * float3(1.0 + Chroma, 1.0, 1.0 - Chroma);
+        OutRgb += StarTransmittance * (Lum * Tint) * AtmoTrans;
+    }
+    return OutRgb;
+}
+
+#ifdef FRONTIER_ATMOSPHERE_EMBEDDED
+float3 EvaluateCelestialBodiesUnifiedGpu(
+    CelestialFieldUniformBlock          Cfg,
+    StructuredBuffer<float4>            SkyLut,
+    float                               AtmoThicknessM,
+    StructuredBuffer<uint>              LunarAtlas,
+    StructuredBuffer<GpuProjectedStar>  ProjectedStars,
+    StructuredBuffer<uint>              TileBins,
+    StructuredBuffer<GpuRawCatalogStar> RawStars,
+    float2                              PixelCoord,
+    float3                              RayDir,
+    bool                                UseTiled)
+{
+    float3 UnitRay      = normalize(RayDir);
+    float3 SunDir       = normalize(Cfg.SunAxisRadius.xyz);
+    uint   Flags        = uint(round(max(0.0, Cfg.AtmoMediumPack.w)));
+    bool   Orbital      = (Flags & 2u) != 0u;
+    float3 AtmoTrans    = EvaluateCelestialAtmoTransmittanceWithLutGpu(Cfg, SkyLut, AtmoThicknessM, UnitRay);
+    float3 SunAxisTrans = EvaluateCelestialAtmoTransmittanceWithLutGpu(Cfg, SkyLut, AtmoThicknessM, SunDir);
 
     float3 StarTransmittance = float3(1.0, 1.0, 1.0);
-    float3 OutRgb = EvaluateSolarMoonBodiesGpu(Cfg, LunarAtlas, UnitRay, SunDir, Orbital, AtmoTrans, StarTransmittance);
+    float3 OutRgb = EvaluateSolarMoonBodiesGpu(
+        Cfg, LunarAtlas, UnitRay, SunDir, Orbital, AtmoTrans, SunAxisTrans, StarTransmittance);
 
     if (Cfg.StarParams.x > 0.5 && (Orbital || UnitRay.z > -0.02) && (StarTransmittance.x + StarTransmittance.y + StarTransmittance.z) > 1.0e-5)
     {
@@ -1291,12 +1472,19 @@ float3 EvaluateCelestialBodiesUnifiedGpu(
             {
                 OutRgb += EvaluateTiledCatalogStarsGpu(Cfg, ProjectedStars, TileBins, PixelCoord, DayFade, ScintAmp, ScintFreq, AtmoTrans, StarTransmittance);
             }
+            else
+            {
+                uint FallbackCnt = (Flags >> 16u) & 0xFFu;
+                OutRgb += EvaluateBrightCatalogStarsFallbackGpu(
+                    Cfg, RawStars, FallbackCnt, EqDir, DayFade, AltFade, ScintAmp, ScintFreq, PixelAng, AtmoTrans, StarTransmittance);
+            }
             OutRgb += EvaluateDeepCubemapStarsGpu(Cfg, EqDir, DayFade, AltFade, ScintAmp, ScintFreq, PixelAng, AtmoTrans, StarTransmittance);
         }
     }
 
     return OutRgb;
 }
+#endif
 
 #ifndef FRONTIER_ATMOSPHERE_EMBEDDED
 float3 EvaluateCelestialBodiesGpu(
@@ -1304,14 +1492,16 @@ float3 EvaluateCelestialBodiesGpu(
     StructuredBuffer<uint>     LunarAtlas,
     float3                     RayDir)
 {
-    float3 UnitRay   = normalize(RayDir);
-    float3 SunDir    = normalize(Cfg.SunAxisRadius.xyz);
-    uint   Flags     = uint(Cfg.AtmoMediumPack.w + 0.5);
-    bool   Orbital   = (Flags & 2u) != 0u;
-    float3 AtmoTrans = EvaluateCelestialAtmoTransmittance(Cfg, UnitRay);
+    float3 UnitRay      = normalize(RayDir);
+    float3 SunDir       = normalize(Cfg.SunAxisRadius.xyz);
+    uint   Flags        = uint(round(max(0.0, Cfg.AtmoMediumPack.w)));
+    bool   Orbital      = (Flags & 2u) != 0u;
+    float3 AtmoTrans    = EvaluateCelestialAtmoTransmittanceSphereGpu(Cfg, UnitRay);
+    float3 SunAxisTrans = EvaluateCelestialAtmoTransmittanceSphereGpu(Cfg, SunDir);
 
     float3 StarTransmittance = float3(1.0, 1.0, 1.0);
-    float3 OutRgb = EvaluateSolarMoonBodiesGpu(Cfg, LunarAtlas, UnitRay, SunDir, Orbital, AtmoTrans, StarTransmittance);
+    float3 OutRgb = EvaluateSolarMoonBodiesGpu(
+        Cfg, LunarAtlas, UnitRay, SunDir, Orbital, AtmoTrans, SunAxisTrans, StarTransmittance);
 
     if (Cfg.StarParams.x > 0.5 && (Orbital || UnitRay.z > -0.02) && (StarTransmittance.x + StarTransmittance.y + StarTransmittance.z) > 1.0e-5)
     {

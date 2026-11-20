@@ -32,8 +32,6 @@ struct ClassSummaryMetrics
     uint32_t ConstraintCount    = 0u; // [cnt] - Live ConstraintInstance count
     uint32_t LightCount         = 0u; // [cnt] - Live LightInstance count
     uint32_t CollisionCount     = 0u; // [cnt] - Live CollisionVolume count
-    uint32_t ParticleCount      = 0u; // [cnt] - Live ParticleInstance count
-    uint32_t FluidCount         = 0u; // [cnt] - Live FluidInstance count
     uint32_t BehaviourCount     = 0u; // [cnt] - Live VehicleDynamics + RotationalMotion count
 };
 
@@ -67,10 +65,6 @@ public:
     [[nodiscard]] const GeometryComponentSettings*  InspectGeometry(ComponentInstanceToken Token) const noexcept;
     [[nodiscard]] ConstraintComponentSettings*      ResolveConstraint(ComponentInstanceToken Token) noexcept;
     [[nodiscard]] const ConstraintComponentSettings*InspectConstraint(ComponentInstanceToken Token) const noexcept;
-    [[nodiscard]] ParticleComponentSettings*        ResolveParticle(ComponentInstanceToken Token) noexcept;
-    [[nodiscard]] const ParticleComponentSettings*  InspectParticle(ComponentInstanceToken Token) const noexcept;
-    [[nodiscard]] FluidComponentSettings*           ResolveFluid(ComponentInstanceToken Token) noexcept;
-    [[nodiscard]] const FluidComponentSettings*     InspectFluid(ComponentInstanceToken Token) const noexcept;
     [[nodiscard]] LightComponentSettings*           ResolveLight(ComponentInstanceToken Token) noexcept;
     [[nodiscard]] const LightComponentSettings*     InspectLight(ComponentInstanceToken Token) const noexcept;
     [[nodiscard]] CameraComponentSettings*          ResolveCamera(ComponentInstanceToken Token) noexcept;
@@ -108,8 +102,6 @@ private:
 
     std::vector<GeometryComponentSettings>   Geometries   {};
     std::vector<ConstraintComponentSettings> Constraints  {};
-    std::vector<ParticleComponentSettings>   Particles    {};
-    std::vector<FluidComponentSettings>      Fluids       {};
     std::vector<LightComponentSettings>      Lights       {};
     std::vector<CameraComponentSettings>     Cameras      {};
     std::vector<CollisionVolumeSettings>     Collisions   {};

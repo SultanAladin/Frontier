@@ -144,8 +144,6 @@ private:
     DeviceBufferResource   AtmosphericSkyViewLutBuffer   {};
     DeviceBufferResource   LunarSurfaceAtlasBuffer       {};
     DeviceBufferResource   BakedLensFlareAtlasBuffer     {};
-    DeviceBufferResource   FluidHeroThermoBuffer         {};
-    DeviceBufferResource   FluidWorldThermoBuffer        {};
     DeviceBufferResource   GBufPosMaskBuffer             {};
     DeviceBufferResource   GBufNormAoBuffer              {};
     DeviceBufferResource   GBufDirectBaseBuffer          {};
@@ -154,6 +152,7 @@ private:
     DeviceBufferResource   PingShadowAoBuffer            {};
     DeviceBufferResource   PongShadowAoBuffer            {};
     DeviceBufferResource   CloudRadiometricBuffer        {};
+    DeviceBufferResource   PlanetaryCloudNoiseBuffer     {};
     DeviceBufferResource   RawCatalogStarBuffer          {};
     DeviceBufferResource   ProjectedCatalogStarBuffer    {};
     DeviceBufferResource   StellarTileBinsBuffer         {};

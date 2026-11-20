@@ -10,8 +10,8 @@
 #include "Engine/Components/Controls/ScalarSlider.h"
 #include "Engine/Components/Controls/SimulationTimelineFooter.h"
 #include "Engine/Components/Diagnostics/DiagnosticsOverlay.h"
+#include "Engine/Components/Panes/StudioPaneAppearance.h"
 #include "Engine/Workspaces/Fracture/FractureIcons.h"
-#include "Engine/Workspaces/Particle/ParticlePaneAppearance.h"
 
 #include <algorithm>
 #include <array>
@@ -29,7 +29,7 @@ namespace Frontier::Workspaces::Fracture
 namespace
 {
 
-using namespace ParticleAppearance;
+using namespace StudioAppearance;
 using GeometrySpace::Fracture::FractureSolverMethod;
 
 std::pair<std::string, std::string> SplitDecimalParts(float Value, const char* Fmt = "%.2f")

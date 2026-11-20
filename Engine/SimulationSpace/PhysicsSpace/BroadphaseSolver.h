@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                             BROADPHASESOLVER.H
 ============================================================================================================================================*/
-// 🧩 Broadphase collision channels, raycast/overlap queries, and 80-byte GPU/CPU RigidColliderProxy particle collision solver
+// 🧩 Broadphase collision channels, raycast/overlap queries, and 80-byte GPU/CPU RigidColliderProxy analytical sphere solver
 
 #pragma once
 
@@ -28,7 +28,7 @@ enum class CollisionLayerChannel : uint16_t
     DynamicSolid      = 1u, // [-] - Interactive rigid bodies
     FractureFragment  = 2u, // [-] - Shards & debris produced by fracture partitioning
     SensorTrigger     = 3u, // [-] - Overlap-only volume triggers
-    DebrisParticle    = 4u, // [-] - Lightweight particulate solids
+    DebrisFragment    = 4u, // [-] - Lightweight granular debris solids
     Count             = 5u, // [count] - Total broadphase layer channels
 };
 
@@ -61,7 +61,7 @@ struct SphereOverlapQuery
     uint32_t            ChannelMask   = 0xFFFFFFFFu;        // [mask] - Bitmask of CollisionLayerChannel ordinals
 };
 
-/// Compact 80-byte GPU/CPU collider proxy exported from Jolt rigid bodies (mirrors ParticleBuffers.slang RigidColliderProxyGpu).
+/// Compact 80-byte GPU/CPU collider proxy exported from Jolt rigid bodies.
 struct alignas(16) RigidColliderProxy
 {
     float    CenterMeters[3]      = { 0.0f, 0.0f, 0.0f };       // [m]    - World body origin
@@ -74,20 +74,20 @@ struct alignas(16) RigidColliderProxy
     float    Friction             = 0.5f;                       // [-]    - Surface Coulomb friction
     uint32_t BodySlotIndex        = 0u;                         // [idx]  - 1-based RigidBodyToken::SlotIndex
     uint32_t ChannelMask          = 1u;                         // [mask] - 1u << CollisionChannel
-    uint32_t DynamicResponseBit   = 0u;                         // [0/1]  - 1 when Dynamic (eligible for two-way particle impulse)
+    uint32_t DynamicResponseBit   = 0u;                         // [0/1]  - 1 when Dynamic (eligible for two-way reaction impulse)
 };
 
 static_assert(sizeof(RigidColliderProxy) == 80u, "RigidColliderProxy must occupy exactly 80 bytes for GPU SSBO parity.");
 static_assert(alignof(RigidColliderProxy) == 16u, "RigidColliderProxy must remain 16-byte aligned.");
 
-struct ParticleCollisionFeedback
+struct ColliderContactFeedback
 {
-    bool                Collided          = false;                // [-]   - True if particle intersected proxy
-    uint32_t            BodySlotIndex     = 0u;                   // [idx] - Hit rigid body slot index
-    uint32_t            DynamicResponse   = 0u;                   // [0/1] - True when dynamic rigid body should receive reaction impulse
-    Mathematics::Axis3D ContactPoint      { 0.0f, 0.0f, 0.0f };   // [m]   - World contact position
-    Mathematics::Axis3D ContactNormal     { 0.0f, 0.0f, 1.0f };   // [-]   - Outward normal from rigid body into particle
-    Mathematics::Axis3D ParticleImpulseNs { 0.0f, 0.0f, 0.0f };   // [N*s] - Impulse applied to particle (negated for rigid body)
+    bool                Collided        = false;                // [-]   - True if sphere intersected proxy
+    uint32_t            BodySlotIndex   = 0u;                   // [idx] - Hit rigid body slot index
+    uint32_t            DynamicResponse = 0u;                   // [0/1] - True when dynamic rigid body should receive reaction impulse
+    Mathematics::Axis3D ContactPoint    { 0.0f, 0.0f, 0.0f };   // [m]   - World contact position
+    Mathematics::Axis3D ContactNormal   { 0.0f, 0.0f, 1.0f };   // [-]   - Outward normal from rigid body into sphere
+    Mathematics::Axis3D SphereImpulseNs { 0.0f, 0.0f, 0.0f };   // [N*s] - Impulse applied to sphere (negated for rigid body)
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -102,21 +102,21 @@ public:
         return 1u << static_cast<uint32_t>(Channel);
     }
 
-    /// Resolves single particle sphere vs. a RigidColliderProxy (Sphere, Oriented Box, or Oriented +Z Capsule).
-    [[nodiscard]] static ParticleCollisionFeedback ResolveParticleAgainstProxy(
+    /// Resolves single analytical sphere vs. a RigidColliderProxy (Sphere, Oriented Box, or Oriented +Z Capsule).
+    [[nodiscard]] static ColliderContactFeedback ResolveSphereAgainstProxy(
         const RigidColliderProxy& Proxy,
-        float                     ParticleRadiusMeters,
-        float                     ParticleMassKg,
-        float                     ParticlePositionMeters[3],
-        float                     ParticleVelocityMps[3]) noexcept;
+        float                     SphereRadiusMeters,
+        float                     SphereMassKg,
+        float                     SpherePositionMeters[3],
+        float                     SphereVelocityMps[3]) noexcept;
 
-    /// Evaluates a particle against a span of exported Jolt RigidColliderProxies.
-    [[nodiscard]] static ParticleCollisionFeedback ResolveParticleAgainstProxies(
+    /// Evaluates a sphere against a span of exported Jolt RigidColliderProxies.
+    [[nodiscard]] static ColliderContactFeedback ResolveSphereAgainstProxies(
         std::span<const RigidColliderProxy> Proxies,
-        float                               ParticleRadiusMeters,
-        float                               ParticleMassKg,
-        float                               ParticlePositionMeters[3],
-        float                               ParticleVelocityMps[3]) noexcept;
+        float                               SphereRadiusMeters,
+        float                               SphereMassKg,
+        float                               SpherePositionMeters[3],
+        float                               SphereVelocityMps[3]) noexcept;
 };
 
 } // namespace Frontier::SimulationSpace::PhysicsSpace

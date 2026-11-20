@@ -70,8 +70,6 @@ const char* QueryCategorySubtitle(
         case Cat::CameraInstance:   return "Camera";
         case Cat::CollisionVolume:  return "Box trigger";
         case Cat::DirectionArrow:   return "DirectionArrow";
-        case Cat::ParticleInstance: return "Particle";
-        case Cat::FluidInstance:    return "Fluid";
         case Cat::VehicleDynamics:  return "VehicleDynamics";
         case Cat::RotationalMotion: return "RotationalMotion";
     }
@@ -87,8 +85,6 @@ ColorRgba QueryCategoryAccentTint(ComponentClass::ComponentCategory Cat) noexcep
         case C::ConstraintInstance: return { 100u, 182u, 255u, 255u };
         case C::LightInstance:      return { 255u, 210u, 110u, 255u };
         case C::CollisionVolume:    return { 255u, 178u,  56u, 255u };
-        case C::ParticleInstance:   return { 196u, 140u, 255u, 255u };
-        case C::FluidInstance:      return {  96u, 198u, 232u, 255u };
         case C::VehicleDynamics:    return {  88u, 214u, 141u, 255u };
         case C::CameraInstance:     return { 144u, 184u, 255u, 255u };
         default:                    return { 176u, 180u, 190u, 255u };
@@ -108,8 +104,6 @@ ControlIcon QueryCategoryControlIcon(ComponentClass::ComponentCategory Cat) noex
         case C::CameraInstance:     return ControlIcon::CameraBody;
         case C::CollisionVolume:    return ControlIcon::VolumeBoxes;
         case C::DirectionArrow:     return ControlIcon::MoveArrows;
-        case C::ParticleInstance:   return ControlIcon::SparklesAntiAliasing;
-        case C::FluidInstance:      return ControlIcon::NoiseWave;
         case C::VehicleDynamics:    return ControlIcon::GaugeRate;
         case C::RotationalMotion:   return ControlIcon::RefreshCycle;
     }
@@ -471,7 +465,7 @@ void ComponentTreePanel::Render(
             ComponentClass::PhysicsConstraintCategory ConCategory;
             bool                                  HeaderOnly;
         };
-        static constexpr std::array<AddDirectiveSpec, 12> Specs {{
+        static constexpr std::array<AddDirectiveSpec, 10> Specs {{
             { "SCENE & CONSTRAINTS", ComponentClass::ComponentCategory::SpatialOrigin,      ComponentClass::PhysicsConstraintCategory::Fixed,  true  },
             { "Geometry Instance",   ComponentClass::ComponentCategory::GeometryInstance,   ComponentClass::PhysicsConstraintCategory::Fixed,  false },
             { "Spring Constraint",   ComponentClass::ComponentCategory::ConstraintInstance, ComponentClass::PhysicsConstraintCategory::Spring, false },
@@ -480,18 +474,16 @@ void ComponentTreePanel::Render(
             { "SpotBeam Light",      ComponentClass::ComponentCategory::LightInstance,      ComponentClass::PhysicsConstraintCategory::Fixed,  false },
             { "Box Collider",        ComponentClass::ComponentCategory::CollisionVolume,    ComponentClass::PhysicsConstraintCategory::Fixed,  false },
             { "Camera",              ComponentClass::ComponentCategory::CameraInstance,     ComponentClass::PhysicsConstraintCategory::Fixed,  false },
-            { "Particle Instance",   ComponentClass::ComponentCategory::ParticleInstance,   ComponentClass::PhysicsConstraintCategory::Fixed,  false },
-            { "Fluid Instance",      ComponentClass::ComponentCategory::FluidInstance,      ComponentClass::PhysicsConstraintCategory::Fixed,  false },
             { "BEHAVIOURS",          ComponentClass::ComponentCategory::VehicleDynamics,    ComponentClass::PhysicsConstraintCategory::Fixed,  true  },
             { "Vehicle Dynamics",    ComponentClass::ComponentCategory::VehicleDynamics,    ComponentClass::PhysicsConstraintCategory::Fixed,  false },
         }};
 
-        std::array<DropdownDirectiveEntry, 12> Entries {};
+        std::array<DropdownDirectiveEntry, 10> Entries {};
         for (std::size_t I = 0u; I < Specs.size(); ++I)
         {
             Entries[I].Label          = Specs[I].Label;
             Entries[I].SectionCaption = Specs[I].HeaderOnly;
-            Entries[I].DividerAbove   = (I == 10u);
+            Entries[I].DividerAbove   = (I == 8u);
             if (!Specs[I].HeaderOnly)
             {
                 Entries[I].LeadingTint = QueryCategoryAccentTint(Specs[I].Cat);

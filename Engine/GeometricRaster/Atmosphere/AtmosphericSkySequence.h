@@ -14,12 +14,6 @@
 #include <cstdint>
 #include <vector>
 
-namespace Frontier::SimulationSpace::ForceFields
-{
-class ForceFieldAccumulator;
-class FieldLatticeCascade;
-}
-
 namespace Frontier::GeometricRaster
 {
 
@@ -113,19 +107,22 @@ public:
         const Mathematics::LinearRGB&         EffectiveSolarTint,
         bool                                  AllowBelowHorizon   = false,
         const AtmosphericMediumConfiguration* OptionalMedium      = nullptr,
-        float                                 PixelAngularSizeRad = 0.0f) noexcept;
+        float                                 PixelAngularSizeRad = 0.0f,
+        const Mathematics::LinearRGB&         ForegroundOcclusion = { 1.0f, 1.0f, 1.0f },
+        float                                 GlareEclipseVis     = 1.0f) noexcept;
 
-    // Evaluates outer-space planetary sphere, atmospheric Rayleigh/Mie limb, terminator, continents/oceans & orbital cloud shell
+    // Evaluates outer-space planetary sphere, atmospheric Rayleigh/Mie limb, terminator, continents/oceans & 3D planetary clouds
     [[nodiscard]] static Mathematics::LinearRGB EvaluateOrbitalSpaceRadiance(
-        const Mathematics::Axis3D&                               CameraLocalOriginMeters,
-        const Mathematics::Axis3D&                               RayDirection,
-        const Mathematics::Axis3D&                               SunDirection,
-        const SolarCelestialConfiguration&                       SolarConfig,
-        const AtmosphericMediumConfiguration&                    Medium,
-        bool                                                     IncludeOrbitalClouds,
-        float                                                    CloudCoverage01,
-        float                                                    SimulationSeconds,
-        const SimulationSpace::ForceFields::ForceFieldAccumulator* OptionalForceFields = nullptr) noexcept;
+        const Mathematics::Axis3D&            CameraLocalOriginMeters,
+        const Mathematics::Axis3D&            RayDirection,
+        const Mathematics::Axis3D&            SunDirection,
+        const SolarCelestialConfiguration&    SolarConfig,
+        const AtmosphericMediumConfiguration& Medium,
+        bool                                  IncludeOrbitalClouds,
+        float                                 CloudCoverage01,
+        float                                 SimulationSeconds,
+        const struct CloudDeckConfiguration*  OptionalDeck         = nullptr,
+        Mathematics::LinearRGB*               OutSpaceTransmittance = nullptr) noexcept;
 
     [[nodiscard]] const std::vector<float>& InspectSkyViewTexelsRgba32f()   const noexcept { return SkyViewTexelsRgba; }
     [[nodiscard]] const std::vector<float>& InspectTransmittanceTexelsRgb() const noexcept { return TransmittanceTexelsRgb; }

@@ -79,8 +79,8 @@ bool ValidateControlVehicleClass()
 
     const ClassSummaryMetrics Summary = Build.ClassDefinition.Storage.ComputeSummaryMetrics();
     if (!Require(Summary.GeometryCount == 10u && Summary.LightCount == 2u && Summary.CollisionCount == 1u &&
-                 Summary.ParticleCount == 1u && Summary.FluidCount == 1u && Summary.BehaviourCount == 1u,
-                 "ControlVehicle typed instance metrics (10 Geometries, 2 Lights, 1 Collision, 1 Particle, 1 Fluid, 1 Behaviour)"))
+                 Summary.BehaviourCount == 1u,
+                 "ControlVehicle typed instance metrics (10 Geometries, 2 Lights, 1 Collision, 1 Behaviour)"))
     {
         return false;
     }

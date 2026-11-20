@@ -12,8 +12,6 @@
 #include "Engine/GeometricRaster/GlobalIllumination/VulkanWorldRenderSequence.h"
 #include "Engine/GeometricRaster/VulkanInterchange.h"
 #include "Engine/GeometrySpace/Primitives/AnalyticPrimitives.h"
-#include "Engine/SimulationSpace/ForceFields/FieldLatticeCascade.h"
-#include "Engine/SimulationSpace/ForceFields/ForceFieldAccumulator.h"
 #include "Exhibits/SoftwareCanvasRasterizer.h"
 
 #include <algorithm>
@@ -287,7 +285,6 @@ int main()
 {
     using namespace Frontier;
     using namespace Frontier::GeometricRaster;
-    using namespace Frontier::SimulationSpace::ForceFields;
 
     ValidationScorecard Score {};
     const std::filesystem::path RepoRoot  = FRONTIER_REPO_ROOT_DIR;
@@ -296,54 +293,23 @@ int main()
     std::filesystem::create_directories(OutDir);
 
     // 1. Unit checks for Wind Solver, 7 Volume Shapes, and Height Fog Singularity Safety
-    ForceFieldAccumulator Accumulator {};
-    {
-        ForceSourceRecordEntry Vortex {};
-        Vortex.UniqueToken       = 1u;
-        Vortex.Model             = ForceModel::RotationalColumn;
-        Vortex.Envelope          = ReachEnvelopeCategory::Column;
-        Vortex.CentreMeters      = { 0.0f, 22.0f, 6.0f };
-        Vortex.RadiusMeters      = 36.0f;
-        Vortex.HalfExtentsMeters = { 36.0f, 36.0f, 24.0f };
-        Vortex.Strength          = 36.0f;
-        Vortex.SwirlRatio        = 0.95f;
-
-        ForceSourceRecordEntry WindGust {};
-        WindGust.UniqueToken     = 2u;
-        WindGust.Model           = ForceModel::LinearWind;
-        WindGust.Envelope        = ReachEnvelopeCategory::Sphere;
-        WindGust.CentreMeters    = { 0.0f, 22.0f, 8.0f };
-        WindGust.RadiusMeters    = 80.0f;
-        WindGust.Strength        = 22.0f;
-        WindGust.EulerDegrees    = { 0.0f, 0.0f, 35.0f };
-
-        std::array<ForceSourceRecordEntry, 2> Sources { Vortex, WindGust };
-        Accumulator.AssignSources(Sources);
-    }
-    FieldLatticeCascade Cascade(16u);
-    Cascade.AssignFocusOrigin({ 0.0f, 24.0f, 6.0f });
-    Cascade.EvaluateTierOnCpu(0u, Accumulator, 2.0);
-    Cascade.EvaluateTierOnCpu(1u, Accumulator, 2.0);
-    Cascade.EvaluateTierOnCpu(2u, Accumulator, 2.0);
-
     {
         AtmosphericWindParameters Wp {};
         Wp.SpeedMetersPerSecond = 10.0f;
         Wp.BearingDegrees       = 250.0f;
         Wp.VeerDegreesPerKm     = 20.0f;
         Wp.GustStrength         = 0.25f;
+        Wp.Turbulence           = 0.45f;
         Wp.Steadiness           = 0.8f;
 
         const auto Auth0 = AtmosphericWindSolver::ResolveWindSample(
             Wp, 10.0f, 250.0f, WindCouplingSource::GlobalWind, { 0.0f, 24.0f, 0.0f }, 0.0f, 1.5f);
         const auto Auth2Km = AtmosphericWindSolver::ResolveWindSample(
             Wp, 10.0f, 250.0f, WindCouplingSource::GlobalWind, { 0.0f, 24.0f, 2000.0f }, 2000.0f, 1.5f);
-        const auto FfSample = AtmosphericWindSolver::ResolveWindSample(
-            Wp, 10.0f, 250.0f, WindCouplingSource::ForceFieldCascade, { 6.0f, 24.0f, 6.0f }, 6.0f, 2.0f, &Accumulator, &Cascade);
 
         Score.Verify(Auth0.VelocityMetersPerSec.X != 0.0f || Auth0.VelocityMetersPerSec.Y != 0.0f, "GlobalWind resolves positive velocity");
         Score.Verify(std::abs(Auth0.VelocityMetersPerSec.X - Auth2Km.VelocityMetersPerSec.X) > 0.5f, "Ekman veer rotates wind vector with altitude");
-        Score.Verify(FfSample.CurlScalar > 0.01f, "ForceField RotationalColumn injects nonzero CurlScalar");
+        Score.Verify(Auth0.CurlScalar > 0.01f, "Turbulent wind injects nonzero CurlScalar");
 
         const auto ShapeCenterCheck = [&](AtmosphericVolumeShape Shape)
         {
@@ -395,10 +361,10 @@ int main()
         S.Scene.Atmosphere.SimulationSeconds = 55.0f;
         const auto R45 = RenderCpu(S);
 
-        S.Scene.Atmosphere.SimulationSeconds    = 8.0f;
-        S.Scene.Atmosphere.Clouds.WindSource    = WindCouplingSource::ForceFieldCascade;
-        S.Scene.Atmosphere.ForceFieldSource     = &Accumulator;
-        S.Scene.Atmosphere.WindLatticeCascade   = &Cascade;
+        S.Scene.Atmosphere.SimulationSeconds = 8.0f;
+        S.Scene.Atmosphere.Clouds.WindSource = WindCouplingSource::CloudWind;
+        S.Scene.Atmosphere.Clouds.WindSpeedMetersPerSecond = 26.0f;
+        S.Scene.Atmosphere.Clouds.WindTurbulence = 0.85f;
         const auto Rff = RenderCpu(S);
 
         const float DriftDiff   = MeanAbsPixelDiff(R0.DisplayRgba8, R45.DisplayRgba8);
@@ -418,7 +384,7 @@ int main()
                      "Write 01-WindCoupledCloudsAndShadows.png");
     }
 
-    // 3. Sheet 2: Multi-Shape Depth-Clipped Local Clouds + ForceField Curl
+    // 3. Sheet 2: Multi-Shape Depth-Clipped Local Clouds + Turbulent Wind Advection
     {
         OutdoorProofScene S {};
         S.BuildBase(TileW, TileH);
@@ -456,17 +422,17 @@ int main()
         S.Scene.Atmosphere.LocalClouds.push_back(MakeLocalCloud({  6.8f, 19.0f, 6.8f }, { 3.2f, 3.2f, 4.2f }, AtmosphericVolumeShape::Cylinder, 0.0f));
         const auto RShapesB = RenderCpu(S);
 
-        S.Scene.Atmosphere.ForceFieldSource   = &Accumulator;
-        S.Scene.Atmosphere.WindLatticeCascade = &Cascade;
-        S.Scene.Atmosphere.SimulationSeconds  = 8.0f;
-        for (auto& V : S.Scene.Atmosphere.LocalClouds) V.WindSource = WindCouplingSource::ForceFieldCascade;
+        S.Scene.Atmosphere.Wind.SpeedMetersPerSecond = 24.0f;
+        S.Scene.Atmosphere.Wind.Turbulence           = 0.85f;
+        S.Scene.Atmosphere.SimulationSeconds         = 14.0f;
+        for (auto& V : S.Scene.Atmosphere.LocalClouds) V.WindSource = WindCouplingSource::LocalCloudWind;
         const auto RSwirl = RenderCpu(S);
 
         S.Scene.Atmosphere.LocalClouds.clear();
         const auto RNoLocal = RenderCpu(S);
 
         Score.Verify(MeanAbsPixelDiff(RShapesA.DisplayRgba8, RNoLocal.DisplayRgba8) > 2.0f, "Multi-shape LocalClouds visibly render in scene");
-        Score.Verify(MeanAbsPixelDiff(RShapesB.DisplayRgba8, RSwirl.DisplayRgba8) > 0.6f, "ForceField + FieldLatticeCascade swirls/advects LocalClouds");
+        Score.Verify(MeanAbsPixelDiff(RShapesB.DisplayRgba8, RSwirl.DisplayRgba8) > 0.6f, "Ekman wind & turbulence advects LocalClouds");
 
         const auto Heat = MakeDiffHeatmap(RShapesA.DisplayRgba8, RNoLocal.DisplayRgba8, 4.0f);
         std::vector<uint8_t> Sheet(TileW * 2u * TileH * 2u * 4u, 255u);
@@ -516,7 +482,7 @@ int main()
                      "Write 03-HeightFogAndAerialPerspective.png");
     }
 
-    // 5. Sheet 4: Multi-Shape Local Fog Volumes + ForceField Advection + GPU Parity Check
+    // 5. Sheet 4: Multi-Shape Local Fog Volumes + Wind Advection + GPU Parity Check
     {
         OutdoorProofScene S {};
         S.BuildBase(TileW, TileH);
@@ -555,9 +521,9 @@ int main()
         S.Scene.Atmosphere.SimulationSeconds = 12.0f;
         const auto RT12 = RenderCpu(S);
 
-        S.Scene.Atmosphere.ForceFieldSource   = &Accumulator;
-        S.Scene.Atmosphere.WindLatticeCascade = &Cascade;
-        for (auto& V : S.Scene.Atmosphere.Fog.LocalFogs) V.WindSource = WindCouplingSource::ForceFieldCascade;
+        S.Scene.Atmosphere.Wind.SpeedMetersPerSecond = 22.0f;
+        S.Scene.Atmosphere.Wind.Turbulence           = 0.85f;
+        S.Scene.Atmosphere.SimulationSeconds         = 24.0f;
         const auto RForceFog = RenderCpu(S);
 
         S.Scene.Atmosphere.Fog.HeightFog.Enabled             = true;
@@ -574,12 +540,12 @@ int main()
         HeroCloud.CloudFraction        = 0.82f;
         HeroCloud.ExtinctionMultiplier = 2.8f;
         HeroCloud.FeatureScaleMeters   = 16.0f;
-        HeroCloud.WindSource           = WindCouplingSource::ForceFieldCascade;
+        HeroCloud.WindSource           = WindCouplingSource::LocalCloudWind;
         S.Scene.Atmosphere.LocalClouds.push_back(HeroCloud);
         const auto RFullStack = RenderCpu(S);
 
         Score.Verify(MeanAbsPixelDiff(RT0.DisplayRgba8, RT12.DisplayRgba8) > 0.5f, "LocalFogVolumes visibly advect with wind over time");
-        Score.Verify(MeanAbsPixelDiff(RT12.DisplayRgba8, RForceFog.DisplayRgba8) > 0.35f, "ForceField + FieldLatticeCascade modifies LocalFogVolumes");
+        Score.Verify(MeanAbsPixelDiff(RT12.DisplayRgba8, RForceFog.DisplayRgba8) > 0.35f, "Strong turbulent wind modifies LocalFogVolumes");
 
         // GPU VulkanWorldRenderSequence parity check
         VulkanInterchange VkDevice {};
@@ -606,11 +572,11 @@ int main()
         BlitTile(Sheet, TileW * 2u, TileW, 0u,    TileW, TileH, RT12.DisplayRgba8.data());
         BlitTile(Sheet, TileW * 2u, 0u,    TileH, TileW, TileH, RForceFog.DisplayRgba8.data());
         BlitTile(Sheet, TileW * 2u, TileW, TileH, TileW, TileH, RFullStack.DisplayRgba8.data());
-        Score.Verify(WritePngRgba8(OutDir / "04-MultiShapeLocalFogWithForceFields.png", TileW * 2u, TileH * 2u, Sheet.data()),
-                     "Write 04-MultiShapeLocalFogWithForceFields.png");
+        Score.Verify(WritePngRgba8(OutDir / "04-MultiShapeLocalFogWithWind.png", TileW * 2u, TileH * 2u, Sheet.data()),
+                     "Write 04-MultiShapeLocalFogWithWind.png");
     }
 
-    // 6. Sheet 5: Large-Radius HalfSphere Fog + Internal ForceField Sculpting + Volumetric God Rays (Clouds + Fog)
+    // 6. Sheet 5: Large-Radius HalfSphere Fog + Turbulent Wind Sculpting + Volumetric God Rays (Clouds + Fog)
     {
         OutdoorProofScene S {};
         S.BuildBase(TileW, TileH);
@@ -653,7 +619,7 @@ int main()
         HalfSphereDome.FogTint            = { 0.78f, 0.86f, 0.95f };
         S.Scene.Atmosphere.Fog.LocalFogs.push_back(HalfSphereDome);
 
-        // Tile 1: HalfSphere fog (no ForceField, no GodRays)
+        // Tile 1: HalfSphere fog (no Wind, no GodRays)
         S.Scene.Atmosphere.Wind.Enabled = false;
         S.Scene.Atmosphere.SimulationSeconds = 0.0f;
         const auto RHalfSphereStill = RenderCpu(S);
@@ -674,40 +640,17 @@ int main()
         Score.Verify(MaskCenter > MaskMid && MaskMid > MaskRim && MaskRim > 0.0f && MaskOut == 0.0f,
                      "HalfSphere fog mask exhibits smooth radial dome falloff and clean outer boundary");
 
-        // Tile 2: ForceField + Wind active INSIDE the HalfSphere fog (Vortex + RadialBurst + Wind)
-        SimulationSpace::ForceFields::ForceFieldAccumulator DomeForces;
-        {
-            SimulationSpace::ForceFields::ForceSourceRecordEntry Vortex {};
-            Vortex.UniqueToken     = 11u;
-            Vortex.Enabled         = true;
-            Vortex.Model           = SimulationSpace::ForceFields::ForceModel::RotationalColumn;
-            Vortex.CentreMeters    = { -2.0f, 26.0f, 4.0f };
-            Vortex.EvaluatedCentreMeters = Vortex.CentreMeters;
-            Vortex.RadiusMeters    = 22.0f;
-            Vortex.CoreRadiusMeters = 4.5f;
-            Vortex.Strength        = 24.0f;
-            Vortex.SwirlRatio      = 1.15f;
-
-            SimulationSpace::ForceFields::ForceSourceRecordEntry Burst {};
-            Burst.UniqueToken      = 12u;
-            Burst.Enabled          = true;
-            Burst.Model            = SimulationSpace::ForceFields::ForceModel::RadialBurst;
-            Burst.CentreMeters     = { 7.5f, 32.0f, 3.5f };
-            Burst.EvaluatedCentreMeters = Burst.CentreMeters;
-            Burst.RadiusMeters     = 16.0f;
-            Burst.Strength         = 18.0f;
-
-            const std::array<SimulationSpace::ForceFields::ForceSourceRecordEntry, 2> Srcs { Vortex, Burst };
-            DomeForces.AssignSources(Srcs);
-        }
-        S.Scene.Atmosphere.Wind.Enabled      = true;
-        S.Scene.Atmosphere.ForceFieldSource  = &DomeForces;
-        S.Scene.Atmosphere.Fog.LocalFogs[0].WindSource = WindCouplingSource::ForceFieldCascade;
+        // Tile 2: Turbulent Wind active INSIDE the HalfSphere fog
+        S.Scene.Atmosphere.Wind.Enabled              = true;
+        S.Scene.Atmosphere.Wind.SpeedMetersPerSecond = 24.0f;
+        S.Scene.Atmosphere.Wind.Turbulence           = 0.90f;
+        S.Scene.Atmosphere.Wind.GustStrength         = 0.70f;
+        S.Scene.Atmosphere.Fog.LocalFogs[0].WindSource = WindCouplingSource::LocalFogWind;
         S.Scene.Atmosphere.SimulationSeconds = 8.5f;
         const auto RHalfSphereForced = RenderCpu(S);
 
         Score.Verify(MeanAbsPixelDiff(RHalfSphereStill.DisplayRgba8, RHalfSphereForced.DisplayRgba8) > 0.75f,
-                     "ForceField + Wind visibly sculpts and swirls interior of HalfSphere fog");
+                     "Turbulent wind visibly advects and sculpts interior of HalfSphere fog");
 
         // Tile 3: Enable Volumetric God Rays interacting with Clouds + HalfSphere Fog
         S.Scene.Atmosphere.Fog.HeightFog.Enabled             = true;
@@ -738,12 +681,12 @@ int main()
                 WorldGpu.SynchronizeSceneResources(S.Scene, true);
                 const bool GpuOk = WorldGpu.RenderWorldViewportWithEngine(Cfg, 0u, S.CamFrame, S.Scene, GpuGodRayPixels);
                 Score.Verify(GpuOk && GpuGodRayPixels.size() == TileW * TileH * 4u,
-                             "Vulkan GPU rendered HalfSphere Fog + ForceFields + Clouds + GodRays frame");
+                             "Vulkan GPU rendered HalfSphere Fog + Clouds + GodRays frame");
                 if (GpuOk)
                 {
                     const float CpuGpuMad = MeanAbsPixelDiff(RGodRaysFull.DisplayRgba8, GpuGodRayPixels);
-                    std::printf("[WindCloudsFogValidation] CPU vs GPU HalfSphere+ForceField+GodRays MAD = %.2f\n", CpuGpuMad);
-                    Score.Verify(CpuGpuMad < 35.0f, "GPU matches CPU on HalfSphere Fog + ForceFields + GodRays");
+                    std::printf("[WindCloudsFogValidation] CPU vs GPU HalfSphere+GodRays MAD = %.2f\n", CpuGpuMad);
+                    Score.Verify(CpuGpuMad < 35.0f, "GPU matches CPU on HalfSphere Fog + Clouds + GodRays");
                 }
             }
         }
@@ -753,8 +696,8 @@ int main()
         BlitTile(Sheet, TileW * 2u, TileW, 0u,    TileW, TileH, RHalfSphereForced.DisplayRgba8.data());
         BlitTile(Sheet, TileW * 2u, 0u,    TileH, TileW, TileH, RGodRaysFull.DisplayRgba8.data());
         BlitTile(Sheet, TileW * 2u, TileW, TileH, TileW, TileH, GpuGodRayPixels.data());
-        Score.Verify(WritePngRgba8(OutDir / "05-HalfSphereFogForceFieldsAndGodRays.png", TileW * 2u, TileH * 2u, Sheet.data()),
-                     "Write 05-HalfSphereFogForceFieldsAndGodRays.png");
+        Score.Verify(WritePngRgba8(OutDir / "05-HalfSphereFogAndGodRays.png", TileW * 2u, TileH * 2u, Sheet.data()),
+                     "Write 05-HalfSphereFogAndGodRays.png");
     }
 
     std::printf("[WindCloudsFogValidation] Passed=%u Failed=%u\n", Score.Passed, Score.Failed);

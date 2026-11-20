@@ -140,8 +140,6 @@ struct WorldAtmosphereConfiguration
     AtmosphericFogConfiguration    Fog                {};
     LensFlareConfiguration         LensFlare          {};
     float                          SimulationSeconds  = 0.0f;
-    const SimulationSpace::ForceFields::ForceFieldAccumulator* ForceFieldSource   = nullptr;
-    const SimulationSpace::ForceFields::FieldLatticeCascade*   WindLatticeCascade = nullptr;
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -159,17 +157,17 @@ public:
         CloudDeckConfiguration& InOutDeck,
         CloudCategoryType       Category) noexcept;
 
-    // Evaluates depth-clipped local BoundedCloudVolumes (for foreground geometry hits and sky rays) with wind & ForceFields advection
+    // Evaluates depth-clipped local BoundedCloudVolumes (for foreground geometry hits and sky rays) with wind advection
     [[nodiscard]] static Mathematics::LinearRGB EvaluateLocalCloudsOverSegment(
-        const Mathematics::Axis3D&                               RayOriginWorld,
-        const Mathematics::Axis3D&                               RayDirection,
-        float                                                    MaxDistanceMeters,
-        const Mathematics::Axis3D&                               SunDirection,
-        const Mathematics::LinearRGB&                            SolarIrradiance,
-        const Mathematics::LinearRGB&                            SkyRadiance,
-        const WorldAtmosphereConfiguration&                      Atmosphere,
-        float&                                                   InOutTransmittance,
-        float                                                    PixelJitter01 = -1.0f) noexcept;
+        const Mathematics::Axis3D&          RayOriginWorld,
+        const Mathematics::Axis3D&          RayDirection,
+        float                               MaxDistanceMeters,
+        const Mathematics::Axis3D&          SunDirection,
+        const Mathematics::LinearRGB&       SolarIrradiance,
+        const Mathematics::LinearRGB&       SkyRadiance,
+        const WorldAtmosphereConfiguration& Atmosphere,
+        float&                              InOutTransmittance,
+        float                               PixelJitter01 = -1.0f) noexcept;
 
     // Evaluates raymarched global planetary cloud shell + optional BoundedCloudVolume with 3-octave multi-scattering & IGN anti-banding
     [[nodiscard]] static Mathematics::LinearRGB EvaluateVolumetricClouds(
@@ -185,7 +183,7 @@ public:
         float&                                OutTransmittance,
         float                                 PixelJitter01 = -1.0f) noexcept;
 
-    // Overload taking full WorldAtmosphereConfiguration (Global Wind + ForceFields + multi-volume LocalClouds)
+    // Overload taking full WorldAtmosphereConfiguration (Global Wind + multi-volume LocalClouds)
     [[nodiscard]] static Mathematics::LinearRGB EvaluateVolumetricCloudsWithWind(
         const Mathematics::Axis3D&            RayOriginWorld,
         const Mathematics::Axis3D&            RayDirection,
@@ -209,6 +207,28 @@ public:
         const Mathematics::Axis3D&          WorldPos,
         const Mathematics::Axis3D&          SunDirection,
         const WorldAtmosphereConfiguration& Atmosphere) noexcept;
+
+    struct OrbitalCloudEvaluation
+    {
+        Mathematics::LinearRGB RadianceHdr        { 0.0f, 0.0f, 0.0f };
+        float                  Transmittance      = 1.0f;
+        Mathematics::LinearRGB AirRadianceHdr     { 0.0f, 0.0f, 0.0f };
+        Mathematics::LinearRGB AirTransmittance   { 1.0f, 1.0f, 1.0f };
+        float                  SurfaceCloudShadow = 1.0f;
+        float                  GroundDistanceM    = 1.0e9f;
+    };
+
+    // Evaluates 3D planetary volumetric clouds, air limb & surface shadow from outer space orbit
+    [[nodiscard]] static OrbitalCloudEvaluation EvaluateOrbitalPlanetClouds(
+        const Mathematics::Axis3D&            CameraPlanetOriginMeters,
+        const Mathematics::Axis3D&            RayDirection,
+        const Mathematics::Axis3D&            SunDirection,
+        const Mathematics::LinearRGB&         EffectiveSolarTint,
+        float                                 SolarIntensityMultiplier,
+        const AtmosphericMediumConfiguration& Medium,
+        const CloudDeckConfiguration&         Deck,
+        float                                 SimulationSeconds,
+        float                                 PixelJitter01 = 0.5f) noexcept;
 };
 
 } // namespace Frontier::GeometricRaster
