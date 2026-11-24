@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Frontier — 3D Vehicle Exports (Blender / Unity / Unreal / Godot)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f1116; color: #eef1f6; font-family: system-ui, -apple-system, sans-serif; padding: 32px 20px; }
+  .wrap { max-width: 820px; margin: 0 auto; }
+  h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
+  .sub { color: #9aa3b2; margin-top: 6px; font-size: 14px; line-height: 1.5; }
+  .tip { margin-top: 16px; background: rgba(255, 166, 43, 0.12); border: 1px solid rgba(255, 166, 43, 0.35); border-radius: 10px; padding: 12px 14px; font-size: 13px; color: #ffdca8; line-height: 1.5; }
+  .zipCard { margin-top: 22px; background: linear-gradient(135deg, #251518, #191d27); border: 1px solid #e63928; border-radius: 14px; padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .zipCard h2 { font-size: 17px; }
+  .zipCard p { font-size: 13px; color: #b5becc; margin-top: 4px; }
+  .grid { margin-top: 20px; display: grid; gap: 14px; }
+  .card { background: #171a22; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 16px 18px; }
+  .cardTop { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .card h3 { font-size: 16px; font-weight: 700; }
+  .meta { font-family: ui-monospace, monospace; font-size: 12px; color: #8c96a8; }
+  .links { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  a.btn { display: inline-block; text-decoration: none; font-size: 13px; font-weight: 700; padding: 9px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.08); color: #fff; }
+  a.btn:hover { background: rgba(255,255,255,0.16); }
+  a.btn.primary { background: #e63928; border-color: #ff695a; }
+  a.btn.primary:hover { background: #ff4634; }
+  .steps { margin-top: 24px; background: #14171f; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px 18px; font-size: 13px; color: #c4ccd9; line-height: 1.65; }
+  .steps h4 { color: #fff; margin-bottom: 6px; font-size: 14px; }
+  code { background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 5px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Frontier 3D Vehicle Exports</h1>
+  <p class="sub">Ready-to-import <strong>glTF 2.0 (.glb)</strong> and <strong>Wavefront (.obj + .mtl)</strong> files (1:1 metres, Y-up, +Z forward, clean named parts for Blender).</p>
+  <div class="tip">
+    <strong>If clicking a button inside the embedded preview does not download:</strong> click the <em>"Open in new tab"</em> button at the top-right of the preview window first, then click any download button below.
+  </div>
+
+  <div class="zipCard">
+    <div>
+      <h2>Download All 3 Vehicles (.ZIP Bundle)</h2>
+      <p>Includes all <code>.glb</code>, <code>.obj</code>, and <code>.mtl</code> files (~1.65 MB)</p>
+    </div>
+    <a class="btn primary" href="/Frontier_AllVehicles_3D.zip" download="Frontier_AllVehicles_3D.zip" target="_blank">Download All (.ZIP)</a>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="cardTop">
+        <h3>1. Baja Trophy Truck</h3>
+        <span class="meta">15,766 tris · 214 named objects · 2.37 × 2.87 × 4.92 m</span>
+      </div>
+      <div class="links">
+        <a class="btn primary" href="/BajaTrophyTruck.glb" download="BajaTrophyTruck.glb" target="_blank">Download .GLB (967 KB)</a>
+        <a class="btn" href="/BajaTrophyTruck.obj" download="BajaTrophyTruck.obj" target="_blank">Download .OBJ (2.15 MB)</a>
+        <a class="btn" href="/BajaTrophyTruck.mtl" download="BajaTrophyTruck.mtl" target="_blank">Download .MTL</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="cardTop">
+        <h3>2. Dakar Off-Road Hypercar (with GT Swan-Neck Spoiler)</h3>
+        <span class="meta">23,742 tris · 367 named objects · 2.28 × 2.29 × 4.92 m</span>
+      </div>
+      <div class="links">
+        <a class="btn primary" href="/DakarOffroadHypercar.glb" download="DakarOffroadHypercar.glb" target="_blank">Download .GLB (1.37 MB)</a>
+        <a class="btn" href="/DakarOffroadHypercar.obj" download="DakarOffroadHypercar.obj" target="_blank">Download .OBJ (3.17 MB)</a>
+        <a class="btn" href="/DakarOffroadHypercar.mtl" download="DakarOffroadHypercar.mtl" target="_blank">Download .MTL</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="cardTop">
+        <h3>3. 1971 Widebody 'Cuda Twin-Turbo Muscle Car</h3>
+        <span class="meta">13,704 tris · 292 named objects · 2.22 × 1.34 × 4.80 m</span>
+      </div>
+      <div class="links">
+        <a class="btn primary" href="/CudaTwinTurboMuscle.glb" download="CudaTwinTurboMuscle.glb" target="_blank">Download .GLB (844 KB)</a>
+        <a class="btn" href="/CudaTwinTurboMuscle.obj" download="CudaTwinTurboMuscle.obj" target="_blank">Download .OBJ (1.74 MB)</a>
+        <a class="btn" href="/CudaTwinTurboMuscle.mtl" download="CudaTwinTurboMuscle.mtl" target="_blank">Download .MTL</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="steps">
+    <h4>Importing into Blender (Recommended: .GLB)</h4>
+    1. Open Blender → <strong>File → Import → glTF 2.0 (.glb/.gltf)</strong>.<br/>
+    2. Select any <code>.glb</code> file — hierarchy groups (<code>Body</code>, <code>Wheels</code>, <code>HoodTwinTurbo</code>, etc.) and PBR materials import automatically at exact 1:1 metre scale.<br/>
+    3. To edit individual parts, expand the hierarchy in the Outliner and select any mesh (e.g., <code>Cuda_TrapezoidHood</code>, <code>RearSpoiler_MainWing</code>, <code>Turbo_Impeller_R</code>).
+  </div>
+</div>
+</body>
+</html>

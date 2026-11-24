@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Baja Trophy Truck — Low-Poly 3D Game Asset</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap');
+  :root{--bg:#101114;--card:rgba(20,21,26,.86);--card2:rgba(34,36,44,.9);--ink:#eef0f5;--mut:#9aa0ae;--line:rgba(255,255,255,.1);--red:#e53935;--accent:#ff5252;--green:#38c46d;--yellow:#e2c643}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden;background:#8d0c08;color:var(--ink);font:400 13px/1.4 'Outfit',system-ui,sans-serif}
+  #canvasWrap{position:fixed;inset:0}
+  canvas{display:block;width:100%;height:100%}
+
+  /* Top-left title badge */
+  #badge{position:fixed;top:16px;left:18px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 16px;backdrop-filter:blur(12px);pointer-events:none;z-index:10;min-width:210px}
+  #badge .eyebrow{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:600}
+  #badge .title{font-size:20px;font-weight:500;letter-spacing:-.02em;margin-top:1px}
+  #badge .sub{font-size:11.5px;color:var(--mut);margin-top:2px;font-family:ui-monospace,Menlo,monospace}
+
+  /* Bottom-left stats HUD */
+  #stats{position:fixed;left:18px;bottom:16px;display:flex;gap:8px;z-index:10;pointer-events:none;flex-wrap:wrap}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:7px 12px;backdrop-filter:blur(12px)}
+  .stat .k{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut)}
+  .stat .v{font-size:14px;font-weight:500;font-family:ui-monospace,Menlo,monospace;color:#fff}
+  .stat .v small{font-size:10.5px;color:var(--mut);font-weight:400;margin-left:3px}
+
+  /* Bottom-center camera view bar */
+  #views{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:5px;backdrop-filter:blur(12px);z-index:10}
+  #views button{border:0;background:transparent;color:var(--mut);padding:6px 13px;border-radius:999px;font:inherit;font-size:12px;cursor:pointer;transition:background .15s,color .15s;white-space:nowrap}
+  #views button:hover{color:#fff;background:rgba(255,255,255,.08)}
+  #views button.on{background:#fff;color:#111;font-weight:500}
+
+  /* Right collapsible control panel */
+  #panel{position:fixed;top:16px;right:18px;width:274px;max-height:calc(100vh - 32px);overflow-y:auto;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px 15px;backdrop-filter:blur(14px);z-index:10;display:flex;flex-direction:column;gap:12px}
+  #panel::-webkit-scrollbar{width:5px} #panel::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:99px}
+  .sec{display:flex;flex-direction:column;gap:7px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+  .sec:last-child{border-bottom:0;padding-bottom:0}
+  .sec h3{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--mut);font-weight:600;display:flex;justify-content:space-between;align-items:center}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px}
+  .row label{color:#d2d6e0}
+  .row .val{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--mut);min-width:44px;text-align:right}
+  input[type=range]{flex:1;accent-color:#fff;cursor:pointer;height:4px}
+  .swatches{display:flex;gap:6px;flex-wrap:wrap}
+  .swatch{width:24px;height:24px;border-radius:999px;border:2px solid rgba(255,255,255,.22);cursor:pointer;transition:transform .12s,border-color .12s}
+  .swatch:hover{transform:scale(1.1)}
+  .swatch.on{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.35)}
+  .pills{display:flex;gap:4px;flex-wrap:wrap}
+  .pill{border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--mut);border-radius:9px;padding:5px 10px;font:inherit;font-size:11.5px;cursor:pointer;transition:all .14s}
+  .pill:hover{color:#fff;background:rgba(255,255,255,.1)}
+  .pill.on{background:#fff;color:#111;border-color:#fff;font-weight:500}
+  .btns{display:flex;gap:6px}
+  .btn{flex:1;border:1px solid var(--line);background:var(--card2);color:#fff;border-radius:10px;padding:8px 10px;font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background .15s}
+  .btn:hover{background:rgba(255,255,255,.16)}
+  .btn.primary{background:#fff;color:#111;border-color:#fff}
+  .btn.primary:hover{background:#e6e8ed}
+  #toast{position:fixed;left:50%;top:18px;transform:translateX(-50%);background:#fff;color:#111;padding:7px 16px;border-radius:999px;font-size:12px;font-weight:500;opacity:0;pointer-events:none;transition:opacity .25s;z-index:20}
+  @media(max-width:780px){#panel{width:228px;font-size:11.5px}#views{bottom:64px}}
+</style>
+</head>
+<body>
+<div id="canvasWrap"></div>
+
+<div id="badge">
+  <div class="eyebrow">Low-Poly Game Asset</div>
+  <div class="title">Baja Trophy Truck</div>
+  <div class="sub">Y-up · +Z forward · 1 unit = 1 m</div>
+</div>
+
+<div id="stats">
+  <div class="stat"><div class="k">Triangles</div><div class="v" id="stTris">—</div></div>
+  <div class="stat"><div class="k">Vertices</div><div class="v" id="stVerts">—</div></div>
+  <div class="stat"><div class="k">Wheelbase</div><div class="v">3.20<small>m</small></div></div>
+  <div class="stat"><div class="k">Dimensions</div><div class="v">4.85 × 2.36 × 2.08<small>m</small></div></div>
+</div>
+
+<div id="views">
+  <button class="on" data-v="front34">Front 3/4</button>
+  <button data-v="side">Side</button>
+  <button data-v="rear34">Rear 3/4</button>
+  <button data-v="front">Front</button>
+  <button data-v="top">Top</button>
+</div>
+
+<div id="panel">
+  <div class="sec">
+    <h3>Rig &amp; Animation</h3>
+    <div class="row"><label>Suspension</label><input type="range" id="rSusp" min="-0.18" max="0.18" step="0.005" value="0"><span class="val" id="vSusp">0.00m</span></div>
+    <div class="row"><label>Steer</label><input type="range" id="rSteer" min="-30" max="30" step="1" value="0"><span class="val" id="vSteer">0°</span></div>
+    <div class="pills">
+      <button class="pill" id="bDrive">Roll Wheels</button>
+      <button class="pill on" id="bLights">LEDs</button>
+      <button class="pill" id="bTurntable">Turntable</button>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h3>Shading &amp; Inspection</h3>
+    <div class="pills">
+      <button class="pill on" id="bFlat">Low-Poly Flat</button>
+      <button class="pill" id="bWire">Wireframe</button>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h3>Body Finish</h3>
+    <div class="swatches" id="bodySwatches"></div>
+  </div>
+
+  <div class="sec">
+    <h3>Studio Backdrop</h3>
+    <div class="pills" id="bgPills">
+      <button class="pill on" data-bg="red">Studio Red</button>
+      <button class="pill" data-bg="dark">Dark</button>
+      <button class="pill" data-bg="light">Neutral</button>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h3>Export for Game Engine</h3>
+    <div class="btns">
+      <button class="btn primary" id="expGlb">Export GLB</button>
+      <button class="btn" id="expObj">Export OBJ</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+
+// =================================================================================================
+//  SCENE, CAMERA, STUDIO RED CYCLORAMA & SMOOTH ZOOM
+// =================================================================================================
+const wrap = document.getElementById('canvasWrap');
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.08;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+wrap.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environment = envTex;
+
+const camera = new THREE.PerspectiveCamera(34, innerWidth / innerHeight, 0.08, 120);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.enableZoom = false; // replaced with smooth damped zoom below
+controls.maxPolarAngle = Math.PI * 0.495;
+controls.minDistance = 2.1;
+controls.maxDistance = 16.0;
+
+let zoomTargetDist = null;
+function normalizeWheelDelta(e) {
+  let d = e.deltaY;
+  if (e.deltaMode === 1) d *= 16;
+  else if (e.deltaMode === 2) d *= 400;
+  return THREE.MathUtils.clamp(d, -120, 120);
+}
+renderer.domElement.addEventListener('wheel', e => {
+  e.preventDefault(); e.stopImmediatePropagation();
+  const dy = normalizeWheelDelta(e);
+  if (!dy) return;
+  const cur = zoomTargetDist ?? camera.position.distanceTo(controls.target);
+  zoomTargetDist = THREE.MathUtils.clamp(cur * Math.exp(dy * 0.0012), controls.minDistance, controls.maxDistance);
+}, { passive: false, capture: true });
+controls.addEventListener('start', () => { zoomTargetDist = null; });
+
+// Studio lighting — crisp overhead softbox + rim kicks matching the red studio reference shots
+const hemi = new THREE.HemisphereLight('#fff5f0', '#6d120c', 0.65);
+scene.add(hemi);
+
+const keyLight = new THREE.DirectionalLight('#fffbf5', 2.4);
+keyLight.position.set(5.5, 9.5, 5.0);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.near = 2;
+keyLight.shadow.camera.far = 22;
+keyLight.shadow.camera.left = -4.2; keyLight.shadow.camera.right = 4.2;
+keyLight.shadow.camera.top = 4.2; keyLight.shadow.camera.bottom = -4.2;
+keyLight.shadow.bias = -0.0004;
+keyLight.shadow.radius = 2.5;
+scene.add(keyLight);
+
+const fillLight = new THREE.DirectionalLight('#ffd8cc', 0.85);
+fillLight.position.set(-6.0, 4.5, -3.5);
+scene.add(fillLight);
+
+const rimLight = new THREE.DirectionalLight('#ffffff', 0.95);
+rimLight.position.set(-2.0, 5.0, -7.5);
+scene.add(rimLight);
+
+// Studio floor & cyclorama backdrop
+const floorGeo = new THREE.CircleGeometry(28, 64);
+const floorMat = new THREE.MeshStandardMaterial({ color: '#b5180d', roughness: 0.24, metalness: 0.08 });
+const floor = new THREE.Mesh(floorGeo, floorMat);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+// Subtle curved studio gradient dome
+const domeGeo = new THREE.SphereGeometry(28, 32, 20);
+const domeMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false,
+  uniforms: {
+    uTop: { value: new THREE.Color('#420402') },
+    uMid: { value: new THREE.Color('#a31008') },
+    uBot: { value: new THREE.Color('#c81d0f') },
+  },
+  vertexShader: `varying vec3 vPos; void main(){ vPos = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: `uniform vec3 uTop,uMid,uBot; varying vec3 vPos;
+    void main(){
+      float h = clamp(normalize(vPos).y, -0.2, 1.0);
+      vec3 c = h < 0.22 ? mix(uBot, uMid, smoothstep(-0.08, 0.22, h)) : mix(uMid, uTop, smoothstep(0.22, 0.85, h));
+      gl_FragColor = vec4(c, 1.0);
+    }`
+});
+const dome = new THREE.Mesh(domeGeo, domeMat);
+scene.add(dome);
+
+const gridHelper = new THREE.GridHelper(16, 32, '#444854', '#262933');
+gridHelper.position.y = 0.002;
+gridHelper.visible = false;
+scene.add(gridHelper);
+
+// =================================================================================================
+//  PROCEDURAL TEXTURES & MATERIALS (SUBTLE DIAGONAL CARBON/STRIPE GHOST LIVERY + GAME MATERIALS)
+// =================================================================================================
+function makeBodyTexture(hexColor) {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 512;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = hexColor; ctx.fillRect(0, 0, 512, 512);
+  // Subtle diagonal micro-stripe livery matching the matte white trophy truck doors/fins
+  ctx.strokeStyle = 'rgba(0,0,0,0.038)'; ctx.lineWidth = 7;
+  for (let i = -512; i < 1024; i += 20) {
+    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + 512, 512); ctx.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(3, 3);
+  return t;
+}
+
+const MATS = {
+  body:      new THREE.MeshStandardMaterial({ color: '#ffffff', map: makeBodyTexture('#f1f2f4'), roughness: 0.34, metalness: 0.06, flatShading: true }),
+  bodyDark:  new THREE.MeshStandardMaterial({ color: '#1b1c20', roughness: 0.62, metalness: 0.15, flatShading: true }),
+  chassis:   new THREE.MeshStandardMaterial({ color: '#141518', roughness: 0.55, metalness: 0.35, flatShading: true }),
+  cage:      new THREE.MeshStandardMaterial({ color: '#181a1f', roughness: 0.42, metalness: 0.52, flatShading: true }),
+  steel:     new THREE.MeshStandardMaterial({ color: '#c8cdd4', roughness: 0.28, metalness: 0.88, flatShading: true }),
+  chrome:    new THREE.MeshStandardMaterial({ color: '#e4e8ee', roughness: 0.14, metalness: 0.95, flatShading: true }),
+  shockRed:  new THREE.MeshStandardMaterial({ color: '#d42c24', roughness: 0.35, metalness: 0.55, flatShading: true }),
+  shockBlue: new THREE.MeshStandardMaterial({ color: '#2566b8', roughness: 0.35, metalness: 0.55, flatShading: true }),
+  rubber:    new THREE.MeshStandardMaterial({ color: '#1b1c1f', roughness: 0.86, metalness: 0.04, flatShading: true }),
+  rimWhite:  new THREE.MeshStandardMaterial({ color: '#eff1f4', roughness: 0.26, metalness: 0.14, flatShading: true }),
+  rimLip:    new THREE.MeshStandardMaterial({ color: '#191b1f', roughness: 0.45, metalness: 0.4, flatShading: true }),
+  seat:      new THREE.MeshStandardMaterial({ color: '#202226', roughness: 0.85, metalness: 0.02, flatShading: true }),
+  ledWhite:  new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#e8f4ff', emissiveIntensity: 2.2, roughness: 0.2 }),
+  ledRed:    new THREE.MeshStandardMaterial({ color: '#ff2b2b', emissive: '#ff1e1e', emissiveIntensity: 2.4, roughness: 0.25 }),
+};
+
+// =================================================================================================
+//  LOW-POLY HARD-SURFACE GEOMETRY HELPERS
+// =================================================================================================
+// Create a closed lofted mesh from an array of cross-section rings (each ring = [[x,y,z], ...], same count)
+// Automatically guarantees outward-facing normals via signed volume for closed lofts (or explicit flip for open lofts)
+function buildLoft(rings, closeLoop = false, capEnds = true, flipOpen = false) {
+  const nR = rings.length, nP = rings[0].length;
+  const pos = [];
+  const idx = [];
+  for (let i = 0; i < nR; i++) {
+    for (let j = 0; j < nP; j++) pos.push(rings[i][j][0], rings[i][j][1], rings[i][j][2]);
+  }
+  const jMax = closeLoop ? nP : nP - 1;
+  for (let i = 0; i < nR - 1; i++) {
+    for (let j = 0; j < jMax; j++) {
+      const jn = (j + 1) % nP;
+      const a = i * nP + j, b = i * nP + jn, c = (i + 1) * nP + jn, d = (i + 1) * nP + j;
+      idx.push(a, b, c, a, c, d);
+    }
+  }
+  if (capEnds && closeLoop) {
+    for (const end of [0, nR - 1]) {
+      let cx = 0, cy = 0, cz = 0;
+      for (let j = 0; j < nP; j++) { cx += rings[end][j][0]; cy += rings[end][j][1]; cz += rings[end][j][2]; }
+      const cIdx = pos.length / 3;
+      pos.push(cx / nP, cy / nP, cz / nP);
+      for (let j = 0; j < nP; j++) {
+        const a = end * nP + j, b = end * nP + (j + 1) % nP;
+        if (end === 0) idx.push(cIdx, b, a);
+        else idx.push(cIdx, a, b);
+      }
+    }
+  }
+  // Check signed volume for closed meshes and auto-flip winding if inverted
+  let shouldFlip = flipOpen;
+  if (closeLoop && capEnds) {
+    let vol6 = 0;
+    for (let t = 0; t < idx.length; t += 3) {
+      const ia = idx[t] * 3, ib = idx[t + 1] * 3, ic = idx[t + 2] * 3;
+      const ax = pos[ia], ay = pos[ia + 1], az = pos[ia + 2];
+      const bx = pos[ib], by = pos[ib + 1], bz = pos[ib + 2];
+      const cx = pos[ic], cy = pos[ic + 1], cz = pos[ic + 2];
+      vol6 += ax * (by * cz - bz * cy) + ay * (bz * cx - bx * cz) + az * (bx * cy - by * cx);
+    }
+    if (vol6 < 0) shouldFlip = true;
+  }
+  if (shouldFlip) {
+    for (let t = 0; t < idx.length; t += 3) { const tmp = idx[t + 1]; idx[t + 1] = idx[t + 2]; idx[t + 2] = tmp; }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  const uvs = new Float32Array((pos.length / 3) * 2);
+  for (let i = 0; i < pos.length / 3; i++) {
+    uvs[i * 2] = pos[i * 3 + 2] * 0.35 + pos[i * 3] * 0.2;
+    uvs[i * 2 + 1] = pos[i * 3 + 1] * 0.35;
+  }
+  g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  g.computeVertexNormals();
+  return g;
+}
+
+// Create a crisp mirrored pair of 2D side-profile extruded panels (pts in [z, y], extruded outward along X from xIn to xOut)
+function makeSidePanel(ptsZY, xIn, xOut, mat, topFlareIn = 0) {
+  // Build a custom closed solid prism with optional top inward taper (tumblehome / fender flare!)
+  const grp = new THREE.Group();
+  const yMin = Math.min(...ptsZY.map(p => p[1]));
+  const yMax = Math.max(...ptsZY.map(p => p[1]));
+  const shape = new THREE.Shape();
+  ptsZY.forEach(([z, y], i) => i ? shape.lineTo(z, y) : shape.moveTo(z, y));
+  shape.closePath();
+
+  const buildOne = sgn => {
+    // Extrude in +Z of shape space, then remap (shapeX->z, shapeY->y, shapeZ->x)
+    const thick = Math.abs(xOut - xIn);
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: thick, bevelEnabled: true, bevelThickness: 0.014, bevelSize: 0.012, bevelSegments: 1 });
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const sz = p.getX(i), sy = p.getY(i), sx = p.getZ(i);
+      const tH = THREE.MathUtils.clamp((sy - yMin) / Math.max(0.01, yMax - yMin), 0, 1);
+      // Taper outer top edge inward/outward cleanly
+      const xBase = xIn + sx - topFlareIn * tH * (sx / Math.max(0.01, thick));
+      p.setXYZ(i, sgn * xBase, sy, sz);
+    }
+    // Fix triangle winding after axis permutation + left/right mirror
+    const index = geo.index;
+    const flip = sgn > 0; // (sz, sy, sx) -> (x, y, z) swaps X & Z (det = -1); mirroring by -1 flips again!
+    if (flip) {
+      if (index) {
+        for (let i = 0; i < index.count; i += 3) { const b = index.getX(i + 1), c = index.getX(i + 2); index.setX(i + 1, c); index.setX(i + 2, b); }
+      } else {
+        for (let i = 0; i < p.count; i += 3) {
+          const x1 = p.getX(i + 1), y1 = p.getY(i + 1), z1 = p.getZ(i + 1);
+          p.setXYZ(i + 1, p.getX(i + 2), p.getY(i + 2), p.getZ(i + 2));
+          p.setXYZ(i + 2, x1, y1, z1);
+        }
+      }
+    }
+    // Clean side-projected UVs
+    const uv = geo.attributes.uv;
+    for (let i = 0; i < p.count; i++) uv.setXY(i, p.getZ(i) * 0.35, p.getY(i) * 0.35);
+    geo.computeVertexNormals();
+    return new THREE.Mesh(geo, mat);
+  };
+  grp.add(buildOne(1), buildOne(-1));
+  return grp;
+}
+
+// Tubular bar between two 3D points (perfect for roll cage, prerunner bumpers, trailing arms & shocks)
+function makeTube(a, b, r = 0.024, mat = MATS.cage, segs = 8) {
+  const va = new THREE.Vector3(...a), vb = new THREE.Vector3(...b);
+  const dir = new THREE.Vector3().subVectors(vb, va);
+  const len = dir.length();
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, segs), mat);
+  m.position.addVectors(va, vb).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+  return m;
+}
+function addMirrorTube(parent, a, b, r = 0.024, mat = MATS.cage, segs = 8) {
+  parent.add(makeTube(a, b, r, mat, segs));
+  if (Math.abs(a[0]) > 1e-4 || Math.abs(b[0]) > 1e-4) {
+    parent.add(makeTube([-a[0], a[1], a[2]], [-b[0], b[1], b[2]], r, mat, segs));
+  }
+}
+
+// =================================================================================================
+//  BUILD THE BAJA TROPHY TRUCK (CLEAN HIERARCHY FOR GAME ENGINE EXPORT)
+// =================================================================================================
+const TRUCK = new THREE.Group();
+TRUCK.name = 'BajaTrophyTruck';
+scene.add(TRUCK);
+
+// Dimensions (metres) — matched directly to the 3 reference photos
+const R_TIRE = 0.51;          // 1.02 m outer diameter (~40" Baja mud-terrain)
+const W_TIRE = 0.36;          // 14.2" wide off-road tire
+const Z_FRONT = 1.60;         // Front axle Z
+const Z_REAR  = -1.60;        // Rear axle Z (3.20 m wheelbase)
+const X_TRACK = 0.99;         // Wheel center X (±0.99 m -> 2.34 m outer width)
+
+// Root sub-groups (cleanly separated so game engines can rig suspension & wheels!)
+const bodyGroup = new THREE.Group(); bodyGroup.name = 'Body';
+const cageGroup = new THREE.Group(); cageGroup.name = 'RollCageAndChassis';
+const suspGroup = new THREE.Group(); suspGroup.name = 'Suspension';
+const wheelsGroup = new THREE.Group(); wheelsGroup.name = 'Wheels';
+TRUCK.add(bodyGroup, cageGroup, suspGroup, wheelsGroup);
+
+// -------------------------------------------------------------------------------------------------
+// 1. SCULPTED BODY SHELL (White wide-body fiberglass panels matching exact side/front/rear shape)
+// -------------------------------------------------------------------------------------------------
+// 1A. Sculpted Wide Front Fenders (with authentic flat-top trapezoidal wheel arch cutout!)
+const frontFenderPts = [
+  [0.96, 0.72],
+  [1.04, 0.72],
+  [1.10, 1.02],
+  [1.30, 1.22],
+  [1.90, 1.22],
+  [2.11, 1.06],
+  [2.20, 1.06],
+  [2.18, 1.35],
+  [1.56, 1.41],
+  [0.96, 1.43],
+];
+// Main wide outer fender flare + smooth upper shoulder deck bridging into hood
+const frontFenders = makeSidePanel(frontFenderPts, 0.80, 1.13, MATS.body, 0.14);
+bodyGroup.add(frontFenders);
+
+// Crisp upper fender-flare eyebrow ridge along the top of the front arch (outward normals on both sides!)
+for (const s of [-1, 1]) {
+  const brow = buildLoft([
+    [[s * 0.84, 1.425, 0.98], [s * 1.02, 1.40, 0.98], [s * 1.13, 1.28, 1.06]],
+    [[s * 0.82, 1.405, 1.56], [s * 1.04, 1.38, 1.56], [s * 1.15, 1.24, 1.58]],
+    [[s * 0.78, 1.355, 2.16], [s * 0.98, 1.33, 2.16], [s * 1.11, 1.21, 2.12]],
+  ], false, false, s > 0);
+  bodyGroup.add(new THREE.Mesh(brow, MATS.body));
+}
+
+// Dark inner engine bay / radiator core block behind grille & front wheel wells (prevents see-through gaps)
+const engineCore = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.56, 1.06), MATS.chassis);
+engineCore.position.set(0, 1.08, 1.52);
+cageGroup.add(engineCore);
+const cowlBridge = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.08, 0.14), MATS.bodyDark);
+cowlBridge.position.set(0, 1.40, 0.98);
+bodyGroup.add(cowlBridge);
+
+// 1B. Sculpted Hood with central power dome & black recessed heat-extractor vent
+const hoodRings = [
+  // [x, y, z] across from -X to +X at 4 longitudinal stations from cowl to nose
+  [[-0.84, 1.42, 1.02], [-0.46, 1.45, 1.02], [-0.26, 1.485, 1.04], [0.26, 1.485, 1.04], [0.46, 1.45, 1.02], [0.84, 1.42, 1.02]],
+  [[-0.84, 1.40, 1.54], [-0.44, 1.43, 1.54], [-0.25, 1.47, 1.54],  [0.25, 1.47, 1.54],  [0.44, 1.43, 1.54], [0.84, 1.40, 1.54]],
+  [[-0.82, 1.37, 1.98], [-0.42, 1.395, 1.98],[-0.23, 1.425, 1.98], [0.23, 1.425, 1.98], [0.42, 1.395, 1.98],[0.82, 1.37, 1.98]],
+  [[-0.78, 1.33, 2.20], [-0.42, 1.345, 2.22],[-0.20, 1.355, 2.23], [0.20, 1.355, 2.23], [0.42, 1.345, 2.22],[0.78, 1.33, 2.20]],
+];
+// Close hood underside so it has solid thickness
+const hoodSolid = hoodRings.map(r => r.concat([[r[5][0], r[5][1] - 0.08, r[5][2]], [r[0][0], r[0][1] - 0.08, r[0][2]]]));
+bodyGroup.add(new THREE.Mesh(buildLoft(hoodSolid, true, true), MATS.body));
+
+// Black heat-extractor hood vent scoop (Image 2 signature!)
+const hoodVent = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.04, 0.42), MATS.bodyDark);
+hoodVent.position.set(0, 1.455, 1.66);
+hoodVent.rotation.x = 0.065;
+bodyGroup.add(hoodVent);
+for (let i = 0; i < 4; i++) {
+  const slat = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.015, 0.03), MATS.chassis);
+  slat.position.set(0, 1.478 - i * 0.005, 1.52 + i * 0.09);
+  bodyGroup.add(slat);
+}
+
+// 1C. Aggressive Front Grille, White Surround Fascia & Raptor C-Clamp Headlights (Image 2)
+// Recessed dark grille housing
+const grilleBox = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.25, 0.14), MATS.chassis);
+grilleBox.position.set(0, 1.21, 2.13);
+bodyGroup.add(grilleBox);
+// Bold horizontal center grille bar + surround frame
+const grilleBar = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.048, 0.05), MATS.bodyDark);
+grilleBar.position.set(0, 1.22, 2.20);
+bodyGroup.add(grilleBar);
+// Grille top & bottom white fascia strips
+const noseTop = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.042, 0.08), MATS.body);
+noseTop.position.set(0, 1.345, 2.18);
+bodyGroup.add(noseTop);
+const noseBot = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.045, 0.08), MATS.bodyDark);
+noseBot.position.set(0, 1.075, 2.16);
+bodyGroup.add(noseBot);
+
+// Flanking dark headlight housings + sharp white Raptor-style LED DRL blades
+for (const s of [-1, 1]) {
+  const hlBack = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.24, 0.14), MATS.chassis);
+  hlBack.position.set(s * 0.77, 1.21, 2.11);
+  hlBack.rotation.y = -s * 0.16;
+  bodyGroup.add(hlBack);
+  // Main horizontal white LED eyebrow + C-corner accent
+  const ledMain = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.026, 0.03), MATS.ledWhite);
+  ledMain.position.set(s * 0.78, 1.255, 2.185);
+  ledMain.rotation.y = -s * 0.16;
+  ledMain.name = 'LED_Headlight';
+  bodyGroup.add(ledMain);
+  const ledLow = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.022, 0.03), MATS.ledWhite);
+  ledLow.position.set(s * 0.83, 1.155, 2.165);
+  ledLow.rotation.y = -s * 0.16;
+  ledLow.name = 'LED_Headlight';
+  bodyGroup.add(ledLow);
+  // Crisp white wrap-around outer corner trim beside headlight
+  const cornerTrim = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.23, 0.10), MATS.body);
+  cornerTrim.position.set(s * 0.96, 1.21, 2.14);
+  bodyGroup.add(cornerTrim);
+}
+
+// 1D. Sculpted Cab Doors & Lower Rocker Body (with crisp mid-door shadow crease from Image 1!)
+const doorSideRings = [
+  // Cross-section along Z = +0.98 (front door seam) to Z = -0.60 (rear cab seam)
+  0.98, 0.30, -0.60
+].map(z => [
+  // Right-side outer contour from bottom rocker up to windowsill, then inner door thickness back down
+  [0.83, 0.72, z],
+  [0.96, 0.80, z],
+  [0.97, 0.98, z],
+  [0.935, 1.03, z],   // signature recessed mid-door body crease!
+  [0.975, 1.09, z],
+  [0.93, 1.40, z],
+  [0.84, 1.40, z],
+  [0.84, 0.75, z],
+]);
+const doorR = new THREE.Mesh(buildLoft(doorSideRings, true, true), MATS.body);
+bodyGroup.add(doorR);
+// Mirror cleanly for left door
+const doorL = new THREE.Mesh(buildLoft(doorSideRings.map(r => r.slice().reverse().map(p => [-p[0], p[1], p[2]])), true, true), MATS.body);
+bodyGroup.add(doorL);
+
+// Subtle dark recessed door-seam & panel-gap lines (Image 1 detail!)
+for (const zSeam of [0.97, -0.02, -0.59]) {
+  for (const s of [-1, 1]) {
+    const seam = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.66, 0.012), MATS.bodyDark);
+    seam.position.set(s * 0.965, 1.06, zSeam);
+    bodyGroup.add(seam);
+  }
+}
+
+// 1E. Cab Greenhouse: Raked A-Pillars, Stepped Front Window Dip, Solid Extended-Cab Rear Side Panel & Crowned Roof!
+// Raked A-pillars + top door frame + solid extended-cab rear panel (z = -0.02 to -0.60!)
+// Built as a clean sculpted mirrored side greenhouse shell with tumblehome taper (0.93 at beltline -> 0.76 at roof!)
+const cabSidePts = [
+  // Outer silhouette around the open door window & solid extended-cab rear panel
+  [0.96, 1.38],   // cowl base of A-pillar
+  [0.96, 1.44],
+  [0.42, 2.01],   // top of A-pillar
+  [-0.58, 2.01],  // rear roof corner
+  [-0.58, 1.38],  // rear cab bottom
+  [-0.02, 1.38],  // front edge of solid rear cab panel!
+  [-0.02, 1.92],  // rear edge of open front window
+  [0.44, 1.92],   // top-front corner of open front window
+  [0.85, 1.45],   // stepped Ford Raptor window dip!
+  [0.96, 1.38],
+];
+bodyGroup.add(makeSidePanel(cabSidePts, 0.75, 0.93, MATS.body, 0.16));
+
+// Signature beveled solid window-blank recess on the rear half of the cab (Image 1, 2, 3!)
+for (const s of [-1, 1]) {
+  const blank = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.44, 0.44), MATS.body);
+  blank.position.set(s * 0.85, 1.68, -0.30);
+  blank.rotation.z = s * 0.25; // matches cab tumblehome angle!
+  bodyGroup.add(blank);
+  const blankRim = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.46, 0.46), MATS.bodyDark);
+  blankRim.position.set(s * 0.835, 1.68, -0.30);
+  blankRim.rotation.z = s * 0.25;
+  bodyGroup.add(blankRim);
+}
+
+// Crowned Cab Roof Panel (z = +0.44 to -0.60, y = 2.00..2.05)
+const roofRings = [0.44, -0.08, -0.60].map(z => [
+  [-0.78, 1.98, z], [-0.56, 2.025, z], [0, 2.045, z], [0.56, 2.025, z], [0.78, 1.98, z],
+  [0.74, 1.94, z], [-0.74, 1.94, z]
+]);
+bodyGroup.add(new THREE.Mesh(buildLoft(roofRings, true, true), MATS.body));
+
+// White low-profile center roof air scoop (Image 1 & 2)
+const roofScoop = new THREE.Mesh(buildLoft([
+  [[-0.18, 2.03, 0.12], [-0.14, 2.09, 0.14], [0.14, 2.09, 0.14], [0.18, 2.03, 0.12]],
+  [[-0.20, 2.03, 0.36], [-0.16, 2.10, 0.36], [0.16, 2.10, 0.36], [0.20, 2.03, 0.36]],
+], true, true), MATS.body);
+bodyGroup.add(roofScoop);
+const scoopInlet = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.045, 0.04), MATS.chassis);
+scoopInlet.position.set(0, 2.062, 0.36);
+bodyGroup.add(scoopInlet);
+
+// Lower rear cab bulkhead (solid below rear window, open above for roll cage visibility!)
+const cabBackLow = new THREE.Mesh(new THREE.BoxGeometry(1.68, 0.72, 0.07), MATS.bodyDark);
+cabBackLow.position.set(0, 1.07, -0.58);
+bodyGroup.add(cabBackLow);
+
+// Slim Red LED Rear Chase Light Bar mounted under rear cab roof header (Image 3!)
+const chaseHousing = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.036, 0.04), MATS.chassis);
+chaseHousing.position.set(0, 1.945, -0.59);
+bodyGroup.add(chaseHousing);
+const chaseLed = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.022, 0.02), MATS.ledRed);
+chaseLed.position.set(0, 1.945, -0.612);
+chaseLed.name = 'LED_Rear';
+bodyGroup.add(chaseLed);
+
+// 1F. ICONIC SWEPT REAR AERO CAB FINS / SAIL WINGS (Signature silhouette in ALL 3 photos!)
+const sailFinPts = [
+  [-0.56, 1.43],   // front bottom (cab/bed junction)
+  [-0.78, 1.43],   // bottom rear corner on bed rail
+  [-1.16, 1.93],   // crisp swept trailing wing tip!
+  [-1.12, 2.01],   // truncated tip top
+  [-0.56, 2.02],   // cab roof top corner
+];
+bodyGroup.add(makeSidePanel(sailFinPts, 0.77, 0.84, MATS.body, 0.04));
+
+// 1G. Wide Flared Rear Bedsides with Signature Angled Cutaway Tail (Image 1 & Image 3!)
+const rearBedsidePts = [
+  [-0.60, 0.72],
+  [-0.95, 0.72],
+  [-1.04, 1.02],
+  [-1.25, 1.22],
+  [-1.95, 1.22],
+  [-2.14, 1.04],
+  [-2.45, 1.22],   // crisp upward diagonal rear tail cutaway exposing black cage underneath!
+  [-2.45, 1.42],
+  [-0.60, 1.42],
+];
+bodyGroup.add(makeSidePanel(rearBedsidePts, 0.84, 1.13, MATS.body, 0.14));
+
+// Dark carbon/aluminum inner bedside structural top rails (visible inside open bed in Image 3!)
+for (const s of [-1, 1]) {
+  const bedRail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 1.82), MATS.bodyDark);
+  bedRail.position.set(s * 0.86, 1.39, -1.52);
+  bodyGroup.add(bedRail);
+  // Black inner wheelhouse bulkhead plate visible behind rear tire cutaway
+  const rearBulk = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.34, 0.56), MATS.bodyDark);
+  rearBulk.position.set(s * 0.80, 1.05, -2.20);
+  bodyGroup.add(rearBulk);
+}
+
+// -------------------------------------------------------------------------------------------------
+// 2. ROOF LED LIGHT BAR, FRONT PRERUNNER BUMPER, REAR FUEL-CELL BOX, EXHAUST & FULL ROLL CAGE
+// -------------------------------------------------------------------------------------------------
+// 2A. Massive Full-Width Dual-Row Roof LED Light Bar (Image 1 & 2!)
+const lbGrp = new THREE.Group(); lbGrp.name = 'RoofLightBar';
+const lbBody = new THREE.Mesh(new THREE.BoxGeometry(1.38, 0.11, 0.11), MATS.chassis);
+lbBody.position.set(0, 2.075, 0.50);
+lbGrp.add(lbBody);
+const lbFace = new THREE.Mesh(new THREE.BoxGeometry(1.32, 0.075, 0.02), MATS.ledWhite);
+lbFace.position.set(0, 2.075, 0.555);
+lbFace.name = 'LED_RoofBar';
+lbGrp.add(lbFace);
+// Subtle LED cell dividers across the light bar
+for (let i = -5; i <= 5; i++) {
+  const div = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.085, 0.025), MATS.chassis);
+  div.position.set(i * 0.115, 2.075, 0.556);
+  lbGrp.add(div);
+}
+// Mounting brackets down to windshield header
+addMirrorTube(lbGrp, [0.71, 2.07, 0.49], [0.76, 1.98, 0.44], 0.016, MATS.chassis, 6);
+bodyGroup.add(lbGrp);
+
+// 2B. Front Tubular Prerunner Bumper & Skid Plate (Image 2)
+addMirrorTube(cageGroup, [0.0, 0.96, 2.25], [0.72, 0.96, 2.22], 0.026, MATS.cage, 8);
+addMirrorTube(cageGroup, [0.72, 0.96, 2.22], [1.02, 1.00, 2.06], 0.024, MATS.cage, 8);
+addMirrorTube(cageGroup, [0.0, 0.80, 2.08], [0.52, 0.80, 2.06], 0.024, MATS.cage, 8);
+addMirrorTube(cageGroup, [0.50, 0.96, 2.22], [0.46, 0.78, 2.04], 0.022, MATS.cage, 8);
+addMirrorTube(cageGroup, [0.46, 0.78, 2.04], [0.42, 0.66, 1.56], 0.024, MATS.cage, 8);
+// Angled front aluminum/black skid plate
+const frontSkid = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.03, 0.58), MATS.bodyDark);
+frontSkid.position.set(0, 0.79, 1.92);
+frontSkid.rotation.x = -0.48;
+cageGroup.add(frontSkid);
+
+// 2C. Full Internal Cab & Exposed Rear Bed Roll Cage (visible through open windows & rear bed!)
+// Main frame rails under cab & bed
+addMirrorTube(cageGroup, [0.42, 0.66, 1.75], [0.42, 0.66, -2.35], 0.036, MATS.chassis, 8);
+// Cab cage A-pillar, roof rail, B-pillar, C-pillar & diagonal X-bracing
+addMirrorTube(cageGroup, [0.70, 1.38, 0.95], [0.66, 1.94, 0.42], 0.024, MATS.cage, 8);
+addMirrorTube(cageGroup, [0.66, 1.94, 0.42], [0.66, 1.94, -0.56], 0.024, MATS.cage, 8);
+addMirrorTube(cageGroup, [0.66, 1.94, -0.56], [0.72, 0.72, -0.56], 0.026, MATS.cage, 8);
+addMirrorTube(cageGroup, [0.66, 1.94, -0.02], [0.72, 0.74, -0.02], 0.024, MATS.cage, 8);
+// Door X-bars visible inside open cab window (Image 1 & 2!)
+addMirrorTube(cageGroup, [0.72, 1.34, 0.92], [0.72, 0.86, 0.02], 0.020, MATS.cage, 8);
+addMirrorTube(cageGroup, [0.72, 1.34, 0.02], [0.72, 0.86, 0.92], 0.020, MATS.cage, 8);
+// Roof crossbars + rear cab cross-X
+cageGroup.add(makeTube([-0.66, 1.94, 0.42], [0.66, 1.94, 0.42], 0.022, MATS.cage, 8));
+cageGroup.add(makeTube([-0.66, 1.94, -0.56], [0.66, 1.94, -0.56], 0.022, MATS.cage, 8));
+cageGroup.add(makeTube([-0.66, 1.92, -0.56], [0.66, 1.38, -0.56], 0.020, MATS.cage, 8));
+cageGroup.add(makeTube([0.66, 1.92, -0.56], [-0.66, 1.38, -0.56], 0.020, MATS.cage, 8));
+// Exposed rear bed cage down-bars sloping from cab roof behind the aero fins to rear shock towers & bumper (Image 3!)
+addMirrorTube(cageGroup, [0.64, 1.92, -0.56], [0.58, 1.38, -1.55], 0.026, MATS.cage, 8);
+addMirrorTube(cageGroup, [0.58, 1.38, -1.55], [0.56, 1.02, -2.54], 0.024, MATS.cage, 8);
+addMirrorTube(cageGroup, [0.58, 1.38, -1.55], [0.52, 0.72, -1.55], 0.026, MATS.cage, 8);
+cageGroup.add(makeTube([-0.58, 1.38, -1.55], [0.58, 1.38, -1.55], 0.024, MATS.cage, 8));
+
+// 2D. Exposed Rear Bed Fuel-Cell / Equipment Box & Iconic Angled Tubular Rear Crash Bumper (Image 3!)
+const fuelBox = new THREE.Mesh(buildLoft([
+  [[-0.74, 0.88, -1.05], [-0.74, 1.24, -1.05], [0.74, 1.24, -1.05], [0.74, 0.88, -1.05]],
+  [[-0.74, 0.90, -2.02], [-0.74, 1.22, -2.02], [0.74, 1.22, -2.02], [0.74, 0.90, -2.02]],
+  [[-0.64, 0.96, -2.48], [-0.56, 1.14, -2.44], [0.56, 1.14, -2.44], [0.64, 0.96, -2.48]],
+], true, true), MATS.bodyDark);
+cageGroup.add(fuelBox);
+// Rear crash bumper outer tubular hoop + bottom tapered skid struts (exact Image 3 cage geometry!)
+cageGroup.add(makeTube([-0.82, 1.02, -2.62], [0.82, 1.02, -2.62], 0.024, MATS.cage, 8));
+cageGroup.add(makeTube([-0.76, 0.92, -2.60], [0.76, 0.92, -2.60], 0.022, MATS.cage, 8));
+addMirrorTube(cageGroup, [0.82, 1.02, -2.62], [0.82, 1.18, -2.14], 0.022, MATS.cage, 8);
+addMirrorTube(cageGroup, [0.76, 0.92, -2.60], [0.46, 0.72, -2.05], 0.022, MATS.cage, 8);
+addMirrorTube(cageGroup, [0.32, 0.92, -2.60], [0.32, 0.72, -2.05], 0.020, MATS.cage, 8);
+// Center rear hitch/plate recess detail
+const rearPlate = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.16, 0.03), MATS.chassis);
+rearPlate.position.set(0, 1.04, -2.48);
+cageGroup.add(rearPlate);
+
+// 2E. Interior Bucket Seats, Dash & Steering Wheel (visible through open cab windows!)
+const dash = new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.24, 0.34), MATS.chassis);
+dash.position.set(0, 1.32, 0.80);
+cageGroup.add(dash);
+const steerWheel = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.018, 6, 12), MATS.chassis);
+steerWheel.position.set(0.34, 1.36, 0.56);
+steerWheel.rotation.x = 0.28;
+cageGroup.add(steerWheel);
+for (const s of [-1, 1]) {
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.12, 0.44), MATS.seat);
+  base.position.set(s * 0.34, 0.96, 0.08);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.72, 0.11), MATS.seat);
+  back.position.set(s * 0.34, 1.32, -0.14);
+  back.rotation.x = -0.22;
+  cageGroup.add(base, back);
+}
+// Cab floor pan
+const floorPan = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.08, 1.68), MATS.chassis);
+floorPan.position.set(0, 0.73, 0.18);
+cageGroup.add(floorPan);
+
+// 2F. SIGNATURE UNDER-DOOR STAINLESS EXHAUST MUFFLER & SIDE DUMP (Visible in ALL 3 photos!)
+for (const s of [-1, 1]) {
+  const muf = new THREE.Mesh(new THREE.CylinderGeometry(0.105, 0.105, 0.76, 12), MATS.steel);
+  muf.rotation.x = Math.PI / 2;
+  muf.position.set(s * 0.76, 0.62, 0.04);
+  cageGroup.add(muf);
+  // Muffler end caps & clamp bands
+  for (const dz of [-0.39, 0.39]) {
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.105, 0.08, 12), MATS.steel);
+    cap.rotation.x = dz > 0 ? Math.PI / 2 : -Math.PI / 2;
+    cap.position.set(s * 0.76, 0.62, 0.04 + dz);
+    cageGroup.add(cap);
+  }
+  for (const dz of [-0.22, 0.22]) {
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.112, 0.112, 0.03, 12), MATS.chrome);
+    band.rotation.x = Math.PI / 2;
+    band.position.set(s * 0.76, 0.62, 0.04 + dz);
+    cageGroup.add(band);
+  }
+  // Forward inlet pipe & rear angled side-dump tip
+  cageGroup.add(makeTube([s * 0.50, 0.68, 0.85], [s * 0.76, 0.62, 0.44], 0.042, MATS.steel, 8));
+  cageGroup.add(makeTube([s * 0.76, 0.62, -0.36], [s * 0.84, 0.56, -0.56], 0.045, MATS.steel, 8));
+}
+
+// 2G. Twin Rear Whip Antennas (Image 1 & Image 3!)
+cageGroup.add(makeTube([0.46, 1.98, -0.60], [0.46, 2.86, -0.64], 0.005, MATS.chassis, 6));
+cageGroup.add(makeTube([-0.48, 1.98, -0.60], [-0.48, 2.42, -0.62], 0.004, MATS.chassis, 6));
+
+// -------------------------------------------------------------------------------------------------
+// 3. ARTICULATED LONG-TRAVEL SUSPENSION (Dynamic A-Arms, Trailing Arms, Solid Rear Axle & Shocks!)
+// -------------------------------------------------------------------------------------------------
+// We store dynamic suspension links so moving the Suspension slider animates them realistically!
+const suspRefs = {
+  rearAxle: new THREE.Group(),
+  frontLinks: [],
+  rearArms: [],
+  shocks: [],
+};
+suspGroup.add(suspRefs.rearAxle);
+
+// Solid rear axle tube + central differential pumpkin
+const axleTube = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 1.72, 10), MATS.chassis);
+axleTube.rotation.z = Math.PI / 2;
+suspRefs.rearAxle.add(axleTube);
+const diff = new THREE.Mesh(new THREE.DodecahedronGeometry(0.16, 0), MATS.chassis);
+diff.scale.set(1.0, 0.92, 1.15);
+suspRefs.rearAxle.add(diff);
+suspRefs.rearAxle.position.set(0, R_TIRE, Z_REAR);
+
+// Helper for dynamic strut / control-arm cylinder that updates between world/truck points pA -> pB
+function makeDynamicLink(r, mat, segs = 8) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 1, segs), mat);
+  suspGroup.add(m);
+  return m;
+}
+function orientLink(mesh, a, b) {
+  const dir = new THREE.Vector3().subVectors(b, a);
+  const len = Math.max(0.01, dir.length());
+  mesh.position.addVectors(a, b).multiplyScalar(0.5);
+  mesh.scale.set(1, len, 1);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+}
+
+// Front upper/lower A-arms & coilover shocks
+for (const s of [-1, 1]) {
+  const upperF = makeDynamicLink(0.022, MATS.cage, 6);
+  const upperR = makeDynamicLink(0.022, MATS.cage, 6);
+  const lowerF = makeDynamicLink(0.028, MATS.chassis, 6);
+  const lowerR = makeDynamicLink(0.028, MATS.chassis, 6);
+  const shockBody = makeDynamicLink(0.042, MATS.steel, 8);
+  const shockSpring = makeDynamicLink(0.054, MATS.shockRed, 8);
+  suspRefs.frontLinks.push({ s, upperF, upperR, lowerF, lowerR, shockBody, shockSpring });
+
+  // Heavy-duty long rear trailing arms + twin bypass shocks (classic Trophy Truck look!)
+  const trailArm = makeDynamicLink(0.044, MATS.chassis, 6);
+  const rShock1 = makeDynamicLink(0.038, MATS.steel, 8);
+  const rShock2 = makeDynamicLink(0.042, MATS.shockBlue, 8);
+  const rSpring = makeDynamicLink(0.056, MATS.shockRed, 8);
+  suspRefs.rearArms.push({ s, trailArm, rShock1, rShock2, rSpring });
+}
+
+// -------------------------------------------------------------------------------------------------
+// 4. MASSIVE 40" LOW-POLY MUD-TERRAIN TIRES + ICONIC WHITE PLAIN DISH RIMS (Exact Photo Match!)
+// -------------------------------------------------------------------------------------------------
+function buildTrophyWheel(isLeft) {
+  const wheel = new THREE.Group();
+  const s = isLeft ? -1 : 1; // outer wheel face points toward +X when right (s=1), -X when left (s=-1)
+
+  // 4A. Chunky Low-Poly Mud-Terrain Tire Carcass (faceted torus profile)
+  const rIn = 0.255, rMid = 0.39, rOut = R_TIRE - 0.022;
+  const hw = W_TIRE * 0.5;
+  const prof = [
+    [rIn, -hw * 0.80],
+    [rMid, -hw * 1.02],
+    [rOut - 0.025, -hw * 0.90],
+    [rOut, -hw * 0.72],
+    [rOut, hw * 0.72],
+    [rOut - 0.025, hw * 0.90],
+    [rMid, hw * 1.02],
+    [rIn, hw * 0.80],
+    [rIn, -hw * 0.80],
+  ].map(([r, x]) => new THREE.Vector2(r, x));
+  const tireGeo = new THREE.LatheGeometry(prof, 28);
+  tireGeo.rotateZ(-Math.PI / 2); // axial along X
+  wheel.add(new THREE.Mesh(tireGeo, MATS.rubber));
+
+  // 4B. Chunky Alternating Mud-Terrain Tread Blocks & Side-Biter Shoulder Lugs (merged single mesh for GLB/OBJ export!)
+  const N_LUG = 24;
+  const lugPos = [], lugIdx = [];
+  const boxTemplates = {
+    shoulder: new THREE.BoxGeometry(0.115, 0.034, 0.088),
+    center:   new THREE.BoxGeometry(0.088, 0.030, 0.072),
+    biter:    new THREE.BoxGeometry(0.032, 0.072, 0.068),
+  };
+  const dummy = new THREE.Object3D();
+  const tmpV = new THREE.Vector3();
+  const appendBox = (srcGeo, px, py, pz, rx, ry, rz) => {
+    dummy.position.set(px, py, pz); dummy.rotation.set(rx, ry, rz); dummy.updateMatrix();
+    const base = lugPos.length / 3;
+    const sp = srcGeo.attributes.position;
+    for (let k = 0; k < sp.count; k++) {
+      tmpV.set(sp.getX(k), sp.getY(k), sp.getZ(k)).applyMatrix4(dummy.matrix);
+      lugPos.push(tmpV.x, tmpV.y, tmpV.z);
+    }
+    const si = srcGeo.index;
+    for (let k = 0; k < si.count; k++) lugIdx.push(base + si.getX(k));
+  };
+  for (let i = 0; i < N_LUG; i++) {
+    const a = (i / N_LUG) * Math.PI * 2;
+    const alt = (i % 2 === 0) ? 1 : -1;
+    for (const side of [-1, 1]) {
+      const aa = a + (side > 0 ? 0.5 / N_LUG * Math.PI * 2 : 0);
+      const rL = R_TIRE - 0.012;
+      appendBox(boxTemplates.shoulder, side * (hw * 0.55), Math.cos(aa) * rL, Math.sin(aa) * rL, aa, side * 0.24, 0);
+      const rB = R_TIRE - 0.072;
+      appendBox(boxTemplates.biter, side * (hw * 0.94), Math.cos(aa) * rB, Math.sin(aa) * rB, aa, 0, -side * 0.28);
+    }
+    const rC = R_TIRE - 0.011;
+    appendBox(boxTemplates.center, alt * 0.022, Math.cos(a) * rC, Math.sin(a) * rC, a, alt * 0.3, 0);
+  }
+  const mergedLugs = new THREE.BufferGeometry();
+  mergedLugs.setAttribute('position', new THREE.Float32BufferAttribute(lugPos, 3));
+  mergedLugs.setIndex(lugIdx);
+  mergedLugs.computeVertexNormals();
+  wheel.add(new THREE.Mesh(mergedLugs, MATS.rubber));
+
+  // 4C. Iconic White Deep-Dish Plain Baja Rim + Black Outer Beadlock Lip & Dark Center Hub!
+  const rim = new THREE.Group();
+  const Rr = 0.258;
+  // Black outer beadlock ring
+  const beadRing = new THREE.Mesh(new THREE.TorusGeometry(Rr - 0.012, 0.016, 8, 24), MATS.rimLip);
+  beadRing.rotation.y = Math.PI / 2;
+  beadRing.position.x = s * (hw * 0.72);
+  rim.add(beadRing);
+
+  // Smooth deep-dish white plain face (LatheGeometry with concave dish & recessed center hub bowl!)
+  const rimPts = [
+    [Rr - 0.018, hw * 0.70],
+    [Rr - 0.036, hw * 0.50],
+    [Rr * 0.78, hw * 0.34],
+    [Rr * 0.42, hw * 0.20],
+    [Rr * 0.36, hw * 0.08],
+    [0.005, hw * 0.08],
+  ].map(([r, x]) => new THREE.Vector2(r, s * x));
+  if (s < 0) rimPts.reverse();
+  const rimFaceGeo = new THREE.LatheGeometry(rimPts, 24);
+  rimFaceGeo.rotateZ(-Math.PI / 2);
+  rim.add(new THREE.Mesh(rimFaceGeo, MATS.rimWhite));
+
+  // Inner dark wheel barrel drum (solid from rear views!)
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(Rr - 0.01, Rr - 0.01, hw * 1.48, 20), MATS.chassis);
+  barrel.rotation.z = Math.PI / 2;
+  barrel.position.x = -s * 0.02;
+  rim.add(barrel);
+
+  // Signature dark center hub bore + 6 lug studs (exact Image 1, 2, 3 match!)
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.074, 0.055, 14), MATS.chassis);
+  hub.rotation.z = Math.PI / 2;
+  hub.position.x = s * (hw * 0.24);
+  rim.add(hub);
+  const hubCap = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 0.072, 12), MATS.steel);
+  hubCap.rotation.z = Math.PI / 2;
+  hubCap.position.x = s * (hw * 0.26);
+  rim.add(hubCap);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const lug = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.035, 6), MATS.steel);
+    lug.rotation.z = Math.PI / 2;
+    lug.position.set(s * (hw * 0.22), Math.cos(a) * 0.092, Math.sin(a) * 0.092);
+    rim.add(lug);
+  }
+  // Tiny black air valve stem inside the white rim dish
+  const valve = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.006, 0.032, 6), MATS.chassis);
+  valve.position.set(s * (hw * 0.52), 0.195, 0.065);
+  valve.rotation.z = s * 0.4;
+  rim.add(valve);
+
+  wheel.add(rim);
+  return wheel;
+}
+
+const wheelPivots = {
+  FL: { steer: new THREE.Group(), spin: new THREE.Group(), z: Z_FRONT, x: -X_TRACK, front: true },
+  FR: { steer: new THREE.Group(), spin: new THREE.Group(), z: Z_FRONT, x:  X_TRACK, front: true },
+  RL: { steer: new THREE.Group(), spin: new THREE.Group(), z: Z_REAR,  x: -X_TRACK, front: false },
+  RR: { steer: new THREE.Group(), spin: new THREE.Group(), z: Z_REAR,  x:  X_TRACK, front: false },
+};
+for (const [key, w] of Object.entries(wheelPivots)) {
+  w.steer.name = 'Wheel_' + key;
+  w.steer.position.set(w.x, R_TIRE, w.z);
+  w.spin.add(buildTrophyWheel(w.x < 0));
+  w.steer.add(w.spin);
+  wheelsGroup.add(w.steer);
+}
+
+// Enable shadows cleanly on all truck meshes
+TRUCK.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+
+// =================================================================================================
+//  RIG UPDATE (SUSPENSION ARTICULATION + STEERING)
+// =================================================================================================
+const RIG = { susp: 0, steer: 0, drive: false, turntable: false, leds: true };
+
+function updateRig() {
+  // Body & cage travel vertically over the wheels (wheels stay grounded at y = R_TIRE!)
+  const dy = RIG.susp;
+  bodyGroup.position.y = dy;
+  cageGroup.position.y = dy;
+
+  // Front steering
+  const rad = THREE.MathUtils.degToRad(RIG.steer);
+  wheelPivots.FL.steer.rotation.y = rad;
+  wheelPivots.FR.steer.rotation.y = rad;
+
+  // Dynamic Front A-arms & Coilovers connecting moving chassis to grounded wheel hubs!
+  for (const fl of suspRefs.frontLinks) {
+    const s = fl.s;
+    const hubTop = new THREE.Vector3(s * (X_TRACK - 0.16), R_TIRE + 0.16, Z_FRONT);
+    const hubBot = new THREE.Vector3(s * (X_TRACK - 0.14), R_TIRE - 0.11, Z_FRONT);
+    const chTopF = new THREE.Vector3(s * 0.42, 0.84 + dy, Z_FRONT + 0.16);
+    const chTopR = new THREE.Vector3(s * 0.42, 0.84 + dy, Z_FRONT - 0.16);
+    const chBotF = new THREE.Vector3(s * 0.36, 0.64 + dy, Z_FRONT + 0.20);
+    const chBotR = new THREE.Vector3(s * 0.36, 0.64 + dy, Z_FRONT - 0.20);
+    orientLink(fl.upperF, chTopF, hubTop);
+    orientLink(fl.upperR, chTopR, hubTop);
+    orientLink(fl.lowerF, chBotF, hubBot);
+    orientLink(fl.lowerR, chBotR, hubBot);
+    const shockTop = new THREE.Vector3(s * 0.56, 1.24 + dy, Z_FRONT - 0.04);
+    const shockBot = new THREE.Vector3(s * (X_TRACK - 0.28), R_TIRE - 0.04, Z_FRONT - 0.04);
+    orientLink(fl.shockBody, shockTop, shockBot);
+    orientLink(fl.shockSpring, shockTop.clone().lerp(shockBot, 0.28), shockTop.clone().lerp(shockBot, 0.78));
+  }
+
+  // Dynamic Rear Trailing Arms & Twin Bypass Coilovers!
+  for (const ra of suspRefs.rearArms) {
+    const s = ra.s;
+    const pivot = new THREE.Vector3(s * 0.54, 0.65 + dy, -0.35);
+    const axlePt = new THREE.Vector3(s * 0.68, R_TIRE - 0.02, Z_REAR);
+    orientLink(ra.trailArm, pivot, axlePt);
+    const tower1 = new THREE.Vector3(s * 0.58, 1.36 + dy, Z_REAR + 0.06);
+    const tower2 = new THREE.Vector3(s * 0.60, 1.32 + dy, Z_REAR - 0.08);
+    const armMid = pivot.clone().lerp(axlePt, 0.78);
+    const armRear = axlePt.clone().add(new THREE.Vector3(0, 0.04, -0.06));
+    orientLink(ra.rShock1, tower1, armMid);
+    orientLink(ra.rShock2, tower2, armRear);
+    orientLink(ra.rSpring, tower1.clone().lerp(armMid, 0.28), tower1.clone().lerp(armMid, 0.76));
+  }
+}
+updateRig();
+
+// =================================================================================================
+//  POLY / VERTEX STATS COUNTER
+// =================================================================================================
+function computeStats() {
+  let tris = 0, verts = 0;
+  TRUCK.traverse(o => {
+    if (!o.isMesh || !o.geometry) return;
+    const g = o.geometry;
+    const mult = o.isInstancedMesh ? o.count : 1;
+    const t = g.index ? g.index.count / 3 : g.attributes.position.count / 3;
+    tris += t * mult;
+    verts += g.attributes.position.count * mult;
+  });
+  document.getElementById('stTris').innerHTML = `${Math.round(tris).toLocaleString()}<small>tris</small>`;
+  document.getElementById('stVerts').innerHTML = `${Math.round(verts).toLocaleString()}<small>verts</small>`;
+}
+computeStats();
+
+// =================================================================================================
+//  CAMERA PRESETS & UI CONTROLS
+// =================================================================================================
+const CAM_VIEWS = {
+  front34: { pos: [4.75, 1.55, 4.45],  tgt: [0.0, 1.05, 0.0] },
+  side:    { pos: [6.85, 1.24, 0.0],   tgt: [0.0, 1.12, -0.05] },
+  rear34:  { pos: [4.55, 1.48, -4.65], tgt: [0.0, 1.08, -0.15] },
+  front:   { pos: [0.0,  1.28, 6.20],  tgt: [0.0, 1.05, 0.0] },
+  top:     { pos: [0.0,  7.40, 0.85],  tgt: [0.0, 1.0,  -0.05] },
+};
+let camAnim = null;
+function setView(name, instant = false) {
+  const v = CAM_VIEWS[name]; if (!v) return;
+  document.querySelectorAll('#views button').forEach(b => b.classList.toggle('on', b.dataset.v === name));
+  zoomTargetDist = null;
+  if (instant) {
+    camera.position.set(...v.pos); controls.target.set(...v.tgt); controls.update();
+  } else {
+    camAnim = {
+      p0: camera.position.clone(), p1: new THREE.Vector3(...v.pos),
+      t0: controls.target.clone(), t1: new THREE.Vector3(...v.tgt), t: 0
+    };
+  }
+}
+setView('front34', true);
+document.querySelectorAll('#views button').forEach(b => b.onclick = () => setView(b.dataset.v));
+
+// Rig sliders & toggles
+const rSusp = document.getElementById('rSusp'), vSusp = document.getElementById('vSusp');
+rSusp.oninput = () => { RIG.susp = +rSusp.value; vSusp.textContent = (RIG.susp >= 0 ? '+' : '') + RIG.susp.toFixed(2) + 'm'; updateRig(); };
+const rSteer = document.getElementById('rSteer'), vSteer = document.getElementById('vSteer');
+rSteer.oninput = () => { RIG.steer = +rSteer.value; vSteer.textContent = RIG.steer + '°'; updateRig(); };
+
+document.getElementById('bDrive').onclick = e => { RIG.drive = !RIG.drive; e.currentTarget.classList.toggle('on', RIG.drive); };
+document.getElementById('bTurntable').onclick = e => { RIG.turntable = !RIG.turntable; e.currentTarget.classList.toggle('on', RIG.turntable); };
+document.getElementById('bLights').onclick = e => {
+  RIG.leds = !RIG.leds; e.currentTarget.classList.toggle('on', RIG.leds);
+  MATS.ledWhite.emissiveIntensity = RIG.leds ? 2.2 : 0.0;
+  MATS.ledRed.emissiveIntensity = RIG.leds ? 2.4 : 0.0;
+};
+document.getElementById('bFlat').onclick = e => {
+  const on = e.currentTarget.classList.toggle('on');
+  Object.values(MATS).forEach(m => { if ('flatShading' in m) { m.flatShading = on; m.needsUpdate = true; } });
+};
+document.getElementById('bWire').onclick = e => {
+  const on = e.currentTarget.classList.toggle('on');
+  Object.values(MATS).forEach(m => { m.wireframe = on; });
+};
+
+// Body color swatches
+const COLORS = [
+  { name: 'Trophy White', hex: '#f1f2f4' },
+  { name: 'Desert Sand',  hex: '#d7c39e' },
+  { name: 'Stealth Dark', hex: '#282b31' },
+  { name: 'Baja Orange',  hex: '#e0531c' },
+  { name: 'Tactical Olive', hex: '#55614a' },
+  { name: 'Slate Blue',   hex: '#4f6d8a' },
+];
+const swBox = document.getElementById('bodySwatches');
+COLORS.forEach((c, i) => {
+  const el = document.createElement('button');
+  el.className = 'swatch' + (i === 0 ? ' on' : '');
+  el.style.background = c.hex; el.title = c.name;
+  el.onclick = () => {
+    swBox.querySelectorAll('.swatch').forEach(s => s.classList.remove('on'));
+    el.classList.add('on');
+    MATS.body.map?.dispose();
+    MATS.body.map = makeBodyTexture(c.hex);
+    MATS.body.needsUpdate = true;
+  };
+  swBox.appendChild(el);
+});
+
+// Studio backdrop presets (default = iconic Studio Red matching reference images!)
+const BGS = {
+  red:   { top: '#420402', mid: '#a31008', bot: '#c81d0f', floor: '#b5180d', rough: 0.24, hemiG: '#6d120c', grid: false },
+  dark:  { top: '#0c0d11', mid: '#15171e', bot: '#1e212a', floor: '#181a21', rough: 0.38, hemiG: '#1b1d24', grid: true },
+  light: { top: '#b8bec8', mid: '#d8dde5', bot: '#e8ecf2', floor: '#cfd5de', rough: 0.45, hemiG: '#8f96a3', grid: true },
+};
+document.querySelectorAll('#bgPills button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#bgPills button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  const bg = BGS[b.dataset.bg];
+  domeMat.uniforms.uTop.value.set(bg.top);
+  domeMat.uniforms.uMid.value.set(bg.mid);
+  domeMat.uniforms.uBot.value.set(bg.bot);
+  floorMat.color.set(bg.floor); floorMat.roughness = bg.rough;
+  hemi.groundColor.set(bg.hemiG);
+  gridHelper.visible = bg.grid;
+});
+
+// Give every material a clean Blender-friendly name for GLB / OBJ+MTL export
+Object.entries(MATS).forEach(([k, m]) => { m.name = k; });
+
+// Exports (Blender-ready GLB + clean named-parts OBJ + MTL)
+const toast = msg => { const el = document.getElementById('toast'); el.textContent = msg; el.style.opacity = 1; setTimeout(() => el.style.opacity = 0, 2400); };
+const dl = (name, blob) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.style.display = 'none';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1000);
+};
+
+function serializeOBJandMTL(root, mtlFilename) {
+  root.updateMatrixWorld(true);
+  const lines = [`# Baja Trophy Truck — Game Asset (metres, Y-up, +Z forward)`, `mtllib ${mtlFilename}`];
+  const usedMats = new Map();
+  let vOff = 1, vtOff = 1, vnOff = 1;
+  const v = new THREE.Vector3(), n = new THREE.Vector3(), nMat = new THREE.Matrix3();
+  let meshIdx = 0;
+
+  root.traverse(obj => {
+    if (!obj.isMesh || !obj.geometry) return;
+    const g = obj.geometry;
+    const pos = g.attributes.position;
+    if (!pos) return;
+    const uv = g.attributes.uv;
+    const norm = g.attributes.normal;
+    const mat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
+    const matName = (mat && mat.name) ? mat.name : 'default';
+    if (mat) usedMats.set(matName, mat);
+
+    const parentName = obj.parent?.name ? obj.parent.name + '_' : '';
+    const objName = (obj.name || `${parentName}Mesh_${String(++meshIdx).padStart(3, '0')}`).replace(/\s+/g, '_');
+    lines.push(`o ${objName}`);
+    lines.push(`usemtl ${matName}`);
+
+    const m = obj.matrixWorld;
+    nMat.getNormalMatrix(m);
+    const det = m.determinant();
+
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m);
+      lines.push(`v ${v.x.toFixed(5)} ${v.y.toFixed(5)} ${v.z.toFixed(5)}`);
+    }
+    if (uv) {
+      for (let i = 0; i < uv.count; i++) lines.push(`vt ${uv.getX(i).toFixed(4)} ${uv.getY(i).toFixed(4)}`);
+    }
+    if (norm) {
+      for (let i = 0; i < norm.count; i++) {
+        n.fromBufferAttribute(norm, i).applyMatrix3(nMat).normalize();
+        lines.push(`vn ${n.x.toFixed(4)} ${n.y.toFixed(4)} ${n.z.toFixed(4)}`);
+      }
+    }
+
+    const fmt = idx => {
+      const vi = idx + vOff;
+      if (uv && norm) return `${vi}/${idx + vtOff}/${idx + vnOff}`;
+      if (norm) return `${vi}//${idx + vnOff}`;
+      if (uv) return `${vi}/${idx + vtOff}`;
+      return `${vi}`;
+    };
+    const index = g.index;
+    const count = index ? index.count : pos.count;
+    for (let i = 0; i < count; i += 3) {
+      const a = index ? index.getX(i) : i;
+      const b = index ? index.getX(i + 1) : i + 1;
+      const c = index ? index.getX(i + 2) : i + 2;
+      lines.push(det < 0 ? `f ${fmt(a)} ${fmt(c)} ${fmt(b)}` : `f ${fmt(a)} ${fmt(b)} ${fmt(c)}`);
+    }
+    vOff += pos.count;
+    if (uv) vtOff += uv.count;
+    if (norm) vnOff += norm.count;
+  });
+
+  const mtl = [`# Material Library for Baja Trophy Truck`];
+  for (const [name, mat] of usedMats.entries()) {
+    const c = mat.color || new THREE.Color(0.8, 0.8, 0.8);
+    const e = mat.emissive && mat.emissiveIntensity > 0 ? mat.emissive : null;
+    mtl.push(`newmtl ${name}`);
+    mtl.push(`Kd ${c.r.toFixed(4)} ${c.g.toFixed(4)} ${c.b.toFixed(4)}`);
+    mtl.push(`Ks ${((mat.metalness || 0) * 0.8 + 0.1).toFixed(3)} ${((mat.metalness || 0) * 0.8 + 0.1).toFixed(3)} ${((mat.metalness || 0) * 0.8 + 0.1).toFixed(3)}`);
+    mtl.push(`Ns ${Math.round((1 - (mat.roughness ?? 0.5)) * 200 + 10)}`);
+    if (e) mtl.push(`Ke ${(e.r * mat.emissiveIntensity).toFixed(3)} ${(e.g * mat.emissiveIntensity).toFixed(3)} ${(e.b * mat.emissiveIntensity).toFixed(3)}`);
+    mtl.push(`d 1.0`, ``);
+  }
+  return { obj: lines.join('\n') + '\n', mtl: mtl.join('\n') };
+}
+
+document.getElementById('expGlb').onclick = () => {
+  TRUCK.updateMatrixWorld(true);
+  new GLTFExporter().parse(TRUCK, res => {
+    dl('BajaTrophyTruck.glb', new Blob([res], { type: 'model/gltf-binary' }));
+    toast('Exported BajaTrophyTruck.glb (Blender / Unity / Unreal)');
+  }, err => toast('Export error: ' + err), { binary: true, onlyVisible: true });
+};
+document.getElementById('expObj').onclick = () => {
+  const { obj, mtl } = serializeOBJandMTL(TRUCK, 'BajaTrophyTruck.mtl');
+  dl('BajaTrophyTruck.obj', new Blob([obj], { type: 'text/plain' }));
+  setTimeout(() => dl('BajaTrophyTruck.mtl', new Blob([mtl], { type: 'text/plain' })), 250);
+  toast('Exported BajaTrophyTruck.obj + .mtl');
+};
+
+// =================================================================================================
+//  RENDER LOOP
+// =================================================================================================
+let prevT = performance.now();
+function animate(now) {
+  requestAnimationFrame(animate);
+  const dt = Math.min(0.05, (now - prevT) / 1000);
+  prevT = now;
+
+  if (camAnim) {
+    camAnim.t = Math.min(1, camAnim.t + dt * 3.2);
+    const e = 1 - Math.pow(1 - camAnim.t, 3);
+    camera.position.lerpVectors(camAnim.p0, camAnim.p1, e);
+    controls.target.lerpVectors(camAnim.t0, camAnim.t1, e);
+    if (camAnim.t >= 1) camAnim = null;
+  }
+  if (zoomTargetDist !== null) {
+    const off = camera.position.clone().sub(controls.target);
+    const cur = off.length();
+    const next = cur + (zoomTargetDist - cur) * (1 - Math.exp(-14 * dt));
+    if (Math.abs(next - zoomTargetDist) < 0.002) { off.setLength(zoomTargetDist); zoomTargetDist = null; }
+    else off.setLength(next);
+    camera.position.copy(controls.target).add(off);
+  }
+  if (RIG.drive) {
+    const spinStep = dt * 5.2;
+    for (const w of Object.values(wheelPivots)) w.spin.rotation.x += spinStep;
+  }
+  if (RIG.turntable) TRUCK.rotation.y += dt * 0.35;
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+requestAnimationFrame(animate);
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
